@@ -18,6 +18,8 @@ internal sealed class AgentTaskSchedulingProvider : ILLMProvider
 
     internal bool DependentStartedBeforeSlowFinished => _dependentStartedBeforeSlowFinished != 0;
 
+    public IReadOnlyList<LLMModel> SeedModels() => [];
+
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
     public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>

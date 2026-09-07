@@ -48,15 +48,15 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), cancellationToken);
         using var queues = new AgentQueueCatalog(resources);
         var factory = new StatusAgentSessions(router, processes, queues, time);
-        await using var registry = new AgentRegistry(
+        await using IAgentRegistry registry = new AgentRegistry(
             factory,
             _broker,
             _repository,
-            TestModels.ProfileRegistry(),
+            new TestProfileFixture().Registry,
             TestModels.PromptTemplates,
             new RetainedAgentBudget(1024),
             cancellationToken);
-        var status = new RuntimeStatus(queues, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
+        var status = new RuntimeStatus(queues, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         await using var parentScope = factory.Build(
             AgentIdentity.Main("parent", "main", TestModels.PromptTemplates),
@@ -68,8 +68,26 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             cancellationToken);
         registry.RegisterRootScope(parentScope);
         var parent = parentScope.Session;
-        var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(Request(parent, router, "child")).Session;
-        var grandchild = TestModels.ScopeOf(child).AgentSpawner.SpawnScope(Request(child, router, "grandchild")).Session;
+        var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(new AgentLaunchRequest(
+            parent,
+            new TurnFixture(parent, router).Selection,
+            "worker",
+            parent.CurrentSelection().RequestedModel,
+            "child",
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            new HistoryForkBoundary.AfterCompletedHistory(),
+            AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
+        var grandchild = TestModels.ScopeOf(child).AgentSpawner.SpawnScope(new AgentLaunchRequest(
+            child,
+            new TurnFixture(child, router).Selection,
+            "worker",
+            child.CurrentSelection().RequestedModel,
+            "grandchild",
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            new HistoryForkBoundary.AfterCompletedHistory(),
+            AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         _ = await child.SendTextMessage("work", cancellationToken);
         await provider.Arrived(cancellationToken);
         _ = await grandchild.SendTextMessage("work", cancellationToken);
@@ -78,18 +96,18 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         child.Activity.RecordAssistantMessage("line one\nline two");
         time.Advance(TimeSpan.FromSeconds(2));
         var toolExecution = child.Activity.BeginTool("wait");
-        var tool = new AgentStatusTool(
+        ITool tool = new AgentStatusTool(
             new AgentResolver(parent.Identity, TestModels.ScopeOf(parent).ParentScope, TestModels.ScopeOf(parent), registry),
             TestModels.ScopeOf(parent).ParentScope,
             processes);
 
         var report = (await tool.Execute(
             new ToolInvocation("call", "{\"session_id\":\"child\"}"),
-            Turn(parent, router),
+            new TurnFixture(parent, router).Selection,
             cancellationToken)).Text;
         var rejected = (await tool.Execute(
             new ToolInvocation("call", $"{{\"session_id\":\"{grandchild.SessionId}\"}}"),
-            Turn(parent, router),
+            new TurnFixture(parent, router).Selection,
             cancellationToken)).Text;
 
         _ = await Assert.That(report).Contains($"Session: {child.SessionId}");
@@ -118,15 +136,15 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), cancellationToken);
         using var queues = new AgentQueueCatalog(resources);
         var factory = new StatusAgentSessions(router, processes, queues, TimeProvider.System);
-        await using var registry = new AgentRegistry(
+        await using IAgentRegistry registry = new AgentRegistry(
             factory,
             _broker,
             _repository,
-            TestModels.ProfileRegistry(),
+            new TestProfileFixture().Registry,
             TestModels.PromptTemplates,
             new RetainedAgentBudget(1024),
             cancellationToken);
-        var status = new RuntimeStatus(queues, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
+        var status = new RuntimeStatus(queues, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         await using var parentScope = factory.Build(
             AgentIdentity.Main("parent", "main", TestModels.PromptTemplates),
@@ -138,18 +156,18 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             cancellationToken);
         registry.RegisterRootScope(parentScope);
         var parent = parentScope.Session;
-        var tool = new AgentStatusTool(
+        ITool tool = new AgentStatusTool(
             new AgentResolver(parent.Identity, TestModels.ScopeOf(parent).ParentScope, TestModels.ScopeOf(parent), registry),
             TestModels.ScopeOf(parent).ParentScope,
             processes);
 
         var blank = (await tool.Execute(
             new ToolInvocation("call", "{\"session_id\":\"  \"}"),
-            Turn(parent, router),
+            new TurnFixture(parent, router).Selection,
             cancellationToken)).Text;
         var unknown = (await tool.Execute(
             new ToolInvocation("call", "{\"session_id\":\"child\",\"extra\":true}"),
-            Turn(parent, router),
+            new TurnFixture(parent, router).Selection,
             cancellationToken)).Text;
 
         _ = await Assert.That(blank).IsEqualTo("error: no child session given");
@@ -158,26 +176,19 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         processes.Dispose();
     }
 
-    private static AgentLaunchRequest Request(IAgentSession parent, ModelRouter router, string name) =>
-        new(
-            parent,
-            Turn(parent, router),
-            "worker",
-            parent.CurrentSelection().RequestedModel,
-            name,
-            string.Empty,
-            HistoryForkSelection.Parse(string.Empty),
-            new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.RetainedOnly);
-
-    private static AgentTurnSelection Turn(IAgentSession session, ModelRouter router)
+    private sealed class TurnFixture
     {
-        var selection = session.CurrentSelection();
-        return new AgentTurnSelection(
-            selection.RequestedModel,
-            router.Resolve(selection.RequestedModel.Value),
-            selection.Profile,
-            selection.SecurityProfile);
+        public TurnFixture(IAgentSession session, ModelRouter router)
+        {
+            var selection = session.CurrentSelection();
+            Selection = new AgentTurnSelection(
+                selection.RequestedModel,
+                router.Resolve(selection.RequestedModel.Value),
+                selection.Mode,
+                selection.SecurityProfile);
+        }
+
+        public AgentTurnSelection Selection { get; }
     }
 
     private sealed class StatusAgentSessions(
@@ -201,7 +212,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             var scope = TestAgentSessionScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
             {
                 var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
-                var session = new AgentSession(identity, sessionParentScope, new ModelSelector(router.Resolve(string.Empty).RequestedSelector.Value), router, broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, TestModels.Profile(), TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates, null), exitReminder, repository, broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, queues, new AgentSessionActivity(timeProvider), lifetime);
+                IAgentSession session = new AgentSession(identity, sessionParentScope, new ModelSelector(router.Resolve(string.Empty).RequestedSelector.Value), router, broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, new TestProfileFixture().Mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates, null), exitReminder, repository, broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, status, queues, new AgentSessionActivity(timeProvider), lifetime);
                 queues.Attach(session);
                 return session;
             });

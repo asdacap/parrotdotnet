@@ -23,7 +23,7 @@ internal sealed class PromptAttachmentUploaderTests : IDisposable
         _ = Directory.CreateDirectory(_root);
         var invoker = new ScriptedInvoker();
         var client = new Parrot.Protocol.Parrot.ParrotClient(invoker);
-        var request = await GetUploader().Prepare(
+        var request = await new UploaderFixture(_root).Uploader.Prepare(
             client,
             "session-1",
             ModeRegistry.Build,
@@ -50,7 +50,7 @@ internal sealed class PromptAttachmentUploaderTests : IDisposable
             cancellationToken);
         var invoker = new ScriptedInvoker();
         var client = new Parrot.Protocol.Parrot.ParrotClient(invoker);
-        var request = await GetUploader().Prepare(
+        var request = await new UploaderFixture(_root).Uploader.Prepare(
             client,
             "session-1",
             ModeRegistry.Build,
@@ -65,20 +65,23 @@ internal sealed class PromptAttachmentUploaderTests : IDisposable
         _ = await Assert.That(invoker.UploadedAttachments[^1].Description.MediaType).IsEqualTo("image/png");
     }
 
-    private static ProfileConfig GetProfile() => new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []);
-
-    private PromptAttachmentUploader GetUploader()
+    private sealed class UploaderFixture
     {
-        var profiles = new Dictionary<string, ProfileConfig>(StringComparer.Ordinal)
+        public UploaderFixture(string root)
         {
-            [ModeRegistry.Build] = GetProfile(),
-            [ModeRegistry.Plan] = GetProfile(),
-            [ModeRegistry.Query] = GetProfile(),
-        };
-        return new PromptAttachmentUploader(
-            new ToolWorkspace(_root),
-            new ModeRegistry(
-                new ProfileRegistry(profiles, [], [], new HashSet<string>(StringComparer.Ordinal)),
-                ModeRegistry.Build));
+            var profiles = new Dictionary<string, ProfileConfig>(StringComparer.Ordinal)
+            {
+                [ModeRegistry.Build] = new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []),
+                [ModeRegistry.Plan] = new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []),
+                [ModeRegistry.Query] = new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []),
+            };
+            Uploader = new PromptAttachmentUploader(
+                new ToolWorkspace(root),
+                new ModeRegistry(
+                    new ProfileRegistry(profiles, [], [], new HashSet<string>(StringComparer.Ordinal)),
+                    ModeRegistry.Build));
+        }
+
+        public PromptAttachmentUploader Uploader { get; }
     }
 }

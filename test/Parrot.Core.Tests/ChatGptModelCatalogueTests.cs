@@ -80,7 +80,7 @@ internal sealed class ChatGptModelCatalogueTests
                 Fields = ModelMetadataFields.Name,
             },
         ]);
-        var provider = new ChatGptProvider(
+        ILLMProvider provider = new ChatGptProvider(
             new FixedOAuthTokenSource(),
             client,
             [
@@ -172,29 +172,31 @@ internal sealed class ChatGptModelCatalogueTests
         {
             if (request.RequestUri == new Uri("https://models.dev/api.json"))
             {
-                return Task.FromResult(JsonResponse(
-                    """
-                    {"openai":{"id":"openai","models":{
-                      "old":{"id":"gpt-4.1"},
-                      "legacy":{"id":"gpt-5.4"},
-                      "future":{"id":"gpt-5.5-astra"}
-                    }}}
-                    """));
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """
+                        {"openai":{"id":"openai","models":{
+                          "old":{"id":"gpt-4.1"},
+                          "legacy":{"id":"gpt-5.4"},
+                          "future":{"id":"gpt-5.5-astra"}
+                        }}}
+                        """,
+                        Encoding.UTF8,
+                        "application/json"),
+                });
             }
 
             if (request.RequestUri?.AbsolutePath == "/backend-api/codex/models")
             {
-                return Task.FromResult(JsonResponse(
-                    """{"models":[{"slug":"gpt-4.1","context_window":100000,"visibility":"list"}]}"""));
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"models":[{"slug":"gpt-4.1","context_window":100000,"visibility":"list"}]}""", Encoding.UTF8, "application/json"),
+                });
             }
 
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
         }
-
-        private static HttpResponseMessage JsonResponse(string body) => new(HttpStatusCode.OK)
-        {
-            Content = new StringContent(body, Encoding.UTF8, "application/json"),
-        };
     }
 
     private sealed class ModelsHandler : HttpMessageHandler

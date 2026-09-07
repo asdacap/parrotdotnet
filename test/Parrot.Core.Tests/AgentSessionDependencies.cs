@@ -15,14 +15,14 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
         Process.ShellProcessOwner processOwner,
         EventRepository eventRepository,
         RuntimeStatus status,
-        AgentRegistry registry,
+        IAgentRegistry registry,
         AgentQueues queues)
     {
         _children = new ChildRegistry(identity);
         ChildQuestions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), TestModels.PromptTemplates);
         ActiveWorkReminder = new ActiveWorkCompletionReminder(_children, processOwner, TestModels.PromptTemplates, null);
         ExitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
-        Profile = TestModels.Profile();
+        Profile = new TestProfileFixture().Mode;
         Status = status;
         Registry = registry;
         Queues = queues;
@@ -38,7 +38,7 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
 
     public RuntimeStatus Status { get; }
 
-    public AgentRegistry Registry { get; }
+    public IAgentRegistry Registry { get; }
 
     public AgentQueues Queues { get; }
 

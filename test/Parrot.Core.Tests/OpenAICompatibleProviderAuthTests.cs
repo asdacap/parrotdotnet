@@ -20,25 +20,23 @@ internal sealed class OpenAICompatibleProviderAuthTests
         bool accepted)
     {
         using var client = new HttpClient();
-        OpenAICompatibleProvider Build() => new(
-            new OpenAICompatibleOptions
-            {
-                Id = "configured",
-                BaseUrl = baseUrl,
-                ApiKeySource = new RecordingApiKeySource(["key"]),
-                AllowInsecureRemote = allowInsecureRemote,
-                AllowInsecureLocalhost = allowInsecureLocalhost,
-            },
-            client);
+        var options = new OpenAICompatibleOptions
+        {
+            Id = "configured",
+            BaseUrl = baseUrl,
+            ApiKeySource = new RecordingApiKeySource(["key"]),
+            AllowInsecureRemote = allowInsecureRemote,
+            AllowInsecureLocalhost = allowInsecureLocalhost,
+        };
 
         if (accepted)
         {
-            var provider = Build();
+            ILLMProvider provider = new OpenAICompatibleProvider(options, client);
             _ = await Assert.That(provider.Id).IsEqualTo("configured");
         }
         else
         {
-            _ = await Assert.That(Build).Throws<ProviderHttpException>();
+            _ = await Assert.That(() => new OpenAICompatibleProvider(options, client)).Throws<ProviderHttpException>();
         }
     }
 
@@ -52,7 +50,7 @@ internal sealed class OpenAICompatibleProviderAuthTests
                 Content = new StringContent(body, Encoding.UTF8, "application/json"),
             });
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = new OpenAICompatibleProvider(
+        ILLMProvider provider = new OpenAICompatibleProvider(
             new OpenAICompatibleOptions
             {
                 Id = "configured",
@@ -105,7 +103,7 @@ internal sealed class OpenAICompatibleProviderAuthTests
                     "text/event-stream"),
             });
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = new OpenAICompatibleProvider(
+        ILLMProvider provider = new OpenAICompatibleProvider(
             new OpenAICompatibleOptions
             {
                 Id = "configured",
@@ -141,11 +139,17 @@ internal sealed class OpenAICompatibleProviderAuthTests
         CancellationToken cancellationToken)
     {
         using var handler = new RecordingHandler(
-            JsonResponse("""{"data":[{"id":"served","max_output_tokens":0,"supports_function_calling":false},{"id":"primary-only"}]}"""),
-            JsonResponse("""{"data":[{"model_name":"served","model_info":{"max_input_tokens":512,"max_output_tokens":64,"supports_function_calling":true,"supports_reasoning":true,"reasoning_effort_levels":["low","high"],"default_reasoning_effort":"high"}},{"model_name":"info-only","model_info":{"max_input_tokens":999}}]}"""));
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"data":[{"id":"served","max_output_tokens":0,"supports_function_calling":false},{"id":"primary-only"}]}""", Encoding.UTF8, "application/json"),
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"data":[{"model_name":"served","model_info":{"max_input_tokens":512,"max_output_tokens":64,"supports_function_calling":true,"supports_reasoning":true,"reasoning_effort_levels":["low","high"],"default_reasoning_effort":"high"}},{"model_name":"info-only","model_info":{"max_input_tokens":999}}]}""", Encoding.UTF8, "application/json"),
+            });
         using var client = new HttpClient(handler, disposeHandler: false);
         var source = new RecordingApiKeySource(["one-key"]);
-        var provider = new OpenAICompatibleProvider(
+        ILLMProvider provider = new OpenAICompatibleProvider(
             new OpenAICompatibleOptions
             {
                 Id = "configured",
@@ -180,9 +184,19 @@ internal sealed class OpenAICompatibleProviderAuthTests
         const string completeModels = """
             {"data":[{"id":"complete","context_window":0,"max_input_tokens":0,"max_output_tokens":0,"input_cost_per_token":0,"cache_read_input_token_cost":0,"output_cost_per_token":0,"supports_function_calling":false,"supports_reasoning":false,"supported_output_modalities":[],"supported_reasoning_efforts":[]}]}
             """;
-        using var handler = new RecordingHandler(JsonResponse(completeModels));
+        using var handler = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(completeModels, Encoding.UTF8, "application/json"),
+        });
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = Provider(client, new RecordingApiKeySource(["key"]));
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                ApiKeySource = new RecordingApiKeySource(["key"]),
+            },
+            client);
 
         var listed = await provider.ListModels(cancellationToken);
 
@@ -202,13 +216,23 @@ internal sealed class OpenAICompatibleProviderAuthTests
         CancellationToken cancellationToken)
     {
         using var handler = new RecordingHandler(
-            JsonResponse("""{"data":[{"id":"served"}]}"""),
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"data":[{"id":"served"}]}""", Encoding.UTF8, "application/json"),
+            },
             new HttpResponseMessage(statusCode)
             {
                 Content = new StringContent(modelInfoBody, Encoding.UTF8, "application/json"),
             });
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = Provider(client, new RecordingApiKeySource(["key"]));
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                ApiKeySource = new RecordingApiKeySource(["key"]),
+            },
+            client);
 
         var listed = await provider.ListModels(cancellationToken);
 
@@ -228,7 +252,14 @@ internal sealed class OpenAICompatibleProviderAuthTests
             : new HttpRequestException("unavailable");
         using var handler = new ModelInfoFailureHandler(failure, null);
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = Provider(client, new RecordingApiKeySource(["key"]));
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                ApiKeySource = new RecordingApiKeySource(["key"]),
+            },
+            client);
 
         var listed = await provider.ListModels(cancellationToken);
 
@@ -242,26 +273,19 @@ internal sealed class OpenAICompatibleProviderAuthTests
         using var cancellation = new CancellationTokenSource();
         using var handler = new ModelInfoFailureHandler(new OperationCanceledException(cancellation.Token), cancellation);
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = Provider(client, new RecordingApiKeySource(["key"]));
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                ApiKeySource = new RecordingApiKeySource(["key"]),
+            },
+            client);
 
         _ = await Assert.That(async () => await provider.ListModels(cancellation.Token))
             .Throws<OperationCanceledException>();
         _ = await Assert.That(handler.RequestCount).IsEqualTo(2);
     }
-
-    private static OpenAICompatibleProvider Provider(HttpClient client, IApiKeySource apiKeySource) => new(
-        new OpenAICompatibleOptions
-        {
-            Id = "configured",
-            BaseUrl = "https://example.test/v1",
-            ApiKeySource = apiKeySource,
-        },
-        client);
-
-    private static HttpResponseMessage JsonResponse(string body) => new(HttpStatusCode.OK)
-    {
-        Content = new StringContent(body, Encoding.UTF8, "application/json"),
-    };
 
     private static async Task<List<LLMEvent>> Drain(IAsyncEnumerable<LLMEvent> events)
     {
@@ -304,7 +328,10 @@ internal sealed class OpenAICompatibleProviderAuthTests
 
             if (RequestCount == 1)
             {
-                return JsonResponse("""{"data":[{"id":"served"}]}""");
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"data":[{"id":"served"}]}""", Encoding.UTF8, "application/json"),
+                };
             }
 
             if (cancellation is not null)

@@ -56,7 +56,7 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
         WriteProfile(profilePath, CompilePolicy(securityProfile));
         var startInfo = CreateStartInfo(_seatbeltPath, profilePath, command, environment, resources);
         var process = new System.Diagnostics.Process { StartInfo = startInfo };
-        DarwinProcessSignalTarget? signalTarget = null;
+        IProcessSignalTarget? signalTarget = null;
         PipeProcessOutputFiles? outputFiles = null;
         var started = false;
 

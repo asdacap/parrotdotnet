@@ -48,7 +48,7 @@ internal sealed class ProcessToolPresenterTests
     [Test]
     public async Task Yielded_exec_process_defers_terminal_presentation()
     {
-        var presenter = new ExecCommandToolPresenter(TimeProvider.System, []);
+        IToolPresenter presenter = new ExecCommandToolPresenter(TimeProvider.System, []);
         var call = new ToolCallPresentation("main", "exec_command", "{\"command\":\"compile\"}");
         var terminal = new ToolTerminalPresentation(
             ToolTerminalStatus.Succeeded,
@@ -73,7 +73,7 @@ internal sealed class ProcessToolPresenterTests
     [Arguments("{\"command\":\"status\"}", "shell-42")]
     public async Task Exec_output_does_not_imply_a_yielded_process(string arguments, string result)
     {
-        var presenter = new ExecCommandToolPresenter(TimeProvider.System, []);
+        IToolPresenter presenter = new ExecCommandToolPresenter(TimeProvider.System, []);
         var call = new ToolCallPresentation("main", "exec_command", arguments);
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, result, string.Empty);
 
@@ -87,7 +87,7 @@ internal sealed class ProcessToolPresenterTests
     [Test]
     public async Task Spilled_nonzero_process_output_is_reported_as_a_failure()
     {
-        var presenter = new ExecCommandToolPresenter(TimeProvider.System, []);
+        IToolPresenter presenter = new ExecCommandToolPresenter(TimeProvider.System, []);
         var call = new ToolCallPresentation("main", "exec_command", "{\"command\":\"compile\"}");
         var outputPath = Path.GetFullPath(Path.Combine("state", "sessions", "session", "blob", "output"));
         var terminal = new ToolTerminalPresentation(
@@ -106,7 +106,7 @@ internal sealed class ProcessToolPresenterTests
     [Test]
     public async Task Multiline_exec_command_shows_five_lines_and_reports_omitted_lines()
     {
-        var presenter = new ExecCommandToolPresenter(TimeProvider.System, []);
+        IToolPresenter presenter = new ExecCommandToolPresenter(TimeProvider.System, []);
         var command = "python3 - <<'PY'\nfirst\nsecond\nthird\nfourth\nfifth\nPY";
         var call = new ToolCallPresentation(
             "main",
@@ -129,9 +129,9 @@ internal sealed class ProcessToolPresenterTests
     public async Task Active_exec_process_shows_elapsed_runtime_across_animation_frames()
     {
         var timeProvider = new ControlledTimeProvider();
-        var presenter = new ExecCommandToolPresenter(timeProvider, []);
+        IToolPresenter presenter = new ExecCommandToolPresenter(timeProvider, []);
         var call = new ToolCallPresentation("main", "exec_command", "{\"command\":\"dotnet test\"}");
-        var live = (ToolLiveValue)presenter.PresentLive(call, 0);
+        var live = presenter.PresentLive(call, 0);
 
         _ = await Assert.That(live.Render(LiveContext).Lines[0].Text)
             .IsEqualTo("⠋ main: $ dotnet test (running 0s)");
@@ -155,7 +155,7 @@ internal sealed class ProcessToolPresenterTests
     [Test]
     public async Task Exec_process_output_is_not_colored()
     {
-        var presenter = new ExecCommandToolPresenter(TimeProvider.System, []);
+        IToolPresenter presenter = new ExecCommandToolPresenter(TimeProvider.System, []);
         var call = new ToolCallPresentation("main", "exec_command", "{\"command\":\"echo output\"}");
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "output", string.Empty);
 
@@ -179,16 +179,15 @@ internal sealed class ProcessToolPresenterTests
     public async Task Read_only_exec_prefix_matching_observes_shell_token_boundaries(string command, bool expectedReadOnly)
     {
         var palette = new TerminalPalette(true);
-        var presenter = new ExecCommandToolPresenter(TimeProvider.System, ["rg", "grep", "sed", "custom"]);
+        IToolPresenter presenter = new ExecCommandToolPresenter(TimeProvider.System, ["rg", "grep", "sed", "custom"]);
         var arguments = "{\"command\":\"" + System.Text.Json.JsonEncodedText.Encode(command) + "\"}";
         var call = new ToolCallPresentation("main", "exec_command", arguments);
-        var live = (ToolLiveValue)presenter.PresentLive(call, 0);
+        var live = presenter.PresentLive(call, 0);
         var terminal = presenter.PresentTerminal(
             call,
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "output", string.Empty))
             ?? throw new InvalidOperationException();
 
-        _ = await Assert.That(live.Report.Metadata.Style == ToolPresentationStyle.Muted).IsEqualTo(expectedReadOnly);
         _ = await Assert.That(live.Render(new LiveBufferRenderContext(32_768, palette)).Lines[0].Style)
             .IsEqualTo(expectedReadOnly ? palette.LiveMuted : palette.Marker);
         _ = await Assert.That(live.Render(new LiveBufferRenderContext(32_768, palette)).Lines[0].Text.Contains("running", StringComparison.Ordinal))
@@ -208,7 +207,7 @@ internal sealed class ProcessToolPresenterTests
         string error,
         string expectedDiagnostic)
     {
-        var presenter = new ExecCommandToolPresenter(TimeProvider.System, ["rg"]);
+        IToolPresenter presenter = new ExecCommandToolPresenter(TimeProvider.System, ["rg"]);
         var call = new ToolCallPresentation("main", "exec_command", "{\"command\":\"rg pattern\"}");
         var terminal = presenter.PresentTerminal(
             call,
@@ -272,18 +271,54 @@ internal sealed class ProcessToolPresenterTests
     {
         var registry = new ToolPresenterRegistry([new ExecCommandToolPresenter(TimeProvider.System, [])], new GenericToolPresenter());
         var activity = new EnhancedActivity(registry);
-        var named = Chunk("main", "call", "exec_command", "visible");
+        var named = new Event
+        {
+            AgentSessionId = "main",
+            ToolCallChunk = new ToolCallChunk
+            {
+                ToolCallId = "call",
+                ToolName = "exec_command",
+                ArgumentsFragment = "visible",
+            },
+        };
         activity.Observe(named);
         activity.Observe(new Event
         {
             AgentSessionId = "main",
             ToolFinished = new ToolFinished { ToolCallId = "call", ToolName = "exec_command" },
         });
-        var afterTerminal = Chunk("main", "call", string.Empty, "terminal secret");
-        var secondNamed = Chunk("main", "other", "exec_command", "visible");
+        var afterTerminal = new Event
+        {
+            AgentSessionId = "main",
+            ToolCallChunk = new ToolCallChunk
+            {
+                ToolCallId = "call",
+                ToolName = string.Empty,
+                ArgumentsFragment = "terminal secret",
+            },
+        };
+        var secondNamed = new Event
+        {
+            AgentSessionId = "main",
+            ToolCallChunk = new ToolCallChunk
+            {
+                ToolCallId = "other",
+                ToolName = "exec_command",
+                ArgumentsFragment = "visible",
+            },
+        };
         activity.Observe(secondNamed);
         activity.Observe(new Event { AgentSessionId = "main", TurnEnded = new TurnEnded() });
-        var afterTurn = Chunk("main", "other", string.Empty, "turn secret");
+        var afterTurn = new Event
+        {
+            AgentSessionId = "main",
+            ToolCallChunk = new ToolCallChunk
+            {
+                ToolCallId = "other",
+                ToolName = string.Empty,
+                ArgumentsFragment = "turn secret",
+            },
+        };
 
         var terminalText = activity.Format(afterTerminal, false);
         var turnText = activity.Format(afterTurn, false);
@@ -295,7 +330,7 @@ internal sealed class ProcessToolPresenterTests
     [Test]
     public async Task Write_stdin_shows_only_process_character_count_and_status()
     {
-        var presenter = new WriteStdinToolPresenter();
+        IToolPresenter presenter = new WriteStdinToolPresenter();
         var registry = new ToolPresenterRegistry([presenter], new GenericToolPresenter());
         const string secretInput = "secret 🔒";
         const string secretResult = "private process output";
@@ -326,7 +361,7 @@ internal sealed class ProcessToolPresenterTests
     [Test]
     public async Task Write_stdin_is_nonthrowing_for_partial_arguments()
     {
-        var presenter = new WriteStdinToolPresenter();
+        IToolPresenter presenter = new WriteStdinToolPresenter();
         var call = new ToolCallPresentation("main", "write_stdin", "{\"name\":\"build\",\"input\":\"secret");
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Errored, false, string.Empty, "secret error");
 
@@ -355,21 +390,6 @@ internal sealed class ProcessToolPresenterTests
         _ = await Assert.That(string.Join('\n', live)).Contains(liveExpected);
         _ = await Assert.That(string.Join('\n', terminalLines)).Contains(terminalExpected);
     }
-
-    private static Event Chunk(
-        string agentSessionId,
-        string toolCallId,
-        string toolName,
-        string arguments) => new()
-        {
-            AgentSessionId = agentSessionId,
-            ToolCallChunk = new ToolCallChunk
-            {
-                ToolCallId = toolCallId,
-                ToolName = toolName,
-                ArgumentsFragment = arguments,
-            },
-        };
 
     private sealed class ControlledTimeProvider : TimeProvider
     {

@@ -228,9 +228,6 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
     [LibraryImport("libc", EntryPoint = "access", StringMarshalling = StringMarshalling.Utf8)]
     private static partial int Access(string path, int mode);
 
-    private static LinuxProcessSignalTarget OpenSignalTarget(System.Diagnostics.Process process) =>
-        LinuxProcessSignalTarget.Open(process);
-
     private ShellProcessExecution StartPipe(
         string command,
         ProcessEnvironmentOverrides environment,
@@ -259,7 +256,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         }
 
         var process = new System.Diagnostics.Process { StartInfo = startInfo };
-        LinuxProcessSignalTarget? signalTarget = null;
+        IProcessSignalTarget? signalTarget = null;
         PipeProcessOutputFiles? outputFiles = null;
         var started = false;
 
@@ -268,7 +265,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
             outputFiles = PipeProcessOutputFiles.Open(scratch.BlobDirectory);
             var startedTimestamp = Stopwatch.GetTimestamp();
             started = process.Start();
-            signalTarget = OpenSignalTarget(process);
+            signalTarget = LinuxProcessSignalTarget.Open(process);
             return new ShellProcessExecution(
                 process,
                 signalTarget,
@@ -316,7 +313,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
 
         var (master, slave) = LinuxPseudoTerminal.Open();
         System.Diagnostics.Process? process = null;
-        LinuxProcessSignalTarget? signalTarget = null;
+        IProcessSignalTarget? signalTarget = null;
         var started = false;
 
         try
@@ -347,7 +344,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
             process = new System.Diagnostics.Process { StartInfo = startInfo };
             var startedTimestamp = Stopwatch.GetTimestamp();
             started = process.Start();
-            signalTarget = OpenSignalTarget(process);
+            signalTarget = LinuxProcessSignalTarget.Open(process);
             return new ShellProcessExecution(
                 process,
                 signalTarget,

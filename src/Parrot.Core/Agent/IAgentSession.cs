@@ -1,3 +1,4 @@
+using Parrot.Context;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Queues;
@@ -5,6 +6,7 @@ using Parrot.Store;
 
 namespace Parrot.Agent;
 
+/// <summary>Owns an agent's selection, admitted work, context and incoming activity for its lifetime.</summary>
 internal interface IAgentSession : IAsyncDisposable
 {
     string SessionId { get; }
@@ -23,20 +25,30 @@ internal interface IAgentSession : IAsyncDisposable
 
     AgentSelection CurrentSelection();
 
+    /// <summary>Caches the resolved model for the current selection.</summary>
     void UseResolvedSelection(ResolvedModelSelection selectedModel);
 
+    /// <summary>Wakes the session to resume durable pending work.</summary>
     void Recover();
 
     void UpdateSelection(ModelSelector selectedModel, IMode mode);
 
+    /// <summary>Offers incoming activity to the drain and reports whether a follow-up was scheduled.</summary>
     bool Wake(IncomingActivity? activity);
 
+    /// <summary>Interrupts current work and waits for the drain to unwind.</summary>
     Task Interrupt(CancellationToken cancellationToken);
 
+    /// <summary>Queues compaction to run within the session drain.</summary>
     Task Compact(CancellationToken cancellationToken);
 
+    /// <summary>Waits for the captured drain result without admitting or waking work.</summary>
+    Task Settled();
+
+    /// <summary>Resolves the current selection's security policy through its ancestor lineage.</summary>
     AgentSelection ResolvePolicySelection();
 
+    /// <summary>Returns the session's ancestor policy lineage.</summary>
     AgentPolicyLineage ResolvePolicyLineage();
 
     bool IsIdle();
@@ -45,11 +57,13 @@ internal interface IAgentSession : IAsyncDisposable
 
     bool IsWaitingForIncomingInput();
 
+    /// <summary>Waits for incoming activity up to the supplied duration, returning null on timeout.</summary>
     Task<IncomingActivity?> WaitForIncomingInput(
         TimeSpan duration,
         TimeProvider timeProvider,
         CancellationToken cancellationToken);
 
+    /// <summary>Durably admits input and reports its admission and whether a follow-up was scheduled.</summary>
     Task<(Admission Admission, bool FollowUp)> Send(
         IReadOnlyList<ConversationPart> parts,
         string messageId,
@@ -58,6 +72,7 @@ internal interface IAgentSession : IAsyncDisposable
 
     void SetExitReminder(string? reminder);
 
+    /// <summary>Admits a queue notification only while idle and reports whether it was accepted.</summary>
     Task<bool> ReceiveQueueNotification(
         QueueNotification notification,
         CancellationToken cancellationToken);
@@ -88,12 +103,34 @@ internal interface IAgentSession : IAsyncDisposable
         string messageId,
         CancellationToken cancellationToken);
 
+    /// <summary>Records task completion in history without delivering incoming activity.</summary>
     Task RecordAgentTaskCompletion(
         string message,
         string messageId,
         CancellationToken cancellationToken);
 
+    /// <summary>Waits for the captured execution, yielding a running result when the duration elapses.</summary>
     Task<WaitAgentResult> Wait(
         int yieldAfterMilliseconds,
+        CancellationToken cancellationToken);
+
+    ContextSnapshot EstimateContext(AgentTurnSelection selection);
+
+    /// <summary>Materializes tools allowed by the captured selection.</summary>
+    IReadOnlyList<LLMToolDefinition> AdvertisedToolDefinitions(AgentTurnSelection selection);
+
+    ContextSnapshot EstimateContextForTools(
+        AgentTurnSelection selection,
+        IReadOnlyList<LLMToolDefinition> tools);
+
+    /// <summary>Estimates context with a prospective tool result without persisting that result.</summary>
+    ContextSnapshot EstimateContextAfterToolResult(
+        AgentTurnSelection selection,
+        string toolCallId,
+        string result);
+
+    /// <summary>Compacts context from a tool executing within the drain and reports the resulting estimate.</summary>
+    Task<ContextCompactionResult> CompactFromTool(
+        AgentTurnSelection selection,
         CancellationToken cancellationToken);
 }

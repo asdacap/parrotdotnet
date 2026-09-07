@@ -62,7 +62,7 @@ internal static class ToolYamlFormatter
 
                 return sequence;
             case JsonValueKind.String:
-                return StringScalar(element.GetString() ?? string.Empty);
+                return new YamlScalarNode(element.GetString() ?? string.Empty) { Style = ScalarStyle.DoubleQuoted };
             case JsonValueKind.Number:
                 return new YamlScalarNode(element.GetRawText());
             case JsonValueKind.True:
@@ -77,11 +77,7 @@ internal static class ToolYamlFormatter
     }
 
     private static YamlScalarNode KeyScalar(string value) =>
-        RequiresQuotes(value) ? QuotedScalar(value) : new YamlScalarNode(value);
-
-    private static YamlScalarNode StringScalar(string value) => QuotedScalar(value);
-
-    private static YamlScalarNode QuotedScalar(string value) => new(value) { Style = ScalarStyle.DoubleQuoted };
+        RequiresQuotes(value) ? new YamlScalarNode(value) { Style = ScalarStyle.DoubleQuoted } : new YamlScalarNode(value);
 
     private static bool RequiresQuotes(string value) =>
         value.Length == 0

@@ -9,7 +9,7 @@ internal sealed class GoalCommandTests
     {
         var session = new TestSlashSession("provider/model");
         var dialog = new TestSlashDialog();
-        var command = new GoalCommand(session, dialog);
+        ISlashCommand command = new GoalCommand(session, dialog);
 
         await command.Run("ship v1", cancellationToken);
         await command.Run(string.Empty, cancellationToken);

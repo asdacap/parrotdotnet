@@ -130,7 +130,7 @@ internal sealed class EnhancedSlashDialog(ILiveInputHost input) : ISlashDialog
             || option.Description.Contains(query, StringComparison.OrdinalIgnoreCase))];
 
     private static List<ILiveBufferItem> PickerItems(
-        PromptValue prompt,
+        PromptState prompt,
         List<SlashDialogOption> matches,
         int selected)
     {
@@ -138,7 +138,7 @@ internal sealed class EnhancedSlashDialog(ILiveInputHost input) : ISlashDialog
             selected - MaximumVisibleOptions + 1,
             0,
             Math.Max(0, matches.Count - MaximumVisibleOptions));
-        List<ILiveBufferItem> items = [new LiveTextValue(prompt.Prefix), new PromptValue("> ", prompt.Text, prompt.Cursor)];
+        List<ILiveBufferItem> items = [new LiveTextValue(prompt.Prefix), new PromptValue(prompt with { Prefix = "> " })];
         if (matches.Count == 0)
         {
             items.Add(new PickerOptionValue("No matches", string.Empty, false));
@@ -155,7 +155,7 @@ internal sealed class EnhancedSlashDialog(ILiveInputHost input) : ISlashDialog
         return items;
     }
 
-    private static PromptValue InputItem(PromptValue prompt, bool secret) => secret
+    private static PromptValue InputItem(PromptState prompt, bool secret) => secret
         ? new PromptValue("> ", new string('*', prompt.Text.EnumerateRunes().Count()), prompt.Cursor)
         : new PromptValue("> ", prompt.Text, prompt.Cursor);
 
@@ -206,7 +206,7 @@ internal sealed class EnhancedSlashDialog(ILiveInputHost input) : ISlashDialog
                 if (key.Kind == TerminalKeyKind.Submit)
                 {
                     var submitted = editor.Prompt.Text;
-                    var completed = new PromptValue(prompt, submitted, submitted.EnumerateRunes().Count());
+                    var completed = new PromptState(prompt, submitted, submitted.EnumerateRunes().Count());
                     cancellationToken.ThrowIfCancellationRequested();
                     await input.ReplaceInput(
                         [new LiveTextValue(prompt), InputItem(completed, secret)],

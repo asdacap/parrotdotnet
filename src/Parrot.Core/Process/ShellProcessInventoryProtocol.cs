@@ -31,7 +31,16 @@ internal static class ShellProcessInventoryProtocol
     }
 
     private static Event BuildEmpty(ShellProcessInventorySnapshot inventory, uint chunkCount) =>
-        Validate(new Event { ShellProcessSnapshot = BuildSnapshot(inventory, 0, chunkCount) });
+        Validate(new Event
+        {
+            ShellProcessSnapshot = new ShellProcessSnapshot
+            {
+                InventoryInstanceId = inventory.InventoryInstanceId,
+                Revision = inventory.Revision,
+                ChunkIndex = 0,
+                ChunkCount = chunkCount,
+            },
+        });
 
     private static Event BuildActive(
         ShellProcessInventorySnapshot inventory,
@@ -39,7 +48,13 @@ internal static class ShellProcessInventoryProtocol
         uint chunkCount,
         ActiveShellProcessState state)
     {
-        var snapshot = BuildSnapshot(inventory, chunkIndex, chunkCount);
+        var snapshot = new ShellProcessSnapshot
+        {
+            InventoryInstanceId = inventory.InventoryInstanceId,
+            Revision = inventory.Revision,
+            ChunkIndex = chunkIndex,
+            ChunkCount = chunkCount,
+        };
         snapshot.Processes.Add(new ProtocolActiveShellProcess
         {
             ProcessId = state.ProcessId,
@@ -68,21 +83,16 @@ internal static class ShellProcessInventoryProtocol
             completed.ElapsedMs = elapsedMilliseconds;
         }
 
-        var snapshot = BuildSnapshot(inventory, chunkIndex, chunkCount);
-        snapshot.CompletedProcesses.Add(completed);
-        return Validate(new Event { ShellProcessSnapshot = snapshot });
-    }
-
-    private static ShellProcessSnapshot BuildSnapshot(
-        ShellProcessInventorySnapshot inventory,
-        uint chunkIndex,
-        uint chunkCount) => new()
+        var snapshot = new ShellProcessSnapshot
         {
             InventoryInstanceId = inventory.InventoryInstanceId,
             Revision = inventory.Revision,
             ChunkIndex = chunkIndex,
             ChunkCount = chunkCount,
         };
+        snapshot.CompletedProcesses.Add(completed);
+        return Validate(new Event { ShellProcessSnapshot = snapshot });
+    }
 
     private static Event Validate(Event published)
     {

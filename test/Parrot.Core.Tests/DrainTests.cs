@@ -235,7 +235,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [first, second, third],
-            TestModels.Profile(),
+            new TestProfileFixture().Mode,
             cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
@@ -276,7 +276,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [callback],
-            TestModels.Profile(),
+            new TestProfileFixture().Mode,
             cancellationToken);
 
         var first = session.SendAndWaitForResult("first prompt", cancellationToken);
@@ -323,7 +323,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [retry],
-            Profile(maxTurns: 2),
+            new DrainProfile(maxTurns: 2).Mode,
             cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
@@ -369,8 +369,8 @@ internal sealed class DrainTests : IDisposable
         await using var session = SessionWithSkills(
             provider,
             repository,
-            [new FixedToolFactory(new SettledTool("settled"))],
-            Profile(maxTurns: 3),
+            [new TestTool(new SettledTool("settled"))],
+            new DrainProfile(maxTurns: 3).Mode,
             skills,
             null,
             cancellationToken);
@@ -468,7 +468,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [],
-            TestModels.Profile(),
+            new TestProfileFixture().Mode,
             skills,
             securityProfile,
             cancellationToken);
@@ -530,8 +530,8 @@ internal sealed class DrainTests : IDisposable
         await using var session = Session(
             provider,
             repository,
-            [new FixedToolFactory(new SettledTool("settled"))],
-            Profile(maxTurns: 2),
+            [new TestTool(new SettledTool("settled"))],
+            new DrainProfile(maxTurns: 2).Mode,
             cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("first prompt")], "msg-1", Delivery.Steer, cancellationToken);
@@ -579,7 +579,7 @@ internal sealed class DrainTests : IDisposable
             using var provider = new SteppedProvider(
                 Answer(string.Empty, new LLMToolCall($"call-{result.Length}", "settled", "{}")), Answer("done"));
             var repository = new EventRepository(_database);
-            await using var session = Session(provider, repository, [new FixedToolFactory(new SettledTool(result))], cancellationToken);
+            await using var session = Session(provider, repository, [new TestTool(new SettledTool(result))], cancellationToken);
 
             _ = await session.Send([ConversationPart.TextPart("prompt")], $"msg-{result.Length}", Delivery.Steer, cancellationToken);
             await provider.Arrived(cancellationToken);
@@ -620,7 +620,7 @@ internal sealed class DrainTests : IDisposable
             await using var firstSession = Session(
                 firstProvider,
                 repository,
-                [new FixedToolFactory(new SettledTool("settled"))],
+                [new TestTool(new SettledTool("settled"))],
                 100_000,
                 0.125,
                 0.025,
@@ -687,8 +687,8 @@ internal sealed class DrainTests : IDisposable
         await using var session = Session(
             provider,
             repository,
-            [new FixedToolFactory(new SettledTool("settled"))],
-            Profile(maxTurns: 2),
+            [new TestTool(new SettledTool("settled"))],
+            new DrainProfile(maxTurns: 2).Mode,
             cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
@@ -748,22 +748,22 @@ internal sealed class DrainTests : IDisposable
         var repository = new EventRepository(_database);
         var firstFactory = new CountingToolFactory("first");
         var secondFactory = new CountingToolFactory("second");
-        var firstProfile = Profile(
+        var firstProfile = new DrainProfile(
             "first-profile",
             3,
             ["first"],
             new HashSet<string>(StringComparer.Ordinal),
-            readOnly: false);
-        var secondProfile = Profile(
+            readOnly: false).Mode;
+        var secondProfile = new DrainProfile(
             "second-profile",
             3,
             ["second"],
             new HashSet<string>(StringComparer.Ordinal),
-            readOnly: true);
+            readOnly: true).Mode;
         await using var session = Session(
             provider,
             repository,
-            [firstFactory, secondFactory],
+            [new TestTool(firstFactory.Tool, firstFactory), new TestTool(secondFactory.Tool, secondFactory)],
             firstProfile,
             cancellationToken);
 
@@ -797,19 +797,19 @@ internal sealed class DrainTests : IDisposable
             Answer("second"));
         var repository = new EventRepository(_database);
         var factory = new RecordingToolFactory();
-        var writable = Profile(
+        var writable = new DrainProfile(
             "writable",
             3,
             ["record"],
             new HashSet<string>(StringComparer.Ordinal),
-            readOnly: false);
-        var readOnly = Profile(
+            readOnly: false).Mode;
+        var readOnly = new DrainProfile(
             "read-only",
             3,
             ["record"],
             new HashSet<string>(StringComparer.Ordinal),
-            readOnly: true);
-        await using var session = Session(provider, repository, [factory], writable, cancellationToken);
+            readOnly: true).Mode;
+        await using var session = Session(provider, repository, [new TestTool(factory.Tool, factory)], writable, cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("first prompt")], "msg-1", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -844,11 +844,8 @@ internal sealed class DrainTests : IDisposable
         await using var session = Session(
             provider,
             repository,
-            [new FixedToolFactory(new SettledTool("settled")), new FixedToolFactory(new HeldTool())],
-            Profile(
-                3,
-                ["settled", "held"],
-                new HashSet<string>(["settled"], StringComparer.Ordinal)),
+            [new TestTool(new SettledTool("settled")), new TestTool(new HeldTool())],
+            new DrainProfile(3, ["settled", "held"], new HashSet<string>(["settled"], StringComparer.Ordinal)).Mode,
             cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
@@ -879,8 +876,8 @@ internal sealed class DrainTests : IDisposable
         await using var session = Session(
             provider,
             repository,
-            [new FixedToolFactory(new SettledTool("settled"))],
-            Profile(maxTurns: 2),
+            [new TestTool(new SettledTool("settled"))],
+            new DrainProfile(maxTurns: 2).Mode,
             cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("first prompt")], "msg-1", Delivery.Steer, cancellationToken);
@@ -923,7 +920,7 @@ internal sealed class DrainTests : IDisposable
         var repository = new EventRepository(_database);
         using (var firstProvider = new SteppedProvider(Answer("first answer")))
         {
-            await using var firstSession = Session(firstProvider, repository, [], Profile(maxTurns: 1), cancellationToken);
+            await using var firstSession = Session(firstProvider, repository, [], new DrainProfile(maxTurns: 1).Mode, cancellationToken);
 
             _ = await firstSession.Send([ConversationPart.TextPart("first prompt")], "msg-1", Delivery.Steer, cancellationToken);
             await firstProvider.Arrived(cancellationToken);
@@ -935,8 +932,8 @@ internal sealed class DrainTests : IDisposable
         await using var restoredSession = Session(
             restoredProvider,
             repository,
-            [new FixedToolFactory(new SettledTool("settled"))],
-            Profile(maxTurns: 2),
+            [new TestTool(new SettledTool("settled"))],
+            new DrainProfile(maxTurns: 2).Mode,
             cancellationToken);
 
         _ = await restoredSession.Send([ConversationPart.TextPart("second prompt")], "msg-2", Delivery.Steer, cancellationToken);
@@ -979,8 +976,8 @@ internal sealed class DrainTests : IDisposable
         await using var session = Session(
             provider,
             repository,
-            [new FixedToolFactory(new SettledTool("settled"))],
-            Profile(maxTurns: 4),
+            [new TestTool(new SettledTool("settled"))],
+            new DrainProfile(maxTurns: 4).Mode,
             cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
@@ -1035,8 +1032,8 @@ internal sealed class DrainTests : IDisposable
         await using var session = Session(
             provider,
             repository,
-            [new FixedToolFactory(new SettledTool("settled"))],
-            Profile(maxTurns: 2),
+            [new TestTool(new SettledTool("settled"))],
+            new DrainProfile(maxTurns: 2).Mode,
             cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
@@ -1084,8 +1081,8 @@ internal sealed class DrainTests : IDisposable
         await using var session = Session(
             provider,
             repository,
-            [new FixedToolFactory(new SettledTool("settled"))],
-            Profile(maxTurns: 1),
+            [new TestTool(new SettledTool("settled"))],
+            new DrainProfile(maxTurns: 1).Mode,
             cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
@@ -1111,7 +1108,7 @@ internal sealed class DrainTests : IDisposable
         await using var session = Session(
             provider,
             repository,
-            [new FixedToolFactory(new SettledTool("settled"))],
+            [new TestTool(new SettledTool("settled"))],
             TestModels.EmptyToolDefinitions,
             cancellationToken);
 
@@ -1171,7 +1168,7 @@ internal sealed class DrainTests : IDisposable
         await using var session = Session(
             provider,
             repository,
-            [new FixedToolFactory(new SettledTool("result"))],
+            [new TestTool(new SettledTool("result"))],
             cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
@@ -1202,7 +1199,7 @@ internal sealed class DrainTests : IDisposable
         await using var session = Session(
             provider,
             repository,
-            [new FixedToolFactory(new FailureTool())],
+            [new TestTool(new FailureTool())],
             cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
@@ -1243,7 +1240,7 @@ internal sealed class DrainTests : IDisposable
             Answer("after the interrupt"));
         var repository = new EventRepository(_database);
         var heldTool = new HeldTool();
-        await using var session = Session(provider, repository, [new FixedToolFactory(heldTool)], cancellationToken);
+        await using var session = Session(provider, repository, [new TestTool(heldTool)], cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("first prompt")], "msg-1", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -1313,7 +1310,7 @@ internal sealed class DrainTests : IDisposable
             Answer("done"));
         var repository = new EventRepository(_database);
         var tool = new GatedTool("parallel", parallelSafe: true);
-        await using var session = Session(provider, repository, [new FixedToolFactory(tool)], cancellationToken);
+        await using var session = Session(provider, repository, [new TestTool(tool)], cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -1363,7 +1360,7 @@ internal sealed class DrainTests : IDisposable
         await using var session = Session(
             provider,
             repository,
-            [new FixedToolFactory(safe), new FixedToolFactory(unsafeTool)],
+            [new TestTool(safe), new TestTool(unsafeTool)],
             cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
@@ -1437,7 +1434,7 @@ internal sealed class DrainTests : IDisposable
 
         using var provider = new SteppedProvider(Answer("done"));
         var tool = new GatedTool("parallel", parallelSafe: true);
-        await using var session = Session(provider, repository, [new FixedToolFactory(tool)], cancellationToken);
+        await using var session = Session(provider, repository, [new TestTool(tool)], cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
         await tool.Started("safe-1", cancellationToken);
@@ -1476,7 +1473,7 @@ internal sealed class DrainTests : IDisposable
             Answer("done"));
         var repository = new EventRepository(_database);
         var tool = new GatedTool("parallel", parallelSafe: true);
-        await using var session = Session(provider, repository, [new FixedToolFactory(tool)], cancellationToken);
+        await using var session = Session(provider, repository, [new TestTool(tool)], cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -1514,7 +1511,7 @@ internal sealed class DrainTests : IDisposable
         await using var session = Session(
             provider,
             repository,
-            [new FixedToolFactory(safe), new FixedToolFactory(unsafeTool)],
+            [new TestTool(safe), new TestTool(unsafeTool)],
             cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
@@ -1541,9 +1538,6 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(repository.ToolTerminals("agent").Count(terminal =>
             terminal.Status == ToolExecutionStatus.Cancelled)).IsEqualTo(4);
     }
-
-    private static ToolDefinitionCatalog Document(IReadOnlyList<IToolFactory> factories) =>
-        TestModels.DocumentTools([.. factories.Select(factory => ((ITestToolFactory)factory).Tool.Name)]);
 
     private static string BlobPath(string notice)
     {
@@ -1591,66 +1585,36 @@ internal sealed class DrainTests : IDisposable
                 _ => null,
             }).Where(value => value is not null));
 
-    private static NoopMode Profile(int maxTurns) =>
-        Profile(
-            "test",
-            maxTurns,
-            null,
-            new HashSet<string>(StringComparer.Ordinal),
-            readOnly: false);
-
-    private static NoopMode Profile(
-        int maxTurns,
-        IReadOnlyList<string>? allowedTools,
-        IReadOnlySet<string> disabledTools) =>
-        Profile("test", maxTurns, allowedTools, disabledTools, readOnly: false);
-
-    private static NoopMode Profile(
-        string id,
-        int maxTurns,
-        IReadOnlyList<string>? allowedTools,
-        IReadOnlySet<string> disabledTools,
-        bool readOnly)
-    {
-        var profile = new AgentProfile(
-            id,
-            new ProfileConfig("Test prompt", "Test profile.", allowedTools, maxTurns, 3, readOnly, true, false, true, []),
-            [],
-            [],
-            disabledTools);
-        return new NoopMode(profile, profile.SecurityProfile);
-    }
-
     private static string SelectionSummary(AgentTurnSelection selection) =>
         $"{selection.Profile?.Id}:{selection.SecurityProfile.ReadOnly}";
 
-    private AgentSession Session(
+    private IAgentSession Session(
         ILLMProvider provider,
         EventRepository repository,
-        IReadOnlyList<IToolFactory> toolFactories,
+        IReadOnlyList<TestTool> toolFactories,
         CancellationToken lifetime) =>
         Session(provider, repository, toolFactories, 0, 0, 0, 0, lifetime);
 
-    private AgentSession Session(
+    private IAgentSession Session(
         ILLMProvider provider,
         EventRepository repository,
-        IReadOnlyList<IToolFactory> toolFactories,
+        IReadOnlyList<TestTool> toolFactories,
         IMode profile,
         CancellationToken lifetime) =>
         Session(provider, repository, toolFactories, profile, 0, 0, 0, 0, lifetime);
 
-    private AgentSession Session(
+    private IAgentSession Session(
         ILLMProvider provider,
         EventRepository repository,
-        IReadOnlyList<IToolFactory> toolFactories,
+        IReadOnlyList<TestTool> toolFactories,
         ToolDefinitionCatalog definitions,
         CancellationToken lifetime) =>
         Session(provider, repository, toolFactories, definitions, profile: null, 0, 0, 0, 0, lifetime);
 
-    private AgentSession Session(
+    private IAgentSession Session(
         ILLMProvider provider,
         EventRepository repository,
-        IReadOnlyList<IToolFactory> toolFactories,
+        IReadOnlyList<TestTool> toolFactories,
         int contextWindow,
         double inputPrice,
         double cachedInputPrice,
@@ -1660,7 +1624,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             toolFactories,
-            Document(toolFactories),
+            new TestToolDefinitionsFixture([.. toolFactories.Select(factory => factory.Tool.Name)]).Definitions,
             profile: null,
             contextWindow,
             inputPrice,
@@ -1668,10 +1632,10 @@ internal sealed class DrainTests : IDisposable
             outputPrice,
             lifetime);
 
-    private AgentSession Session(
+    private IAgentSession Session(
         ILLMProvider provider,
         EventRepository repository,
-        IReadOnlyList<IToolFactory> toolFactories,
+        IReadOnlyList<TestTool> toolFactories,
         IMode? profile,
         int contextWindow,
         double inputPrice,
@@ -1682,7 +1646,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             toolFactories,
-            Document(toolFactories),
+            new TestToolDefinitionsFixture([.. toolFactories.Select(factory => factory.Tool.Name)]).Definitions,
             profile,
             contextWindow,
             inputPrice,
@@ -1690,8 +1654,8 @@ internal sealed class DrainTests : IDisposable
             outputPrice,
             lifetime);
 
-    private AgentSession SessionWithInputLimit(
-        ScriptedProvider provider,
+    private IAgentSession SessionWithInputLimit(
+        ILLMProvider provider,
         EventRepository repository,
         int contextWindow,
         int maximumInputTokens,
@@ -1705,13 +1669,13 @@ internal sealed class DrainTests : IDisposable
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
         _dependencies.Add(dependencies);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
     }
 
-    private AgentSession SessionWithSkills(
+    private IAgentSession SessionWithSkills(
         ILLMProvider provider,
         EventRepository repository,
-        IReadOnlyList<IToolFactory> toolFactories,
+        IReadOnlyList<TestTool> toolFactories,
         IMode profile,
         AgentSkills skills,
         SecurityProfile? securityProfile,
@@ -1738,8 +1702,8 @@ internal sealed class DrainTests : IDisposable
             TestModels.Route(model),
             _broker,
             repository,
-            toolFactories,
-            Document(toolFactories),
+            [.. toolFactories.Select(tool => tool.Factory)],
+            new TestToolDefinitionsFixture([.. toolFactories.Select(factory => factory.Tool.Name)]).Definitions,
             prompt,
             new ToolOutputBlobStore(_blobDirectory),
             TestModels.CompactionGroupBlobs(),
@@ -1750,12 +1714,7 @@ internal sealed class DrainTests : IDisposable
             dependencies.ChildQuestions,
             dependencies.ExitReminder,
             profile,
-            TestModels.CompletionCallbacks(
-                dependencies.ChildQuestions,
-                dependencies.ActiveWorkReminder,
-                dependencies.ExitReminder,
-                repository,
-                _broker),
+            new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks,
             security,
             skills,
             dependencies.Status,
@@ -1764,8 +1723,8 @@ internal sealed class DrainTests : IDisposable
             lifetime);
     }
 
-    private AgentSession SessionWithCompletionCallbacks(
-        SteppedProvider provider,
+    private IAgentSession SessionWithCompletionCallbacks(
+        ILLMProvider provider,
         EventRepository repository,
         IReadOnlyList<IAgentTurnCompletionCallback> completionCallbacks,
         IMode profile,
@@ -1775,13 +1734,13 @@ internal sealed class DrainTests : IDisposable
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
         _dependencies.Add(dependencies);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile, completionCallbacks, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile, completionCallbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
     }
 
-    private AgentSession Session(
+    private IAgentSession Session(
         ILLMProvider provider,
         EventRepository repository,
-        IReadOnlyList<IToolFactory> toolFactories,
+        IReadOnlyList<TestTool> toolFactories,
         ToolDefinitionCatalog definitions,
         IMode? profile,
         int contextWindow,
@@ -1802,7 +1761,41 @@ internal sealed class DrainTests : IDisposable
         });
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, toolFactories, definitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile ?? dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [.. toolFactories.Select(tool => tool.Factory)], definitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile ?? dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+    }
+
+    private sealed class DrainProfile
+    {
+        public DrainProfile(int maxTurns)
+            : this("test", maxTurns, null, new HashSet<string>(StringComparer.Ordinal), readOnly: false)
+        {
+        }
+
+        public DrainProfile(
+            int maxTurns,
+            IReadOnlyList<string>? allowedTools,
+            IReadOnlySet<string> disabledTools)
+            : this("test", maxTurns, allowedTools, disabledTools, readOnly: false)
+        {
+        }
+
+        public DrainProfile(
+            string id,
+            int maxTurns,
+            IReadOnlyList<string>? allowedTools,
+            IReadOnlySet<string> disabledTools,
+            bool readOnly)
+        {
+            IAgentProfile profile = new AgentProfile(
+                id,
+                new ProfileConfig("Test prompt", "Test profile.", allowedTools, maxTurns, 3, readOnly, true, false, true, []),
+                [],
+                [],
+                disabledTools);
+            Mode = new NoopMode(profile, profile.SecurityProfile);
+        }
+
+        public IMode Mode { get; }
     }
 
     private sealed class GatedCompletionCallback : IAgentTurnCompletionCallback
@@ -1878,23 +1871,23 @@ internal sealed class DrainTests : IDisposable
         }
 
         public Task Started(string callId, CancellationToken cancellationToken) =>
-            _started.GetOrAdd(callId, _ => NewCompletion()).Task.WaitAsync(cancellationToken);
+            _started.GetOrAdd(callId, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).Task.WaitAsync(cancellationToken);
 
         public bool HasStarted(string callId) => _started.TryGetValue(callId, out var started) && started.Task.IsCompleted;
 
         public void Release(string callId) =>
-            _ = _released.GetOrAdd(callId, _ => NewCompletion()).TrySetResult();
+            _ = _released.GetOrAdd(callId, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
 
         public async Task Finished(string callId, CancellationToken cancellationToken) =>
-            await _completed.GetOrAdd(callId, _ => NewCompletion()).Task.WaitAsync(cancellationToken);
+            await _completed.GetOrAdd(callId, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).Task.WaitAsync(cancellationToken);
 
         public async Task<ToolExecutionResult> Execute(
             ToolInvocation invocation,
             AgentTurnSelection selection,
             CancellationToken cancellationToken)
         {
-            var started = _started.GetOrAdd(invocation.CallId, _ => NewCompletion());
-            var released = _released.GetOrAdd(invocation.CallId, _ => NewCompletion());
+            var started = _started.GetOrAdd(invocation.CallId, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+            var released = _released.GetOrAdd(invocation.CallId, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
             _ = started.TrySetResult();
             var active = Interlocked.Increment(ref _active);
             UpdateMaximum(active);
@@ -1906,12 +1899,9 @@ internal sealed class DrainTests : IDisposable
             finally
             {
                 _ = Interlocked.Decrement(ref _active);
-                _ = _completed.GetOrAdd(invocation.CallId, _ => NewCompletion()).TrySetResult();
+                _ = _completed.GetOrAdd(invocation.CallId, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
             }
         }
-
-        private static TaskCompletionSource NewCompletion() =>
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         private void UpdateMaximum(int active)
         {
@@ -1929,24 +1919,32 @@ internal sealed class DrainTests : IDisposable
         }
     }
 
-    private sealed class CountingToolFactory(string name) : IToolFactory, ITestToolFactory
+    private sealed record TestTool(ITool Tool, IToolFactory Factory)
     {
-        private readonly NamedTool _tool = new(name);
+        public TestTool(ITool tool)
+            : this(tool, new FixedToolFactory(tool))
+        {
+        }
+    }
 
+    private sealed class CountingToolFactory(string name) : IToolFactory
+    {
         public int CreateCount { get; private set; }
 
-        public ITool Tool => _tool;
+        public ITool Tool { get; } = new NamedTool(name);
 
         public ITool Create(IAgentSession session)
         {
             CreateCount++;
-            return _tool;
+            return Tool;
         }
     }
 
     private sealed class FailingProvider : ILLMProvider
     {
         public string Id => "failing";
+
+        public IReadOnlyList<LLMModel> SeedModels() => [];
 
         public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
@@ -1979,7 +1977,7 @@ internal sealed class DrainTests : IDisposable
             Task.FromResult<ToolExecutionResult>(name);
     }
 
-    private sealed class RecordingToolFactory : IToolFactory, ITestToolFactory
+    private sealed class RecordingToolFactory : IToolFactory
     {
         public RecordingTool RecordingTool { get; } = new();
 

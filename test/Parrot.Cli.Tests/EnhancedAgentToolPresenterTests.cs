@@ -71,21 +71,25 @@ internal sealed class EnhancedAgentToolPresenterTests
     [Test]
     public async Task Agent_spawn_renders_empty_full_and_checkpoint_forks()
     {
-        var presenter = new AgentSpawnToolPresenter();
+        IToolPresenter presenter = new AgentSpawnToolPresenter();
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty);
 
-        var omitted = presenter.PresentTerminal(
+        var omitted = (presenter.PresentTerminal(
             new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"inspect\",\"agent\":\"worker\"}"),
-            terminal).Render(ScrollbackContext);
-        var empty = presenter.PresentTerminal(
+            terminal)
+            ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(ScrollbackContext);
+        var empty = (presenter.PresentTerminal(
             new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"inspect\",\"agent\":\"worker\",\"fork\":\"\"}"),
-            terminal).Render(ScrollbackContext);
-        var full = presenter.PresentTerminal(
+            terminal)
+            ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(ScrollbackContext);
+        var full = (presenter.PresentTerminal(
             new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"inspect\",\"agent\":\"worker\",\"fork\":\"full\"}"),
-            terminal).Render(ScrollbackContext);
-        var checkpoint = presenter.PresentTerminal(
+            terminal)
+            ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(ScrollbackContext);
+        var checkpoint = (presenter.PresentTerminal(
             new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"inspect\",\"agent\":\"worker\",\"fork\":\"before refactor\"}"),
-            terminal).Render(ScrollbackContext);
+            terminal)
+            ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(ScrollbackContext);
 
         _ = await Assert.That(string.Join('|', omitted)).Contains("fork: empty");
         _ = await Assert.That(string.Join('|', empty)).Contains("fork: empty");
@@ -96,7 +100,7 @@ internal sealed class EnhancedAgentToolPresenterTests
     [Test]
     public async Task Agent_send_flushes_a_bounded_message()
     {
-        var presenter = new AgentSendToolPresenter();
+        IToolPresenter presenter = new AgentSendToolPresenter();
         var message = string.Join("\\n", Enumerable.Range(1, 12).Select(static line => $"line {line}"));
         var call = new ToolCallPresentation(
             "main",
@@ -104,7 +108,7 @@ internal sealed class EnhancedAgentToolPresenterTests
             $"{{\"session_id\":\"scout\",\"message\":\"{message}\"}}");
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty);
 
-        var completed = presenter.PresentTerminal(call, terminal).Render(ScrollbackContext);
+        var completed = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(ScrollbackContext);
 
         _ = await Assert.That(completed[0]).IsEqualTo("✓ main: Send to scout");
         _ = await Assert.That(completed).Count().IsLessThanOrEqualTo(10);
@@ -116,30 +120,34 @@ internal sealed class EnhancedAgentToolPresenterTests
     [Test]
     public async Task Agent_send_prefers_the_completed_recipient_name_and_falls_back_to_the_live_resolution()
     {
-        var presenter = new AgentSendToolPresenter();
+        IToolPresenter presenter = new AgentSendToolPresenter();
         var call = new ToolCallPresentation(
             "main",
             "agent_send",
             "{\"session_id\":\"agent-session-opaque\",\"message\":\"inspect logs\"}",
             static _ => "known-before-send");
-        var completed = presenter.PresentTerminal(
+        var completed = (presenter.PresentTerminal(
             call,
             new ToolTerminalPresentation(
                 ToolTerminalStatus.Succeeded,
                 true,
                 "{\"session_id\":\"agent-session-opaque\",\"name\":\"resolved-by-core\",\"status\":\"running\"}",
-                string.Empty)).Render(ScrollbackContext);
-        var legacy = presenter.PresentTerminal(
+                string.Empty))
+            ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(ScrollbackContext);
+        var legacy = (presenter.PresentTerminal(
             call,
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "not json", string.Empty))
+            ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
-        var nonObject = presenter.PresentTerminal(
+        var nonObject = (presenter.PresentTerminal(
             call,
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "[]", string.Empty))
+            ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
-        var failed = presenter.PresentTerminal(
+        var failed = (presenter.PresentTerminal(
             call,
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "error: unavailable", string.Empty))
+            ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
 
         _ = await Assert.That(completed[0]).IsEqualTo("✓ main: Send to resolved-by-core");

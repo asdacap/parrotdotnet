@@ -12,8 +12,8 @@ internal sealed class ToolPresenterRegistryTests
     [Test]
     public async Task Registry_selects_by_ordinal_name_and_falls_back_for_unknown_or_invalid_presenters()
     {
-        var selected = new FixedToolPresenter("read", "selected", false);
-        var invalid = new FixedToolPresenter("broken", "unused", true);
+        IToolPresenter selected = new FixedToolPresenter("read", "selected", false);
+        IToolPresenter invalid = new FixedToolPresenter("broken", "unused", true);
         var registry = new ToolPresenterRegistry([selected, invalid, new LiveOnlyToolPresenter()], new GenericToolPresenter());
         var terminal = new ToolTerminalPresentation(
             ToolTerminalStatus.Succeeded,
@@ -44,7 +44,7 @@ internal sealed class ToolPresenterRegistryTests
     [Test]
     public async Task Generic_presenter_formats_json_inputs_and_results_as_yaml()
     {
-        var presenter = new GenericToolPresenter();
+        IToolPresenter presenter = new GenericToolPresenter();
         var call = new ToolCallPresentation(
             "main",
             "unknown",
@@ -62,18 +62,19 @@ internal sealed class ToolPresenterRegistryTests
         var duplicate = presenter.PresentLive(
             new ToolCallPresentation("main", "unknown", "{\"value\":1,\"value\":2}"),
             0);
-        var live = (IToolPresentationValue)presenter.PresentLive(call, 0);
+        var live = presenter.PresentLive(call, 0);
 
-        var terminalText = ((IToolPresentationValue)terminal).Report.Block.Text;
-        var invalidText = ((IToolPresentationValue)invalid).Report.Block.Text;
+        var terminalText = string.Join('\n', (terminal ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(ScrollbackContext));
+        var invalidText = string.Join('\n', (invalid ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(ScrollbackContext));
+        var liveText = string.Join('\n', live.Render(LiveContext).Lines.Select(static line => line.Text));
 
-        _ = await Assert.That(live.Report.Block.Text).Contains("path: \"src/App.cs\"");
-        _ = await Assert.That(live.Report.Block.Text).Contains("limit: 2");
+        _ = await Assert.That(liveText).Contains("path: \"src/App.cs\"");
+        _ = await Assert.That(liveText).Contains("limit: 2");
         _ = await Assert.That(terminalText).Contains("enabled: true");
         _ = await Assert.That(terminalText).Contains("ambiguous: \"true\"");
-        _ = await Assert.That(terminalText).Contains("---\n- name: \"first\"");
+        _ = await Assert.That(terminalText).Contains("  ---\n  - name: \"first\"");
         _ = await Assert.That(terminalText).DoesNotContain("{\"");
-        _ = await Assert.That(invalidText).IsEqualTo("not json\n---\nplain result");
+        _ = await Assert.That(invalidText).IsEqualTo("✓ main: tool call unknown\n  not json\n  ---\n  plain result");
         _ = await Assert.That(duplicate.Render(LiveContext).Lines[1].Text).Contains("{\"value\":1,\"value\":2}");
     }
 
@@ -118,7 +119,7 @@ internal sealed class ToolPresenterRegistryTests
     [Test]
     public async Task Unknown_calls_use_the_generic_presenter_for_malformed_input_and_spill_output()
     {
-        var generic = new GenericToolPresenter();
+        IToolPresenter generic = new GenericToolPresenter();
         var registry = new ToolPresenterRegistry([], generic);
         const string notice = "Tool output exceeded 64 KiB and was saved to /tmp/output.";
         var live = registry.PresentLive(new ToolCallPresentation("main", "retired_tool", "not json"), 0)
@@ -190,20 +191,23 @@ internal sealed class ToolPresenterRegistryTests
     public async Task Display_values_sanitize_and_bound_labels_lines_and_utf8_details()
     {
         var lines = Enumerable.Range(0, 12).Select(index => $"line-{index}\u001b[2J");
-        var scrollback = new ToolScrollbackValue(
+        IScrollbackItem scrollbackValue = new ToolScrollbackValue(
             "safe\u001b[31m\nignored",
             lines,
-            ToolTerminalStatus.Errored).Render(ScrollbackContext);
-        var large = new ToolScrollbackValue(
+            ToolTerminalStatus.Errored);
+        var scrollback = scrollbackValue.Render(ScrollbackContext);
+        IScrollbackItem largeValue = new ToolScrollbackValue(
             "large",
             [new string('界', 8_000)],
-            ToolTerminalStatus.Succeeded).Render(ScrollbackContext);
-        var live = new ToolLiveValue(
+            ToolTerminalStatus.Succeeded);
+        var large = largeValue.Render(ScrollbackContext);
+        ILiveBufferItem liveValue = new ToolLiveValue(
             "live\u001b[31m\nignored",
             ["detail\u001b[2J"],
-            0).Render(LiveContext).Lines.Select(line => line.Text).ToArray();
-        var boundedLabel = new ToolLiveValue(new string('界', 8_000), [], 0)
-            .Render(LiveContext).Lines[0].Text;
+            0);
+        var live = liveValue.Render(LiveContext).Lines.Select(line => line.Text).ToArray();
+        ILiveBufferItem boundedLabelValue = new ToolLiveValue(new string('界', 8_000), [], 0);
+        var boundedLabel = boundedLabelValue.Render(LiveContext).Lines[0].Text;
 
         _ = await Assert.That(scrollback.Count).IsEqualTo(10);
         _ = await Assert.That(scrollback[0]).IsEqualTo("✗ safe[31m");
@@ -215,36 +219,33 @@ internal sealed class ToolPresenterRegistryTests
         _ = await Assert.That(live[1]).IsEqualTo("  detail[2J");
         _ = await Assert.That(Encoding.UTF8.GetByteCount(boundedLabel)).IsLessThanOrEqualTo(1_032);
         _ = await Assert.That(boundedLabel).EndsWith("…");
-        _ = await Assert.That(new ToolScrollbackValue(
-            "wrap",
-            [new string('x', 100)],
-            ToolTerminalStatus.Succeeded).Render(new ScrollbackRenderContext(4, new TerminalPalette(false))).Count)
+        IScrollbackItem wrappedValue = new ToolScrollbackValue("wrap", [new string('x', 100)], ToolTerminalStatus.Succeeded);
+        _ = await Assert.That(wrappedValue.Render(new ScrollbackRenderContext(4, new TerminalPalette(false))).Count)
             .IsLessThanOrEqualTo(10);
     }
 
     [Test]
-    public async Task Reports_expose_semantic_blocks_and_presenter_metadata()
+    public async Task Presenters_render_completed_spawn_input_and_compact_muted_reads()
     {
-        var spawn = new AgentSpawnToolPresenter().PresentTerminal(
+        IToolPresenter spawnPresenter = new AgentSpawnToolPresenter();
+        IToolPresenter readPresenter = new ReadToolPresenter();
+        var spawn = spawnPresenter.PresentTerminal(
             new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"ship it\",\"name\":\"worker\"}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty));
-        var read = new ReadToolPresenter().PresentTerminal(
+        var read = readPresenter.PresentTerminal(
             new ToolCallPresentation("main", "read", "{\"path\":\"src/App.cs\",\"offset\":12}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "12: class App", string.Empty));
 
-        var spawnReport = ((IToolPresentationValue)(spawn
-            ?? throw new InvalidOperationException("Spawn report missing."))).Report;
-        var readReport = ((IToolPresentationValue)read).Report;
-        var readLines = read.Render(new ScrollbackRenderContext(32_768, new TerminalPalette(true)));
+        var spawnLines = (spawn ?? throw new InvalidOperationException("Spawn presentation missing.")).Render(ScrollbackContext);
+        var readLines = (read ?? throw new InvalidOperationException("Read presentation missing."))
+            .Render(new ScrollbackRenderContext(32_768, new TerminalPalette(true)));
 
-        _ = await Assert.That(spawnReport.Block.Kind).IsEqualTo(ToolBlockKind.CompletedInput);
-        _ = await Assert.That(readReport.Block.Kind).IsEqualTo(ToolBlockKind.None);
-        _ = await Assert.That(readReport.Block.Text).IsEmpty();
+        _ = await Assert.That(string.Join('|', spawnLines))
+            .IsEqualTo("♟ main: Start agent worker|name: worker|fork: empty|prompt: ship it");
         _ = await Assert.That(readLines).Count().IsEqualTo(1);
         _ = await Assert.That(readLines[0]).Contains("\u001b[38;5;245m✓ main: read src/App.cs\u001b[0m");
         _ = await Assert.That(string.Join('\n', readLines)).DoesNotContain("12: class App");
-        _ = await Assert.That(spawnReport.Metadata.SuccessIcon).IsEqualTo("♟");
-        _ = await Assert.That(spawnReport.Metadata.TerminalOnly).IsTrue();
+        _ = await Assert.That(spawnPresenter.Metadata.TerminalOnly).IsTrue();
     }
 
     private sealed class SensitiveFailingToolPresenter : IToolPresenter
@@ -269,7 +270,8 @@ internal sealed class ToolPresenterRegistryTests
     {
         public string ToolName => "live_only";
 
-        public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) => new LiveTextValue("live");
+        public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) =>
+            new LiveTextValue("live");
 
         public IScrollbackItem? PresentTerminal(
             ToolCallPresentation call,

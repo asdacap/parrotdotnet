@@ -4,6 +4,7 @@
     <OutputType>Exe</OutputType>
     <RootNamespace>Parrot.Core.Tests</RootNamespace>
     <IsTestProject>true</IsTestProject>
+    <NoWarn>$(NoWarn);CA1859</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

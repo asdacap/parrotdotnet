@@ -8,6 +8,10 @@ internal sealed class EnhancedLiveInputHost(
     private readonly TerminalKeyDecoder _decoder = new();
     private readonly Queue<TerminalKey> _keys = [];
 
+    public static ILiveInputHost Create(
+        ITerminal terminal,
+        Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> replace) => new EnhancedLiveInputHost(terminal, replace);
+
     public async ValueTask<TerminalKey> ReadKey(CancellationToken cancellationToken)
     {
         try

@@ -8,6 +8,9 @@ internal sealed class UnusedProvider : ILLMProvider
 {
     public string Id => "unused";
 
+    public IReadOnlyList<LLMModel> SeedModels() =>
+        throw new NotSupportedException("the mapping does not seed models");
+
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
     public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>

@@ -12,13 +12,13 @@ internal sealed class AgentTaskDetachedProgressTests
         var state = new AgentSessionState("main");
         state.CollectToolCall(new ToolCallChunk { ToolCallId = "call", ToolName = "run_agent_tasks" });
         _ = state.StartTool(new ToolStarted { ToolCallId = "call", ToolName = "run_agent_tasks" }, false);
-        _ = state.OfferAgentTaskProgress(Snapshot("call", 1, AgentTaskProgressStatus.Running));
+        _ = state.OfferAgentTaskProgress(new ProgressFixture("call", 1, AgentTaskProgressStatus.Running).Snapshot);
         _ = state.FinishTool(
             new Event { ToolFinished = new ToolFinished { ToolCallId = "call", ToolName = "run_agent_tasks" } },
             new ToolPresenterRegistry([], new GenericToolPresenter()),
             static value => value);
 
-        _ = await Assert.That(state.OfferAgentTaskProgress(Snapshot("call", 2, AgentTaskProgressStatus.Succeeded))).IsTrue();
+        _ = await Assert.That(state.OfferAgentTaskProgress(new ProgressFixture("call", 2, AgentTaskProgressStatus.Succeeded).Snapshot)).IsTrue();
         _ = await Assert.That(state.IsDetachedAgentTask("call")).IsTrue();
         _ = await Assert.That(state.RetireDetachedAgentTaskProgress("call", 2)).IsTrue();
         _ = await Assert.That(state.IsDetachedAgentTask("call")).IsFalse();
@@ -30,14 +30,14 @@ internal sealed class AgentTaskDetachedProgressTests
         var state = new AgentSessionState("main");
         state.CollectToolCall(new ToolCallChunk { ToolCallId = "call", ToolName = "run_agent_tasks" });
         _ = state.StartTool(new ToolStarted { ToolCallId = "call", ToolName = "run_agent_tasks" }, false);
-        _ = state.OfferAgentTaskProgress(Snapshot("call", 1, AgentTaskProgressStatus.Succeeded));
+        _ = state.OfferAgentTaskProgress(new ProgressFixture("call", 1, AgentTaskProgressStatus.Succeeded).Snapshot);
         _ = state.FinishTool(
             new Event { ToolFinished = new ToolFinished { ToolCallId = "call", ToolName = "run_agent_tasks" } },
             new ToolPresenterRegistry([], new GenericToolPresenter()),
             static value => value);
 
         _ = await Assert.That(state.IsDetachedAgentTask("call")).IsFalse();
-        _ = await Assert.That(state.OfferAgentTaskProgress(Snapshot("call", 2, AgentTaskProgressStatus.Succeeded))).IsFalse();
+        _ = await Assert.That(state.OfferAgentTaskProgress(new ProgressFixture("call", 2, AgentTaskProgressStatus.Succeeded).Snapshot)).IsFalse();
     }
 
     [Test]
@@ -62,21 +62,24 @@ internal sealed class AgentTaskDetachedProgressTests
         {
             state.CollectToolCall(new ToolCallChunk { ToolCallId = callId, ToolName = "run_agent_tasks" });
             _ = state.StartTool(new ToolStarted { ToolCallId = callId, ToolName = "run_agent_tasks" }, false);
-            _ = state.OfferAgentTaskProgress(Snapshot(callId, 1, AgentTaskProgressStatus.Running));
+            _ = state.OfferAgentTaskProgress(new ProgressFixture(callId, 1, AgentTaskProgressStatus.Running).Snapshot);
             _ = state.FinishTool(
                 new Event { ToolFinished = new ToolFinished { ToolCallId = callId, ToolName = "run_agent_tasks" } },
                 new ToolPresenterRegistry([], new GenericToolPresenter()),
                 static value => value);
         }
 
-        _ = await Assert.That(state.OfferAgentTaskProgress(Snapshot("first", 1, AgentTaskProgressStatus.Succeeded))).IsFalse();
-        _ = await Assert.That(state.OfferAgentTaskProgress(Snapshot("second", 2, AgentTaskProgressStatus.Succeeded))).IsTrue();
+        _ = await Assert.That(state.OfferAgentTaskProgress(new ProgressFixture("first", 1, AgentTaskProgressStatus.Succeeded).Snapshot)).IsFalse();
+        _ = await Assert.That(state.OfferAgentTaskProgress(new ProgressFixture("second", 2, AgentTaskProgressStatus.Succeeded).Snapshot)).IsTrue();
     }
 
-    private static AgentTaskProgressSnapshot Snapshot(string callId, ulong revision, AgentTaskProgressStatus status)
+    private sealed class ProgressFixture(string callId, ulong revision, AgentTaskProgressStatus status)
     {
-        var snapshot = new AgentTaskProgressSnapshot { OriginToolCallId = callId, Revision = revision };
-        snapshot.RootNodes.Add(new AgentTaskProgressNode { Name = callId, Status = status });
-        return snapshot;
+        public AgentTaskProgressSnapshot Snapshot { get; } = new()
+        {
+            OriginToolCallId = callId,
+            Revision = revision,
+            RootNodes = { new AgentTaskProgressNode { Name = callId, Status = status } },
+        };
     }
 }

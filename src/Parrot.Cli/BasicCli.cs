@@ -12,7 +12,7 @@ internal sealed class BasicCli(
     GeneratedParrot.ParrotClient client,
     Interrupts interrupts,
     ICredentialStore credentials,
-    OpenAiOAuthClient oauthClient,
+    IOAuthClient oauthClient,
     Configuration configuration,
     IReadOnlyList<string> providerIds,
     string model,
@@ -22,7 +22,7 @@ internal sealed class BasicCli(
     TextReader input,
     TextWriter output,
     TextWriter error,
-    PromptAttachmentUploader attachments) : IInterruptListener
+    PromptAttachmentUploader attachments)
 {
     private const string Prompt = "> ";
 
@@ -36,7 +36,7 @@ internal sealed class BasicCli(
 
     private volatile bool _busy;
     private volatile bool _interruptRequested;
-    private SlashSession? _session;
+    private ISlashSession? _session;
     private PermissionInteractionPresenter.Session? _permissionSession;
 
     public UserSession? InitialSession { private get; init; }
@@ -80,17 +80,6 @@ internal sealed class BasicCli(
         return text.Length > 0
             ? await Once(session.Id, text, output, error, cancellationToken).ConfigureAwait(false)
             : await Loop(session, input, output, error, cancellationToken).ConfigureAwait(false);
-    }
-
-    public bool Interrupted()
-    {
-        if (!_busy || _interruptRequested)
-        {
-            return false;
-        }
-
-        _interruptRequested = true;
-        return _interrupts.Writer.TryWrite(true);
     }
 
     internal static async Task WritePlanReport(
@@ -350,13 +339,16 @@ internal sealed class BasicCli(
     private static string Summarise(TurnEnded ended) =>
         $"turn ended ({ended.FinishReason}, {ended.InputTokens} total in / {ended.OutputTokens} total out)";
 
-    private static SendMessageRequest Message(string userSessionId, string text) =>
-        new()
+    private bool Interrupt()
+    {
+        if (!_busy || _interruptRequested)
         {
-            UserSessionId = userSessionId,
-            Text = text,
-            Delivery = Delivery.Steer,
-        };
+            return false;
+        }
+
+        _interruptRequested = true;
+        return _interrupts.Writer.TryWrite(true);
+    }
 
     private async Task<int> Once(
         string userSessionId,
@@ -404,11 +396,12 @@ internal sealed class BasicCli(
         using var application = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         await using var binding = new BasicSlashSessionBinding(
             client, initialSession.Id, this, output, error, application.Token);
-        var session = new SlashSession(client, initialSession, configuration, true, binding);
+        var session = SlashSession.Create(
+            client, initialSession, configuration, true, new CliSlashSessionBinding(binding.Replace));
         _session = session;
         _permissionSession = _permissions.Attach(initialSession.Id);
         var reconcilingPermissions = _permissions.Reconcile(application.Token);
-        var dialog = new BasicSlashDialog(input, output, error);
+        ISlashDialog dialog = new BasicSlashDialog(input, output, error);
         var commands = SlashCommands.Create(
             client,
             dialog,
@@ -421,7 +414,8 @@ internal sealed class BasicCli(
             static _ => Task.CompletedTask);
         var interrupting = Interrupting(session, application.Token);
 
-        interrupts.Install(this);
+        var interruptListener = CliInterruptListener.Create(Interrupt);
+        interrupts.Install(interruptListener);
 
         try
         {
@@ -590,7 +584,7 @@ internal sealed class BasicCli(
             if (choice.Action?.Prompt.Length > 0)
             {
                 _busy = true;
-                _ = await client.SendMessageAsync(Message(_session.Id, choice.Action.Prompt), cancellationToken: cancellationToken);
+                _ = await client.SendMessageAsync(new SendMessageRequest { UserSessionId = _session.Id, Text = choice.Action.Prompt, Delivery = Delivery.Steer }, cancellationToken: cancellationToken);
             }
 
             return;
@@ -603,7 +597,7 @@ internal sealed class BasicCli(
         }
 
         _busy = true;
-        _ = await client.SendMessageAsync(Message(_session.Id, selected), cancellationToken: cancellationToken);
+        _ = await client.SendMessageAsync(new SendMessageRequest { UserSessionId = _session.Id, Text = selected, Delivery = Delivery.Steer }, cancellationToken: cancellationToken);
     }
 
     private async Task DiscoverQuestions(
@@ -692,7 +686,7 @@ internal sealed class BasicCli(
         }
     }
 
-    private async Task Interrupting(SlashSession session, CancellationToken cancellationToken)
+    private async Task Interrupting(ISlashSession session, CancellationToken cancellationToken)
     {
         try
         {
@@ -728,7 +722,7 @@ internal sealed class BasicCli(
         BasicCli cli,
         TextWriter output,
         TextWriter error,
-        CancellationToken lifetimeToken) : ISlashSessionBinding, IAsyncDisposable
+        CancellationToken lifetimeToken) : IAsyncDisposable
     {
         private (CancellationTokenSource Cancellation, AsyncServerStreamingCall<Event> Call) _stream =
             Open(client, initialSessionId, lifetimeToken);

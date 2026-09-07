@@ -99,7 +99,7 @@ internal sealed class TerminalInputTests
     public async Task Live_input_cancellation_discards_buffered_keys(CancellationToken cancellationToken)
     {
         using var terminal = new ScriptedTerminal(80);
-        var host = new EnhancedLiveInputHost(terminal, static (_, _) => Task.CompletedTask);
+        ILiveInputHost host = new EnhancedLiveInputHost(terminal, static (_, _) => Task.CompletedTask);
         terminal.Type("ab");
         var first = await host.ReadKey(cancellationToken);
         using var cancelled = new CancellationTokenSource();
@@ -117,7 +117,7 @@ internal sealed class TerminalInputTests
     public async Task Live_input_reset_discards_keys_buffered_for_the_previous_owner(CancellationToken cancellationToken)
     {
         using var terminal = new ScriptedTerminal(80);
-        var host = new EnhancedLiveInputHost(terminal, static (_, _) => Task.CompletedTask);
+        ILiveInputHost host = new EnhancedLiveInputHost(terminal, static (_, _) => Task.CompletedTask);
         terminal.Type("ab");
         var first = await host.ReadKey(cancellationToken);
 
@@ -133,7 +133,7 @@ internal sealed class TerminalInputTests
     public async Task Live_input_cancellation_discards_partial_decoder_state(CancellationToken cancellationToken)
     {
         using var terminal = new ScriptedTerminal(80);
-        var host = new EnhancedLiveInputHost(terminal, static (_, _) => Task.CompletedTask);
+        ILiveInputHost host = new EnhancedLiveInputHost(terminal, static (_, _) => Task.CompletedTask);
         using var cancelled = new CancellationTokenSource();
         terminal.Type("\u001b");
         var pending = host.ReadKey(cancelled.Token).AsTask();
@@ -246,7 +246,7 @@ internal sealed class TerminalInputTests
         var submitted = editor.Apply(new TerminalKey(TerminalKeyKind.Submit));
 
         _ = await Assert.That(submitted).IsEqualTo("a🙂");
-        _ = await Assert.That(editor.Prompt).IsEqualTo(new PromptValue("> ", string.Empty, 0));
+        _ = await Assert.That(editor.Prompt).IsEqualTo(new PromptState("> ", string.Empty, 0));
     }
 
     [Test]
@@ -256,7 +256,7 @@ internal sealed class TerminalInputTests
 
         editor.Replace("a🙂b\u001b[2Jc");
 
-        _ = await Assert.That(editor.Prompt).IsEqualTo(new PromptValue("> ", "a🙂b", 3));
+        _ = await Assert.That(editor.Prompt).IsEqualTo(new PromptState("> ", "a🙂b", 3));
     }
 
     [Test]
@@ -267,7 +267,34 @@ internal sealed class TerminalInputTests
 
         editor.ReplaceRange(2, 3, "$alpha");
 
-        _ = await Assert.That(editor.Prompt).IsEqualTo(new PromptValue("> ", "🙂 $alpha suffix", 8));
+        _ = await Assert.That(editor.Prompt).IsEqualTo(new PromptState("> ", "🙂 $alpha suffix", 8));
+    }
+
+    [Test]
+    [Arguments(-1, 0, 2)]
+    [Arguments(1, 1, 4)]
+    [Arguments(99, 2, 5)]
+    public async Task Prompt_rendering_sanitizes_a_snapshot_and_clamps_its_rune_cursor(
+        int cursor, int sanitizedCursor, int column)
+    {
+        var state = new PromptState(">\n ", "🙂\u0001x", cursor);
+        ILiveBufferItem value = new PromptValue(state);
+        var rendered = value.Render(new LiveBufferRenderContext(80, new TerminalPalette(false)));
+
+        _ = await Assert.That(state).IsEqualTo(new PromptState(">\n ", "🙂\u0001x", cursor));
+        _ = await Assert.That(state.Sanitize()).IsEqualTo(new PromptState("> ", "🙂x", sanitizedCursor));
+        _ = await Assert.That(rendered.Lines).HasSingleItem();
+        _ = await Assert.That(rendered.Lines[0].Text).IsEqualTo("> 🙂x");
+        _ = await Assert.That(rendered.Caret).IsEqualTo(new LiveBufferCaret(0, column));
+        _ = await Assert.That(rendered.Retention).IsEqualTo(LiveBufferRetention.Caret);
+
+        var editor = new IncrementalEditor(">\n ", 20);
+        editor.Replace("🙂x");
+        var captured = editor.Prompt;
+        editor.Clear();
+
+        _ = await Assert.That(captured).IsEqualTo(new PromptState(">\n ", "🙂x", 2));
+        _ = await Assert.That(editor.Prompt).IsEqualTo(new PromptState(">\n ", string.Empty, 0));
     }
 
     [Test]
@@ -286,11 +313,16 @@ internal sealed class TerminalInputTests
     public async Task Marquee_keeps_streamed_text_on_one_row_and_moves_it_left()
     {
         var context = new LiveBufferRenderContext(5, new TerminalPalette(false));
-        var first = new MarqueeValue("● ", "abcdef", 0).Render(context);
-        var next = new MarqueeValue("● ", "abcdef", 1).Render(context);
-        var stationary = new MarqueeValue("● ", "a\nb", 20).Render(context);
-        var wide = new MarqueeValue(string.Empty, "界ab", 1).Render(new LiveBufferRenderContext(2, context.Palette));
-        var joined = new MarqueeValue(string.Empty, "👨‍👩‍👧‍👦a", 0).Render(new LiveBufferRenderContext(2, context.Palette));
+        ILiveBufferItem firstValue = new MarqueeValue("● ", "abcdef", 0);
+        var first = firstValue.Render(context);
+        ILiveBufferItem nextValue = new MarqueeValue("● ", "abcdef", 1);
+        var next = nextValue.Render(context);
+        ILiveBufferItem stationaryValue = new MarqueeValue("● ", "a\nb", 20);
+        var stationary = stationaryValue.Render(context);
+        ILiveBufferItem wideValue = new MarqueeValue(string.Empty, "界ab", 1);
+        var wide = wideValue.Render(new LiveBufferRenderContext(2, context.Palette));
+        ILiveBufferItem joinedValue = new MarqueeValue(string.Empty, "👨‍👩‍👧‍👦a", 0);
+        var joined = joinedValue.Render(new LiveBufferRenderContext(2, context.Palette));
 
         _ = await Assert.That(first.Lines).Count().IsEqualTo(1);
         _ = await Assert.That(first.Lines[0].Text).IsEqualTo("● abc");
@@ -305,13 +337,20 @@ internal sealed class TerminalInputTests
     public async Task Streamed_response_keeps_the_latest_text_within_the_viewport()
     {
         var context = new LiveBufferRenderContext(5, new TerminalPalette(false));
-        var shortText = new StreamedResponseValue("● ", "one").Render(context);
-        var nextCharacter = new StreamedResponseValue("● ", "one t").Render(context);
-        var incompleteWord = new StreamedResponseValue("● ", "one tw").Render(context);
-        var completedWord = new StreamedResponseValue("● ", "one two").Render(context);
-        var trailingWhitespace = new StreamedResponseValue("● ", "one two ").Render(context);
-        var nextWord = new StreamedResponseValue("● ", "one two n").Render(context);
-        var newline = new StreamedResponseValue("● ", "one\ntwo").Render(context);
+        ILiveBufferItem shortTextValue = new StreamedResponseValue("● ", "one");
+        var shortText = shortTextValue.Render(context);
+        ILiveBufferItem nextCharacterValue = new StreamedResponseValue("● ", "one t");
+        var nextCharacter = nextCharacterValue.Render(context);
+        ILiveBufferItem incompleteWordValue = new StreamedResponseValue("● ", "one tw");
+        var incompleteWord = incompleteWordValue.Render(context);
+        ILiveBufferItem completedWordValue = new StreamedResponseValue("● ", "one two");
+        var completedWord = completedWordValue.Render(context);
+        ILiveBufferItem trailingWhitespaceValue = new StreamedResponseValue("● ", "one two ");
+        var trailingWhitespace = trailingWhitespaceValue.Render(context);
+        ILiveBufferItem nextWordValue = new StreamedResponseValue("● ", "one two n");
+        var nextWord = nextWordValue.Render(context);
+        ILiveBufferItem newlineValue = new StreamedResponseValue("● ", "one\ntwo");
+        var newline = newlineValue.Render(context);
 
         _ = await Assert.That(shortText.Lines[0].Text).IsEqualTo("● one");
         _ = await Assert.That(nextCharacter.Lines[0].Text).IsEqualTo("● e t");
@@ -327,16 +366,16 @@ internal sealed class TerminalInputTests
     public async Task Streamed_response_clips_graphemes_at_terminal_cell_boundaries()
     {
         var palette = new TerminalPalette(false);
-        var wide = new StreamedResponseValue(string.Empty, "old 界ab")
-            .Render(new LiveBufferRenderContext(3, palette));
-        var joinedBoundary = new StreamedResponseValue(string.Empty, "old 👨‍👩‍👧‍👦a")
-            .Render(new LiveBufferRenderContext(2, palette));
-        var joinedTail = new StreamedResponseValue(string.Empty, "old a👨‍👩‍👧‍👦")
-            .Render(new LiveBufferRenderContext(3, palette));
-        var combining = new StreamedResponseValue(string.Empty, "old e\u0301x")
-            .Render(new LiveBufferRenderContext(2, palette));
-        var clippedPrefix = new StreamedResponseValue("● ", "response")
-            .Render(new LiveBufferRenderContext(1, palette));
+        ILiveBufferItem wideValue = new StreamedResponseValue(string.Empty, "old 界ab");
+        var wide = wideValue.Render(new LiveBufferRenderContext(3, palette));
+        ILiveBufferItem joinedBoundaryValue = new StreamedResponseValue(string.Empty, "old 👨‍👩‍👧‍👦a");
+        var joinedBoundary = joinedBoundaryValue.Render(new LiveBufferRenderContext(2, palette));
+        ILiveBufferItem joinedTailValue = new StreamedResponseValue(string.Empty, "old a👨‍👩‍👧‍👦");
+        var joinedTail = joinedTailValue.Render(new LiveBufferRenderContext(3, palette));
+        ILiveBufferItem combiningValue = new StreamedResponseValue(string.Empty, "old e\u0301x");
+        var combining = combiningValue.Render(new LiveBufferRenderContext(2, palette));
+        ILiveBufferItem clippedPrefixValue = new StreamedResponseValue("● ", "response");
+        var clippedPrefix = clippedPrefixValue.Render(new LiveBufferRenderContext(1, palette));
 
         _ = await Assert.That(wide.Lines[0].Text).IsEqualTo("ab");
         _ = await Assert.That(joinedBoundary.Lines[0].Text).IsEqualTo("a");
@@ -352,10 +391,14 @@ internal sealed class TerminalInputTests
     public async Task Live_buffer_values_render_rich_multiline_results()
     {
         var context = new LiveBufferRenderContext(4, new TerminalPalette(false));
-        var prompt = new PromptValue("> ", "a界\nb", 3).Render(context);
-        var modeline = new ModelineValue("chat", string.Empty, "model").Render(context);
-        var spinner = new SpinnerValue("work\u001b[2J", 0).Render(context);
-        var text = new LiveTextValue("one\ntwo").Render(context);
+        ILiveBufferItem promptValue = new PromptValue("> ", "a界\nb", 3);
+        var prompt = promptValue.Render(context);
+        ILiveBufferItem modelineValue = new ModelineValue("chat", string.Empty, "model");
+        var modeline = modelineValue.Render(context);
+        ILiveBufferItem spinnerValue = new SpinnerValue("work\u001b[2J", 0);
+        var spinner = spinnerValue.Render(context);
+        ILiveBufferItem textValue = new LiveTextValue("one\ntwo");
+        var text = textValue.Render(context);
 
         _ = await Assert.That(string.Join('|', prompt.Lines.Select(value => value.Text))).IsEqualTo("> a|  界|  b");
         _ = await Assert.That(prompt.Caret).IsEqualTo(new LiveBufferCaret(2, 2));

@@ -134,7 +134,7 @@ internal sealed class QueueStore(string directory) : IDisposable
             ThrowIfDisposedLocked();
             var metadata = new QueueMetadata { Name = name, Description = description };
             CreateFile(path, Encode(metadata, []), name);
-            return ToInfo(path, metadata, 0);
+            return QueueInfo.FromMetadata(path, metadata, 0, false);
         }
         finally
         {
@@ -160,7 +160,7 @@ internal sealed class QueueStore(string directory) : IDisposable
             {
                 if (close && items.Count == 0)
                 {
-                    return ToInfo(path, metadata, stored.Count);
+                    return QueueInfo.FromMetadata(path, metadata, stored.Count, false);
                 }
 
                 throw new QueueClosedException($"queue: '{name}' is closed");
@@ -190,7 +190,7 @@ internal sealed class QueueStore(string directory) : IDisposable
             metadata = close ? metadata with { Closed = true } : metadata;
             Write(path, metadata, stored);
             PublishInventoryLocked(metadata, stored.Count);
-            return ToInfo(path, metadata, stored.Count);
+            return QueueInfo.FromMetadata(path, metadata, stored.Count, false);
         }
         catch (OperationCanceledException failure)
         {
@@ -267,7 +267,11 @@ internal sealed class QueueStore(string directory) : IDisposable
         {
             ThrowIfDisposedLocked();
             var (metadata, items) = Read(path, name);
-            return ToInfo(path, metadata, items.Count, listenerSessionId);
+            return QueueInfo.FromMetadata(
+                path,
+                metadata,
+                items.Count,
+                metadata.ListenerSessionIds?.Contains(listenerSessionId, StringComparer.Ordinal) == true);
         }
         finally
         {
@@ -300,7 +304,11 @@ internal sealed class QueueStore(string directory) : IDisposable
                 try
                 {
                     var (metadata, items) = Read(path, name);
-                    result.Add(ToInfo(path, metadata, items.Count, listenerSessionId));
+                    result.Add(QueueInfo.FromMetadata(
+                        path,
+                        metadata,
+                        items.Count,
+                        metadata.ListenerSessionIds?.Contains(listenerSessionId, StringComparer.Ordinal) == true));
                 }
                 catch (QueueException failure)
                 {
@@ -342,7 +350,11 @@ internal sealed class QueueStore(string directory) : IDisposable
                 DeliveryListenerSessionId = clearsDelivery ? null : current.DeliveryListenerSessionId,
             };
             Write(path, metadata, items);
-            return ToInfo(path, metadata, items.Count, listenerSessionId);
+            return QueueInfo.FromMetadata(
+                path,
+                metadata,
+                items.Count,
+                metadata.ListenerSessionIds?.Contains(listenerSessionId, StringComparer.Ordinal) == true);
         }
         catch (OperationCanceledException failure)
         {
@@ -712,10 +724,10 @@ internal sealed class QueueStore(string directory) : IDisposable
         {
             if (current.Closed)
             {
-                return new QueueTakeResult([], ToInfo(path, current, 0));
+                return new QueueTakeResult([], QueueInfo.FromMetadata(path, current, 0, false));
             }
 
-            throw new QueueEmptyException(ToInfo(path, current, 0));
+            throw new QueueEmptyException(QueueInfo.FromMetadata(path, current, 0, false));
         }
 
         count = Math.Min(count, items.Count);
@@ -744,7 +756,7 @@ internal sealed class QueueStore(string directory) : IDisposable
         }
 
         Write(path, metadata, items);
-        return new QueueTakeResult(taken, ToInfo(path, metadata, items.Count));
+        return new QueueTakeResult(taken, QueueInfo.FromMetadata(path, metadata, items.Count, false));
     }
 
     private static (QueueMetadata Metadata, List<string> Items) Read(string path, string name)
@@ -947,22 +959,6 @@ internal sealed class QueueStore(string directory) : IDisposable
     private static string TemporaryPath(string path) =>
         Path.Combine(Path.GetDirectoryName(path) ?? string.Empty, $".{Path.GetFileName(path)}-{Guid.NewGuid():n}");
 
-    private static QueueInfo ToInfo(string path, QueueMetadata metadata, int size) =>
-        new(path, metadata.Name, metadata.Description ?? string.Empty, size, false, metadata.Closed);
-
-    private static QueueInfo ToInfo(
-        string path,
-        QueueMetadata metadata,
-        int size,
-        string listenerSessionId) =>
-        new(
-            path,
-            metadata.Name,
-            metadata.Description ?? string.Empty,
-            size,
-            metadata.ListenerSessionIds?.Contains(listenerSessionId, StringComparer.Ordinal) == true,
-            metadata.Closed);
-
     private static QueueFileLock AcquireFileLockSynchronously(
         string path,
         CancellationToken cancellationToken)
@@ -1064,7 +1060,7 @@ internal sealed class QueueStore(string directory) : IDisposable
     }
 
     private void PublishInventoryLocked(QueueMetadata metadata, int itemCount) =>
-        PublishInventoryLocked(ToInfo(string.Empty, metadata, itemCount));
+        PublishInventoryLocked(QueueInfo.FromMetadata(string.Empty, metadata, itemCount, false));
 
     private void PublishInventoryLocked(QueueInfo info)
     {

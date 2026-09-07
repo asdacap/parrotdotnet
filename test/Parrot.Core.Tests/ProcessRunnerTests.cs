@@ -25,6 +25,13 @@ internal sealed class ProcessRunnerTests : IDisposable
     [Test]
     public async Task Without_a_sandbox_the_command_does_not_run()
     {
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var runner = new ProcessRunner(string.Empty);
         var marker = Path.Combine(_workspace, "should-not-exist");
 
@@ -32,9 +39,9 @@ internal sealed class ProcessRunnerTests : IDisposable
                 await runner.Run(
                     $"touch {marker}",
                     ProcessEnvironmentOverrides.Empty,
-                    Resources(_workspace),
-                    Scratch(_workspace),
-                    WritableProfile(Resources(_workspace)),
+                    resources,
+                    Scratch(resources),
+                    WritableProfile(resources),
                     CancellationToken.None))
             .Throws<SandboxUnavailableException>();
 
@@ -50,15 +57,22 @@ internal sealed class ProcessRunnerTests : IDisposable
             return;
         }
 
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var runner = new ProcessRunner(CreateSandboxPassThrough(_workspace));
 
         var result = await runner.Run(
             "awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"o\"; "
             + "for (i = 0; i < 70000; i++) printf \"e\" > \"/dev/stderr\"; exit 7 }'",
             ProcessEnvironmentOverrides.Empty,
-            Resources(_workspace),
-            Scratch(_workspace),
-            WritableProfile(Resources(_workspace)),
+            resources,
+            Scratch(resources),
+            WritableProfile(resources),
             cancellationToken);
 
         _ = await Assert.That(result.ExitCode).IsEqualTo(7);
@@ -67,7 +81,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await Assert.That(result.Spilled).IsTrue();
         _ = await Assert.That(Path.IsPathFullyQualified(result.BlobPath)).IsTrue();
         _ = await Assert.That(Path.GetDirectoryName(result.BlobPath))
-            .IsEqualTo(Scratch(_workspace).BlobDirectory);
+            .IsEqualTo(Scratch(resources).BlobDirectory);
         _ = await Assert.That(Path.GetFileName(result.BlobPath)).EndsWith("-arse.dat");
 
         var output = await File.ReadAllTextAsync(result.BlobPath, cancellationToken);
@@ -75,7 +89,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await Assert.That(output).EndsWith(
             $"s\n[stdout]\n{new string('o', 70000)}"
             + $"\n[stderr]\n{new string('e', 70000)}");
-        _ = await Assert.That(Directory.EnumerateFiles(Scratch(_workspace).BlobDirectory, ".process-*.tmp"))
+        _ = await Assert.That(Directory.EnumerateFiles(Scratch(resources).BlobDirectory, ".process-*.tmp"))
             .IsEmpty();
     }
 
@@ -88,15 +102,22 @@ internal sealed class ProcessRunnerTests : IDisposable
             return;
         }
 
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var runner = new ProcessRunner(CreateSandboxPassThrough(_workspace));
 
         var result = await runner.Run(
             "awk 'BEGIN { for (i = 0; i < 11000; i++) printf \"€\"; "
             + "for (i = 0; i < 11000; i++) printf \"€\" > \"/dev/stderr\" }'",
             ProcessEnvironmentOverrides.Empty,
-            Resources(_workspace),
-            Scratch(_workspace),
-            WritableProfile(Resources(_workspace)),
+            resources,
+            Scratch(resources),
+            WritableProfile(resources),
             cancellationToken);
 
         _ = await Assert.That(result.Spilled).IsTrue();
@@ -117,7 +138,13 @@ internal sealed class ProcessRunnerTests : IDisposable
         }
 
         var runner = new ProcessRunner(CreateSandboxPassThrough(_workspace));
-        var resources = Resources(_workspace);
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var scratch = Scratch(resources);
         Directory.Delete(scratch.BlobDirectory);
         await File.WriteAllTextAsync(scratch.BlobDirectory, string.Empty, cancellationToken);
@@ -141,15 +168,22 @@ internal sealed class ProcessRunnerTests : IDisposable
             return;
         }
 
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var runner = new ProcessRunner(CreateSandboxPassThrough(_workspace));
         var pidPath = Path.Combine(_workspace, "child.pid");
         using var cancellation = new CancellationTokenSource();
         var running = runner.Run(
             "sh -c 'while :; do sleep 1; done' & echo $! > child.pid; wait",
             ProcessEnvironmentOverrides.Empty,
-            Resources(_workspace),
-            Scratch(_workspace),
-            WritableProfile(Resources(_workspace)),
+            resources,
+            Scratch(resources),
+            WritableProfile(resources),
             cancellation.Token);
         var childPid = await ReadPid(pidPath);
 
@@ -192,15 +226,22 @@ internal sealed class ProcessRunnerTests : IDisposable
             Path.Combine(gitDirectory, "gitdir"),
             Path.Combine(worktree, ".git") + "\n",
             cancellationToken);
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(worktree, ".test-state"),
+                Path.Combine(worktree, ".test-config"),
+                Path.Combine(worktree, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(worktree));
         var argumentsPath = Path.Combine(worktree, "arguments");
         var runner = new ProcessRunner(CreateArgumentCapturingSandbox(worktree, argumentsPath));
 
         _ = await runner.Run(
             "true",
             ProcessEnvironmentOverrides.Empty,
-            Resources(worktree),
-            Scratch(worktree),
-            WritableProfile(Resources(worktree)),
+            resources,
+            Scratch(resources),
+            WritableProfile(resources),
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
@@ -214,9 +255,9 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await runner.Run(
             "true",
             ProcessEnvironmentOverrides.Empty,
-            Resources(worktree),
-            Scratch(worktree),
-            AgentProfile(Resources(worktree), SecurityProfile.Compose(true, [], [], []), []),
+            resources,
+            Scratch(resources),
+            AgentProfile(resources, SecurityProfile.Compose(true, [], [], []), []),
             cancellationToken);
 
         arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
@@ -236,6 +277,13 @@ internal sealed class ProcessRunnerTests : IDisposable
             return;
         }
 
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var argumentsPath = Path.Combine(_workspace, "arguments");
         var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
 
@@ -246,9 +294,9 @@ internal sealed class ProcessRunnerTests : IDisposable
                 new KeyValuePair<string, string>("LANG", "command-language"),
                 new KeyValuePair<string, string>("COMMAND_VALUE", "present"),
             ]),
-            Resources(_workspace),
-            Scratch(_workspace),
-            WritableProfile(Resources(_workspace)),
+            resources,
+            Scratch(resources),
+            WritableProfile(resources),
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
@@ -273,7 +321,13 @@ internal sealed class ProcessRunnerTests : IDisposable
         var argumentsPath = Path.Combine(_workspace, "arguments");
         var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
 
-        var resources = Resources(_workspace);
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         _ = await runner.Run(
             "true",
             ProcessEnvironmentOverrides.Empty,
@@ -300,7 +354,13 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         var argumentsPath = Path.Combine(_workspace, "arguments");
         var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
-        var resources = Resources(_workspace);
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var scratch = Scratch(resources);
         var profile = SecurityProfile.Compose(
             false,
@@ -333,7 +393,13 @@ internal sealed class ProcessRunnerTests : IDisposable
         var shared = Directory.CreateDirectory(Path.Combine(_workspace, "shared")).FullName;
         var argumentsPath = Path.Combine(_workspace, "arguments");
         var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
-        var resources = Resources(_workspace);
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var parent = SecurityProfile.Compose(
             readOnly: false,
             modeRules: [new SandboxRule(shared, SandboxRuleAction.AllowWrite)],
@@ -367,6 +433,13 @@ internal sealed class ProcessRunnerTests : IDisposable
             return;
         }
 
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var nested = Directory.CreateDirectory(Path.Combine(_workspace, "nested")).FullName;
         var hidden = Directory.CreateDirectory(Path.Combine(_workspace, "hidden")).FullName;
         var argumentsPath = Path.Combine(_workspace, "arguments");
@@ -387,9 +460,9 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await runner.Run(
             "true",
             ProcessEnvironmentOverrides.Empty,
-            Resources(_workspace),
-            Scratch(_workspace),
-            AgentProfile(Resources(_workspace), profile, []),
+            resources,
+            Scratch(resources),
+            AgentProfile(resources, profile, []),
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
@@ -417,7 +490,13 @@ internal sealed class ProcessRunnerTests : IDisposable
         }
 
         var argumentsPath = Path.Combine(_workspace, "arguments");
-        var resources = Resources(_workspace);
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var scratch = Scratch(resources);
         var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
 
@@ -448,6 +527,13 @@ internal sealed class ProcessRunnerTests : IDisposable
             return;
         }
 
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var granted = Directory.CreateDirectory(Path.Combine(_workspace, "granted")).FullName;
         var argumentsPath = Path.Combine(_workspace, "arguments");
         var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
@@ -461,9 +547,9 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await runner.Run(
             "true",
             ProcessEnvironmentOverrides.Empty,
-            Resources(_workspace),
-            Scratch(_workspace),
-            AgentProfile(Resources(_workspace), profile, [approval]),
+            resources,
+            Scratch(resources),
+            AgentProfile(resources, profile, [approval]),
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
@@ -473,9 +559,9 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await runner.Run(
             "true",
             ProcessEnvironmentOverrides.Empty,
-            Resources(_workspace),
-            Scratch(_workspace),
-            AgentProfile(Resources(_workspace), SecurityProfile.Compose(true, [], [], []), []),
+            resources,
+            Scratch(resources),
+            AgentProfile(resources, SecurityProfile.Compose(true, [], [], []), []),
             cancellationToken);
 
         arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
@@ -491,6 +577,13 @@ internal sealed class ProcessRunnerTests : IDisposable
             return;
         }
 
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var mandatoryRoot = Directory.CreateDirectory(Path.Combine(_workspace, "mandatory")).FullName;
         var argumentsPath = Path.Combine(_workspace, "arguments");
         var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
@@ -504,9 +597,9 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await runner.Run(
             "true",
             ProcessEnvironmentOverrides.Empty,
-            Resources(_workspace),
-            Scratch(_workspace),
-            AgentProfile(Resources(_workspace), profile, [approval]),
+            resources,
+            Scratch(resources),
+            AgentProfile(resources, profile, [approval]),
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
@@ -517,6 +610,13 @@ internal sealed class ProcessRunnerTests : IDisposable
     public async Task Real_sandbox_applies_directory_grants_and_static_precedence(
         CancellationToken cancellationToken)
     {
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var runner = ProcessRunner.Locate();
         if (!runner.SandboxAvailable)
         {
@@ -546,9 +646,9 @@ internal sealed class ProcessRunnerTests : IDisposable
                 + $"if printf denied > '{staticallyDenied}' 2>/dev/null; then echo static-writable; else echo static-denied; fi; "
                 + $"printf outside > '{outsideGrant}' 2>/dev/null",
                 ProcessEnvironmentOverrides.Empty,
-                Resources(_workspace),
-                Scratch(_workspace),
-                AgentProfile(Resources(_workspace), profile, [approval]),
+                resources,
+                Scratch(resources),
+                AgentProfile(resources, profile, [approval]),
                 cancellationToken);
 
             _ = await Assert.That(result.Stdout).Contains("static-denied");
@@ -565,6 +665,13 @@ internal sealed class ProcessRunnerTests : IDisposable
     [Test]
     public async Task Real_sandbox_applies_exact_file_grants(CancellationToken cancellationToken)
     {
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var runner = ProcessRunner.Locate();
         if (!runner.SandboxAvailable)
         {
@@ -584,9 +691,9 @@ internal sealed class ProcessRunnerTests : IDisposable
             _ = await runner.Run(
                 $"printf allowed > '{allowed}'; printf denied > '{denied}' 2>/dev/null",
                 ProcessEnvironmentOverrides.Empty,
-                Resources(_workspace),
-                Scratch(_workspace),
-                AgentProfile(Resources(_workspace), SecurityProfile.Compose(false, [], [], []), [approval]),
+                resources,
+                Scratch(resources),
+                AgentProfile(resources, SecurityProfile.Compose(false, [], [], []), [approval]),
                 cancellationToken);
 
             _ = await Assert.That(await File.ReadAllTextAsync(allowed, cancellationToken)).IsEqualTo("allowed");
@@ -606,6 +713,13 @@ internal sealed class ProcessRunnerTests : IDisposable
             return;
         }
 
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var granted = Directory.CreateDirectory(Path.Combine(_workspace, "granted")).FullName;
         var replacement = Directory.CreateDirectory(Path.Combine(_workspace, "replacement")).FullName;
         var approval = SecurityWriteTarget.Resolve(granted);
@@ -613,7 +727,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = Directory.CreateSymbolicLink(granted, replacement);
 
         _ = await Assert.That(() => AgentProfile(
-                Resources(_workspace),
+                resources,
                 SecurityProfile.Compose(false, [], [], []),
                 [approval]))
             .Throws<InvalidOperationException>();
@@ -630,7 +744,13 @@ internal sealed class ProcessRunnerTests : IDisposable
             return;
         }
 
-        var resources = Resources(_workspace);
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var ownScratch = Scratch(resources);
         var siblingScratch = resources.AgentScratch("agent-session-sibling");
         var siblingFile = Path.Combine(siblingScratch.Root, "shared.txt");
@@ -669,7 +789,13 @@ internal sealed class ProcessRunnerTests : IDisposable
             return;
         }
 
-        var resources = Resources(_workspace);
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         await using var execution = runner.Start(
             "printf pty-ready",
             ProcessEnvironmentOverrides.Empty,
@@ -696,7 +822,13 @@ internal sealed class ProcessRunnerTests : IDisposable
             return;
         }
 
-        var resources = Resources(_workspace);
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var scratch = Scratch(resources);
         var scratchFile = Path.Combine(scratch.Root, "scratch.txt");
         var result = await runner.Run(
@@ -725,18 +857,6 @@ internal sealed class ProcessRunnerTests : IDisposable
             resources.Workspace.WritableRoots,
             resources.ScratchRootDirectory,
             approvals);
-
-    private static UserSessionResources Resources(string workspace) =>
-        new(
-            new StatePaths(
-                Path.Combine(workspace, ".test-state"),
-                Path.Combine(workspace, ".test-config"),
-                Path.Combine(workspace, ".test-data")),
-            UserSessionId.Parse("session-test"),
-            ProjectWorkspace.FromLaunchDirectory(workspace));
-
-    private static AgentScratchDirectory Scratch(string workspace) =>
-        Resources(workspace).AgentScratch("agent-session-test");
 
     private static AgentScratchDirectory Scratch(UserSessionResources resources) =>
         resources.AgentScratch("agent-session-test");

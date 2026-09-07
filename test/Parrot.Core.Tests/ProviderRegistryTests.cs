@@ -74,9 +74,13 @@ internal sealed class ProviderRegistryTests
     [Test]
     public async Task Resolve_selects_defaults_and_keeps_the_vendor_prefix()
     {
-        var registry = Build(
-            [("openrouter", ["openai/gpt-4o", "z"]), ("opencode-go", ["glm-5.2"])],
-            "openrouter/openai/gpt-4o");
+        var registry = new ProviderRegistry(
+            [new FakeProvider("openrouter", true, null), new FakeProvider("opencode-go", true, null)],
+            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal)
+            {
+                ["openrouter"] = [new LLMModel("openai/gpt-4o", "openrouter"), new LLMModel("z", "openrouter")],
+                ["opencode-go"] = [new LLMModel("glm-5.2", "opencode-go")],
+            });
 
         var explicitModel = registry.ResolveCanonical("openrouter/openai/gpt-4o");
         var defaultModel = registry.ResolveCanonical("openrouter/openai/gpt-4o");
@@ -137,7 +141,12 @@ internal sealed class ProviderRegistryTests
     [Arguments("p//m")]
     public async Task Resolve_rejects_unknown_providers_and_malformed_selectors(string selector)
     {
-        var registry = Build([("p", ["m"])], string.Empty);
+        var registry = new ProviderRegistry(
+            [new FakeProvider("p", true, null)],
+            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal)
+            {
+                ["p"] = [new LLMModel("m", "p")],
+            });
 
         _ = await Assert.That(() => registry.ResolveCanonical(selector)).Throws<LLMProviderException>();
     }
@@ -284,7 +293,7 @@ internal sealed class ProviderRegistryTests
     {
         using var handler = new ChatGptModelsHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = new ChatGptProvider(
+        ILLMProvider provider = new ChatGptProvider(
             new FakeOAuthTokenSource(),
             client,
             [new LLMModel("declared", "chatgpt") { Name = "Declared" }],
@@ -313,7 +322,7 @@ internal sealed class ProviderRegistryTests
     {
         using var handler = new ChatGptCallHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = new ChatGptProvider(new FakeOAuthTokenSource(), client, [], [], [], false, new ResponsesWebSocketConnector());
+        ILLMProvider provider = new ChatGptProvider(new FakeOAuthTokenSource(), client, [], [], [], false, new ResponsesWebSocketConnector());
         var request = new LLMRequest
         {
             Model = "gpt-5.6-sol",
@@ -333,12 +342,22 @@ internal sealed class ProviderRegistryTests
 
     [Test]
     public async Task Duplicate_ids_are_rejected_at_construction() =>
-        _ = await Assert.That(() => Build([("p", []), ("p", [])], string.Empty)).Throws<LLMProviderException>();
+        _ = await Assert.That(() => new ProviderRegistry(
+            [new FakeProvider("p", true, null), new FakeProvider("p", true, null)],
+            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal)
+            {
+                ["p"] = [],
+            })).Throws<LLMProviderException>();
 
     [Test]
     public async Task Resolve_preserves_requested_alias_identity_and_canonical_slash_model_route()
     {
-        var registry = Build([("p", ["vendor/model"])], string.Empty);
+        var registry = new ProviderRegistry(
+            [new FakeProvider("p", true, null)],
+            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal)
+            {
+                ["p"] = [new LLMModel("vendor/model", "p")],
+            });
         var catalog = new ModelAliasCatalog(
             registry,
             [new("preferred", "p/vendor/model", "primary", "system prompt", null)]);
@@ -355,7 +374,12 @@ internal sealed class ProviderRegistryTests
     [Test]
     public async Task Resolve_uses_default_alias_and_accepts_unlisted_alias_target()
     {
-        var registry = Build([("p", ["listed"])], string.Empty);
+        var registry = new ProviderRegistry(
+            [new FakeProvider("p", true, null)],
+            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal)
+            {
+                ["p"] = [new LLMModel("listed", "p")],
+            });
         var catalog = new ModelAliasCatalog(
             registry,
             [
@@ -375,7 +399,12 @@ internal sealed class ProviderRegistryTests
     [Test]
     public async Task Resolve_rejects_disabled_alias()
     {
-        var registry = Build([("p", ["listed"])], string.Empty);
+        var registry = new ProviderRegistry(
+            [new FakeProvider("p", true, null)],
+            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal)
+            {
+                ["p"] = [new LLMModel("listed", "p")],
+            });
         var catalog = new ModelAliasCatalog(registry, [new("disabled", string.Empty, "primary", null, null)]);
         var router = new ModelRouter(registry, new ModelRouting(catalog, string.Empty));
 
@@ -385,7 +414,12 @@ internal sealed class ProviderRegistryTests
     [Test]
     public async Task Replace_retargets_future_resolutions_while_captured_snapshot_keeps_old_alias()
     {
-        var registry = Build([("p", ["old", "new"])], string.Empty);
+        var registry = new ProviderRegistry(
+            [new FakeProvider("p", true, null)],
+            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal)
+            {
+                ["p"] = [new LLMModel("old", "p"), new LLMModel("new", "p")],
+            });
         var catalog = new ModelAliasCatalog(registry, [new("preferred", "p/old", "primary", null, null)]);
         var routing = new ModelRouting(catalog, string.Empty);
         var router = new ModelRouter(registry, routing);
@@ -403,7 +437,12 @@ internal sealed class ProviderRegistryTests
     [Test]
     public async Task Replacement_rejections_are_atomic_and_disallow_self_or_chained_aliases()
     {
-        var registry = Build([("p", ["old"])], string.Empty);
+        var registry = new ProviderRegistry(
+            [new FakeProvider("p", true, null)],
+            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal)
+            {
+                ["p"] = [new LLMModel("old", "p")],
+            });
         var catalog = new ModelAliasCatalog(registry, [new("preferred", "p/old", "primary", null, null)]);
 
         _ = await Assert.That(() => new ModelAliasCatalog(
@@ -471,9 +510,21 @@ internal sealed class ProviderRegistryTests
                     usage: Primary
                 """;
             await File.WriteAllTextAsync(path, initialConfiguration, cancellationToken);
-            var registry = Build([("p", ["old", "new"])], string.Empty);
+            var registry = new ProviderRegistry(
+            [new FakeProvider("p", true, null)],
+            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal)
+            {
+                ["p"] = [new LLMModel("old", "p"), new LLMModel("new", "p")],
+            });
             var configuration = Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml"));
-            var catalog = AliasCatalog(registry, configuration);
+            var catalog = new ModelAliasCatalog(
+                registry,
+                configuration.ModelAliases.Select(alias => new ModelAliasDefinition(
+                    alias.Key,
+                    alias.Value.ModelString,
+                    alias.Value.Usage,
+                    alias.Value.AugmentSystemPrompt,
+                    alias.Value.Icon is null ? null : ModelAliasIcon.Parse(alias.Value.Icon.Glyph, alias.Value.Icon.Color))));
             var routing = new ModelRouting(catalog, configuration.Model);
             var router = new ModelRouter(registry, routing);
             var coordinator = new ModelConfigurationCoordinator(configuration, routing, router);
@@ -528,9 +579,21 @@ internal sealed class ProviderRegistryTests
                     usage: Disabled
                 """;
             await File.WriteAllTextAsync(path, initialConfiguration, cancellationToken);
-            var registry = Build([("p", ["old", "new", "later"])], string.Empty);
+            var registry = new ProviderRegistry(
+            [new FakeProvider("p", true, null)],
+            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal)
+            {
+                ["p"] = [new LLMModel("old", "p"), new LLMModel("new", "p"), new LLMModel("later", "p")],
+            });
             var configuration = Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml"));
-            var catalog = AliasCatalog(registry, configuration);
+            var catalog = new ModelAliasCatalog(
+                registry,
+                configuration.ModelAliases.Select(alias => new ModelAliasDefinition(
+                    alias.Key,
+                    alias.Value.ModelString,
+                    alias.Value.Usage,
+                    alias.Value.AugmentSystemPrompt,
+                    alias.Value.Icon is null ? null : ModelAliasIcon.Parse(alias.Value.Icon.Glyph, alias.Value.Icon.Color))));
             var routing = new ModelRouting(catalog, configuration.Model);
             var router = new ModelRouter(registry, routing);
             var coordinator = new ModelConfigurationCoordinator(configuration, routing, router);
@@ -601,9 +664,21 @@ internal sealed class ProviderRegistryTests
                     usage: Primary
                 """;
             await File.WriteAllTextAsync(path, initialConfiguration, cancellationToken);
-            var registry = Build([("p", ["old", "new"])], string.Empty);
+            var registry = new ProviderRegistry(
+            [new FakeProvider("p", true, null)],
+            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal)
+            {
+                ["p"] = [new LLMModel("old", "p"), new LLMModel("new", "p")],
+            });
             var configuration = Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml"));
-            var catalog = AliasCatalog(registry, configuration);
+            var catalog = new ModelAliasCatalog(
+                registry,
+                configuration.ModelAliases.Select(alias => new ModelAliasDefinition(
+                    alias.Key,
+                    alias.Value.ModelString,
+                    alias.Value.Usage,
+                    alias.Value.AugmentSystemPrompt,
+                    alias.Value.Icon is null ? null : ModelAliasIcon.Parse(alias.Value.Icon.Glyph, alias.Value.Icon.Color))));
             var routing = new ModelRouting(catalog, configuration.Model);
             var router = new ModelRouter(registry, routing);
             var coordinator = new ModelConfigurationCoordinator(configuration, routing, router);
@@ -644,31 +719,6 @@ internal sealed class ProviderRegistryTests
         {
             Directory.Delete(directory, recursive: true);
         }
-    }
-
-    private static ModelAliasCatalog AliasCatalog(ProviderRegistry registry, Configuration configuration) => new(
-        registry,
-        configuration.ModelAliases.Select(alias => new ModelAliasDefinition(
-            alias.Key,
-            alias.Value.ModelString,
-            alias.Value.Usage,
-            alias.Value.AugmentSystemPrompt,
-            alias.Value.Icon is null ? null : ModelAliasIcon.Parse(alias.Value.Icon.Glyph, alias.Value.Icon.Color))));
-
-    private static ProviderRegistry Build(
-        IReadOnlyList<(string Id, string[] Models)> providers,
-        string defaultSelector)
-    {
-        var builtProviders = providers.Select(entry => (ILLMProvider)new FakeProvider(entry.Id, true, null)).ToList();
-        var catalogues = new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal);
-
-        foreach (var (id, models) in providers)
-        {
-            catalogues[id] = [.. models.Select(model => new LLMModel(model, id))];
-        }
-
-        _ = defaultSelector;
-        return new ProviderRegistry(builtProviders, catalogues);
     }
 
     private sealed class OpenRouterHandler : HttpMessageHandler
@@ -786,6 +836,8 @@ internal sealed class ProviderRegistryTests
         public bool HasCredentialValue { get; set; } = hasCredential;
 
         public int ListCalls { get; private set; }
+
+        public IReadOnlyList<LLMModel> SeedModels() => [];
 
         public ValueTask<bool> HasCredential(CancellationToken cancellationToken) =>
             ValueTask.FromResult(HasCredentialValue);

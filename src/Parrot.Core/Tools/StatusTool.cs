@@ -25,7 +25,7 @@ internal sealed class StatusTool(
             return ToolResultFormatter.Error(invocation, failure.Message);
         }
 
-        var runtime = await status.ObserveRuntime(session, (IAgentSessionContext)session, selection, cancellationToken).ConfigureAwait(false);
+        var runtime = await status.ObserveRuntime(session, selection, cancellationToken).ConfigureAwait(false);
         return string.IsNullOrWhiteSpace(runtime)
             ? ToolResultFormatter.Text(invocation, "No runtime status is currently available.")
             : runtime;

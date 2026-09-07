@@ -25,18 +25,18 @@ internal sealed class ProviderSessionsTests
         _ = await Assert.That(first).IsNotSameReferenceAs(second);
         _ = await Assert.That(provider.Opened).IsEqualTo(2);
         _ = await Assert.That(provider.DirectCalls).IsEqualTo(0);
-        _ = await Assert.That(((SessionProviderSession)first).Calls).IsEqualTo(2);
-        _ = await Assert.That(((SessionProviderSession)second).Calls).IsEqualTo(1);
+        _ = await Assert.That(provider.Sessions[0].Calls).IsEqualTo(2);
+        _ = await Assert.That(provider.Sessions[1].Calls).IsEqualTo(1);
 
         await firstOwner.Close();
-        _ = await Assert.That(((SessionProviderSession)first).Disposed).IsTrue();
-        _ = await Assert.That(((SessionProviderSession)second).Disposed).IsFalse();
+        _ = await Assert.That(provider.Sessions[0].Disposed).IsTrue();
+        _ = await Assert.That(provider.Sessions[1].Disposed).IsFalse();
         _ = await Assert.That(() => firstOwner.Get(provider)).Throws<ObjectDisposedException>();
 
         await secondOwner.Close();
         await secondOwner.Close();
-        _ = await Assert.That(((SessionProviderSession)second).Disposed).IsTrue();
-        _ = await Assert.That(((SessionProviderSession)second).DisposeCalls).IsEqualTo(1);
+        _ = await Assert.That(provider.Sessions[1].Disposed).IsTrue();
+        _ = await Assert.That(provider.Sessions[1].DisposeCalls).IsEqualTo(1);
     }
 
     [Test]
@@ -85,15 +85,15 @@ internal sealed class ProviderSessionsTests
         var firstProvider = new SessionProvider();
         var secondProvider = new SessionProvider();
         var sessions = new ProviderSessions();
-        var existing = sessions.Get(firstProvider);
+        _ = sessions.Get(firstProvider);
 
         sessions.BeginTurn();
-        var lazy = sessions.Get(secondProvider);
+        _ = sessions.Get(secondProvider);
         sessions.BeginTurn();
         await sessions.Close();
 
-        _ = await Assert.That(((SessionProviderSession)existing).BeginTurnCalls).IsEqualTo(2);
-        _ = await Assert.That(((SessionProviderSession)lazy).BeginTurnCalls).IsEqualTo(2);
+        _ = await Assert.That(firstProvider.Sessions.Single().BeginTurnCalls).IsEqualTo(2);
+        _ = await Assert.That(secondProvider.Sessions.Single().BeginTurnCalls).IsEqualTo(2);
         _ = await Assert.That(firstProvider.Opened).IsEqualTo(1);
         _ = await Assert.That(secondProvider.Opened).IsEqualTo(1);
         _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
@@ -104,7 +104,7 @@ internal sealed class ProviderSessionsTests
     {
         var provider = new SessionProvider();
         var sessions = new ProviderSessions();
-        var retrying = new RetryingProvider(provider);
+        ILLMProvider retrying = new RetryingProvider(provider);
 
         var session = sessions.Get(retrying);
         _ = await Drain(session, cancellationToken);
@@ -115,6 +115,22 @@ internal sealed class ProviderSessionsTests
         _ = await Assert.That(provider.DirectCalls).IsEqualTo(0);
         _ = await Assert.That(provider.Sessions.Single().Calls).IsEqualTo(2);
         _ = await Assert.That(provider.Sessions.Single().DisposeCalls).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Retrying_session_forwards_the_inner_fallback_outcome(bool supported)
+    {
+        var provider = new SessionProvider();
+        ILLMProvider retrying = new RetryingProvider(provider);
+        await using var session = retrying.OpenSession();
+        var recordedSession = provider.Sessions.Single();
+        recordedSession.SupportsFallback = supported;
+
+        _ = await Assert.That(await session.TryFallBackToHttp()).IsEqualTo(supported);
+        _ = await Assert.That(recordedSession.FallbackCalls).IsEqualTo(1);
+        _ = await Assert.That(recordedSession.Calls).IsEqualTo(0);
     }
 
     private static async Task<List<LLMEvent>> Drain(
@@ -135,6 +151,8 @@ internal sealed class ProviderSessionsTests
         public BlockingProviderSession Session { get; } = new(failure);
 
         public string Id => "blocking-session-provider";
+
+        public IReadOnlyList<LLMModel> SeedModels() => [];
 
         public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
@@ -192,6 +210,8 @@ internal sealed class ProviderSessionsTests
 
         public string Id => "session-provider";
 
+        public IReadOnlyList<LLMModel> SeedModels() => [];
+
         public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
         public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
@@ -220,7 +240,17 @@ internal sealed class ProviderSessionsTests
 
         public int BeginTurnCalls { get; private set; }
 
+        public bool SupportsFallback { get; set; }
+
+        public int FallbackCalls { get; private set; }
+
         public bool Disposed => DisposeCalls > 0;
+
+        public ValueTask<bool> TryFallBackToHttp()
+        {
+            FallbackCalls++;
+            return ValueTask.FromResult(SupportsFallback);
+        }
 
         public void BeginTurn() => BeginTurnCalls++;
 

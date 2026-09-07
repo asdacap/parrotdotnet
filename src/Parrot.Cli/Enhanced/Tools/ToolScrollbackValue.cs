@@ -4,7 +4,7 @@ internal sealed class ToolScrollbackValue(
     string label,
     ToolBlock block,
     ToolTerminalStatus status,
-    ToolPresentationMetadata metadata) : IScrollbackItem, IToolPresentationValue
+    ToolPresentationMetadata metadata) : IScrollbackItem
 {
     public ToolScrollbackValue(
         string label,
@@ -27,17 +27,17 @@ internal sealed class ToolScrollbackValue(
     {
     }
 
-    public ToolReport Report { get; } = ToolReport.DescribeTerminal(
-        metadata.MultilineLabel ? TerminalText.Sanitize(label) : ToolDisplayText.Label(label),
-        block,
-        status,
-        metadata);
-
     public bool IsCompleted => true;
 
     public ScrollbackLayout Layout => Report.Block.Kind == ToolBlockKind.None
         ? ScrollbackLayout.Compact
         : ScrollbackLayout.Block;
+
+    private ToolReport Report { get; } = ToolReport.DescribeTerminal(
+        metadata.MultilineLabel ? TerminalText.Sanitize(label) : ToolDisplayText.Label(label),
+        block,
+        status,
+        metadata);
 
     public bool Continues(IScrollbackItem previous) => false;
 
@@ -120,13 +120,14 @@ internal sealed class ToolScrollbackValue(
             return [];
         }
 
+        if (Report.Block.Kind == ToolBlockKind.Diff)
+        {
+            var diff = DiffScrollbackValue.Create(string.Empty, Report.Block.Text);
+            return Bound(diff.Render(context), maximumLines, context, "… diff output truncated");
+        }
+
         return Report.Block.Kind switch
         {
-            ToolBlockKind.Diff => Bound(
-                new DiffScrollbackValue(string.Empty, Report.Block.Text).Render(context),
-                maximumLines,
-                context,
-                "… diff output truncated"),
             ToolBlockKind.Code => RenderCode(context, maximumLines),
             ToolBlockKind.Queue => ToolDisplayText.LayoutDetails(
                 [Report.Block.Text], context.Columns, maximumLines, maximumLines),

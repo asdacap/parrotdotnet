@@ -140,7 +140,7 @@ internal sealed class ParrotServiceTests : IDisposable
         var context = new InProcessServerCallContext(cancellationToken);
 
         var session = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
-        var admitted = await service.SendMessage(Send(session.Id, "hello", "msg-1"), context);
+        var admitted = await service.SendMessage(new SendMessageRequest { UserSessionId = session.Id, Text = "hello", MessageId = "msg-1", Delivery = Delivery.Steer }, context);
 
         _ = await Assert.That(sessions.Identities.Single().Name).IsEqualTo("main");
         _ = await Assert.That(admitted.Created).IsTrue();
@@ -149,7 +149,7 @@ internal sealed class ParrotServiceTests : IDisposable
 
         // The same prompt again, as a client that lost its connection would
         // send it: the id it names is the one already admitted.
-        var again = await service.SendMessage(Send(session.Id, "hello", "msg-1"), context);
+        var again = await service.SendMessage(new SendMessageRequest { UserSessionId = session.Id, Text = "hello", MessageId = "msg-1", Delivery = Delivery.Steer }, context);
 
         _ = await Assert.That(again.Created).IsFalse();
         _ = await Assert.That(again.InputId).IsEqualTo(admitted.InputId);
@@ -189,7 +189,7 @@ internal sealed class ParrotServiceTests : IDisposable
         foreach (var text in new[] { "first", "second", "third" })
         {
             _ = await client.SendMessageAsync(
-                Send(selected.Id, text, $"message-{text}"), cancellationToken: cancellationToken);
+                new SendMessageRequest { UserSessionId = selected.Id, Text = text, MessageId = $"message-{text}", Delivery = Delivery.Steer }, cancellationToken: cancellationToken);
         }
 
         var compacted = await client.CompactAsync(
@@ -278,7 +278,7 @@ internal sealed class ParrotServiceTests : IDisposable
         await using var service = Service(Store());
         var context = new InProcessServerCallContext(cancellationToken);
         var session = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
-        var request = Send(session.Id, "legacy", "mixed");
+        var request = new SendMessageRequest { UserSessionId = session.Id, Text = "legacy", MessageId = "mixed", Delivery = Delivery.Steer };
         request.Parts.Add(new MessageContentPart { Text = "structured" });
 
         var refused = await Assert.That(async () => await service.SendMessage(request, context)).Throws<RpcException>();
@@ -581,7 +581,7 @@ internal sealed class ParrotServiceTests : IDisposable
             new CreateSessionRequest { Model = Selection, InteractivePermissions = true },
             cancellationToken: cancellationToken);
         _ = await client.SendMessageAsync(
-            Send(created.Id, "initialize", "msg-permission"),
+            new SendMessageRequest { UserSessionId = created.Id, Text = "initialize", MessageId = "msg-permission", Delivery = Delivery.Steer },
             cancellationToken: cancellationToken);
         var directory = EnsureDirectory(Path.Combine(_root, "permission-target"));
         var file = Path.Combine(directory, "generated.txt");
@@ -654,7 +654,7 @@ internal sealed class ParrotServiceTests : IDisposable
             new CreateSessionRequest { Model = Selection },
             cancellationToken: cancellationToken);
         _ = await client.SendMessageAsync(
-            Send(created.Id, "initialize", "msg-noninteractive"),
+            new SendMessageRequest { UserSessionId = created.Id, Text = "initialize", MessageId = "msg-noninteractive", Delivery = Delivery.Steer },
             cancellationToken: cancellationToken);
         var target = SecurityWriteTarget.Resolve(
             Path.GetPathRoot(_root) ?? throw new InvalidOperationException("Test root has no filesystem root."));
@@ -944,7 +944,7 @@ internal sealed class ParrotServiceTests : IDisposable
         var context = new InProcessServerCallContext(cancellationToken);
 
         var prompted = await Assert.That(async () =>
-            await service.SendMessage(Send("no-such-session", "hello", "msg-1"), context)).Throws<RpcException>();
+            await service.SendMessage(new SendMessageRequest { UserSessionId = "no-such-session", Text = "hello", MessageId = "msg-1", Delivery = Delivery.Steer }, context)).Throws<RpcException>();
 
         var interrupted = await Assert.That(async () => await service.Interrupt(
             new InterruptRequest { UserSessionId = "no-such-session" }, context)).Throws<RpcException>();
@@ -968,7 +968,7 @@ internal sealed class ParrotServiceTests : IDisposable
         var create = await Assert.That(async () => await service.CreateSession(
             new CreateSessionRequest { Model = Selection }, context)).Throws<RpcException>();
         var send = await Assert.That(async () => await service.SendMessage(
-            Send(session.Id, "too late", "msg-after-shutdown"), context)).Throws<RpcException>();
+            new SendMessageRequest { UserSessionId = session.Id, Text = "too late", MessageId = "msg-after-shutdown", Delivery = Delivery.Steer }, context)).Throws<RpcException>();
 
         _ = await Assert.That(create?.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(send?.StatusCode).IsEqualTo(StatusCode.Unavailable);
@@ -1112,15 +1112,6 @@ internal sealed class ParrotServiceTests : IDisposable
         }
     }
 
-    private static SendMessageRequest Send(string userSessionId, string text, string messageId) =>
-        new()
-        {
-            UserSessionId = userSessionId,
-            Text = text,
-            MessageId = messageId,
-            Delivery = Delivery.Steer,
-        };
-
     private static ProviderRegistry Registry()
     {
         var models = new LLMModel[]
@@ -1150,9 +1141,6 @@ internal sealed class ParrotServiceTests : IDisposable
         _ = Directory.CreateDirectory(path);
         return path;
     }
-
-    private SkillCatalogFactory SkillCatalogFactory() =>
-        new(_configuration, _root, Path.Combine(_root, "packaged-skills"));
 
     private void PublishMeta(
         string id,
@@ -1187,27 +1175,23 @@ internal sealed class ParrotServiceTests : IDisposable
             ?? throw new InvalidOperationException($"Session metadata not found for '{id}'.");
     }
 
-    private ParrotService Service(SessionStore store) => ServiceWithModes(store, Modes());
+    private ParrotService Service(SessionStore store) => ServiceWithModes(store, new ModeRegistry(
+            new ProfileRegistry(
+                _configuration.Profiles,
+                _configuration.SandboxRules,
+                [],
+                _configuration.DisabledTools),
+            _configuration.DefaultProfile));
 
     private ParrotService ServiceWithModes(SessionStore store, ModeRegistry modes) => new(
         _router,
         _registry,
-        ModelAliases(),
+        new ModelAliasConfigurator(_models),
         _models,
         store,
         new SessionCatalog(new StatePaths(_root, _root, _root)),
         modes,
         new UnexposedUserSessionHost());
-
-    private ModelAliasConfigurator ModelAliases() => new(_models);
-
-    private ModeRegistry Modes() => new(
-        new ProfileRegistry(
-            _configuration.Profiles,
-            _configuration.SandboxRules,
-            [],
-            _configuration.DisabledTools),
-        _configuration.DefaultProfile);
 
     private SessionStore Store() => Store(new DirectAgentSessions());
 
@@ -1218,9 +1202,28 @@ internal sealed class ParrotServiceTests : IDisposable
             new StatePaths(_root, _root, _root),
             EnsureDirectory(Path.Combine(_root, "work")),
             "host",
-            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, TestModels.ProfileRegistry(), SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System),
+            new UserSessionFactory(
+                sessions,
+                new ModeRegistry(
+                    new ProfileRegistry(
+                        _configuration.Profiles,
+                        _configuration.SandboxRules,
+                        [],
+                        _configuration.DisabledTools),
+                    _configuration.DefaultProfile),
+                TestModels.PromptTemplates,
+                new TestProfileFixture().Registry,
+                new SkillCatalogFactory(_configuration, _root, Path.Combine(_root, "packaged-skills")),
+                TimeSpan.FromSeconds(30),
+                TimeProvider.System),
             _router,
-            Modes());
+            new ModeRegistry(
+                new ProfileRegistry(
+                    _configuration.Profiles,
+                    _configuration.SandboxRules,
+                    [],
+                    _configuration.DisabledTools),
+                _configuration.DefaultProfile));
     }
 
     private sealed class ObservingSessionListener(SessionStore store) : IAsyncDisposable

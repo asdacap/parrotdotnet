@@ -4,7 +4,7 @@ namespace Parrot.AgentTasks;
 
 internal sealed class AgentTaskRunOwner(
     string ownerAgentSessionId,
-    AgentTaskRunCatalog catalog) : IActiveWorkSource
+    AgentTaskRunCatalog catalog)
 {
     internal string OwnerAgentSessionId { get; } = ownerAgentSessionId;
 

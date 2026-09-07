@@ -21,7 +21,7 @@ internal sealed class CommandDispatcherTests
         using var stopping = new CancellationTokenSource();
         using var composition = new CommandComposition(new Interrupts(stopping), output, error);
 
-        var exitCode = await composition.Dispatcher.Run(ArgumentVector(argument), cancellationToken);
+        var exitCode = await composition.Dispatcher.Run(argument.Length == 0 ? [] : [argument], cancellationToken);
 
         _ = await Assert.That(exitCode).IsEqualTo(expectedExitCode);
         _ = await Assert.That(output.ToString()).Contains(expectedFragment);
@@ -57,7 +57,7 @@ internal sealed class CommandDispatcherTests
         using var stopping = new CancellationTokenSource();
         using var composition = new CommandComposition(new Interrupts(stopping), output, error);
 
-        var exitCode = await composition.Dispatcher.Run(ArgumentVector(argument), cancellationToken);
+        var exitCode = await composition.Dispatcher.Run(argument.Length == 0 ? [] : [argument], cancellationToken);
 
         _ = await Assert.That(exitCode).IsEqualTo(CommandDispatcher.ExitUsage);
         _ = await Assert.That(output.ToString()).IsEmpty();
@@ -78,7 +78,4 @@ internal sealed class CommandDispatcherTests
             "warning: expected CLI utilities are unavailable: alpha, zeta; Bash shell commands may fail");
         _ = await Assert.That(CommandDispatcher.CliUtilityWarning(available)).IsEmpty();
     }
-
-    private static string[] ArgumentVector(string argument) =>
-        argument.Length == 0 ? [] : [argument];
 }

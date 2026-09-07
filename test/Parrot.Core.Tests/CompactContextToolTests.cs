@@ -45,15 +45,21 @@ internal sealed class CompactContextToolTests : IDisposable
         using var broker = new EventBroker();
         var provider = new QueueProvider(
         [
-            Completed("first reply"),
-            Completed("second reply"),
-            Completed("third reply"),
-            Completed(
+            LLMEvent.Completed("stop", 1, 0, 1, "first reply", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "second reply", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "third reply", []),
+            LLMEvent.Completed(
+                "stop",
+                1,
+                0,
+                1,
                 string.Empty,
-                new LLMToolCall("compact", "compact_context", "{}"),
-                new LLMToolCall("other", "settled", "{}")),
-            Completed("summary"),
-            Completed("done"),
+                [
+                    new LLMToolCall("compact", "compact_context", "{}"),
+                    new LLMToolCall("other", "settled", "{}"),
+                ]),
+            LLMEvent.Completed("stop", 1, 0, 1, "summary", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "done", []),
         ]);
         var repository = new EventRepository(database);
         await using var session = Session(provider, repository, broker, 100_000, cancellationToken);
@@ -113,12 +119,12 @@ internal sealed class CompactContextToolTests : IDisposable
             var responses = new List<LLMEvent>();
             if (scenario.Seed)
             {
-                responses.Add(Completed("seeded history"));
+                responses.Add(LLMEvent.Completed("stop", 1, 0, 1, "seeded history", []));
             }
 
-            responses.Add(Completed(string.Empty, new LLMToolCall("compact", "compact_context", scenario.Arguments)));
-            responses.Add(Completed("summary"));
-            responses.Add(Completed("done"));
+            responses.Add(LLMEvent.Completed("stop", 1, 0, 1, string.Empty, [new LLMToolCall("compact", "compact_context", scenario.Arguments)]));
+            responses.Add(LLMEvent.Completed("stop", 1, 0, 1, "summary", []));
+            responses.Add(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
             var provider = new QueueProvider(responses);
             var repository = new EventRepository(database);
             await using var session = Session(provider, repository, broker, scenario.ContextWindow, cancellationToken);
@@ -147,10 +153,7 @@ internal sealed class CompactContextToolTests : IDisposable
         }
     }
 
-    private static LLMEvent Completed(string text, params LLMToolCall[] toolCalls) =>
-        LLMEvent.Completed("stop", 1, 0, 1, text, toolCalls);
-
-    private AgentSession Session(
+    private IAgentSession Session(
         ILLMProvider provider,
         EventRepository repository,
         EventBroker broker,
@@ -177,7 +180,7 @@ internal sealed class CompactContextToolTests : IDisposable
             broker,
             repository,
             factories,
-            TestModels.DocumentTools("compact_context", "settled"),
+            new TestToolDefinitionsFixture("compact_context", "settled").Definitions,
             TestModels.MaterializePrompt(identity, _workspace, _workspace),
             new ToolOutputBlobStore(_workspace),
             _compactionGroupBlobs,
@@ -188,13 +191,8 @@ internal sealed class CompactContextToolTests : IDisposable
             dependencies.ChildQuestions,
             dependencies.ExitReminder,
             dependencies.Profile,
-            TestModels.CompletionCallbacks(
-                dependencies.ChildQuestions,
-                dependencies.ActiveWorkReminder,
-                dependencies.ExitReminder,
-                repository,
-                broker),
-            SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
+            new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker).Callbacks,
+            new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security,
             dependencies.Status,
             dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),
@@ -209,6 +207,8 @@ internal sealed class CompactContextToolTests : IDisposable
         public string Id => "compact-context";
 
         public IReadOnlyList<LLMRequest> Requests => _requests;
+
+        public IReadOnlyList<LLMModel> SeedModels() => [];
 
         public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 

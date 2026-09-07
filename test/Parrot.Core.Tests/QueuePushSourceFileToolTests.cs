@@ -37,9 +37,10 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         using var queues = CreateQueues("line-rules");
         _ = queues.Create("work", string.Empty);
 
-        var result = await Tool(queues).Execute(
+        ITool tool = new QueuePushTool(queues, new ToolWorkspace(_root));
+        var result = await tool.Execute(
             Invocation("work", "items.txt", "back", close: false),
-            Turn(Permissive()),
+            new PushTurnFixture(Permissive()).Selection,
             cancellationToken);
         var taken = queues.TryTake("work", 10, QueueDirection.Front);
 
@@ -58,9 +59,10 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         using var queues = CreateQueues("absolute-close");
         _ = queues.Create("work", string.Empty);
 
-        var result = await new QueuePushTool(queues, new ToolWorkspace(workspace.FullName)).Execute(
+        ITool tool = new QueuePushTool(queues, new ToolWorkspace(workspace.FullName));
+        var result = await tool.Execute(
             Invocation("work", source, "front", close: true),
-            Turn(Permissive()),
+            new PushTurnFixture(Permissive()).Selection,
             cancellationToken);
         var taken = queues.TryTake("work", 10, QueueDirection.Front);
 
@@ -77,9 +79,10 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         using var queues = CreateQueues("empty-close");
         _ = queues.Create("work", string.Empty);
 
-        var result = await Tool(queues).Execute(
+        ITool tool = new QueuePushTool(queues, new ToolWorkspace(_root));
+        var result = await tool.Execute(
             Invocation("work", "empty.txt", "back", close: true),
-            Turn(Permissive()),
+            new PushTurnFixture(Permissive()).Selection,
             cancellationToken);
 
         using var document = JsonDocument.Parse(result.Text);
@@ -189,9 +192,10 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         _ = queues.Create("work", string.Empty);
         _ = await queues.Push("work", ["existing"], QueueDirection.Back, false, cancellationToken);
 
-        var result = await Tool(queues).Execute(
+        ITool tool = new QueuePushTool(queues, new ToolWorkspace(_root));
+        var result = await tool.Execute(
             Invocation("work", "escaped.txt", "back", close: true),
-            Turn(Permissive()),
+            new PushTurnFixture(Permissive()).Selection,
             cancellationToken);
         var taken = queues.TryTake("work", 10, QueueDirection.Front);
 
@@ -209,10 +213,11 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         using var canceled = new CancellationTokenSource();
         await canceled.CancelAsync();
 
+        ITool tool = new QueuePushTool(queues, new ToolWorkspace(_root));
         _ = await Assert.That(async () =>
-                _ = await Tool(queues).Execute(
+                _ = await tool.Execute(
                     Invocation("work", "items.txt", "back", close: true),
-                    Turn(Permissive()),
+                    new PushTurnFixture(Permissive()).Selection,
                     canceled.Token))
             .Throws<OperationCanceledException>();
         _ = await Assert.That(queues.Get("work").Size).IsEqualTo(0);
@@ -237,17 +242,6 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
 
     private static SecurityProfile Permissive() => SecurityProfile.Compose(false, [], [], []);
 
-    private static AgentTurnSelection Turn(SecurityProfile securityProfile)
-    {
-        var provider = new UnusedProvider();
-        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        return new AgentTurnSelection(
-            new ModelSelector(model.Selector),
-            TestModels.Resolve(model),
-            TestModels.Profile(),
-            securityProfile);
-    }
-
     private async Task AssertFailureLeavesQueueUnchanged(
         string sourceFile,
         SecurityProfile security,
@@ -258,9 +252,10 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         _ = queues.Create("work", string.Empty);
         _ = await queues.Push("work", ["existing"], QueueDirection.Back, false, cancellationToken);
 
-        var result = await Tool(queues).Execute(
+        ITool tool = new QueuePushTool(queues, new ToolWorkspace(_root));
+        var result = await tool.Execute(
             Invocation("work", sourceFile, "back", close: true),
-            Turn(security),
+            new PushTurnFixture(security).Selection,
             cancellationToken);
         var taken = queues.TryTake("work", 10, QueueDirection.Front);
 
@@ -269,7 +264,21 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         _ = await Assert.That(taken.Info?.Closed).IsFalse();
     }
 
-    private QueuePushTool Tool(AgentQueues queues) => new(queues, new ToolWorkspace(_root));
+    private sealed class PushTurnFixture
+    {
+        public PushTurnFixture(SecurityProfile securityProfile)
+        {
+            ILLMProvider provider = new UnusedProvider();
+            var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+            Selection = new AgentTurnSelection(
+                new ModelSelector(model.Selector),
+                TestModels.Resolve(model),
+                new TestProfileFixture().Mode,
+                securityProfile);
+        }
+
+        public AgentTurnSelection Selection { get; }
+    }
 
     private sealed class SourceFileArguments
     {

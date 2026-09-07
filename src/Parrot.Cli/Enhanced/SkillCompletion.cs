@@ -48,7 +48,7 @@ internal sealed class SkillCompletion(GeneratedParrot.ParrotClient client)
         Selected = 0;
     }
 
-    public void Refresh(PromptValue prompt)
+    public void Refresh(PromptState prompt)
     {
         var selected = _matches.Count == 0 ? null : _matches[Selected];
         _token = FindToken(prompt);
@@ -91,7 +91,7 @@ internal sealed class SkillCompletion(GeneratedParrot.ParrotClient client)
         return true;
     }
 
-    private static SkillToken? FindToken(PromptValue prompt)
+    private static SkillToken? FindToken(PromptState prompt)
     {
         var runes = prompt.Text.EnumerateRunes().ToArray();
         var cursor = Math.Clamp(prompt.Cursor, 0, runes.Length);

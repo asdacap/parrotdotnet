@@ -214,17 +214,15 @@ internal sealed class CliLifecycleDriver : IDisposable
     {
         var profiles = new Dictionary<string, ProfileConfig>(StringComparer.Ordinal)
         {
-            [ModeRegistry.Build] = Profile(),
-            [ModeRegistry.Plan] = Profile(),
-            [ModeRegistry.Query] = Profile(),
+            [ModeRegistry.Build] = new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []),
+            [ModeRegistry.Plan] = new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []),
+            [ModeRegistry.Query] = new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []),
         };
         var registry = new ProfileRegistry(profiles, [], [], configuration.DisabledTools);
         return new PromptAttachmentUploader(
             new ToolWorkspace(Directory.GetCurrentDirectory()),
             new ModeRegistry(registry, ModeRegistry.Build));
     }
-
-    private static ProfileConfig Profile() => new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []);
 
     private sealed class SynchronizedStringWriter : StringWriter
     {

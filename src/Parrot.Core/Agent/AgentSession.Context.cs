@@ -142,12 +142,12 @@ internal sealed partial class AgentSession
                 operation.Token.ThrowIfCancellationRequested();
                 await ReconcileToolBatchesUsingCurrentConfiguration(operation.Token).ConfigureAwait(false);
                 var captured = CaptureSelection();
-                captured.Profile.Prepare();
+                captured.Mode.Prepare();
                 var resolved = ResolveModel(captured);
                 var selection = new AgentTurnSelection(
                     resolved.RequestedSelector,
                     resolved,
-                    captured.Profile,
+                    captured.Mode,
                     captured.SecurityProfile);
                 var tools = MaterializeTools()
                     .Without(selection.Profile.DisabledTools)
@@ -506,7 +506,7 @@ internal sealed partial class AgentSession
             if (!string.Equals(profile.Id, pending.Mode, StringComparison.Ordinal))
             {
                 selection = RefreshSelection(selection);
-                selection.Profile.Prepare();
+                selection.Mode.Prepare();
                 await Task.Yield();
                 continue;
             }
@@ -525,7 +525,7 @@ internal sealed partial class AgentSession
             if (!eventRepository.AppendStatusPrompt(published, pending, content))
             {
                 selection = RefreshSelection(selection);
-                selection.Profile.Prepare();
+                selection.Mode.Prepare();
                 continue;
             }
 
@@ -543,7 +543,7 @@ internal sealed partial class AgentSession
         {
             RequestedModel = selected.RequestedModel,
             ResolvedModel = ResolveModel(selected),
-            Profile = selected.Profile,
+            Mode = selected.Mode,
             SecurityProfile = selected.SecurityProfile,
         };
     }

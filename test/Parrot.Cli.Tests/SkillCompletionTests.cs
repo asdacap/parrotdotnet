@@ -12,9 +12,9 @@ internal sealed class SkillCompletionTests
         var invoker = new ScriptedInvoker();
         invoker.SetSkills(
             "session-1",
-            Skill("zebra", "/zebra", true, "zebra description", string.Empty),
-            Skill("alpha", "/alpha", true, "alpha description", "short alpha"),
-            Skill("alpine", "/alpine", false, "disabled", string.Empty));
+            new Skill { Name = "zebra", Path = "/zebra", Enabled = true, Description = "zebra description" },
+            new Skill { Name = "alpha", Path = "/alpha", Enabled = true, Description = "alpha description", ShortDescription = "short alpha" },
+            new Skill { Name = "alpine", Path = "/alpine", Enabled = false, Description = "disabled" });
         var completion = new SkillCompletion(new Protocol.Parrot.ParrotClient(invoker));
         await completion.RefreshCatalog("session-1", cancellationToken);
         var editor = new IncrementalEditor("> ", 100);
@@ -28,15 +28,15 @@ internal sealed class SkillCompletionTests
         var accepted = completion.Accept(editor);
 
         _ = await Assert.That(accepted).IsTrue();
-        _ = await Assert.That(editor.Prompt).IsEqualTo(new PromptValue("> ", "🙂 use $alpha suffix", 12));
+        _ = await Assert.That(editor.Prompt).IsEqualTo(new PromptState("> ", "🙂 use $alpha suffix", 12));
         _ = await Assert.That(string.Join('|', completion.Skills.Select(skill => skill.Name))).IsEqualTo("alpha");
         _ = await Assert.That(invoker.SkillLists("session-1")).IsEqualTo(1);
 
-        completion.Refresh(new PromptValue("> ", "word$al", 7));
+        completion.Refresh(new PromptState("> ", "word$al", 7));
         _ = await Assert.That(completion.Skills).IsEmpty();
         foreach (var cursor in new[] { 1, 3, 5 })
         {
-            completion.Refresh(new PromptValue("> ", "$HOME", cursor));
+            completion.Refresh(new PromptState("> ", "$HOME", cursor));
             _ = await Assert.That(completion.Skills).IsEmpty();
         }
     }
@@ -48,15 +48,15 @@ internal sealed class SkillCompletionTests
         var invoker = new ScriptedInvoker();
         invoker.SetSkills(
             "session-1",
-            Skill("beta", "/beta", true, "beta", string.Empty),
-            Skill("alpha", "/alpha", true, "alpha", string.Empty),
-            Skill("alpha", "/duplicate", true, "duplicate", string.Empty));
-        invoker.SetSkills("session-2", Skill("other", "/other", true, "other", string.Empty));
+            new Skill { Name = "beta", Path = "/beta", Enabled = true, Description = "beta" },
+            new Skill { Name = "alpha", Path = "/alpha", Enabled = true, Description = "alpha" },
+            new Skill { Name = "alpha", Path = "/duplicate", Enabled = true, Description = "duplicate" });
+        invoker.SetSkills("session-2", new Skill { Name = "other", Path = "/other", Enabled = true, Description = "other" });
         var completion = new SkillCompletion(new Protocol.Parrot.ParrotClient(invoker));
         await completion.RefreshCatalog("session-1", cancellationToken);
-        completion.Refresh(new PromptValue("> ", "$", 1));
+        completion.Refresh(new PromptState("> ", "$", 1));
         completion.SelectNext();
-        completion.Refresh(new PromptValue("> ", "$", 1));
+        completion.Refresh(new PromptState("> ", "$", 1));
 
         _ = await Assert.That(string.Join('|', completion.Skills.Select(skill => $"{skill.Name}:{skill.Path}")))
             .IsEqualTo("alpha:/alpha|beta:/beta");
@@ -67,24 +67,8 @@ internal sealed class SkillCompletionTests
         _ = await Assert.That(completion.Selected).IsEqualTo(1);
 
         await completion.RefreshCatalog("session-2", cancellationToken);
-        completion.Refresh(new PromptValue("> ", "$", 1));
+        completion.Refresh(new PromptState("> ", "$", 1));
         _ = await Assert.That(string.Join('|', completion.Skills.Select(skill => skill.Name))).IsEqualTo("other");
         _ = await Assert.That(invoker.SkillLists("session-2")).IsEqualTo(1);
-    }
-
-    private static Skill Skill(
-        string name,
-        string path,
-        bool enabled,
-        string description,
-        string shortDescription)
-    {
-        var skill = new Skill { Name = name, Path = path, Enabled = enabled, Description = description };
-        if (shortDescription.Length > 0)
-        {
-            skill.ShortDescription = shortDescription;
-        }
-
-        return skill;
     }
 }

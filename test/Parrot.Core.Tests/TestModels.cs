@@ -20,21 +20,45 @@ internal static class TestModels
 {
     private static readonly ConcurrentBag<AgentQueueCatalog> QueueCatalogs = [];
     private static readonly ConcurrentBag<Parrot.Process.ShellProcessOwners> ProcessOwners = [];
-    private static readonly ConcurrentBag<AgentRegistry> Registries = [];
+    private static readonly ConcurrentBag<IAgentRegistry> Registries = [];
     private static readonly ConditionalWeakTable<IAgentSession, IAgentSessionScope> Scopes = [];
 
     public static IReadOnlyDictionary<string, ProfileConfig> Profiles { get; } =
         new Dictionary<string, ProfileConfig>(StringComparer.Ordinal)
         {
-            [ModeRegistry.Build] = Profile(
+            [ModeRegistry.Build] = new ProfileConfig(
                 "You are Parrot's build mode. Implement and verify the requested changes.",
-                readOnly: false),
-            [ModeRegistry.Plan] = Profile(
+                "Test profile.",
+                null,
+                64,
+                3,
+                false,
+                true,
+                true,
+                false,
+                []),
+            [ModeRegistry.Plan] = new ProfileConfig(
                 "You are Parrot's plan mode. Inspect the project and write the complete implementation plan as Markdown",
-                readOnly: true),
-            [ModeRegistry.Query] = Profile(
+                "Test profile.",
+                null,
+                64,
+                3,
+                true,
+                true,
+                true,
+                false,
+                []),
+            [ModeRegistry.Query] = new ProfileConfig(
                 "You are Parrot's query mode. Inspect the project and answer the user's question without making changes.",
-                readOnly: true),
+                "Test profile.",
+                null,
+                64,
+                3,
+                true,
+                true,
+                true,
+                false,
+                []),
             ["explorer"] = new ProfileConfig(
                 "You are an explorer agent.",
                 "Test read-only child profile.",
@@ -115,14 +139,6 @@ internal static class TestModels
             Guid.NewGuid().ToString("N"),
             "scratch")));
 
-    public static ToolDefinitionCatalog DocumentTools(params string[] names) => new(
-        names.ToDictionary(
-            name => name,
-            _ => new ConfiguredToolDefinition(
-                "Test tool.",
-                """{"type":"object","additionalProperties":false}"""),
-            StringComparer.Ordinal));
-
     public static AgentQueues Queues(AgentIdentity identity)
     {
         var root = Directory.CreateDirectory(
@@ -141,9 +157,6 @@ internal static class TestModels
         return catalog.Register(identity);
     }
 
-    public static ProfileRegistry ProfileRegistry() =>
-        new(Profiles, [], [], new HashSet<string>(StringComparer.Ordinal));
-
     public static IAgentSessionScope ScopeOf(IAgentSession session) =>
         Scopes.TryGetValue(session, out var scope)
             ? scope
@@ -156,13 +169,7 @@ internal static class TestModels
     public static ChildQuestionCoordinator CreateChildQuestions(IAgentSessionScope owner) =>
         owner.ChildQuestions;
 
-    public static IMode Profile()
-    {
-        var profile = ProfileRegistry().ResolveChild("test");
-        return new NoopMode(profile, profile.SecurityProfile);
-    }
-
-    public static AgentRegistry Registry(
+    public static IAgentRegistry Registry(
         IAgentSessionFactory agentSessions,
         EventBroker eventBroker,
         EventRepository eventRepository,
@@ -178,7 +185,7 @@ internal static class TestModels
             new RetainedAgentBudget(1024),
             lifetime);
 
-    public static AgentRegistry RegistryWithBudget(
+    public static IAgentRegistry RegistryWithBudget(
         IAgentSessionFactory agentSessions,
         EventBroker eventBroker,
         EventRepository eventRepository,
@@ -195,8 +202,8 @@ internal static class TestModels
             ProjectWorkspace.FromLaunchDirectory(root));
         var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), lifetime);
         var catalog = new AgentQueueCatalog(resources);
-        var registry = new AgentRegistry(agentSessions, eventBroker, eventRepository, profiles, promptTemplates, retainedAgents, lifetime);
-        registry.AttachStatus(new RuntimeStatus(catalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System));
+        IAgentRegistry registry = new AgentRegistry(agentSessions, eventBroker, eventRepository, profiles, promptTemplates, retainedAgents, lifetime);
+        registry.AttachStatus(new RuntimeStatus(catalog, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System));
         ProcessOwners.Add(processes);
         QueueCatalogs.Add(catalog);
         Registries.Add(registry);
@@ -217,15 +224,15 @@ internal static class TestModels
             ProjectWorkspace.FromLaunchDirectory(root));
         var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), lifetime);
         var catalog = new AgentQueueCatalog(resources);
-        var registry = new AgentRegistry(
+        IAgentRegistry registry = new AgentRegistry(
             new UnsupportedAgentSessionFactory(),
             eventBroker,
             eventRepository,
-            ProfileRegistry(),
+            new TestProfileFixture().Registry,
             TestModels.PromptTemplates,
             new RetainedAgentBudget(1024),
             lifetime);
-        var status = new RuntimeStatus(catalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
+        var status = new RuntimeStatus(catalog, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         if (identity.ParentSessionId.Length > 0)
         {
@@ -247,41 +254,11 @@ internal static class TestModels
             queues);
     }
 
-    public static IReadOnlyList<IAgentTurnCompletionCallback> CompletionCallbacks(
-        ChildQuestionCoordinator childQuestions,
-        ActiveWorkCompletionReminder activeWorkReminder,
-        ExitReminder exitReminder,
-        EventRepository eventRepository,
-        EventBroker eventBroker) =>
-        [
-            new PendingChildQuestionTurnCompletionCallback(childQuestions, eventRepository, eventBroker),
-            new ActiveWorkTurnCompletionCallback(activeWorkReminder, eventRepository, eventBroker),
-            new ModeTurnCompletionCallback(eventRepository, eventBroker),
-            new ExitReminderTurnCompletionCallback(exitReminder, eventRepository, eventBroker),
-        ];
-
     public static ISystemPrompt MaterializePrompt(
         AgentIdentity identity,
         string workingDirectory,
         string configDirectory) =>
-        PromptProvider(workingDirectory, configDirectory).Materialize(identity);
-
-    public static ISystemPromptProvider PromptProvider(string workingDirectory, string configDirectory) =>
-        new CompositeSystemPromptProvider(
-            "test:system-prompt",
-            [
-                new ConfiguredSystemPromptProvider("runtime:system-context:01-base", "Test base prompt."),
-                new AgentsPromptProvider(workingDirectory, configDirectory, TestModels.PromptTemplates),
-                new ExpectedCliUtilitiesProvider(EmptyCliUtilities(), TestModels.PromptTemplates),
-                new PlatformProvider(TestModels.PromptTemplates),
-                new WorkingDirectoryProvider(workingDirectory, TestModels.PromptTemplates),
-                new GitRepositoryProvider(ProjectWorkspace.FromLaunchDirectory(Path.GetFullPath(workingDirectory)), TestModels.PromptTemplates),
-                new OptionalCliUtilitiesProvider(EmptyCliUtilities(), TestModels.PromptTemplates),
-                new SessionIdentityProvider(),
-                new SubagentsProvider(ProfileRegistry(), TestModels.PromptTemplates),
-                new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal), TestModels.PromptTemplates),
-                new SecurityProfileProvider([], TestModels.PromptTemplates),
-            ]);
+        new TestSystemPromptFixture(workingDirectory, configDirectory).Provider.Materialize(identity);
 
     public static ModelRouter Route(ProviderModel model)
     {
@@ -305,11 +282,6 @@ internal static class TestModels
 
     public static ResolvedModelSelection Resolve(ProviderModel model) => Route(model).Resolve(model.Selector);
 
-    private static Parrot.Process.CliUtilityAvailability EmptyCliUtilities() =>
-        Parrot.Process.CliUtilityAvailability.Inspect(
-            new CliUtilityCandidates([], []),
-            new Parrot.Process.ExecutableLocator(string.Empty, string.Empty));
-
     private static PromptTemplateCatalog LoadPromptTemplates()
     {
         var root = Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("N"));
@@ -318,18 +290,6 @@ internal static class TestModels
             Path.Combine(root, "predefined_config.yaml"))
             .PromptTemplates;
     }
-
-    private static ProfileConfig Profile(string prompt, bool readOnly) => new(
-        prompt,
-        "Test profile.",
-        null,
-        64,
-        3,
-        readOnly,
-        true,
-        true,
-        false,
-        []);
 
     private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory
     {

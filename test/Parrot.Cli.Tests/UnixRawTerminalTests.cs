@@ -131,7 +131,7 @@ internal sealed class UnixRawTerminalTests
 
     // VMIN=0/VTIME=1 returns zero bytes after 100ms of silence; that is a poll tick, not end of input.
     private static async Task<int> ReadUntilInput(
-        UnixRawTerminal raw, byte[] buffer, CancellationToken cancellationToken)
+        IRawTerminal raw, byte[] buffer, CancellationToken cancellationToken)
     {
         var timeout = TimeSpan.FromMilliseconds(ReadTimeoutMilliseconds);
         var elapsed = Stopwatch.StartNew();

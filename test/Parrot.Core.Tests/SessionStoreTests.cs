@@ -28,13 +28,35 @@ internal sealed class SessionStoreTests : IDisposable
         const string legacyId = "user-session-legacy";
         var namedWork = Directory.CreateDirectory(Path.Combine(_root, "named-work")).FullName;
         var legacyWork = Directory.CreateDirectory(Path.Combine(_root, "legacy-work")).FullName;
-        var namedIndex = Index(namedId, namedWork);
-        var legacyIndex = Index(legacyId, legacyWork);
-        namedIndex.Publish(Meta(namedId, "main", namedWork, "2026-07-27T01:00:00Z"));
-        legacyIndex.Publish(Meta(legacyId, string.Empty, legacyWork, "2026-07-27T02:00:00Z"));
+        var namedIndex = new SessionIndex(new UserSessionResources(
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+            UserSessionId.Parse(namedId),
+            ProjectWorkspace.FromLaunchDirectory(namedWork)));
+        var legacyIndex = new SessionIndex(new UserSessionResources(
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+            UserSessionId.Parse(legacyId),
+            ProjectWorkspace.FromLaunchDirectory(legacyWork)));
+        namedIndex.Publish(new SessionMeta
+        {
+            Id = namedId,
+            RootAgentName = "main",
+            WorkingDirectory = namedWork,
+            ProviderId = "unused",
+            Model = "unused/model",
+            CreatedAt = "2026-07-27T01:00:00Z",
+        });
+        legacyIndex.Publish(new SessionMeta
+        {
+            Id = legacyId,
+            RootAgentName = string.Empty,
+            WorkingDirectory = legacyWork,
+            ProviderId = "unused",
+            Model = "unused/model",
+            CreatedAt = "2026-07-27T02:00:00Z",
+        });
         StabilizeAdmission(namedWork, namedId);
         StabilizeAdmission(legacyWork, legacyId);
-        var catalog = new SessionCatalog(Paths());
+        var catalog = new SessionCatalog(new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")));
         {
             await using var named = Open(namedWork);
             _ = await Assert.That(catalog.Find(UserSessionId.Parse(namedId))?.RootAgentName).IsEqualTo("main");
@@ -54,7 +76,10 @@ internal sealed class SessionStoreTests : IDisposable
         const string id = "user-session-legacy-host";
         const string createdAt = "2026-07-27T04:00:00Z";
         var workingDirectory = Directory.CreateDirectory(Path.Combine(_root, "legacy-host-work")).FullName;
-        var index = Index(id, workingDirectory);
+        var index = new SessionIndex(new UserSessionResources(
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+            UserSessionId.Parse(id),
+            ProjectWorkspace.FromLaunchDirectory(workingDirectory)));
         _ = Directory.CreateDirectory(index.Resources.Root);
         var encodedWorkingDirectory = JsonEncodedText.Encode(workingDirectory).ToString();
         var legacyMetadata = $$"""
@@ -72,7 +97,7 @@ internal sealed class SessionStoreTests : IDisposable
             """;
         await File.WriteAllTextAsync(index.Resources.MetadataPath, legacyMetadata);
 
-        var catalog = new SessionCatalog(Paths()).List().Single(entry => entry.Id.Value == id);
+        var catalog = new SessionCatalog(new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data"))).List().Single(entry => entry.Id.Value == id);
         _ = await Assert.That(catalog.State).IsEqualTo(SessionCatalogState.Inactive);
         StabilizeAdmission(workingDirectory, id);
 
@@ -92,8 +117,19 @@ internal sealed class SessionStoreTests : IDisposable
     {
         const string id = "user-session-null-selector";
         var workingDirectory = Directory.CreateDirectory(Path.Combine(_root, "null-selector-work")).FullName;
-        var index = Index(id, workingDirectory);
-        index.Publish(Meta(id, "main", workingDirectory, "2026-07-27T01:00:00Z"));
+        var index = new SessionIndex(new UserSessionResources(
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+            UserSessionId.Parse(id),
+            ProjectWorkspace.FromLaunchDirectory(workingDirectory)));
+        index.Publish(new SessionMeta
+        {
+            Id = id,
+            RootAgentName = "main",
+            WorkingDirectory = workingDirectory,
+            ProviderId = "unused",
+            Model = "unused/model",
+            CreatedAt = "2026-07-27T01:00:00Z",
+        });
         var path = index.Resources.MetadataPath;
         var serialized = await File.ReadAllTextAsync(path);
         await File.WriteAllTextAsync(
@@ -114,7 +150,10 @@ internal sealed class SessionStoreTests : IDisposable
         var physical = Directory.CreateDirectory(Path.Combine(_root, "physical-work")).FullName;
         var linked = Path.Combine(_root, "linked-work");
         _ = Directory.CreateSymbolicLink(linked, physical);
-        var index = Index(id, linked);
+        var index = new SessionIndex(new UserSessionResources(
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+            UserSessionId.Parse(id),
+            ProjectWorkspace.FromLaunchDirectory(linked)));
         index.Publish(new SessionMeta
         {
             Id = id,
@@ -129,7 +168,7 @@ internal sealed class SessionStoreTests : IDisposable
         StabilizeAdmission(linked, id);
 
         await using var session = Open(physical);
-        var resumed = new SessionCatalog(Paths()).Find(UserSessionId.Parse(id));
+        var resumed = new SessionCatalog(new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data"))).Find(UserSessionId.Parse(id));
 
         _ = await Assert.That(session.Id).IsEqualTo(id);
         _ = await Assert.That(resumed?.RootAgentName).IsEqualTo("main-7");
@@ -143,10 +182,11 @@ internal sealed class SessionStoreTests : IDisposable
     public async Task Failed_session_construction_releases_admission_for_retry()
     {
         var workingDirectory = Directory.CreateDirectory(Path.Combine(_root, "working")).FullName;
-        var model = Model();
+        ILLMProvider provider = new UnusedProvider();
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
         var modes = Modes();
         var failing = new SessionStore(
-            Paths(),
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")),
             workingDirectory,
             "host",
             new ThrowingUserSessions(),
@@ -166,31 +206,41 @@ internal sealed class SessionStoreTests : IDisposable
     {
         const string id = "user-session-explicit";
         var workingDirectory = Directory.CreateDirectory(Path.Combine(_root, "explicit-work")).FullName;
-        var index = Index(id, workingDirectory);
+        var index = new SessionIndex(new UserSessionResources(
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+            UserSessionId.Parse(id),
+            ProjectWorkspace.FromLaunchDirectory(workingDirectory)));
         if (!missingMetadata)
         {
-            index.Publish(Meta(id, "main", workingDirectory, "2026-01-01T00:00:00Z") with
+            index.Publish(new SessionMeta
             {
+                Id = id,
+                RootAgentName = "main",
+                WorkingDirectory = workingDirectory,
+                ProviderId = "unused",
+                Model = "unused/model",
+                CreatedAt = "2026-01-01T00:00:00Z",
                 Mode = ModeRegistry.Query,
             });
         }
 
         StabilizeAdmission(workingDirectory, id);
         var sessions = new DirectAgentSessions();
-        var model = Model();
+        ILLMProvider provider = new UnusedProvider();
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
         var router = TestModels.Route(model);
         sessions.Use(router);
         var store = new SessionStore(
-            Paths(),
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")),
             workingDirectory,
             "host",
-            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, TestModels.ProfileRegistry(), SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System),
+            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, new TestProfileFixture().Registry, SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System),
             router,
             Modes());
         if (missingMetadata)
         {
             _ = await Assert.That(() => store.Resume(UserSessionId.Parse(id), false)).Throws<InvalidOperationException>();
-            var retry = new WorkingDirectoryClaim(Paths().State, "host").Resume(workingDirectory, id);
+            var retry = new WorkingDirectoryClaim(new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")).State, "host").Resume(workingDirectory, id);
             _ = await Assert.That(retry.Disposition).IsEqualTo(ClaimDisposition.Resumed);
             if (retry.ActivationLease is { } activation)
             {
@@ -203,7 +253,7 @@ internal sealed class SessionStoreTests : IDisposable
         var opened = store.Resume(UserSessionId.Parse(id), false);
         await using var session = opened.Session;
         _ = await Assert.That(opened.Loaded).IsTrue();
-        _ = await Assert.That(session.Mode.Id).IsEqualTo(ModeRegistry.Query);
+        _ = await Assert.That(session.Mode.Profile.Id).IsEqualTo(ModeRegistry.Query);
         _ = await Assert.That(session.Model).IsEqualTo("unused/model");
         _ = await Assert.That(session.Resources.SocketPath).IsEqualTo(Path.Combine(session.Resources.Root, "parrot.sock"));
         SessionStore.RecordOpened(session);
@@ -214,23 +264,6 @@ internal sealed class SessionStoreTests : IDisposable
         _ = await Assert.That(index.Find()?.CreatedAt).IsEqualTo("2026-01-01T00:00:00Z");
         _ = await Assert.That(store.DiscoverLatest().SessionId?.Value).IsEqualTo(id);
         _ = await Assert.That(() => store.Resume(UserSessionId.Parse(id), false)).Throws<SessionAdmissionException>();
-    }
-
-    private static SessionMeta Meta(string id, string rootAgentName, string workingDirectory, string createdAt) =>
-        new()
-        {
-            Id = id,
-            RootAgentName = rootAgentName,
-            WorkingDirectory = workingDirectory,
-            ProviderId = "unused",
-            Model = "unused/model",
-            CreatedAt = createdAt,
-        };
-
-    private static ProviderModel Model()
-    {
-        var provider = new UnusedProvider();
-        return new ProviderModel(provider, new LLMModel("model", provider.Id));
     }
 
     private static SkillCatalogFactory SkillCatalogFactory()
@@ -244,31 +277,23 @@ internal sealed class SessionStoreTests : IDisposable
     private UserSession Open(string workingDirectory)
     {
         var sessions = new DirectAgentSessions();
-        var model = Model();
+        ILLMProvider provider = new UnusedProvider();
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
         var router = TestModels.Route(model);
         sessions.Use(router);
         var store = new SessionStore(
-            Paths(),
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")),
             workingDirectory,
             "host",
-            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, TestModels.ProfileRegistry(), SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System),
+            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, new TestProfileFixture().Registry, SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System),
             router,
             Modes());
         return store.Open(router.Resolve(model.Selector));
     }
 
-    private SessionIndex Index(string id, string workingDirectory) =>
-        new(new UserSessionResources(
-            Paths(),
-            UserSessionId.Parse(id),
-            ProjectWorkspace.FromLaunchDirectory(workingDirectory)));
-
-    private StatePaths Paths() =>
-        new(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data"));
-
     private ModeRegistry Modes()
     {
-        var paths = Paths();
+        var paths = new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data"));
         var configuration = Configuration.Load(paths.ConfigFile, paths.PredefinedConfigFile);
         return new ModeRegistry(
             new ProfileRegistry(
@@ -281,7 +306,7 @@ internal sealed class SessionStoreTests : IDisposable
 
     private void StabilizeAdmission(string workingDirectory, string sessionId)
     {
-        var admission = new WorkingDirectoryClaim(Paths().State, "host")
+        var admission = new WorkingDirectoryClaim(new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")).State, "host")
             .CreateFresh(workingDirectory, UserSessionId.Parse(sessionId));
         admission.ActivationLease?.Dispose();
     }

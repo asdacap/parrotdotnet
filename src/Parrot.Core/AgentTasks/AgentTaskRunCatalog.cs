@@ -3,7 +3,7 @@ using Parrot.Statuses;
 
 namespace Parrot.AgentTasks;
 
-internal sealed class AgentTaskRunCatalog(CancellationToken lifetime) : IActiveWorkSource, IAsyncDisposable
+internal sealed class AgentTaskRunCatalog(CancellationToken lifetime) : IAsyncDisposable
 {
     private readonly Dictionary<RunKey, AgentTaskRun> _runs = [];
     private readonly List<AgentTaskRun> _ownedRuns = [];
@@ -28,9 +28,6 @@ internal sealed class AgentTaskRunCatalog(CancellationToken lifetime) : IActiveW
     }
 
     public ValueTask DisposeAsync() => new(Settle());
-
-    internal AgentTaskRunOwner Prepare(string ownerAgentSessionId) =>
-        new(ownerAgentSessionId, this);
 
     internal void Start(AgentTaskRunRequest request, CancellationToken cancellationToken)
     {

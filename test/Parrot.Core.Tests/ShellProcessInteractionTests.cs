@@ -36,7 +36,13 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var lifetime = new CancellationTokenSource();
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
-        var resources = CreateResources();
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".state"),
+                Path.Combine(_workspace, ".config"),
+                Path.Combine(_workspace, ".data")),
+            UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         await using var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
         using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
@@ -88,7 +94,13 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var lifetime = new CancellationTokenSource();
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
-        var resources = CreateResources();
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".state"),
+                Path.Combine(_workspace, ".config"),
+                Path.Combine(_workspace, ".data")),
+            UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         await using var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
         using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
@@ -136,7 +148,13 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var lifetime = new CancellationTokenSource();
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
-        var resources = CreateResources();
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".state"),
+                Path.Combine(_workspace, ".config"),
+                Path.Combine(_workspace, ".data")),
+            UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         await using var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
         using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
@@ -180,7 +198,13 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var lifetime = new CancellationTokenSource();
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
-        var resources = CreateResources();
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".state"),
+                Path.Combine(_workspace, ".config"),
+                Path.Combine(_workspace, ".data")),
+            UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         await using var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
         using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
@@ -240,7 +264,13 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var lifetime = new CancellationTokenSource();
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
-        var resources = CreateResources();
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".state"),
+                Path.Combine(_workspace, ".config"),
+                Path.Combine(_workspace, ".data")),
+            UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         await using var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
         using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
@@ -328,16 +358,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         }
     }
 
-    private UserSessionResources CreateResources() =>
-        new(
-            new StatePaths(
-                Path.Combine(_workspace, ".state"),
-                Path.Combine(_workspace, ".config"),
-                Path.Combine(_workspace, ".data")),
-            UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
-            ProjectWorkspace.FromLaunchDirectory(_workspace));
-
-    private AgentSession CreateAgent(
+    private IAgentSession CreateAgent(
         EventBroker events,
         SessionDatabase database,
         string blobDirectory,
@@ -347,7 +368,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         var repository = new EventRepository(database);
         var identity = AgentIdentity.Main("agent", "agent", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, events, repository, lifetime);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
     }
 
     private string CreateSandboxPassThrough()

@@ -24,11 +24,11 @@ internal sealed class LocalSessionIntegrationTests
         bool reachable, CancellationToken cancellationToken)
     {
         using var workspace = new TestWorkspace();
-        await using var owner = workspace.OpenRuntime(reachable);
+        await using var owner = new TestRuntime(workspace, reachable);
         var original = await owner.Client.CreateSessionAsync(
             new CreateSessionRequest { Model = Selection, Mode = "plan", InteractivePermissions = true },
             cancellationToken: cancellationToken);
-        await using var local = workspace.OpenRuntime(true);
+        await using var local = new TestRuntime(workspace, true);
         using var diagnostic = new StringWriter();
         var localOpens = 0;
         var configurations = 0;
@@ -68,7 +68,7 @@ internal sealed class LocalSessionIntegrationTests
             else
             {
                 using var simultaneous = GrpcTransportClient.Connect(
-                    TransportAddress.Parse($"unix:{workspace.Resources(original.Id).SocketPath}"), null);
+                    TransportAddress.Parse($"unix:{new UserSessionResources(workspace.Paths, UserSessionId.Parse(original.Id), ProjectWorkspace.FromLaunchDirectory(workspace.Root)).SocketPath}"), null);
                 _ = await Assert.That((await simultaneous.Attach(
                     new AttachSessionRequest { UserSessionId = original.Id, WorkingDirectory = workspace.Root }, cancellationToken)).Id)
                     .IsEqualTo(original.Id);
@@ -78,7 +78,7 @@ internal sealed class LocalSessionIntegrationTests
         if (reachable)
         {
             using var second = GrpcTransportClient.Connect(
-                TransportAddress.Parse($"unix:{workspace.Resources(original.Id).SocketPath}"), null);
+                TransportAddress.Parse($"unix:{new UserSessionResources(workspace.Paths, UserSessionId.Parse(original.Id), ProjectWorkspace.FromLaunchDirectory(workspace.Root)).SocketPath}"), null);
             var attached = await second.Attach(
                 new AttachSessionRequest { UserSessionId = original.Id, WorkingDirectory = workspace.Root }, cancellationToken);
             _ = await Assert.That(attached.Mode).IsEqualTo("plan");
@@ -93,28 +93,28 @@ internal sealed class LocalSessionIntegrationTests
     {
         using var workspace = new TestWorkspace();
         string olderId;
-        await using (var owner = workspace.OpenRuntime(true))
+        await using (var owner = new TestRuntime(workspace, true))
         {
             var older = await owner.Client.CreateSessionAsync(
                 new CreateSessionRequest { Model = Selection, Mode = "plan" }, cancellationToken: cancellationToken);
             olderId = older.Id;
             var newer = await owner.Client.CreateSessionAsync(
                 new CreateSessionRequest { Model = Selection, Mode = "query" }, cancellationToken: cancellationToken);
-            var olderIndex = new SessionIndex(workspace.Resources(olderId));
+            var olderIndex = new SessionIndex(new UserSessionResources(workspace.Paths, UserSessionId.Parse(olderId), ProjectWorkspace.FromLaunchDirectory(workspace.Root)));
             var olderMeta = olderIndex.Find() ?? throw new InvalidOperationException("Missing older metadata.");
             olderIndex.Publish(olderMeta with { LastOpenedAt = "2000-01-01T00:00:00.0000000+00:00" });
             _ = await Assert.That(owner.Store.DiscoverLatest().SessionId?.Value).IsEqualTo(newer.Id);
 
             using var client = GrpcTransportClient.Connect(
-                TransportAddress.Parse($"unix:{workspace.Resources(olderId).SocketPath}"), null);
+                TransportAddress.Parse($"unix:{new UserSessionResources(workspace.Paths, UserSessionId.Parse(olderId), ProjectWorkspace.FromLaunchDirectory(workspace.Root)).SocketPath}"), null);
             var attached = await client.Attach(
                 new AttachSessionRequest { UserSessionId = olderId, WorkingDirectory = workspace.Root }, cancellationToken);
             _ = await Assert.That(attached.Mode).IsEqualTo("plan");
             _ = await Assert.That(owner.Store.DiscoverLatest().SessionId?.Value).IsEqualTo(olderId);
         }
 
-        _ = await Assert.That(File.Exists(workspace.Resources(olderId).SocketPath)).IsFalse();
-        await using var replacement = workspace.OpenRuntime(true);
+        _ = await Assert.That(File.Exists(new UserSessionResources(workspace.Paths, UserSessionId.Parse(olderId), ProjectWorkspace.FromLaunchDirectory(workspace.Root)).SocketPath)).IsFalse();
+        await using var replacement = new TestRuntime(workspace, true);
         _ = await Assert.That(replacement.Store.DiscoverLatest().Disposition).IsEqualTo(ClaimDisposition.Resumed);
         using var diagnostic = new StringWriter();
         using var startup = new LocalChatStartup(
@@ -136,7 +136,7 @@ internal sealed class LocalSessionIntegrationTests
         _ = await Assert.That(diagnostic.ToString()).Contains($"loaded existing user session {olderId}");
         _ = await Assert.That(Directory.GetFiles(workspace.Paths.State, "session.db", SearchOption.AllDirectories).Length).IsEqualTo(2);
         using var reattached = GrpcTransportClient.Connect(
-            TransportAddress.Parse($"unix:{workspace.Resources(olderId).SocketPath}"), null);
+            TransportAddress.Parse($"unix:{new UserSessionResources(workspace.Paths, UserSessionId.Parse(olderId), ProjectWorkspace.FromLaunchDirectory(workspace.Root)).SocketPath}"), null);
         _ = await Assert.That((await reattached.Attach(
             new AttachSessionRequest { UserSessionId = olderId, WorkingDirectory = workspace.Root }, cancellationToken)).Id)
             .IsEqualTo(olderId);
@@ -155,11 +155,6 @@ internal sealed class LocalSessionIntegrationTests
 
         public StatePaths Paths { get; }
 
-        public UserSessionResources Resources(string id) =>
-            new(Paths, UserSessionId.Parse(id), ProjectWorkspace.FromLaunchDirectory(Root));
-
-        public TestRuntime OpenRuntime(bool reachable) => new(this, reachable);
-
         public void Dispose() => Directory.Delete(Root, recursive: true);
     }
 
@@ -171,7 +166,7 @@ internal sealed class LocalSessionIntegrationTests
         public TestRuntime(TestWorkspace workspace, bool reachable)
         {
             var configuration = Configuration.Load(workspace.Paths.ConfigFile, workspace.Paths.PredefinedConfigFile);
-            var provider = new TestProvider();
+            ILLMProvider provider = new TestProvider();
             var registry = new ProviderRegistry(
                 [provider],
                 new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal)
@@ -225,6 +220,8 @@ internal sealed class LocalSessionIntegrationTests
     private sealed class TestProvider : ILLMProvider
     {
         public string Id => "integration";
+
+        public IReadOnlyList<LLMModel> SeedModels() => [new("model", Id) { ContextWindow = 100_000 }];
 
         public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 

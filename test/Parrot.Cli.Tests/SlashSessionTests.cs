@@ -12,7 +12,7 @@ internal sealed class SlashSessionTests
     public async Task Compact_forwards_the_current_session_id()
     {
         var invoker = new ScriptedInvoker();
-        var session = new SlashSession(
+        ISlashSession session = new SlashSession(
             new GeneratedParrot.ParrotClient(invoker),
             new UserSession { Id = "session-7", Model = "provider/model", Mode = "build" },
             new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
@@ -30,7 +30,7 @@ internal sealed class SlashSessionTests
     {
         var invoker = new ScriptedInvoker();
         invoker.SetSkills("session-7", new Skill { Name = "skill", Path = "/skill/SKILL.md", Enabled = true });
-        var session = new SlashSession(
+        ISlashSession session = new SlashSession(
             new GeneratedParrot.ParrotClient(invoker),
             new UserSession { Id = "session-7", Model = "provider/model", Mode = "build" },
             new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
@@ -55,7 +55,7 @@ internal sealed class SlashSessionTests
         using var stopping = new CancellationTokenSource();
         var binding = new RecordingSlashSessionBinding();
         var invoker = new ScriptedInvoker();
-        var session = new SlashSession(
+        ISlashSession session = new SlashSession(
             new GeneratedParrot.ParrotClient(invoker),
             new UserSession { Id = "session-0", Model = "provider/model", Mode = "build" },
             new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),

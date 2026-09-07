@@ -11,7 +11,8 @@ internal sealed class CompactCommandTests
         var activity = new TestSlashActivity();
         var dialog = new TestSlashDialog();
 
-        await new CompactCommand(session, activity, dialog).Run(string.Empty, cancellationToken);
+        ISlashCommand command = new CompactCommand(session, activity, dialog);
+        await command.Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(activity.Waits).IsEqualTo(1);
         _ = await Assert.That(activity.CancellationToken).IsEqualTo(cancellationToken);
@@ -29,7 +30,8 @@ internal sealed class CompactCommandTests
         var activity = new TestSlashActivity();
         var dialog = new TestSlashDialog();
 
-        await new CompactCommand(session, activity, dialog).Run(arguments, cancellationToken);
+        ISlashCommand command = new CompactCommand(session, activity, dialog);
+        await command.Run(arguments, cancellationToken);
 
         _ = await Assert.That(activity.Waits).IsEqualTo(0);
         _ = await Assert.That(session.Compactions).IsEqualTo(0);

@@ -19,7 +19,7 @@ internal sealed partial class LinuxProcessSignalTarget : IProcessSignalTarget
 
     private LinuxProcessSignalTarget(int openError) => _openError = openError;
 
-    public static LinuxProcessSignalTarget Open(System.Diagnostics.Process process)
+    public static IProcessSignalTarget Open(System.Diagnostics.Process process)
     {
         ArgumentNullException.ThrowIfNull(process);
 

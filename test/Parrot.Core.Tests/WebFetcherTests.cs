@@ -46,12 +46,12 @@ internal sealed class WebFetcherTests
                 new Uri(baseAddress, "/start#fragment"), HttpMethod.Get, cancellationToken);
             var bounded = await privateFetcher.Fetch(
                 new Uri(baseAddress, "/gzip"), HttpMethod.Get, cancellationToken);
-            var tool = new WebFetchTool(privateFetcher);
+            ITool tool = new WebFetchTool(privateFetcher);
             var toolText = (await tool.Execute(
                 new ToolInvocation(
                     "test-call",
                     $$"""{"url":"{{new Uri(baseAddress, "/tool")}}","method":"get"}"""),
-                Selection(),
+                new SelectionFixture().Selection,
                 cancellationToken)).Text;
             var requests = await serving;
 
@@ -151,17 +151,17 @@ internal sealed class WebFetcherTests
     {
         var (address, defaultMethod) = WebFetchTool.ReadRequest("{\"url\":\"example.com/path#part\"}");
         var (_, headMethod) = WebFetchTool.ReadRequest("{\"url\":\"https://example.com\",\"method\":\" head \"}");
-        var tool = new WebFetchTool(WebFetcher.Create(new PublicWebAddressPolicy()));
+        ITool tool = new WebFetchTool(WebFetcher.Create(new PublicWebAddressPolicy()));
 
         _ = await Assert.That(address).IsEqualTo(new Uri("https://example.com/path"));
         _ = await Assert.That(defaultMethod).IsEqualTo(HttpMethod.Get);
         _ = await Assert.That(headMethod).IsEqualTo(HttpMethod.Head);
-        _ = await Assert.That((await tool.Execute(new ToolInvocation("test-call", "[]"), Selection(), CancellationToken.None)).Text).Contains("URL is required");
+        _ = await Assert.That((await tool.Execute(new ToolInvocation("test-call", "[]"), new SelectionFixture().Selection, CancellationToken.None)).Text).Contains("URL is required");
         _ = await Assert.That((await tool.Execute(
             new ToolInvocation(
                 "test-call",
                 "{\"url\":\"https://example.com\",\"method\":\"POST\"}"),
-            Selection(),
+            new SelectionFixture().Selection,
             CancellationToken.None)).Text)
             .Contains("only GET and HEAD");
     }
@@ -172,17 +172,6 @@ internal sealed class WebFetcherTests
                 "<h1>Title</h1><!-- comment > still comment --><p>A&nbsp; B</p>"
                 + "<script>bad</script><div title=\">\">C</div>"))
             .IsEqualTo("Title\n\nA B\n\nC");
-
-    private static AgentTurnSelection Selection()
-    {
-        var provider = new UnusedProvider();
-        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        return new AgentTurnSelection(
-            new ModelSelector(model.Selector),
-            TestModels.Resolve(model),
-            TestModels.Profile(),
-            SecurityProfile.Compose(readOnly: false, [], [], []));
-    }
 
     private static byte[] Gzip(string text)
     {
@@ -266,5 +255,21 @@ internal sealed class WebFetcherTests
         var endpoint = (IPEndPoint)listener.LocalEndpoint;
         address = new Uri($"http://127.0.0.1:{endpoint.Port}");
         return listener;
+    }
+
+    private sealed class SelectionFixture
+    {
+        public SelectionFixture()
+        {
+            ILLMProvider provider = new UnusedProvider();
+            var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+            Selection = new AgentTurnSelection(
+                new ModelSelector(model.Selector),
+                TestModels.Resolve(model),
+                new TestProfileFixture().Mode,
+                SecurityProfile.Compose(readOnly: false, [], [], []));
+        }
+
+        public AgentTurnSelection Selection { get; }
     }
 }

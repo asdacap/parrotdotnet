@@ -10,7 +10,7 @@ internal sealed class SystemBrowserOpenerTests
     {
         foreach (var failure in new Exception[] { new Win32Exception(2), new InvalidOperationException("invalid") })
         {
-            var opener = new SystemBrowserOpener(_ => throw failure);
+            IBrowserOpener opener = new SystemBrowserOpener(_ => throw failure);
 
             var thrown = await Assert.That(async () => await opener.Open("https://example.com", cancellationToken))
                 .Throws<AuthException>();
@@ -23,7 +23,7 @@ internal sealed class SystemBrowserOpenerTests
     [Test]
     public async Task A_missing_process_is_an_actionable_auth_error(CancellationToken cancellationToken)
     {
-        var opener = new SystemBrowserOpener(static _ => null);
+        IBrowserOpener opener = new SystemBrowserOpener(static _ => null);
 
         var thrown = await Assert.That(async () => await opener.Open("https://example.com", cancellationToken))
             .Throws<AuthException>();

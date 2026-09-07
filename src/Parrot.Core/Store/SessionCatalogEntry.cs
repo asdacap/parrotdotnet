@@ -21,4 +21,7 @@ internal sealed record SessionCatalogEntry
     public string LastOpenedAt { get; init; } = string.Empty;
 
     public string CreatedAt { get; init; } = string.Empty;
+
+    public static SessionCatalogEntry Corrupt(UserSessionId id) =>
+        new() { Id = id, State = SessionCatalogState.Corrupt };
 }

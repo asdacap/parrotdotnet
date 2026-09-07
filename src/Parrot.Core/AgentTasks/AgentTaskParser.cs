@@ -15,7 +15,7 @@ internal static class AgentTaskParser
         RequireProperty(root, "tasks", JsonValueKind.Array);
         if (wire.SchemaVersion != AgentTaskArtifact.Version1)
         {
-            throw Invalid("schema_version must equal 1.");
+            throw new ArgumentException("schema_version must equal 1.");
         }
 
         var tasks = ParseTasks(root.GetProperty("tasks"), "tasks");
@@ -35,7 +35,7 @@ internal static class AgentTaskParser
         {
             if (patchElement.ValueKind == JsonValueKind.Null)
             {
-                throw Invalid("prepare response task_patch must not be null.");
+                throw new ArgumentException("prepare response task_patch must not be null.");
             }
 
             patch = ParsePatch(patchElement, "prepare response task_patch");
@@ -56,7 +56,7 @@ internal static class AgentTaskParser
             "accept" => Accept(root),
             "reject_and_halt" => RejectAndHalt(root),
             "reject_and_retry" => RejectAndRetry(root),
-            _ => throw Invalid("acceptance verdict verdict must be accept, reject_and_halt, or reject_and_retry."),
+            _ => throw new ArgumentException("acceptance verdict verdict must be accept, reject_and_halt, or reject_and_retry."),
         };
     }
 
@@ -81,7 +81,7 @@ internal static class AgentTaskParser
             "accept" => LeafAccept(root),
             "reject_and_halt" => LeafRejectAndHalt(root),
             "reject_and_retry" => LeafRejectAndRetry(root),
-            _ => throw Invalid("leaf response verdict must be accept, reject_and_halt, or reject_and_retry."),
+            _ => throw new ArgumentException("leaf response verdict must be accept, reject_and_halt, or reject_and_retry."),
         };
     }
 
@@ -141,7 +141,7 @@ internal static class AgentTaskParser
     {
         if (element.GetArrayLength() == 0)
         {
-            throw Invalid($"{path} must not be empty.");
+            throw new ArgumentException($"{path} must not be empty.");
         }
 
         var tasks = new List<AgentTask>();
@@ -185,7 +185,7 @@ internal static class AgentTaskParser
         }
         else if (payload.Tasks is null || payload.Tasks.Count == 0)
         {
-            throw Invalid($"{path} payload is invalid.");
+            throw new ArgumentException($"{path} payload is invalid.");
         }
 
         return new AgentTask(name, [.. dependencies], description, payload, criteria, model);
@@ -195,7 +195,7 @@ internal static class AgentTaskParser
     {
         JsonValueKind.String => AgentTaskPayload.FromInstruction(Nonblank(element.GetString(), path)),
         JsonValueKind.Array => AgentTaskPayload.FromTasks(ParseTasks(element, path)),
-        _ => throw Invalid($"{path} must be a nonblank string or nonempty task array."),
+        _ => throw new ArgumentException($"{path} must be a nonblank string or nonempty task array."),
     };
 
     private static List<string> ParseDependencies(JsonElement task, string path)
@@ -207,7 +207,7 @@ internal static class AgentTaskParser
 
         if (element.ValueKind != JsonValueKind.Array)
         {
-            throw Invalid($"{path} dependencies must be an array.");
+            throw new ArgumentException($"{path} dependencies must be an array.");
         }
 
         var values = new List<string>();
@@ -215,7 +215,7 @@ internal static class AgentTaskParser
         {
             if (value.ValueKind != JsonValueKind.String)
             {
-                throw Invalid($"{path} dependencies must contain strings.");
+                throw new ArgumentException($"{path} dependencies must contain strings.");
             }
 
             values.Add(Nonblank(value.GetString(), $"{path} dependency"));
@@ -223,7 +223,7 @@ internal static class AgentTaskParser
 
         if (values.Distinct(StringComparer.Ordinal).Count() != values.Count)
         {
-            throw Invalid($"{path} dependencies must be distinct.");
+            throw new ArgumentException($"{path} dependencies must be distinct.");
         }
 
         return values;
@@ -235,7 +235,7 @@ internal static class AgentTaskParser
         RejectUnknown(element, path, "description", "payload", "acceptance_criteria", "model");
         if (!element.EnumerateObject().Any())
         {
-            throw Invalid($"{path} must contain a mutable field.");
+            throw new ArgumentException($"{path} must contain a mutable field.");
         }
 
         var description = OptionalPatchString(element, "description", path);
@@ -269,7 +269,7 @@ internal static class AgentTaskParser
         {
             if (!names.Add(task.Name))
             {
-                throw Invalid($"{path} contains duplicate task name '{task.Name}'.");
+                throw new ArgumentException($"{path} contains duplicate task name '{task.Name}'.");
             }
         }
 
@@ -279,12 +279,12 @@ internal static class AgentTaskParser
             {
                 if (dependency == task.Name)
                 {
-                    throw Invalid($"{path} task '{task.Name}' cannot depend on itself.");
+                    throw new ArgumentException($"{path} task '{task.Name}' cannot depend on itself.");
                 }
 
                 if (!names.Contains(dependency))
                 {
-                    throw Invalid($"{path} task '{task.Name}' has missing sibling dependency '{dependency}'.");
+                    throw new ArgumentException($"{path} task '{task.Name}' has missing sibling dependency '{dependency}'.");
                 }
             }
         }
@@ -307,7 +307,7 @@ internal static class AgentTaskParser
 
             if (!visiting.Add(task.Name))
             {
-                throw Invalid($"{path} contains a dependency cycle.");
+                throw new ArgumentException($"{path} contains a dependency cycle.");
             }
 
             foreach (var dependency in task.Dependencies)
@@ -324,7 +324,7 @@ internal static class AgentTaskParser
     {
         try
         {
-            return JsonSerializer.Deserialize(json, typeInfo) ?? throw Invalid("JSON must not be null.");
+            return JsonSerializer.Deserialize(json, typeInfo) ?? throw new ArgumentException("JSON must not be null.");
         }
         catch (JsonException exception)
         {
@@ -336,12 +336,12 @@ internal static class AgentTaskParser
     {
         if (!element.TryGetProperty(name, out var value))
         {
-            throw Invalid($"{name} is required.");
+            throw new ArgumentException($"{name} is required.");
         }
 
         if (!kinds.Contains(value.ValueKind))
         {
-            throw Invalid($"{name} has an invalid value.");
+            throw new ArgumentException($"{name} has an invalid value.");
         }
 
         return value;
@@ -349,13 +349,13 @@ internal static class AgentTaskParser
 
     private static void RequireProperty(JsonElement element, string name, JsonValueKind kind) => _ = RequiredProperty(element, name, kind);
 
-    private static JsonElement RequireNotNull(JsonElement element, string path) => element.ValueKind == JsonValueKind.Null ? throw Invalid($"{path} must not be null.") : element;
+    private static JsonElement RequireNotNull(JsonElement element, string path) => element.ValueKind == JsonValueKind.Null ? throw new ArgumentException($"{path} must not be null.") : element;
 
     private static string RequiredString(JsonElement element, string name, string path) => Nonblank(RequireString(RequiredProperty(element, name, JsonValueKind.String), $"{path} {name}"), $"{path} {name}");
 
-    private static string RequireString(JsonElement value, string path) => value.ValueKind == JsonValueKind.String ? value.GetString() ?? throw Invalid($"{path} must not be null.") : throw Invalid($"{path} must be a string.");
+    private static string RequireString(JsonElement value, string path) => value.ValueKind == JsonValueKind.String ? value.GetString() ?? throw new ArgumentException($"{path} must not be null.") : throw new ArgumentException($"{path} must be a string.");
 
-    private static string Nonblank(string? value, string path) => string.IsNullOrWhiteSpace(value) ? throw Invalid($"{path} must be nonblank.") : value;
+    private static string Nonblank(string? value, string path) => string.IsNullOrWhiteSpace(value) ? throw new ArgumentException($"{path} must be nonblank.") : value;
 
     private static void RequireNonblank(string value, string path) => _ = Nonblank(value, path);
 
@@ -363,7 +363,7 @@ internal static class AgentTaskParser
     {
         if (element.ValueKind != JsonValueKind.Object)
         {
-            throw Invalid($"{path} must be an object.");
+            throw new ArgumentException($"{path} must be an object.");
         }
     }
 
@@ -374,15 +374,13 @@ internal static class AgentTaskParser
         {
             if (!encountered.Add(property.Name))
             {
-                throw Invalid($"{path} contains duplicate field '{property.Name}'.");
+                throw new ArgumentException($"{path} contains duplicate field '{property.Name}'.");
             }
 
             if (!allowed.Contains(property.Name, StringComparer.Ordinal))
             {
-                throw Invalid($"{path} contains unknown field '{property.Name}'.");
+                throw new ArgumentException($"{path} contains unknown field '{property.Name}'.");
             }
         }
     }
-
-    private static ArgumentException Invalid(string message) => new(message);
 }

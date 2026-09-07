@@ -8,6 +8,8 @@ internal sealed class AgentTaskBlockingProvider : ILLMProvider, IDisposable
 
     public string Id => "agent-task-blocking";
 
+    public IReadOnlyList<LLMModel> SeedModels() => [];
+
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
     public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>

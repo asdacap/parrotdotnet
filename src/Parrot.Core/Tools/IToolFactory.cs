@@ -8,6 +8,7 @@ namespace Parrot.Tools;
 // AgentSession.
 internal interface IToolFactory
 {
+    // Returning false excludes this tool from the supplied session's available tools.
     bool Supports(IAgentSession session) => true;
 
     ITool Create(IAgentSession session);

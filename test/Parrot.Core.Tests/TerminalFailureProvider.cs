@@ -6,6 +6,8 @@ internal sealed class TerminalFailureProvider(string message) : ILLMProvider
 {
     public string Id => "terminal-failure";
 
+    public IReadOnlyList<LLMModel> SeedModels() => [];
+
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
     public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>

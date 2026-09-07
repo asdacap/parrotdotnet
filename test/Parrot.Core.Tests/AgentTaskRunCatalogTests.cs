@@ -39,16 +39,44 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
         await using var catalog = new AgentTaskRunCatalog(cancellationToken);
-        var owner = catalog.Prepare(runtime.Parent.SessionId);
-        var otherOwner = catalog.Prepare("other-owner");
+        var owner = new AgentTaskRunOwner(runtime.Parent.SessionId, catalog);
+        var otherOwner = new AgentTaskRunOwner("other-owner", catalog);
         using var call = new CancellationTokenSource();
-        var first = Progress("first");
-        var second = Progress("second");
+        var first = new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "first");
+        var second = new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "second");
         var firstCompletion = new Completion();
         var secondCompletion = new Completion();
 
-        owner.Start(Request("first", first, firstCompletion), cancellationToken);
-        owner.Start(Request("second", second, secondCompletion), cancellationToken);
+        owner.Start(
+            new AgentTaskRunRequest(
+                "first",
+                "first",
+                AgentTaskParser.ParseArtifact("""
+                    {"schema_version":1,"tasks":[{"name":"first","description":"Run first","payload":"work","acceptance_criteria":"Done"}]}
+                    """),
+                runtime.Router,
+                runtime.ParentScope,
+                runtime.Selection,
+                first,
+                new AgentTaskConfig(1, true, TestModels.PromptTemplates),
+                new HistoryForkBoundary.AfterCompletedHistory(),
+                firstCompletion),
+            cancellationToken);
+        owner.Start(
+            new AgentTaskRunRequest(
+                "second",
+                "second",
+                AgentTaskParser.ParseArtifact("""
+                    {"schema_version":1,"tasks":[{"name":"second","description":"Run second","payload":"work","acceptance_criteria":"Done"}]}
+                    """),
+                runtime.Router,
+                runtime.ParentScope,
+                runtime.Selection,
+                second,
+                new AgentTaskConfig(1, true, TestModels.PromptTemplates),
+                new HistoryForkBoundary.AfterCompletedHistory(),
+                secondCompletion),
+            cancellationToken);
 
         var admittedSnapshots = owner.Snapshot();
         _ = await Assert.That(admittedSnapshots.All(snapshot => snapshot.Progress.Revision == 1UL)).IsTrue();
@@ -94,7 +122,19 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
 
         var settlement = catalog.Settle();
         _ = await Assert.That(() => owner.Start(
-                Request("third", Progress("third"), new Completion()),
+                new AgentTaskRunRequest(
+                    "third",
+                    "third",
+                    AgentTaskParser.ParseArtifact("""
+                        {"schema_version":1,"tasks":[{"name":"third","description":"Run third","payload":"work","acceptance_criteria":"Done"}]}
+                        """),
+                    runtime.Router,
+                    runtime.ParentScope,
+                    runtime.Selection,
+                    new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "third"),
+                    new AgentTaskConfig(1, true, TestModels.PromptTemplates),
+                    new HistoryForkBoundary.AfterCompletedHistory(),
+                    new Completion()),
                 cancellationToken))
             .Throws<InvalidOperationException>();
         await settlement;
@@ -103,26 +143,6 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
         _ = await Assert.That(runtime.ParentScope.ChildRegistry.SnapshotDescendants()).IsEmpty();
         _ = await Assert.That((await firstCompletion.Delivered).Status).IsEqualTo(AgentTaskExecutionStatus.Canceled);
         _ = await Assert.That((await secondCompletion.Delivered).Status).IsEqualTo(AgentTaskExecutionStatus.Canceled);
-
-        AgentTaskProgress Progress(string callId) =>
-            new(_broker, _repository, runtime.Parent.SessionId, callId);
-
-        AgentTaskRunRequest Request(
-            string runId,
-            AgentTaskProgress progress,
-            IAgentTaskRunCompletion completion) => new(
-                runId,
-                runId,
-                AgentTaskParser.ParseArtifact($$"""
-                    {"schema_version":1,"tasks":[{"name":"{{runId}}","description":"Run {{runId}}","payload":"work","acceptance_criteria":"Done"}]}
-                    """),
-                runtime.Router,
-                runtime.ParentScope,
-                runtime.Selection,
-                progress,
-                new AgentTaskConfig(1, true, TestModels.PromptTemplates),
-                new HistoryForkBoundary.AfterCompletedHistory(),
-                completion);
     }
 
     [Test]
@@ -133,7 +153,7 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
         await using var catalog = new AgentTaskRunCatalog(cancellationToken);
-        var owner = catalog.Prepare(runtime.Parent.SessionId);
+        var owner = new AgentTaskRunOwner(runtime.Parent.SessionId, catalog);
         var completion = new FailOnceCompletion();
         var progress = new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "retry-delivery");
         var request = new AgentTaskRunRequest(
@@ -188,7 +208,7 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
             sessions,
             _broker,
             _repository,
-            TestModels.ProfileRegistry(),
+            new TestProfileFixture().Registry,
             TestModels.PromptTemplates,
             cancellationToken);
         var identity = AgentIdentity.Main("agent-task-catalog-parent", "parent", TestModels.PromptTemplates);
@@ -212,8 +232,8 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
             childQuestions,
             dependencies.ExitReminder,
             dependencies.Profile,
-            TestModels.CompletionCallbacks(childQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, _repository, _broker),
-            SecurityProfileTestFactory.Create(SecurityProfile.Compose(false, [], [], [])),
+            new TestCompletionCallbacksFixture(childQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, _repository, _broker).Callbacks,
+            new SecurityProfileTestFixture(SecurityProfile.Compose(false, [], [], [])).Security,
             dependencies.Status,
             dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),
@@ -229,13 +249,13 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
             new AgentTurnSelection(
                 selected.RequestedModel,
                 router.Resolve(selected.RequestedModel.Value),
-                selected.Profile,
+                selected.Mode,
                 selected.SecurityProfile));
     }
 
     private sealed record RuntimeContext(
         ModelRouter Router,
-        AgentRegistry Registry,
+        IAgentRegistry Registry,
         IAgentSessionScope ParentScope,
         IAgentSession Parent,
         ShellProcessOwner Processes,

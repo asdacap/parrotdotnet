@@ -118,7 +118,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind<AgentTaskRunOwner>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.AgentTaskRuns.Prepare(arguments.Identity.SessionId);
+                return new AgentTaskRunOwner(arguments.Identity.SessionId, arguments.AgentTaskRuns);
             })
             .Bind<IReadOnlyList<string>>().To(ctx =>
             {

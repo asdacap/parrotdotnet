@@ -5,28 +5,46 @@ using Parrot.Store;
 
 namespace Parrot.Agent;
 
-internal interface IAgentRegistry : IAsyncDisposable, IActiveWorkSource, IAgentStatusSource
+/// <summary>Coordinates one user session's agent scopes, child admission and shutdown.</summary>
+internal interface IAgentRegistry : IAsyncDisposable
 {
     CancellationToken ChildLifetime { get; }
 
     bool IsAccepting { get; }
 
+    /// <summary>Attaches the shared runtime observer once.</summary>
     void AttachStatus(RuntimeStatus status);
 
+    /// <summary>Registers a root scope with a unique session identity.</summary>
     void RegisterRootScope(IAgentSessionScope scope);
 
+    /// <summary>Removes the exact registered root scope.</summary>
     void UnregisterRootScope(IAgentSessionScope scope);
 
-    AgentProfile ResolveChildProfile(string profileId);
+    /// <summary>Reports active descendants ordered by session identity.</summary>
+    IReadOnlyList<ActiveWorkObservation> Active();
 
+    /// <summary>Captures active descendant identities for runtime status reporting.</summary>
+    IReadOnlyList<ActiveAgentSnapshot> ActiveSnapshot();
+
+    /// <summary>Stops admission and begins the single shared asynchronous scope shutdown.</summary>
+    ValueTask BeginShutdown();
+
+    IAgentProfile ResolveChildProfile(string profileId);
+
+    /// <summary>Reserves capacity for a retained agent while the registry accepts work.</summary>
     RetainedAgentReservation ReserveRetainedAgent();
 
+    /// <summary>Returns the attached observer, failing if unattached or shutting down.</summary>
     RuntimeStatus RequireStatus();
 
+    /// <summary>Tests scope identity among registered roots and descendants.</summary>
     bool ContainsScope(IAgentSessionScope candidate);
 
+    /// <summary>Finds a root or descendant by session identity.</summary>
     IAgentSessionScope? FindScope(string sessionId);
 
+    /// <summary>Constructs a child scope using this registry's shared session resources.</summary>
     IAgentSessionScope CreateChildScope(
         AgentIdentity identity,
         AgentSessionParentLink parentLink,
@@ -36,6 +54,7 @@ internal interface IAgentRegistry : IAsyncDisposable, IActiveWorkSource, IAgentS
         RuntimeStatus status,
         CancellationToken childLifetime);
 
+    /// <summary>Initializes child history at the requested parent fork boundary.</summary>
     void InitializeChildHistory(
         string parentSessionId,
         string childSessionId,

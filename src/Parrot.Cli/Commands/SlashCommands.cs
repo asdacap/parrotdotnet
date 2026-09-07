@@ -12,7 +12,7 @@ internal static class SlashCommands
         ISlashActivity activity,
         IApplicationExit applicationExit,
         ICredentialStore credentials,
-        OpenAiOAuthClient oauth,
+        IOAuthClient oauth,
         IReadOnlyList<string> providerIds,
         Func<CancellationToken, Task> refreshSkillCompletion)
     {

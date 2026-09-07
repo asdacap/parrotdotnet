@@ -5,7 +5,7 @@ namespace Parrot.Core.Tests;
 
 // Hands out the tool it was given. A test tool has nothing to build per
 // session, so the factory that production needs is a pass-through here.
-internal sealed record FixedToolFactory(ITool Tool) : IToolFactory, ITestToolFactory
+internal sealed record FixedToolFactory(ITool Tool) : IToolFactory
 {
     public ITool Create(IAgentSession session) => Tool;
 }

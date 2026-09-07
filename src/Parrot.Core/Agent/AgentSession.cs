@@ -47,7 +47,7 @@ internal sealed partial class AgentSession(
     RuntimeStatus status,
     AgentQueues queues,
     AgentSessionActivity activity,
-    CancellationToken lifetime) : IAgentSession, IAgentSessionContext
+    CancellationToken lifetime) : IAgentSession
 {
     private const string InterruptedFinish = "interrupted";
     private const int DefaultMaximumOutputTokens = 32 * 1024;
@@ -193,7 +193,7 @@ internal sealed partial class AgentSession(
             _selection = new AgentSelection(
                 selectedModel,
                 mode,
-                mode.SecurityProfile);
+                mode.Profile.SecurityProfile);
         }
     }
 
@@ -662,16 +662,18 @@ internal sealed partial class AgentSession(
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return TaskResult(
+            return new WaitAgentResult(
+                SessionId,
+                Name,
                 AgentTaskStatus.Running,
-                yielded: true,
+                Yielded: true,
                 Elapsed(started),
                 string.Empty,
                 string.Empty);
         }
     }
 
-    internal async Task Settled() =>
+    public async Task Settled() =>
         _ = await WaitForDrainResult().ConfigureAwait(false);
 
     private static long Elapsed(long started) =>

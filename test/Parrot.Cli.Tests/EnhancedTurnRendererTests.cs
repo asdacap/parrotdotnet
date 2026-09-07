@@ -217,7 +217,7 @@ internal sealed class EnhancedTurnRendererTests
         using var driver = new CliLifecycleDriver(enhanced: true);
         var terminal = new TestTerminal(driver.Input, output, error, 80);
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
-        var completed = await new EnhancedTurnRenderer(terminal, configuration, Presenters()).RenderTurn(stream.Reader, cancellationToken);
+        var completed = await new EnhancedTurnRenderer(terminal, configuration, new ToolPresenterRegistry([], new GenericToolPresenter())).RenderTurn(stream.Reader, cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(error.ToString()).IsEmpty();
@@ -262,7 +262,7 @@ internal sealed class EnhancedTurnRendererTests
         using var driver = new CliLifecycleDriver(enhanced: true);
         var terminal = new TestTerminal(driver.Input, output, error, 80);
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
-        var completed = await new EnhancedTurnRenderer(terminal, configuration, Presenters()).RenderTurn(stream.Reader, BeforeRender, cancellationToken);
+        var completed = await new EnhancedTurnRenderer(terminal, configuration, new ToolPresenterRegistry([], new GenericToolPresenter())).RenderTurn(stream.Reader, BeforeRender, cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(string.Join(',', callbackIds))
@@ -446,8 +446,48 @@ internal sealed class EnhancedTurnRendererTests
     public async Task Agent_task_progress_snapshots_are_not_committed_by_standalone_turn_rendering(
         CancellationToken cancellationToken)
     {
-        var first = Snapshot(AgentTaskProgressStatus.Running, "work\u001b[2J\t日本");
-        var second = Snapshot(AgentTaskProgressStatus.Succeeded, "work\u001b[2J\t日本");
+        var first = new AgentTaskProgressSnapshot
+        {
+            OriginToolCallId = "call",
+            Revision = 1,
+            RootNodes =
+            {
+                new AgentTaskProgressNode
+                {
+                    Name = "work\u001b[2J\t日本",
+                    Status = AgentTaskProgressStatus.Running,
+                    Children =
+                    {
+                        new AgentTaskProgressNode { Name = "pending", Status = AgentTaskProgressStatus.Pending },
+                        new AgentTaskProgressNode { Name = "succeeded", Status = AgentTaskProgressStatus.Succeeded },
+                        new AgentTaskProgressNode { Name = "failed", Status = AgentTaskProgressStatus.Failed },
+                        new AgentTaskProgressNode { Name = "blocked", Status = AgentTaskProgressStatus.Blocked },
+                        new AgentTaskProgressNode { Name = "canceled", Status = AgentTaskProgressStatus.Canceled },
+                    },
+                },
+            },
+        };
+        var second = new AgentTaskProgressSnapshot
+        {
+            OriginToolCallId = "call",
+            Revision = 1,
+            RootNodes =
+            {
+                new AgentTaskProgressNode
+                {
+                    Name = "work\u001b[2J\t日本",
+                    Status = AgentTaskProgressStatus.Succeeded,
+                    Children =
+                    {
+                        new AgentTaskProgressNode { Name = "pending", Status = AgentTaskProgressStatus.Pending },
+                        new AgentTaskProgressNode { Name = "succeeded", Status = AgentTaskProgressStatus.Succeeded },
+                        new AgentTaskProgressNode { Name = "failed", Status = AgentTaskProgressStatus.Failed },
+                        new AgentTaskProgressNode { Name = "blocked", Status = AgentTaskProgressStatus.Blocked },
+                        new AgentTaskProgressNode { Name = "canceled", Status = AgentTaskProgressStatus.Canceled },
+                    },
+                },
+            },
+        };
         var (completed, output, error) = await Render(
             [
                 new Event { AgentTaskProgressSnapshot = first },
@@ -458,19 +498,6 @@ internal sealed class EnhancedTurnRendererTests
         _ = await Assert.That(completed).IsFalse();
         _ = await Assert.That(error).IsEmpty();
         _ = await Assert.That(output).IsEmpty();
-    }
-
-    private static AgentTaskProgressSnapshot Snapshot(AgentTaskProgressStatus rootStatus, string rootName)
-    {
-        var snapshot = new AgentTaskProgressSnapshot { OriginToolCallId = "call", Revision = 1 };
-        var root = new AgentTaskProgressNode { Name = rootName, Status = rootStatus };
-        root.Children.Add(new AgentTaskProgressNode { Name = "pending", Status = AgentTaskProgressStatus.Pending });
-        root.Children.Add(new AgentTaskProgressNode { Name = "succeeded", Status = AgentTaskProgressStatus.Succeeded });
-        root.Children.Add(new AgentTaskProgressNode { Name = "failed", Status = AgentTaskProgressStatus.Failed });
-        root.Children.Add(new AgentTaskProgressNode { Name = "blocked", Status = AgentTaskProgressStatus.Blocked });
-        root.Children.Add(new AgentTaskProgressNode { Name = "canceled", Status = AgentTaskProgressStatus.Canceled });
-        snapshot.RootNodes.Add(root);
-        return snapshot;
     }
 
     private static async Task<(bool Completed, string Output, string Error)> Render(
@@ -490,11 +517,9 @@ internal sealed class EnhancedTurnRendererTests
         using var driver = new CliLifecycleDriver(enhanced: true);
         var terminal = new TestTerminal(driver.Input, output, error, 8);
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
-        var completed = await new EnhancedTurnRenderer(terminal, configuration, Presenters()).RenderTurn(stream.Reader, cancellationToken);
+        var completed = await new EnhancedTurnRenderer(terminal, configuration, new ToolPresenterRegistry([], new GenericToolPresenter())).RenderTurn(stream.Reader, cancellationToken);
         return (completed, output.ToString(), error.ToString());
     }
-
-    private static ToolPresenterRegistry Presenters() => new([], new GenericToolPresenter());
 
     private static bool UntrustedEscape(string output)
     {

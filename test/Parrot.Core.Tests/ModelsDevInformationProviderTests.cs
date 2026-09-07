@@ -10,10 +10,15 @@ internal sealed class ModelsDevInformationProviderTests
     public async Task Fetch_uses_fixed_unauthenticated_endpoint_and_decodes_catalogue(
         CancellationToken cancellationToken)
     {
-        using var handler = new RecordingHandler(static (_, _) => Task.FromResult(JsonResponse(
-            """
-            {"openai":{"id":"openai","models":{"external":{"id":"external-model","name":"External"}}}}
-            """)));
+        using var handler = new RecordingHandler(static (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                    """
+                    {"openai":{"id":"openai","models":{"external":{"id":"external-model","name":"External"}}}}
+                    """,
+                    Encoding.UTF8,
+                    "application/json"),
+        }));
         using var client = new HttpClient(handler, disposeHandler: false);
 
         var catalogue = await new ModelsDevInformationProvider(client).Fetch(cancellationToken);
@@ -36,9 +41,18 @@ internal sealed class ModelsDevInformationProviderTests
         using var handler = new RecordingHandler((_, _) => failure switch
         {
             "http" => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)),
-            "json" => Task.FromResult(JsonResponse("not-json")),
-            "schema" => Task.FromResult(JsonResponse("[]")),
-            "oversized" => Task.FromResult(OversizedResponse()),
+            "json" => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("not-json", Encoding.UTF8, "application/json"),
+            }),
+            "schema" => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("[]", Encoding.UTF8, "application/json"),
+            }),
+            "oversized" => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(new byte[(16 << 20) + 1]),
+            }),
             _ => Task.FromException<HttpResponseMessage>(new HttpRequestException("unavailable")),
         });
         using var client = new HttpClient(handler, disposeHandler: false);
@@ -77,16 +91,6 @@ internal sealed class ModelsDevInformationProviderTests
         _ = await Assert.That(catalogue).IsEmpty();
         _ = await Assert.That(DateTime.UtcNow - started).IsLessThan(TimeSpan.FromSeconds(10));
     }
-
-    private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)
-    {
-        Content = new StringContent(json, Encoding.UTF8, "application/json"),
-    };
-
-    private static HttpResponseMessage OversizedResponse() => new(HttpStatusCode.OK)
-    {
-        Content = new ByteArrayContent(new byte[(16 << 20) + 1]),
-    };
 
     private sealed class StalledStream : Stream
     {

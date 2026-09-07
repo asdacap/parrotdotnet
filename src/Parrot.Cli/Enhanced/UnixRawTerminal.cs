@@ -33,7 +33,7 @@ internal sealed partial class UnixRawTerminal : IRawTerminal
         _restore = restore;
     }
 
-    public static UnixRawTerminal? Open() =>
+    public static IRawTerminal? Open() =>
         string.Equals(Environment.GetEnvironmentVariable("TERM"), "dumb", StringComparison.Ordinal)
             ? null
             : Open(StandardInput);
@@ -55,7 +55,7 @@ internal sealed partial class UnixRawTerminal : IRawTerminal
         _restore();
     }
 
-    internal static UnixRawTerminal? Open(int descriptor)
+    internal static IRawTerminal? Open(int descriptor)
     {
         if (IsTerminal(descriptor) != 1)
         {

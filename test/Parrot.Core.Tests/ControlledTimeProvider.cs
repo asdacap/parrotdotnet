@@ -4,7 +4,7 @@ internal sealed class ControlledTimeProvider : TimeProvider
 {
     private readonly Lock _gate = new();
     private readonly List<ControlledTimer> _timers = [];
-    private TaskCompletionSource _timerCreated = NewSignal();
+    private TaskCompletionSource _timerCreated = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private DateTimeOffset _utcNow = DateTimeOffset.UnixEpoch;
     private long _timestamp;
 
@@ -58,7 +58,7 @@ internal sealed class ControlledTimeProvider : TimeProvider
             _utcNow += duration;
             _timestamp += duration.Ticks;
             due = [.. _timers.Where(timer => !timer.Disposed && timer.Due <= _utcNow)];
-            _timerCreated = NewSignal();
+            _timerCreated = new(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
         foreach (var timer in due)
@@ -66,9 +66,6 @@ internal sealed class ControlledTimeProvider : TimeProvider
             timer.Fire();
         }
     }
-
-    private static TaskCompletionSource NewSignal() =>
-        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private sealed class ControlledTimer(
         ControlledTimeProvider owner,

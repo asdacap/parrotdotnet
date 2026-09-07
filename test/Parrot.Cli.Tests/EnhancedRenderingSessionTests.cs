@@ -124,7 +124,7 @@ internal sealed class EnhancedRenderingSessionTests
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
         var presenters = new ToolPresenterRegistry([new WaitToolPresenter()], new GenericToolPresenter());
         var time = new TestTimeProvider();
-        var pending = NewObservation();
+        var pending = new TaskCompletionSource<Event.PayloadOneofCase>(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var session = new EnhancedRenderingSession(
             new EnhancedTurnRenderer(terminal, configuration, presenters),
             presenters,
@@ -208,13 +208,10 @@ internal sealed class EnhancedRenderingSessionTests
 
         async Task Send(Event published)
         {
-            pending = NewObservation();
+            pending = new TaskCompletionSource<Event.PayloadOneofCase>(TaskCreationOptions.RunContinuationsAsynchronously);
             await stream.WriteAsync(published, cancellationToken);
             _ = await pending.Task.WaitAsync(cancellationToken);
         }
-
-        static TaskCompletionSource<Event.PayloadOneofCase> NewObservation() =>
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     [Test]

@@ -77,14 +77,19 @@ internal sealed class ModelsDevProviderRegistryTests
                 ModelsDevProviderHeader = request.Headers.TryGetValues("X-Provider", out var values)
                     ? values.Single()
                     : null;
-                return Task.FromResult(JsonResponse(
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
                     """
                     {
                       "first":{"id":"first","models":{"external":{"id":"external-first"}}},
                       "second":{"id":"second","models":{"external":{"id":"external-second"}}},
                       "ghost":{"id":"ghost","models":{"external":{"id":"external-ghost"}}}
                     }
-                    """));
+                    """,
+                    Encoding.UTF8,
+                    "application/json"),
+                });
             }
 
             var modelId = request.RequestUri?.Host switch
@@ -94,13 +99,11 @@ internal sealed class ModelsDevProviderRegistryTests
                 _ => string.Empty,
             };
             return Task.FromResult(modelId.Length > 0
-                ? JsonResponse($"{{\"data\":[{{\"id\":\"{modelId}\"}}]}}")
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent($"{{\"data\":[{{\"id\":\"{modelId}\"}}]}}", Encoding.UTF8, "application/json"),
+                }
                 : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
         }
-
-        private static HttpResponseMessage JsonResponse(string body) => new(HttpStatusCode.OK)
-        {
-            Content = new StringContent(body, Encoding.UTF8, "application/json"),
-        };
     }
 }

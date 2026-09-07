@@ -23,12 +23,12 @@ internal sealed class SetCheckpointToolTests
             [new LLMToolCall(callId, "set_checkpoint", "{\"title\":\"handoff\"}")],
             string.Empty);
         var assistantSequence = repository.Conversation("agent-a").Single().Sequence;
-        var owningTool = new SetCheckpointTool(new CheckpointService(repository, "agent-a"));
-        var otherAgentTool = new SetCheckpointTool(new CheckpointService(repository, "agent-b"));
+        ITool owningTool = new SetCheckpointTool(new CheckpointService(repository, "agent-a"));
+        ITool otherAgentTool = new SetCheckpointTool(new CheckpointService(repository, "agent-b"));
         var invocation = new ToolInvocation(callId, "{\"title\":\"handoff\"}", assistantSequence);
 
-        var result = await owningTool.Execute(invocation, Selection(), CancellationToken.None);
-        var isolatedResult = await otherAgentTool.Execute(invocation, Selection(), CancellationToken.None);
+        var result = await owningTool.Execute(invocation, new SelectionFixture().Selection, CancellationToken.None);
+        var isolatedResult = await otherAgentTool.Execute(invocation, new SelectionFixture().Selection, CancellationToken.None);
 
         _ = await Assert.That(result.Text).IsEqualTo("handoff");
         var checkpoint = repository.LatestUsableCheckpoint("agent-a", "handoff", long.MaxValue)
@@ -54,25 +54,30 @@ internal sealed class SetCheckpointToolTests
         string expectedMessage)
     {
         using var database = SessionDatabase.Open(":memory:");
-        var tool = new SetCheckpointTool(new CheckpointService(new EventRepository(database), "agent"));
+        ITool tool = new SetCheckpointTool(new CheckpointService(new EventRepository(database), "agent"));
 
         var result = await tool.Execute(
             new ToolInvocation("missing-call", argumentsJson, assistantSequence),
-            Selection(),
+            new SelectionFixture().Selection,
             CancellationToken.None);
 
         _ = await Assert.That(result.Text).StartsWith("error:");
         _ = await Assert.That(result.Text).Contains(expectedMessage);
     }
 
-    private static AgentTurnSelection Selection()
+    private sealed class SelectionFixture
     {
-        var provider = new UnusedProvider();
-        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        return new AgentTurnSelection(
-            new ModelSelector(model.Selector),
-            TestModels.Resolve(model),
-            TestModels.Profile(),
-            SecurityProfile.Compose(readOnly: false, [], [], []));
+        public SelectionFixture()
+        {
+            ILLMProvider provider = new UnusedProvider();
+            var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+            Selection = new AgentTurnSelection(
+                new ModelSelector(model.Selector),
+                TestModels.Resolve(model),
+                new TestProfileFixture().Mode,
+                SecurityProfile.Compose(readOnly: false, [], [], []));
+        }
+
+        public AgentTurnSelection Selection { get; }
     }
 }

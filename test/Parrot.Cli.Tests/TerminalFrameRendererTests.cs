@@ -12,10 +12,13 @@ internal sealed class TerminalFrameRendererTests
     {
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 10, 12, true);
-        var frame = Items(
-            [new LiveTextValue("live\u001b[2J"), new SpinnerValue("thinking", 0)],
+        IReadOnlyList<ILiveBufferItem> frame =
+        [
+            new LiveTextValue("live\u001b[2J"),
+            new SpinnerValue("thinking", 0),
             new ModelineValue("chat", string.Empty, "model"),
-            new PromptValue("> ", "ab\n界x", 1));
+            new PromptValue("> ", "ab\n界x", 1),
+        ];
 
         await renderer.Draw(frame, cancellationToken);
         var boundary = output.GetStringBuilder().Length;
@@ -42,7 +45,10 @@ internal sealed class TerminalFrameRendererTests
         var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 10, 12, true);
 
         await renderer.Draw(
-            Items([], new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", string.Empty, 0)),
+            [
+                new ModelineValue("chat", string.Empty, "model"),
+                new PromptValue("> ", string.Empty, 0),
+            ],
             cancellationToken);
 
         var rendered = output.ToString();
@@ -57,7 +63,10 @@ internal sealed class TerminalFrameRendererTests
         var renderer = new TerminalFrameRenderer(output, static () => 8, new TerminalPalette(false), 10, 12, true);
 
         await renderer.Draw(
-            Items([], new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", string.Empty, 0)),
+            [
+                new ModelineValue("chat", string.Empty, "model"),
+                new PromptValue("> ", string.Empty, 0),
+            ],
             cancellationToken);
         await renderer.Clear(cancellationToken);
 
@@ -74,10 +83,11 @@ internal sealed class TerminalFrameRendererTests
         var renderer = new TerminalFrameRenderer(output, static () => 8, new TerminalPalette(true), 10, 12, true);
 
         await renderer.Draw(
-            Items(
-                [new LiveTextValue("busy")],
+            [
+                new LiveTextValue("busy"),
                 new ModelineValue("chat", string.Empty, "model"),
-                new PromptValue("> ", string.Empty, 0)),
+                new PromptValue("> ", string.Empty, 0),
+            ],
             cancellationToken);
 
         _ = await Assert.That(output.ToString()).Contains(
@@ -90,14 +100,17 @@ internal sealed class TerminalFrameRendererTests
     {
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12, true);
-        var initial = Items(
-            [new LiveTextValue("running")],
+        IReadOnlyList<ILiveBufferItem> initial =
+        [
+            new LiveTextValue("running"),
             new ModelineValue("build", "working", "model"),
-            new PromptValue("> ", "edit", 2));
-        var redrawn = Items(
-            [],
+            new PromptValue("> ", "edit", 2),
+        ];
+        IReadOnlyList<ILiveBufferItem> redrawn =
+        [
             new ModelineValue("build", "working", "model"),
-            new PromptValue("> ", "latest", 6));
+            new PromptValue("> ", "latest", 6),
+        ];
 
         await renderer.Draw(initial, cancellationToken);
         var boundary = output.GetStringBuilder().Length;
@@ -118,19 +131,21 @@ internal sealed class TerminalFrameRendererTests
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 10, 12, true);
         await renderer.Draw(
-            Items(
-                [new LiveTextValue("working")],
+            [
+                new LiveTextValue("working"),
                 new ModelineValue("build", "working", "model"),
-                new PromptValue("> ", "first\nsecond", 7)),
+                new PromptValue("> ", "first\nsecond", 7),
+            ],
             cancellationToken);
         var boundary = output.GetStringBuilder().Length;
 
         await renderer.Commit(
             ImmediateScrollbackValue.Trusted(["› first", "second"]),
-            Items(
-                [new LiveTextValue("working")],
+            [
+                new LiveTextValue("working"),
                 new ModelineValue("build", "working", "model"),
-                new PromptValue("> ", "first\nsecond", 7)),
+                new PromptValue("> ", "first\nsecond", 7),
+            ],
             cancellationToken);
 
         var committed = output.ToString()[boundary..];
@@ -148,10 +163,11 @@ internal sealed class TerminalFrameRendererTests
     {
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12, true);
-        var frame = Items(
-            [],
+        IReadOnlyList<ILiveBufferItem> frame =
+        [
             new ModelineValue("chat", string.Empty, "model"),
-            new PromptValue("> ", string.Empty, 0));
+            new PromptValue("> ", string.Empty, 0),
+        ];
         var snapshot = new AgentTaskProgressSnapshot();
         snapshot.RootNodes.Add(new AgentTaskProgressNode
         {
@@ -180,10 +196,11 @@ internal sealed class TerminalFrameRendererTests
     {
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12, true);
-        var frame = Items(
-            [],
+        IReadOnlyList<ILiveBufferItem> frame =
+        [
             new ModelineValue("chat", string.Empty, "model"),
-            new PromptValue("> ", string.Empty, 0));
+            new PromptValue("> ", string.Empty, 0),
+        ];
 
         await renderer.Draw(frame, cancellationToken);
         var boundary = output.GetStringBuilder().Length;
@@ -225,7 +242,11 @@ internal sealed class TerminalFrameRendererTests
     {
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 40, new TerminalPalette(false), 10, 12, true);
-        var frame = Items([], new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", string.Empty, 0));
+        IReadOnlyList<ILiveBufferItem> frame =
+        [
+            new ModelineValue("chat", string.Empty, "model"),
+            new PromptValue("> ", string.Empty, 0),
+        ];
         var sequenceA = new object();
         var sequenceB = new object();
 
@@ -254,7 +275,11 @@ internal sealed class TerminalFrameRendererTests
     {
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 40, new TerminalPalette(false), 10, 12, true);
-        var frame = Items([], new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", string.Empty, 0));
+        IReadOnlyList<ILiveBufferItem> frame =
+        [
+            new ModelineValue("chat", string.Empty, "model"),
+            new PromptValue("> ", string.Empty, 0),
+        ];
         var sequence = new object();
 
         await renderer.Commit(new TestScrollbackItem("open", sequence, false), frame, cancellationToken);
@@ -274,18 +299,21 @@ internal sealed class TerminalFrameRendererTests
     {
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12, true);
-        var frame = Items(
-            [new LiveTextValue("working")],
+        IReadOnlyList<ILiveBufferItem> frame =
+        [
+            new LiveTextValue("working"),
             new ModelineValue("chat", string.Empty, "model"),
-            new PromptValue("> ", "draft", 5));
+            new PromptValue("> ", "draft", 5),
+        ];
 
         await renderer.Draw(frame, cancellationToken);
         var boundary = output.GetStringBuilder().Length;
         await renderer.Draw(
-            Items(
-                [new LiveTextValue("done")],
+            [
+                new LiveTextValue("done"),
                 new ModelineValue("chat", string.Empty, "model"),
-                new PromptValue("> ", "draft", 5)),
+                new PromptValue("> ", "draft", 5),
+            ],
             cancellationToken);
 
         var replacement = output.ToString()[boundary..];
@@ -300,10 +328,12 @@ internal sealed class TerminalFrameRendererTests
     {
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12, true);
-        var frame = Items(
-            [new LiveTextValue("working")],
+        IReadOnlyList<ILiveBufferItem> frame =
+        [
+            new LiveTextValue("working"),
             new ModelineValue("chat", string.Empty, "model"),
-            new PromptValue("> ", "draft", 5));
+            new PromptValue("> ", "draft", 5),
+        ];
 
         await renderer.Draw(frame, cancellationToken);
         var boundary = output.GetStringBuilder().Length;
@@ -321,11 +351,19 @@ internal sealed class TerminalFrameRendererTests
         var body = (IReadOnlyList<ILiveBufferItem>)[new LiveTextValue("working"), new SpinnerValue("thinking", 0)];
 
         await renderer.Draw(
-            Items(body, new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", "draft", 5)),
+            [
+                .. body,
+                new ModelineValue("chat", string.Empty, "model"),
+                new PromptValue("> ", "draft", 5),
+            ],
             cancellationToken);
         var boundary = output.GetStringBuilder().Length;
         await renderer.Draw(
-            Items(body, new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", "updated", 7)),
+            [
+                .. body,
+                new ModelineValue("chat", string.Empty, "model"),
+                new PromptValue("> ", "updated", 7),
+            ],
             cancellationToken);
 
         var replacement = output.ToString()[boundary..];
@@ -341,12 +379,12 @@ internal sealed class TerminalFrameRendererTests
     {
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(true), 10, 12, true);
-        var modeline = new ModelineValue("chat", string.Empty, "model");
-        var prompt = new PromptValue("> ", string.Empty, 0);
+        ILiveBufferItem modeline = new ModelineValue("chat", string.Empty, "model");
+        ILiveBufferItem prompt = new PromptValue("> ", string.Empty, 0);
 
-        await renderer.Draw(Items([new TestLiveValue("status", false)], modeline, prompt), cancellationToken);
+        await renderer.Draw([new TestLiveValue("status", false), modeline, prompt], cancellationToken);
         var boundary = output.GetStringBuilder().Length;
-        await renderer.Draw(Items([new TestLiveValue("status", true)], modeline, prompt), cancellationToken);
+        await renderer.Draw([new TestLiveValue("status", true), modeline, prompt], cancellationToken);
 
         var replacement = output.ToString()[boundary..];
         _ = await Assert.That(Count(replacement, "\u001b[2K")).IsEqualTo(1);
@@ -362,15 +400,16 @@ internal sealed class TerminalFrameRendererTests
         var renderer = new TerminalFrameRenderer(output, static () => 8, palette, 10, 12, true);
 
         await renderer.Draw(
-            Items(
-                [new TestSpannedLiveValue(
+            [
+                new TestSpannedLiveValue(
                     "a界b",
                     [new TerminalCellStyleSpan(
                         1,
                         2,
-                        palette.GetLiveIconStyle(ModelAliasIconColor.Gray))])],
+                        palette.GetLiveIconStyle(ModelAliasIconColor.Gray))]),
                 new ModelineValue("chat", string.Empty, "model"),
-                new PromptValue("> ", string.Empty, 0)),
+                new PromptValue("> ", string.Empty, 0),
+            ],
             cancellationToken);
 
         _ = await Assert.That(output.ToString()).Contains(
@@ -412,31 +451,33 @@ internal sealed class TerminalFrameRendererTests
         using var output = new StringWriter();
         var palette = new TerminalPalette(true);
         var renderer = new TerminalFrameRenderer(output, static () => 24, palette, 10, 12, true);
-        var modeline = new ModelineValue("chat", string.Empty, "model");
-        var prompt = new PromptValue("> ", string.Empty, 0);
+        ILiveBufferItem modeline = new ModelineValue("chat", string.Empty, "model");
+        ILiveBufferItem prompt = new PromptValue("> ", string.Empty, 0);
 
         await renderer.Draw(
-            Items(
-                [new TestSpannedLiveValue(
+            [
+                new TestSpannedLiveValue(
                     "status",
                     [new TerminalCellStyleSpan(
                         0,
                         1,
-                        palette.GetLiveIconStyle(ModelAliasIconColor.Red))])],
+                        palette.GetLiveIconStyle(ModelAliasIconColor.Red))]),
                 modeline,
-                prompt),
+                prompt,
+            ],
             cancellationToken);
         var boundary = output.GetStringBuilder().Length;
         await renderer.Draw(
-            Items(
-                [new TestSpannedLiveValue(
+            [
+                new TestSpannedLiveValue(
                     "status",
                     [new TerminalCellStyleSpan(
                         0,
                         1,
-                        palette.GetLiveIconStyle(ModelAliasIconColor.Blue))])],
+                        palette.GetLiveIconStyle(ModelAliasIconColor.Blue))]),
                 modeline,
-                prompt),
+                prompt,
+            ],
             cancellationToken);
 
         var replacement = output.ToString()[boundary..];
@@ -450,7 +491,11 @@ internal sealed class TerminalFrameRendererTests
         using var output = new StringWriter();
         var width = 24;
         var renderer = new TerminalFrameRenderer(output, () => width, new TerminalPalette(false), 10, 12, true);
-        var frame = Items([], new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", string.Empty, 0));
+        IReadOnlyList<ILiveBufferItem> frame =
+        [
+            new ModelineValue("chat", string.Empty, "model"),
+            new PromptValue("> ", string.Empty, 0),
+        ];
 
         await renderer.Draw(frame, cancellationToken);
         var boundary = output.GetStringBuilder().Length;
@@ -468,14 +513,18 @@ internal sealed class TerminalFrameRendererTests
     {
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12, true);
-        var initial = Items(
-            [new LiveTextValue("working")],
+        IReadOnlyList<ILiveBufferItem> initial =
+        [
+            new LiveTextValue("working"),
             new ModelineValue("chat", string.Empty, "model"),
-            new PromptValue("> ", "draft", 5));
-        var expanded = Items(
-            [new LiveTextValue("working")],
+            new PromptValue("> ", "draft", 5),
+        ];
+        IReadOnlyList<ILiveBufferItem> expanded =
+        [
+            new LiveTextValue("working"),
             new ModelineValue("chat", string.Empty, "model"),
-            new PromptValue("> ", "draft\nnext", 10));
+            new PromptValue("> ", "draft\nnext", 10),
+        ];
 
         await renderer.Draw(initial, cancellationToken);
         var boundary = output.GetStringBuilder().Length;
@@ -486,10 +535,11 @@ internal sealed class TerminalFrameRendererTests
         var shrink = output.ToString()[boundary..];
         boundary = output.GetStringBuilder().Length;
         await renderer.Draw(
-            Items(
-                [new LiveTextValue("working")],
+            [
+                new LiveTextValue("working"),
                 new ModelineValue("chat", string.Empty, "model"),
-                new PromptValue("> ", "changed", 7)),
+                new PromptValue("> ", "changed", 7),
+            ],
             cancellationToken);
         var continued = output.ToString()[boundary..];
 
@@ -508,17 +558,18 @@ internal sealed class TerminalFrameRendererTests
         var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12, true);
 
         await renderer.Draw(
-            Items(
-                [new LiveTextValue("first\nsecond")],
+            [
+                new LiveTextValue("first\nsecond"),
                 new ModelineValue("chat", string.Empty, "model"),
-                new PromptValue("> ", "draft", 5)),
+                new PromptValue("> ", "draft", 5),
+            ],
             cancellationToken);
         var boundary = output.GetStringBuilder().Length;
         await renderer.Draw(
-            Items(
-                [],
+            [
                 new ModelineValue("chat", string.Empty, "model"),
-                new PromptValue("> ", "draft", 5)),
+                new PromptValue("> ", "draft", 5),
+            ],
             cancellationToken);
 
         var replacement = output.ToString()[boundary..];
@@ -532,25 +583,28 @@ internal sealed class TerminalFrameRendererTests
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12, true);
         await renderer.Draw(
-            Items(
-                [new LiveTextValue("tool running"), new SpinnerValue("working", 0)],
+            [
+                new LiveTextValue("tool running"), new SpinnerValue("working", 0),
                 new ModelineValue("build", "working", "model"),
-                new PromptValue("> ", string.Empty, 0)),
+                new PromptValue("> ", string.Empty, 0),
+            ],
             cancellationToken);
         var boundary = output.GetStringBuilder().Length;
 
         await renderer.Draw(
-            Items(
-                [new LiveTextValue("tool running"), new SpinnerValue("working", 0)],
+            [
+                new LiveTextValue("tool running"), new SpinnerValue("working", 0),
                 new ModelineValue("build", "working", "model"),
-                new PromptValue("> ", "unmanaged no more", 17)),
+                new PromptValue("> ", "unmanaged no more", 17),
+            ],
             cancellationToken);
 
         await renderer.Draw(
-            Items(
-                [new LiveTextValue("next event")],
+            [
+                new LiveTextValue("next event"),
                 new ModelineValue("build", "working", "model"),
-                new PromptValue("> ", "unmanaged no more", 17)),
+                new PromptValue("> ", "unmanaged no more", 17),
+            ],
             cancellationToken);
 
         var updated = output.ToString()[boundary..];
@@ -568,10 +622,11 @@ internal sealed class TerminalFrameRendererTests
         var renderer = new TerminalFrameRenderer(output, static () => 8, new TerminalPalette(false), 2, 12, true);
 
         await renderer.Draw(
-            Items(
-                [new LiveTextValue("oldest\nmiddle"), new LiveTextValue("newest")],
+            [
+                new LiveTextValue("oldest\nmiddle"), new LiveTextValue("newest"),
                 new ModelineValue("chat", string.Empty, "model"),
-                new PromptValue("> ", string.Empty, 0)),
+                new PromptValue("> ", string.Empty, 0),
+            ],
             cancellationToken);
 
         var rendered = output.ToString();
@@ -591,10 +646,11 @@ internal sealed class TerminalFrameRendererTests
         var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 2, 2, true);
 
         await renderer.Draw(
-            Items(
-                [new LiveTextValue("live one\nlive two")],
+            [
+                new LiveTextValue("live one\nlive two"),
                 new ModelineValue("chat", string.Empty, "model"),
-                new PromptValue("> ", "one\ntwo\nthree\nfour", 18)),
+                new PromptValue("> ", "one\ntwo\nthree\nfour", 18),
+            ],
             cancellationToken);
 
         var rendered = output.ToString();
@@ -626,20 +682,16 @@ internal sealed class TerminalFrameRendererTests
     {
         using var output = new TrackingTextWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12, true);
-        var frame = Items(
-            [],
+        IReadOnlyList<ILiveBufferItem> frame =
+        [
             new ModelineValue("chat", string.Empty, "model"),
-            new PromptValue("> ", string.Empty, 0));
+            new PromptValue("> ", string.Empty, 0),
+        ];
 
         await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => renderer.Draw(frame, cancellationToken)));
 
         _ = await Assert.That(output.MaximumConcurrentWrites).IsEqualTo(1);
     }
-
-    private static IReadOnlyList<ILiveBufferItem> Items(
-        IReadOnlyList<ILiveBufferItem> body,
-        ModelineValue modeline,
-        PromptValue prompt) => [.. body, modeline, prompt];
 
     private static int Count(string value, string part)
     {
@@ -694,14 +746,12 @@ internal sealed class TerminalFrameRendererTests
 
     private sealed class TestScrollbackItem(string line, object? sequence, bool completed) : IScrollbackItem
     {
-        private readonly object? _sequence = sequence;
+        public object? SequenceIdentity => sequence;
 
         public bool IsCompleted => completed;
 
         public bool Continues(IScrollbackItem previous) =>
-            _sequence is not null
-            && previous is TestScrollbackItem item
-            && ReferenceEquals(_sequence, item._sequence);
+            sequence is not null && ReferenceEquals(sequence, previous.SequenceIdentity);
 
         public IReadOnlyList<string> Render(ScrollbackRenderContext context) =>
             line.Length == 0 ? [] : [line];

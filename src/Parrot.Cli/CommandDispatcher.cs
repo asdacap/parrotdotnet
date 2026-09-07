@@ -22,7 +22,7 @@ internal sealed class CommandDispatcher(
     TextWriter error,
     ProviderHttpClientCatalog httpClients,
     IBrowserOpener browserOpener,
-    OpenAiOAuthClient oauthClient,
+    IOAuthClient oauthClient,
     ModelsDevInformationProvider modelsDev)
 {
     public const int ExitSuccess = 0;

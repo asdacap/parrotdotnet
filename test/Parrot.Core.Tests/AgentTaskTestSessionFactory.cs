@@ -57,7 +57,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
         lock (_gate)
         {
             _identities.Add(identity);
-            _profileIds.Add(mode.Id);
+            _profileIds.Add(mode.Profile.Id);
         }
 
         var root = Directory.CreateDirectory(
@@ -81,7 +81,13 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
         var scope = TestAgentSessionScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, owningScope, children, childQuestions) =>
         {
             var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
-            var session = new AgentSession(
+            var completionCallbacks = new TestCompletionCallbacksFixture(
+                childQuestions,
+                new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates, null),
+                exitReminder,
+                eventRepository,
+                eventBroker).Callbacks;
+            IAgentSession session = new AgentSession(
             identity,
             sessionParentScope,
             model,
@@ -100,13 +106,8 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             childQuestions,
             exitReminder,
             mode,
-            TestModels.CompletionCallbacks(
-                childQuestions,
-                new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates, null),
-                exitReminder,
-                eventRepository,
-                eventBroker),
-            SecurityProfileTestFactory.Create(securityProfile),
+            completionCallbacks,
+            new SecurityProfileTestFixture(securityProfile).Security,
             status,
             agentQueues,
             new AgentSessionActivity(TimeProvider.System),

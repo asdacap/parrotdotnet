@@ -14,7 +14,7 @@ internal sealed class EnhancedCli(
     Interrupts interrupts,
     EnhancedChatRequest request,
     ICredentialStore credentials,
-    OpenAiOAuthClient oauthClient,
+    IOAuthClient oauthClient,
     Configuration configuration,
     IReadOnlyList<string> providerIds,
     ITerminal terminal,
@@ -22,7 +22,7 @@ internal sealed class EnhancedCli(
     EnhancedTurnRenderer turnRenderer,
     TimeProvider timeProvider,
     Func<TimeSpan, CancellationToken, Task> delaySubmit,
-    PromptAttachmentUploader attachments) : IInterruptListener, ISlashSessionBinding
+    PromptAttachmentUploader attachments)
 {
     private const string DisableBracketedPaste = "\u001b[?2004l";
     private const string DisableKeyboardEnhancement = "\u001b[<u";
@@ -68,22 +68,6 @@ internal sealed class EnhancedCli(
             applicationExit.Token).ConfigureAwait(false);
     }
 
-    public bool Interrupted()
-    {
-        if (!_busy || _interruptRequested)
-        {
-            return false;
-        }
-
-        _interruptRequested = true;
-        return _interrupts.Writer.TryWrite(true);
-    }
-
-    Task ISlashSessionBinding.Replace(UserSession session, CancellationToken cancellationToken) =>
-        _replaceSession is { } replace
-            ? replace(session, cancellationToken)
-            : throw new InvalidOperationException("the enhanced session is not running");
-
     internal static async Task SetBracketedPaste(
         TextWriter output, bool enabled, CancellationToken cancellationToken)
     {
@@ -100,14 +84,6 @@ internal sealed class EnhancedCli(
         await output.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static SendMessageRequest Message(string userSessionId, string text) =>
-        new()
-        {
-            UserSessionId = userSessionId,
-            Text = text,
-            Delivery = Delivery.Steer,
-        };
-
     private static int CompletionCount(SlashCommandCompletion slash, SkillCompletion skills) =>
         slash.Commands.Count > 0 ? slash.Commands.Count : skills.Skills.Count;
 
@@ -119,7 +95,7 @@ internal sealed class EnhancedCli(
     private static async Task<string?> NextMode(
         GeneratedParrot.ParrotClient client,
         string current,
-        EnhancedSlashDialog dialog,
+        ISlashDialog dialog,
         CancellationToken cancellationToken)
     {
         var listed = await client
@@ -148,6 +124,22 @@ internal sealed class EnhancedCli(
         return listed.Modes[next].Id;
     }
 
+    private bool Interrupt()
+    {
+        if (!_busy || _interruptRequested)
+        {
+            return false;
+        }
+
+        _interruptRequested = true;
+        return _interrupts.Writer.TryWrite(true);
+    }
+
+    private Task BindSession(UserSession session, CancellationToken cancellationToken) =>
+        _replaceSession is { } replace
+            ? replace(session, cancellationToken)
+            : throw new InvalidOperationException("the enhanced session is not running");
+
     private async Task<int> Loop(
         UserSession initialSession,
         string initialPrompt,
@@ -157,7 +149,8 @@ internal sealed class EnhancedCli(
         CancellationToken cancellationToken)
     {
         using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var session = new SlashSession(client, initialSession, configuration, !exitOnFirstCompletion, this);
+        var session = SlashSession.Create(
+            client, initialSession, configuration, !exitOnFirstCompletion, new CliSlashSessionBinding(BindSession));
         var activeSession = initialSession;
         var rendering = Task.CompletedTask;
         var interrupting = Interrupting(session, listening.Token);
@@ -227,7 +220,7 @@ internal sealed class EnhancedCli(
                 TerminalFrameRenderer.DefaultInputRows,
                 configuration.InlineDiff),
             session,
-            [editor.Prompt],
+            [new PromptValue(editor.Prompt)],
             ObserveRenderingEvent,
             StartRenderingTurn,
             FinishRenderingTurn,
@@ -251,7 +244,7 @@ internal sealed class EnhancedCli(
             _busy = true;
             await renderingSession.BeginTurn(
                 ImmediateScrollbackValue.User(entered),
-                [editor.Prompt],
+                [new PromptValue(editor.Prompt)],
                 binding?.Token ?? cancellationToken,
                 cancellationToken).ConfigureAwait(false);
             _ = await client.SendMessageAsync(message, cancellationToken: cancellationToken);
@@ -290,8 +283,8 @@ internal sealed class EnhancedCli(
         }
 
         _replaceSession = ReplaceSession;
-        var liveInput = new EnhancedLiveInputHost(terminal, renderingSession.ReplaceInput);
-        var dialog = new EnhancedSlashDialog(liveInput);
+        var liveInput = EnhancedLiveInputHost.Create(terminal, renderingSession.ReplaceInput);
+        ISlashDialog dialog = new EnhancedSlashDialog(liveInput);
         var commands = SlashCommands.Create(
             client,
             dialog,
@@ -332,7 +325,7 @@ internal sealed class EnhancedCli(
                         start + index == skillCompletion.Selected))];
             }
 
-            return renderingSession.ReplaceInput([.. candidates, editor.Prompt], token);
+            return renderingSession.ReplaceInput([.. candidates, new PromptValue(editor.Prompt)], token);
         }
 
         void DeferSubmit() => pendingSubmit = new PendingSubmit(delaySubmit, SubmitDelay, cancellationToken);
@@ -443,7 +436,8 @@ internal sealed class EnhancedCli(
             }
         }
 
-        interrupts.Install(this);
+        var interruptListener = CliInterruptListener.Create(Interrupt);
+        interrupts.Install(interruptListener);
 
         try
         {
@@ -560,7 +554,7 @@ internal sealed class EnhancedCli(
                 var received = key.Value;
                 if (received.Kind is TerminalKeyKind.Escape or TerminalKeyKind.Interrupt)
                 {
-                    _ = Interrupted();
+                    _ = interruptListener.Interrupted();
                 }
                 else if (received.Kind == TerminalKeyKind.EndOfFile && editor.IsEmpty)
                 {
@@ -679,7 +673,7 @@ internal sealed class EnhancedCli(
     private async Task CompleteQuestion(
         string userSessionId,
         PendingQuestion pending,
-        EnhancedSlashDialog dialog,
+        ISlashDialog dialog,
         CancellationToken cancellationToken)
     {
         using var lifetime = new PendingQuestionLifetime(
@@ -903,8 +897,8 @@ internal sealed class EnhancedCli(
 
     private async Task CompletePlan(
         PlanCompletionRequest request,
-        EnhancedSlashDialog dialog,
-        SlashSession session,
+        ISlashDialog dialog,
+        ISlashSession session,
         CancellationToken cancellationToken)
     {
         try
@@ -951,7 +945,7 @@ internal sealed class EnhancedCli(
 
                 _busy = true;
                 _ = await client.SendMessageAsync(
-                    Message(session.Id, feedback.Trim()), cancellationToken: cancellationToken).ConfigureAwait(false);
+                    new SendMessageRequest { UserSessionId = session.Id, Text = feedback.Trim(), Delivery = Delivery.Steer }, cancellationToken: cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -970,7 +964,7 @@ internal sealed class EnhancedCli(
             {
                 _busy = true;
                 _ = await client.SendMessageAsync(
-                    Message(session.Id, choice.Action.Prompt), cancellationToken: cancellationToken).ConfigureAwait(false);
+                    new SendMessageRequest { UserSessionId = session.Id, Text = choice.Action.Prompt, Delivery = Delivery.Steer }, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
         }
         finally
@@ -979,7 +973,7 @@ internal sealed class EnhancedCli(
         }
     }
 
-    private async Task Interrupting(SlashSession session, CancellationToken cancellationToken)
+    private async Task Interrupting(ISlashSession session, CancellationToken cancellationToken)
     {
         try
         {

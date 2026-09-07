@@ -58,14 +58,14 @@ internal sealed class SessionCatalog
         {
             if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
             {
-                return Corrupt(expectedId);
+                return SessionCatalogEntry.Corrupt(expectedId);
             }
 
             var metadataPath = Path.Combine(directory, "meta.json");
             if (!File.Exists(metadataPath)
                 || (File.GetAttributes(metadataPath) & FileAttributes.ReparsePoint) != 0)
             {
-                return Corrupt(expectedId);
+                return SessionCatalogEntry.Corrupt(expectedId);
             }
 
             var metadata = JsonSerializer.Deserialize(
@@ -75,7 +75,7 @@ internal sealed class SessionCatalog
                 || !Path.IsPathFullyQualified(metadata.WorkingDirectory) || string.IsNullOrEmpty(metadata.ProviderId)
                 || string.IsNullOrEmpty(metadata.Model))
             {
-                return Corrupt(expectedId);
+                return SessionCatalogEntry.Corrupt(expectedId);
             }
 
             return new SessionCatalogEntry
@@ -94,10 +94,7 @@ internal sealed class SessionCatalog
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or JsonException)
         {
-            return Corrupt(expectedId);
+            return SessionCatalogEntry.Corrupt(expectedId);
         }
     }
-
-    private static SessionCatalogEntry Corrupt(UserSessionId id) =>
-        new() { Id = id, State = SessionCatalogState.Corrupt };
 }

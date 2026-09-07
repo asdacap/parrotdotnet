@@ -20,6 +20,13 @@ internal sealed class SlashSession(
 
     public string Mode => _current.Mode;
 
+    public static ISlashSession Create(
+        GeneratedParrot.ParrotClient client,
+        UserSession initialSession,
+        Configuration configuration,
+        bool interactivePermissions,
+        ISlashSessionBinding binding) => new SlashSession(client, initialSession, configuration, interactivePermissions, binding);
+
     public async Task SelectModel(string model, CancellationToken cancellationToken)
     {
         _current = await client.UpdateSessionAsync(

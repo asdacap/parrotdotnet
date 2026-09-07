@@ -9,10 +9,20 @@ internal sealed class OAuthTokenSourceTests
     [Test]
     public async Task A_token_more_than_five_minutes_from_expiry_is_returned_unchanged(CancellationToken cancellationToken)
     {
-        var store = new InMemoryCredentialStore();
-        await store.Set("openai", Oauth(Now.AddMinutes(30), "fresh"), cancellationToken);
+        ICredentialStore store = new InMemoryCredentialStore();
+        await store.Set(
+            "openai",
+            Credential.ForOAuth(new OAuthCredential
+            {
+                AccessToken = new Secret("fresh"),
+                RefreshToken = new Secret("refresh"),
+                ExpiresAt = Now.AddMinutes(30),
+                AccountId = "acct",
+            }),
+            cancellationToken);
         var client = new FakeOAuthClient(Now);
-        using var source = new OAuthTokenSource(store, client, "openai");
+        using var sourceOwner = new OAuthTokenSource(store, client, "openai");
+        IOAuthTokenSource source = sourceOwner;
 
         var access = await source.Token(cancellationToken);
 
@@ -24,10 +34,20 @@ internal sealed class OAuthTokenSourceTests
     public async Task Availability_accepts_expired_structurally_valid_oauth_without_refreshing(
         CancellationToken cancellationToken)
     {
-        var store = new InMemoryCredentialStore();
-        await store.Set("openai", Oauth(Now.AddMinutes(-1), "expired"), cancellationToken);
+        ICredentialStore store = new InMemoryCredentialStore();
+        await store.Set(
+            "openai",
+            Credential.ForOAuth(new OAuthCredential
+            {
+                AccessToken = new Secret("expired"),
+                RefreshToken = new Secret("refresh"),
+                ExpiresAt = Now.AddMinutes(-1),
+                AccountId = "acct",
+            }),
+            cancellationToken);
         var client = new FakeOAuthClient(Now);
-        using var source = new OAuthTokenSource(store, client, "openai");
+        using var sourceOwner = new OAuthTokenSource(store, client, "openai");
+        IOAuthTokenSource source = sourceOwner;
 
         var available = await source.HasCredential(cancellationToken);
 
@@ -38,10 +58,20 @@ internal sealed class OAuthTokenSourceTests
     [Test]
     public async Task Concurrent_callers_near_expiry_trigger_one_refresh_that_is_persisted(CancellationToken cancellationToken)
     {
-        var store = new InMemoryCredentialStore();
-        await store.Set("openai", Oauth(Now.AddMinutes(1), "stale"), cancellationToken);
+        ICredentialStore store = new InMemoryCredentialStore();
+        await store.Set(
+            "openai",
+            Credential.ForOAuth(new OAuthCredential
+            {
+                AccessToken = new Secret("stale"),
+                RefreshToken = new Secret("refresh"),
+                ExpiresAt = Now.AddMinutes(1),
+                AccountId = "acct",
+            }),
+            cancellationToken);
         var client = new FakeOAuthClient(Now);
-        using var source = new OAuthTokenSource(store, client, "openai");
+        using var sourceOwner = new OAuthTokenSource(store, client, "openai");
+        IOAuthTokenSource source = sourceOwner;
 
         var results = await Task.WhenAll(Enumerable.Range(0, 12).Select(_ => source.Token(cancellationToken)));
 
@@ -52,18 +82,21 @@ internal sealed class OAuthTokenSourceTests
         _ = await Assert.That(oauth?.AccountId).IsEqualTo("acct");
     }
 
-    private static Credential Oauth(DateTimeOffset expiresAt, string access) =>
-        Credential.ForOAuth(new OAuthCredential
-        {
-            AccessToken = new Secret(access),
-            RefreshToken = new Secret("refresh"),
-            ExpiresAt = expiresAt,
-            AccountId = "acct",
-        });
-
     private sealed class FakeOAuthClient(DateTimeOffset now) : IOAuthClient
     {
         public int Refreshes { get; private set; }
+
+        public string AuthorizationUrl(string redirect, string challenge, string state) =>
+            throw new NotSupportedException();
+
+        public Task<OAuthCredential> BrowserLogin(CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<DeviceAuthorization> StartDeviceAuthorization(CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<OAuthCredential> AwaitDeviceAuthorization(DeviceAuthorization device, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
 
         public DateTimeOffset Now() => now;
 

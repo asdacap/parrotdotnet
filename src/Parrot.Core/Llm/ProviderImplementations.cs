@@ -45,15 +45,14 @@ internal static class ProviderImplementations
                 context.CredentialStore,
                 new OpenAiOAuthClient(context.HttpClient, context.BrowserOpener, new OpenAiOAuthOptions()),
                 ChatGptProvider.ProviderId);
-            var provider = new ChatGptProvider(
+            return BuiltProvider.CreateWithSeed(new ChatGptProvider(
                 tokenSource,
                 context.HttpClient,
                 ProviderModels.ReadDeclared(context.Id, context.Config.Models),
                 ProviderModels.ReadDefaults(context.Id, context.Config.ModelDefaults),
                 context.ExternalModels,
                 context.Config.DisableWebSocket,
-                new ResponsesWebSocketConnector());
-            return new(provider, provider.SeedModels());
+                new ResponsesWebSocketConnector()));
         }
     }
 
@@ -101,14 +100,7 @@ internal static class ProviderImplementations
                 ProviderPreferences = supportsProviderPreferences ? config.ProviderPreferences : string.Empty,
             };
             var provider = build(options, context.HttpClient);
-            var seed = provider switch
-            {
-                OpenAICompatibleProvider compatible => compatible.SeedModels(),
-                OpenCodeGoProvider openCodeGo => openCodeGo.SeedModels(),
-                KimiProvider kimi => kimi.SeedModels(),
-                _ => throw new InvalidOperationException("provider implementation cannot supply a model seed"),
-            };
-            return new(provider, seed);
+            return new(provider, provider.SeedModels());
         }
     }
 }

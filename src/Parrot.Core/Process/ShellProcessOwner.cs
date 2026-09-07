@@ -12,7 +12,7 @@ internal sealed class ShellProcessOwner(
     AgentScratchDirectory scratch,
     ProcessRunner runner,
     ShellProcessInventory inventory,
-    CancellationToken lifetime) : IActiveWorkSource, IProcessStatusSource
+    CancellationToken lifetime)
 {
     private readonly Dictionary<string, ManagedShellProcess> _processes = new(StringComparer.Ordinal);
     private readonly List<ManagedShellProcess> _ownedProcesses = [];

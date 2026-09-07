@@ -14,18 +14,21 @@ internal sealed class AuthCommandTests
         var path = Path.Combine(directory, "credentials.json");
         try
         {
-            using var credentials = new FileCredentialStore(path);
+            using var credentialStoreOwner = new FileCredentialStore(path);
+            ICredentialStore credentials = credentialStoreOwner;
             using var http = new HttpClient();
-            var oauth = new OpenAiOAuthClient(http, new UnusedBrowser(), new OpenAiOAuthOptions());
+            IOAuthClient oauth = new OpenAiOAuthClient(http, new UnusedBrowser(), new OpenAiOAuthOptions());
             var login = new TestSlashDialog().Select("login", "provider").Secret("  private-key  ");
             var list = new TestSlashDialog().Select("list");
             var logout = new TestSlashDialog().Select("logout", "provider");
-            var command = new AuthCommand(credentials, oauth, ["provider"], login);
+            ISlashCommand command = new AuthCommand(credentials, oauth, ["provider"], login);
+            ISlashCommand listCommand = new AuthCommand(credentials, oauth, ["provider"], list);
+            ISlashCommand logoutCommand = new AuthCommand(credentials, oauth, ["provider"], logout);
 
             await command.Run(string.Empty, cancellationToken);
             _ = await Assert.That(await credentials.Get("provider", cancellationToken)).IsNotNull();
-            await new AuthCommand(credentials, oauth, ["provider"], list).Run(string.Empty, cancellationToken);
-            await new AuthCommand(credentials, oauth, ["provider"], logout).Run(string.Empty, cancellationToken);
+            await listCommand.Run(string.Empty, cancellationToken);
+            await logoutCommand.Run(string.Empty, cancellationToken);
 
             _ = await Assert.That(string.Join('|', login.Shown)).Contains("stored a credential for provider");
             _ = await Assert.That(string.Join('|', login.Shown)).DoesNotContain("private-key");

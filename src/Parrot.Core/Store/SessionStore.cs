@@ -25,7 +25,7 @@ internal sealed class SessionStore(
                 ProviderId = session.ProviderId,
                 Model = session.CanonicalModel,
                 Selector = session.Model,
-                Mode = session.Mode.Id,
+                Mode = session.Mode.Profile.Id,
             });
         }
     }
@@ -143,7 +143,7 @@ internal sealed class SessionStore(
                     ProviderId = session.ProviderId,
                     Model = session.CanonicalModel,
                     Selector = session.Model,
-                    Mode = session.Mode.Id,
+                    Mode = session.Mode.Profile.Id,
                     LastOpenedAt = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
                     CreatedAt = existing?.CreatedAt
                         ?? DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),

@@ -12,13 +12,17 @@ internal sealed class ReadImageToolTests : IDisposable
     private readonly string _root = Path.Combine(Path.GetTempPath(), "parrot-read-image-tool-tests", Guid.NewGuid().ToString("n"));
     private readonly SessionDatabase _database;
     private readonly SessionResourceLease _resources;
+    private readonly UserSessionResources _sessionResources;
 
     public ReadImageToolTests()
     {
         _ = Directory.CreateDirectory(_root);
-        var resources = Resources();
-        _database = SessionDatabase.Open(resources.DatabasePath);
-        _resources = SessionResourceLease.Own(resources, _database);
+        _sessionResources = new UserSessionResources(
+            new StatePaths(_root, _root, _root),
+            UserSessionId.Parse("images"),
+            ProjectWorkspace.FromLaunchDirectory(_root));
+        _database = SessionDatabase.Open(_sessionResources.DatabasePath);
+        _resources = SessionResourceLease.Own(_sessionResources, _database);
     }
 
     public void Dispose()
@@ -36,16 +40,17 @@ internal sealed class ReadImageToolTests : IDisposable
     {
         var image = Path.Combine(_root, "pixel.png");
         await File.WriteAllBytesAsync(image, Png(), cancellationToken);
-        var result = await Tool().Execute(
+        ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images);
+        var result = await tool.Execute(
             new ToolInvocation("test-call", "{\"path\":\"pixel.png\"}"),
-            Turn(Permissive()),
+            new SelectionFixture(SecurityProfile.Compose(false, [], [], [])).Selection,
             cancellationToken);
 
         _ = await Assert.That(result.Text).IsEqualTo("image read");
         _ = await Assert.That(result.ImageArtifacts).Count().IsEqualTo(1);
         _ = await Assert.That(result.ImageArtifacts[0].DisplayName).IsEqualTo("pixel.png");
         _ = await Assert.That(result.ImageArtifacts[0].Origin).IsEqualTo("read_image");
-        _ = await Assert.That(File.Exists(Path.Combine(Resources().ArtifactDirectory, $"{result.ImageArtifacts[0].ArtifactId}.png"))).IsTrue();
+        _ = await Assert.That(File.Exists(Path.Combine(_sessionResources.ArtifactDirectory, $"{result.ImageArtifacts[0].ArtifactId}.png"))).IsTrue();
     }
 
     [Test]
@@ -60,9 +65,10 @@ internal sealed class ReadImageToolTests : IDisposable
             [new SandboxRule(privateDirectory, SandboxRuleAction.DenyRead)],
             []);
 
-        var result = await Tool().Execute(
+        ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images);
+        var result = await tool.Execute(
             new ToolInvocation("test-call", "{\"path\":\"alias.png\"}"),
-            Turn(security),
+            new SelectionFixture(security).Selection,
             cancellationToken);
 
         _ = await Assert.That(result.Text).IsEqualTo("error: access denied");
@@ -74,9 +80,10 @@ internal sealed class ReadImageToolTests : IDisposable
     {
         await File.WriteAllTextAsync(Path.Combine(_root, "not-image.txt"), "not an image", cancellationToken);
 
-        var result = await Tool().Execute(
+        ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images);
+        var result = await tool.Execute(
             new ToolInvocation("test-call", "{\"path\":\"not-image.txt\"}"),
-            Turn(Permissive()),
+            new SelectionFixture(SecurityProfile.Compose(false, [], [], [])).Selection,
             cancellationToken);
 
         _ = await Assert.That(result.Text).StartsWith("error: The image content is invalid or unsupported.");
@@ -86,22 +93,18 @@ internal sealed class ReadImageToolTests : IDisposable
     private static byte[] Png() => Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==");
 
-    private static SecurityProfile Permissive() => SecurityProfile.Compose(false, [], [], []);
-
-    private static AgentTurnSelection Turn(SecurityProfile securityProfile)
+    private sealed class SelectionFixture
     {
-        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
-        return new AgentTurnSelection(
-            new ModelSelector(model.Selector),
-            TestModels.Resolve(model),
-            TestModels.Profile(),
-            securityProfile);
+        public SelectionFixture(SecurityProfile securityProfile)
+        {
+            var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
+            Selection = new AgentTurnSelection(
+                new ModelSelector(model.Selector),
+                TestModels.Resolve(model),
+                new TestProfileFixture().Mode,
+                securityProfile);
+        }
+
+        public AgentTurnSelection Selection { get; }
     }
-
-    private ReadImageTool Tool() => new(new ToolWorkspace(_root), _resources.Images);
-
-    private UserSessionResources Resources() => new(
-        new StatePaths(_root, _root, _root),
-        UserSessionId.Parse("images"),
-        ProjectWorkspace.FromLaunchDirectory(_root));
 }

@@ -28,7 +28,7 @@ internal sealed class StatusDrainTests : IDisposable
     {
         var databasePath = Path.Combine(_root, "session.db");
         var modes = Modes();
-        using var provider = new SteppedProvider(Answer("first"), Answer("unused"), Answer("after interrupt"));
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "first", []), LLMEvent.Completed("stop", 1, 0, 1, "unused", []), LLMEvent.Completed("stop", 1, 0, 1, "after interrupt", []));
 
         using (var database = SessionDatabase.Open(databasePath))
         {
@@ -49,11 +49,11 @@ internal sealed class StatusDrainTests : IDisposable
             _ = await Assert.That(provider.Requests[0].Instructions).IsNotEmpty();
             var buildRequest = provider.Requests[0];
             var buildStatus = buildRequest.Messages[0].Content;
-            _ = await Assert.That(buildRequest.Instructions).DoesNotContain(session.Mode.Prompt);
+            _ = await Assert.That(buildRequest.Instructions).DoesNotContain(session.Mode.Profile.Prompt);
             await AssertContextLine(buildStatus, buildRequest, 100_000);
-            _ = await Assert.That(buildStatus).StartsWith($"{session.Mode.Prompt}\n\nGenerated at: ");
+            _ = await Assert.That(buildStatus).StartsWith($"{session.Mode.Profile.Prompt}\n\nGenerated at: ");
             _ = await Assert.That(buildStatus).Contains("\n\nRuntime:\n- agent: main-agent (");
-            _ = await Assert.That(CountOccurrences(buildStatus, session.Mode.Prompt)).IsEqualTo(1);
+            _ = await Assert.That(CountOccurrences(buildStatus, session.Mode.Profile.Prompt)).IsEqualTo(1);
             await AssertStatusOrder(buildStatus, "Active profile: build");
             provider.Release();
             await Settled(session);
@@ -111,7 +111,7 @@ internal sealed class StatusDrainTests : IDisposable
             var repository = new EventRepository(reopened);
             await using var session = Session(provider, reopened, modes, "model-2");
 
-            _ = await Assert.That(session.Mode.Id).IsEqualTo(ModeRegistry.Plan);
+            _ = await Assert.That(session.Mode.Profile.Id).IsEqualTo(ModeRegistry.Plan);
             _ = await Assert.That(repository.StatusPromptPending(AgentSessionId(repository))).IsFalse();
             _ = await Assert.That(StatusMessages(repository).Count).IsEqualTo(2);
         }
@@ -124,7 +124,7 @@ internal sealed class StatusDrainTests : IDisposable
         using var database = SessionDatabase.Open(":memory:");
         var repository = new EventRepository(database);
         var modes = Modes();
-        using var provider = new SteppedProvider(Answer("candidate"), Answer("repaired"));
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "candidate", []), LLMEvent.Completed("stop", 1, 0, 1, "repaired", []));
         var providerModel = new ProviderModel(provider, new LLMModel("model", provider.Id));
         var router = TestModels.Route(providerModel);
         var sessions = new DirectAgentSessions();
@@ -138,9 +138,9 @@ internal sealed class StatusDrainTests : IDisposable
             ModeRegistry.Plan,
             Resources(database, "repair-user"),
             sessions,
-            OwnerModes(modes, "repair-user"),
+            new UserSessionModes(modes, TestModels.PromptTemplates, Path.Combine(_root, "sessions", "repair-user", "plan")),
             TestModels.PromptTemplates,
-            TestModels.ProfileRegistry(),
+            new TestProfileFixture().Registry,
             SkillCatalogFactory(),
             false,
             TimeSpan.FromSeconds(30),
@@ -204,7 +204,7 @@ internal sealed class StatusDrainTests : IDisposable
         using var database = SessionDatabase.Open(":memory:");
         var repository = new EventRepository(database);
         var modes = Modes();
-        using var provider = new SteppedProvider(Answer("done"));
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         var providerModel = new ProviderModel(provider, new LLMModel("model", provider.Id));
         var router = TestModels.Route(providerModel);
         var sessions = new DirectAgentSessions();
@@ -216,9 +216,9 @@ internal sealed class StatusDrainTests : IDisposable
             ModeRegistry.Plan,
             Resources(database, "user"),
             sessions,
-            OwnerModes(modes, "user"),
+            new UserSessionModes(modes, TestModels.PromptTemplates, Path.Combine(_root, "sessions", "user", "plan")),
             TestModels.PromptTemplates,
-            TestModels.ProfileRegistry(),
+            new TestProfileFixture().Registry,
             SkillCatalogFactory(),
             false,
             TimeSpan.FromSeconds(30),
@@ -264,8 +264,8 @@ internal sealed class StatusDrainTests : IDisposable
         using var database = SessionDatabase.Open(":memory:");
         var modes = Modes();
         using var provider = new SteppedProvider(
-            Answer(string.Empty, new LLMToolCall("status-call", "status", "{}")),
-            Answer("done"));
+            LLMEvent.Completed("stop", 1, 0, 1, string.Empty, [new LLMToolCall("status-call", "status", "{}")]),
+            LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         await using var session = Session(provider, database, modes, "model", includeStatusTool: true);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
@@ -275,7 +275,7 @@ internal sealed class StatusDrainTests : IDisposable
 
         var result = provider.Requests[1].Messages.Single(message => message.Role == LLMRole.Tool).Content;
         _ = await Assert.That(result).StartsWith("Runtime:\n- agent: main-agent (");
-        _ = await Assert.That(result).DoesNotContain(session.Mode.Prompt);
+        _ = await Assert.That(result).DoesNotContain(session.Mode.Profile.Prompt);
         _ = await Assert.That(result).DoesNotContain("Active profile:");
         _ = await Assert.That(result).DoesNotContain("Model:");
 
@@ -290,8 +290,8 @@ internal sealed class StatusDrainTests : IDisposable
         var repository = new EventRepository(database);
         var modes = Modes();
         using var provider = new SteppedProvider(
-            Answer(string.Empty, new LLMToolCall("call", "missing", "{}")),
-            Answer("done"));
+            LLMEvent.Completed("stop", 1, 0, 1, string.Empty, [new LLMToolCall("call", "missing", "{}")]),
+            LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         await using var session = Session(provider, database, modes, "model");
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
@@ -315,9 +315,6 @@ internal sealed class StatusDrainTests : IDisposable
         _ = await Assert.That(StatusMessages(repository).Count).IsEqualTo(1);
         _ = await Assert.That(repository.StatusPromptPending(AgentSessionId(repository))).IsTrue();
     }
-
-    private static LLMEvent Answer(string text, params LLMToolCall[] toolCalls) =>
-        LLMEvent.Completed("stop", 1, 0, 1, text, toolCalls);
 
     private static async Task AssertContextLine(string content, LLMRequest request, int contextLimit)
     {
@@ -431,9 +428,9 @@ internal sealed class StatusDrainTests : IDisposable
             ModeRegistry.Build,
             Resources(database, "user"),
             sessions,
-            OwnerModes(modes, "user"),
+            new UserSessionModes(modes, TestModels.PromptTemplates, Path.Combine(_root, "sessions", "user", "plan")),
             TestModels.PromptTemplates,
-            TestModels.ProfileRegistry(),
+            new TestProfileFixture().Registry,
             SkillCatalogFactory(),
             false,
             TimeSpan.FromSeconds(30),
@@ -462,7 +459,4 @@ internal sealed class StatusDrainTests : IDisposable
             new UserSessionResources(paths, UserSessionId.Parse(ownerId), workspace),
             database);
     }
-
-    private UserSessionModes OwnerModes(ModeRegistry modes, string ownerId) =>
-        new(modes, TestModels.PromptTemplates, Path.Combine(_root, "sessions", ownerId, "plan"));
 }

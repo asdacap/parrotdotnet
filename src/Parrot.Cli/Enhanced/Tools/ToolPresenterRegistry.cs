@@ -2,10 +2,10 @@ namespace Parrot.Cli.Enhanced.Tools;
 
 internal sealed class ToolPresenterRegistry
 {
-    private readonly GenericToolPresenter _fallback;
+    private readonly IToolPresenter _fallback;
     private readonly Dictionary<string, IToolPresenter> _presenters;
 
-    public ToolPresenterRegistry(IReadOnlyList<IToolPresenter> presenters, GenericToolPresenter fallback)
+    public ToolPresenterRegistry(IReadOnlyList<IToolPresenter> presenters, IToolPresenter fallback)
     {
         ArgumentNullException.ThrowIfNull(presenters);
         ArgumentNullException.ThrowIfNull(fallback);

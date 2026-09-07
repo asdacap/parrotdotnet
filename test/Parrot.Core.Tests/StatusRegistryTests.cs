@@ -31,7 +31,7 @@ internal sealed class StatusRegistryTests
             new ScriptedStatusProvider(
                 "runtime:blank",
                 static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("  "))));
-        var profile = new ProfileStatusProvider("profile:plan", "profile prompt");
+        IStatusProvider profile = new ProfileStatusProvider("profile:plan", "profile prompt");
 
         var first = await registry.Observe(query, profile, CancellationToken.None);
         var second = await registry.Observe(query, profile, CancellationToken.None);
@@ -48,10 +48,10 @@ internal sealed class StatusRegistryTests
     [Arguments(123, -1, 0, false)]
     public async Task Context_reports_available_and_unavailable_windows_exactly(long estimatedTokens, int contextLimit, int usage, bool available)
     {
-        var observation = await new ContextStatusProvider(
+        IStatusProvider provider = new ContextStatusProvider(
                 new ContextSnapshot(estimatedTokens, contextLimit, available ? usage : null, 90),
-                TestModels.PromptTemplates)
-            .Observe(new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"), CancellationToken.None);
+                TestModels.PromptTemplates);
+        var observation = await provider.Observe(new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"), CancellationToken.None);
 
         _ = await Assert.That(observation.Available).IsTrue();
         _ = await Assert.That(observation.Text).Contains($"{estimatedTokens} estimated");
@@ -74,9 +74,9 @@ internal sealed class StatusRegistryTests
     {
         using var catalog = QueueCatalog("status-order");
         using var root = catalog.Register(AgentIdentity.Main("session", "main", TestModels.PromptTemplates));
-        var runtime = new RuntimeTreeStatusProvider(catalog, new ProcessStatusSource(), new AgentStatusSource(), TestModels.PromptTemplates);
+        IStatusProvider runtime = new RuntimeTreeStatusProvider(catalog, new ProcessStatusSource(), new AgentStatusSource(), TestModels.PromptTemplates);
         var full = new StatusRegistry(new GeneratedTimeStatusProvider(TimeProvider.System, TestModels.PromptTemplates), new SelectionStatusProvider(TestModels.PromptTemplates), runtime);
-        var context = new ContextStatusProvider(new ContextSnapshot(123, 1000, 12, 90), TestModels.PromptTemplates);
+        IStatusProvider context = new ContextStatusProvider(new ContextSnapshot(123, 1000, 12, 90), TestModels.PromptTemplates);
         var query = new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model");
 
         var fullText = await full.ObserveWithProvider(query, new ProfileStatusProvider("profile:build", "profile prompt"), context, CancellationToken.None);
@@ -94,10 +94,10 @@ internal sealed class StatusRegistryTests
     [Test]
     public async Task Additional_context_snapshots_are_isolated_per_observation()
     {
-        var registry = new StatusRegistry(Provider("runtime:value", "shared"));
+        var registry = new StatusRegistry(new ScriptedStatusProvider("runtime:value", static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("shared"))));
         var query = new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model");
-        var first = new ContextStatusProvider(new ContextSnapshot(100, 1000, 10, 90), TestModels.PromptTemplates);
-        var second = new ContextStatusProvider(new ContextSnapshot(800, 1000, 80, 90), TestModels.PromptTemplates);
+        IStatusProvider first = new ContextStatusProvider(new ContextSnapshot(100, 1000, 10, 90), TestModels.PromptTemplates);
+        IStatusProvider second = new ContextStatusProvider(new ContextSnapshot(800, 1000, 80, 90), TestModels.PromptTemplates);
         var observations = await Task.WhenAll(
             registry.ObserveWithProvider(query, null, first, CancellationToken.None),
             registry.ObserveWithProvider(query, null, second, CancellationToken.None));
@@ -113,7 +113,8 @@ internal sealed class StatusRegistryTests
     [Arguments("  ", false, "")]
     public async Task Profile_reports_only_a_nonblank_prompt(string prompt, bool available, string expected)
     {
-        var observation = await new ProfileStatusProvider("profile:build", prompt).Observe(
+        IStatusProvider provider = new ProfileStatusProvider("profile:build", prompt);
+        var observation = await provider.Observe(
             new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"),
             CancellationToken.None);
 
@@ -127,7 +128,8 @@ internal sealed class StatusRegistryTests
         var timeProvider = new ControlledTimeProvider();
         timeProvider.Advance(TimeSpan.FromDays(1));
 
-        var observation = await new GeneratedTimeStatusProvider(timeProvider, TestModels.PromptTemplates).Observe(
+        IStatusProvider provider = new GeneratedTimeStatusProvider(timeProvider, TestModels.PromptTemplates);
+        var observation = await provider.Observe(
             new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"),
             CancellationToken.None);
 
@@ -137,7 +139,8 @@ internal sealed class StatusRegistryTests
     [Test]
     public async Task Selection_reports_a_complete_canonical_requested_selector()
     {
-        var observation = await new SelectionStatusProvider(TestModels.PromptTemplates).Observe(
+        IStatusProvider provider = new SelectionStatusProvider(TestModels.PromptTemplates);
+        var observation = await provider.Observe(
             new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model/medium"),
             CancellationToken.None);
 
@@ -153,7 +156,8 @@ internal sealed class StatusRegistryTests
     [Arguments("parent", "main-agent")]
     public async Task Selection_reports_parent_context_when_present(string parentSessionId, string parentSessionName)
     {
-        var observation = await new SelectionStatusProvider(TestModels.PromptTemplates).Observe(
+        IStatusProvider provider = new SelectionStatusProvider(TestModels.PromptTemplates);
+        var observation = await provider.Observe(
             new StatusQuery("child", parentSessionId, parentSessionName, "build", "low_llm"),
             CancellationToken.None);
 
@@ -175,7 +179,7 @@ internal sealed class StatusRegistryTests
     public async Task Register_rejects_unstable_keys(string key)
     {
         var registry = new StatusRegistry();
-        var provider = Provider(key, "status");
+        IStatusProvider provider = new ScriptedStatusProvider(key, static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("status")));
 
         _ = await Assert.That(() => registry.Register(provider)).Throws<StatusRegistryException>();
     }
@@ -188,7 +192,7 @@ internal sealed class StatusRegistryTests
         using var child = catalog.Register(AgentIdentity.Child("child", "root", "main", "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
         _ = root.Create("work", "queued work");
         _ = child.Create("results", string.Empty);
-        var provider = new RuntimeTreeStatusProvider(
+        IStatusProvider provider = new RuntimeTreeStatusProvider(
             catalog,
             new ProcessStatusSource(
                 new ShellProcessStatusSnapshot("child", "fetch", "fetch", ActiveWorkState.Running),
@@ -217,7 +221,7 @@ internal sealed class StatusRegistryTests
     {
         using var catalog = QueueCatalog("runtime-empty");
         using var root = catalog.Register(AgentIdentity.Main("root", "main", TestModels.PromptTemplates));
-        var provider = new RuntimeTreeStatusProvider(catalog, new ProcessStatusSource(), new AgentStatusSource(), TestModels.PromptTemplates);
+        IStatusProvider provider = new RuntimeTreeStatusProvider(catalog, new ProcessStatusSource(), new AgentStatusSource(), TestModels.PromptTemplates);
 
         var observation = await provider.Observe(
             new StatusQuery("root", string.Empty, string.Empty, "build", "provider/model"),
@@ -229,13 +233,13 @@ internal sealed class StatusRegistryTests
     [Test]
     public async Task Register_and_profile_reject_duplicate_keys()
     {
-        var registry = new StatusRegistry(Provider("runtime:selection", "first"));
+        var registry = new StatusRegistry(new ScriptedStatusProvider("runtime:selection", static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("first"))));
 
-        _ = await Assert.That(() => registry.Register(Provider("runtime:selection", "second")))
+        _ = await Assert.That(() => registry.Register(new ScriptedStatusProvider("runtime:selection", static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("second")))))
             .Throws<StatusRegistryException>();
         _ = await Assert.That(async () => await registry.Observe(
                 new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"),
-                Provider("runtime:selection", "profile"),
+                new ScriptedStatusProvider("runtime:selection", static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("profile"))),
                 CancellationToken.None))
             .Throws<StatusRegistryException>();
     }
@@ -256,9 +260,6 @@ internal sealed class StatusRegistryTests
         _ = await Assert.That(exception?.Message).Contains("runtime:failure");
         _ = await Assert.That(exception?.InnerException).IsTypeOf<InvalidOperationException>();
     }
-
-    private static ScriptedStatusProvider Provider(string key, string text) =>
-        new(key, (_, _) => ValueTask.FromResult(StatusObservation.AvailableText(text)));
 
     private static AgentQueueCatalog QueueCatalog(string name)
     {

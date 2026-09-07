@@ -8,7 +8,7 @@ namespace Parrot.Llm;
 // an /effort selection works without configuration.
 internal sealed class KimiModelDecoder : IModelListDecoder
 {
-    public static KimiModelDecoder Instance { get; } = new();
+    public static IModelListDecoder Instance { get; } = new KimiModelDecoder();
 
     public IReadOnlyList<LLMModel> Decode(string providerId, string json)
     {

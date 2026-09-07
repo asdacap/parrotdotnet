@@ -14,7 +14,7 @@ internal partial class EnhancedComposition
             .Arg<GeneratedParrot.ParrotClient>("client")
             .Arg<Interrupts>("interrupts")
             .Arg<ICredentialStore>("credentials")
-            .Arg<OpenAiOAuthClient>("oauthClient")
+            .Arg<IOAuthClient>("oauthClient")
             .Arg<Configuration>("configuration")
             .Arg<IReadOnlyList<string>>("providerIds")
             .Arg<EnhancedChatRequest>("request")
@@ -38,7 +38,7 @@ internal partial class EnhancedComposition
                     new GlobToolPresenter(),
                     new InterruptProcessToolPresenter(),
                     new ReadToolPresenter(),
-                    new RunAgentTasksToolPresenter(),
+                    new RunAgentTasksToolPresenter(new GenericToolPresenter()),
                     new QuestionToolPresenter(),
                     new SetCheckpointToolPresenter(),
                     new QueuePushToolPresenter(),

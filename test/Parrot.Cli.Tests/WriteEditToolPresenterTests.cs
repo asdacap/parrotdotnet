@@ -58,7 +58,7 @@ internal sealed class WriteEditToolPresenterTests
         _ = await Assert.That(string.Join('\n', live)).DoesNotContain(hiddenValue);
         _ = await Assert.That(string.Join('\n', completed)).DoesNotContain(hiddenValue);
         _ = await Assert.That(completed).Count().IsEqualTo(1);
-        _ = await Assert.That(((IToolPresentationValue)item).Report.Block).IsEqualTo(ToolBlock.Empty);
+        _ = await Assert.That(completed[0]).IsEqualTo($"✓ {expectedLabel}");
     }
 
     [Test]
@@ -75,12 +75,11 @@ internal sealed class WriteEditToolPresenterTests
 
         var item = presenter.PresentTerminal(call, terminal)
             ?? throw new InvalidOperationException("Presenter did not render terminal output.");
-        var report = ((IToolPresentationValue)item).Report;
         var rendered = item.Render(ScrollbackContext);
 
         _ = await Assert.That(rendered[0]).Contains(expectedLabel);
-        _ = await Assert.That(report.Block.Kind).IsEqualTo(ToolBlockKind.Diff);
-        _ = await Assert.That(report.Block.Text).IsEqualTo(diff);
+        _ = await Assert.That(string.Join('\n', rendered)).Contains("src/file.txt");
+        _ = await Assert.That(string.Join('\n', rendered)).Contains("@@ -1,1 +1,1 @@");
         _ = await Assert.That(string.Join('\n', rendered)).Contains("1 -old");
         _ = await Assert.That(string.Join('\n', rendered)).Contains("1 +new");
         _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain(hiddenValue);
@@ -103,12 +102,11 @@ internal sealed class WriteEditToolPresenterTests
 
         var item = presenter.PresentTerminal(call, terminal)
             ?? throw new InvalidOperationException("Presenter did not render terminal output.");
-        var report = ((IToolPresentationValue)item).Report;
         var rendered = item.Render(ScrollbackContext);
 
         _ = await Assert.That(rendered[0]).IsEqualTo($"✗ {expectedLabel}");
-        _ = await Assert.That(report.Status).IsEqualTo(ToolTerminalStatus.ReportedFailure);
-        _ = await Assert.That(report.Block.Kind).IsEqualTo(ToolBlockKind.Error);
+        _ = await Assert.That(rendered).Count().IsEqualTo(2);
+        _ = await Assert.That(rendered[1]).IsEqualTo("  error: operation failed");
         _ = await Assert.That(string.Join('\n', rendered)).Contains("error: operation failed");
         _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain(hiddenValue);
     }

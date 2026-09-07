@@ -10,7 +10,7 @@ internal sealed class EnhancedWaitToolPresenterTests
     [Test]
     public async Task Wait_renders_the_incoming_activity_live_label()
     {
-        var presenter = new WaitToolPresenter();
+        IToolPresenter presenter = new WaitToolPresenter();
         var call = new ToolCallPresentation("main", "wait", "{\"duration_ms\":10000}");
 
         var rendered = presenter.PresentLive(call, 0).Render(LiveContext).Lines;
@@ -21,19 +21,16 @@ internal sealed class EnhancedWaitToolPresenterTests
     [Test]
     public async Task Wait_is_live_only_and_modeline_eligible()
     {
-        var presenter = new WaitToolPresenter();
-        var call = new ToolCallPresentation("main", "wait", "{}");
+        IToolPresenter presenter = new WaitToolPresenter();
 
-        var live = (IToolPresentationValue)presenter.PresentLive(call, 0);
-
-        _ = await Assert.That(live.Report.Metadata.LiveOnly).IsTrue();
-        _ = await Assert.That(live.Report.Metadata.Modeline).IsTrue();
+        _ = await Assert.That(presenter.Metadata.LiveOnly).IsTrue();
+        _ = await Assert.That(presenter.Metadata.Modeline).IsTrue();
     }
 
     [Test]
     public async Task Wait_omits_terminal_output()
     {
-        var presenter = new WaitToolPresenter();
+        IToolPresenter presenter = new WaitToolPresenter();
         var call = new ToolCallPresentation("main", "wait", "{}");
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "timed out", string.Empty);
 

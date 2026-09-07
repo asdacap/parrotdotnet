@@ -72,7 +72,7 @@ internal sealed class UserSession : IAsyncDisposable
         _modes = modes;
         _promptTemplates = promptTemplates ?? throw new ArgumentNullException(nameof(promptTemplates));
         SkillCatalog = skillCatalogFactory.Create(resources.Resources.Workspace);
-        var state = _eventRepository.SessionState(id, modes.Resolve(mode).Id);
+        var state = _eventRepository.SessionState(id, modes.Resolve(mode).Profile.Id);
         _mainSessionId = state.AgentSessionId;
         _modes.Attach(resources.Resources.AgentScratch(_mainSessionId));
         Mode = modes.Resolve(state.Mode);
@@ -90,7 +90,13 @@ internal sealed class UserSession : IAsyncDisposable
         _agentSessions = agentSessionFactories.Create(this);
         var retainedAgents = new RetainedAgentBudget(1024);
         Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _promptTemplates, retainedAgents, _lifetime.Token);
-        Status = new RuntimeStatus(QueueCatalog, ShellProcesses, Registry, _promptTemplates, TimeProvider, AgentTaskRuns);
+        Status = new RuntimeStatus(
+            QueueCatalog,
+            new ShellProcessOwnersStatusSource(ShellProcesses),
+            new AgentRegistryStatusSource(Registry),
+            _promptTemplates,
+            TimeProvider,
+            AgentTaskRuns);
         Registry.AttachStatus(Status);
         foreach (var agentSessionId in _eventRepository.AgentHistorySessionIds())
         {
@@ -134,7 +140,7 @@ internal sealed class UserSession : IAsyncDisposable
 
     internal AgentTaskRunCatalog AgentTaskRuns { get; }
 
-    internal AgentRegistry Registry { get; }
+    internal IAgentRegistry Registry { get; }
 
     internal RuntimeStatus Status { get; }
 
@@ -154,12 +160,12 @@ internal sealed class UserSession : IAsyncDisposable
 
         lock (_mainGate)
         {
-            if (string.Equals(Mode.Id, selected.Id, StringComparison.Ordinal))
+            if (string.Equals(Mode.Profile.Id, selected.Profile.Id, StringComparison.Ordinal))
             {
                 return;
             }
 
-            _eventRepository.UpdateMode(Id, _mainSessionId, selected.Id);
+            _eventRepository.UpdateMode(Id, _mainSessionId, selected.Profile.Id);
             Mode = selected;
 
             _main?.Session.UpdateSelection(_model, selected);
@@ -170,14 +176,14 @@ internal sealed class UserSession : IAsyncDisposable
 
     public void UpdateSelection(ResolvedModelSelection model) => Update(model, null);
 
-    public void Update(ResolvedModelSelection? model, IMode? profile)
+    public void Update(ResolvedModelSelection? model, IMode? mode)
     {
         lock (_mainGate)
         {
-            if (profile is not null && !string.Equals(Mode.Id, profile.Id, StringComparison.Ordinal))
+            if (mode is not null && !string.Equals(Mode.Profile.Id, mode.Profile.Id, StringComparison.Ordinal))
             {
-                _eventRepository.UpdateMode(Id, _mainSessionId, profile.Id);
-                Mode = profile;
+                _eventRepository.UpdateMode(Id, _mainSessionId, mode.Profile.Id);
+                Mode = mode;
             }
 
             if (model is not null)
@@ -219,7 +225,7 @@ internal sealed class UserSession : IAsyncDisposable
             yield return published;
         }
 
-        yield return initialUsage.ConvertToEvent();
+        yield return new Event { SessionUsageSnapshot = SessionUsageSnapshot.From(initialUsage) };
 
         var eventPending = (Task<bool>?)events.Reader.WaitToReadAsync(cancellationToken).AsTask();
         var queuePending = (Task<bool>?)queues.Reader.WaitToReadAsync(cancellationToken).AsTask();
@@ -461,7 +467,7 @@ internal sealed class UserSession : IAsyncDisposable
             _eventBroker,
             _eventRepository,
             Mode,
-            Mode.SecurityProfile,
+            Mode.Profile.SecurityProfile,
             Status,
             Registry,
             _lifetime.Token);

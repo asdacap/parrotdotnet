@@ -42,16 +42,6 @@ internal sealed class GlobToolTests : IDisposable
         _ = await Assert.That(result).DoesNotContain("[glob results truncated:");
     }
 
-    private static AgentTurnSelection Turn()
-    {
-        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
-        return new AgentTurnSelection(
-            new ModelSelector(model.Selector),
-            TestModels.Resolve(model),
-            TestModels.Profile(),
-            SecurityProfile.Compose(readOnly: false, [], [], []));
-    }
-
     private void CreateFiles(int count)
     {
         for (var index = 0; index < count; index++)
@@ -62,10 +52,15 @@ internal sealed class GlobToolTests : IDisposable
 
     private async Task<string> Execute(CancellationToken cancellationToken)
     {
-        var tool = new GlobTool(new ToolWorkspace(_workspace));
+        ITool tool = new GlobTool(new ToolWorkspace(_workspace));
+        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
         return (await tool.Execute(
             new ToolInvocation("test-call", "{\"pattern\":\"*.txt\"}"),
-            Turn(),
+            new AgentTurnSelection(
+                new ModelSelector(model.Selector),
+                TestModels.Resolve(model),
+                new TestProfileFixture().Mode,
+                SecurityProfile.Compose(readOnly: false, [], [], [])),
             cancellationToken)).Text;
     }
 }

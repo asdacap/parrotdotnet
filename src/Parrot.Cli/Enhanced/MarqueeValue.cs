@@ -6,7 +6,11 @@ internal readonly record struct MarqueeValue(string Prefix, string Text, int Fra
 {
     private const int SeparatorCells = 3;
 
-    public MarqueeValue Animate(int frame) => this with { Frame = frame };
+    public ILiveBufferItem Animate(int frame) => this with { Frame = frame };
+
+    public ILiveBufferItem CaptureAnimation(int frame) => this with { Frame = frame };
+
+    public ILiveBufferItem AnimateSinceCapture(int frame) => this with { Frame = frame - Frame };
 
     public MultiLine Render(LiveBufferRenderContext context)
     {

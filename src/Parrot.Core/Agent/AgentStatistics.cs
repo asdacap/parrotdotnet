@@ -32,18 +32,6 @@ internal sealed record AgentStatistics(
             OutputCost + (completed.OutputTokens * model.OutputPrice));
     }
 
-    public AgentStatisticsUpdatedEvent ConvertToPayload() =>
-        new()
-        {
-            InputTokens = InputTokens,
-            CachedInputTokens = CachedInputTokens,
-            OutputTokens = OutputTokens,
-            ContextSize = ContextSize,
-            ContextLimit = ContextLimit,
-            InputCost = InputCost,
-            OutputCost = OutputCost,
-        };
-
     public static AgentStatistics Restore(AgentStatisticsUpdatedEvent payload) =>
         new(
             payload.InputTokens,

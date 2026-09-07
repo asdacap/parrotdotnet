@@ -231,14 +231,48 @@ internal sealed class EnhancedHierarchyTests
             new Event
             {
                 AgentSessionId = "child",
-                AgentTaskProgressSnapshot = Snapshot(AgentTaskProgressStatus.Running),
+                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                {
+                    OriginToolCallId = "call",
+                    Revision = 1,
+                    RootNodes =
+                    {
+                        new AgentTaskProgressNode
+                        {
+                            Name = "root",
+                            Status = AgentTaskProgressStatus.Running,
+                            Children =
+                            {
+                                new AgentTaskProgressNode { Name = "child-a", Status = AgentTaskProgressStatus.Pending },
+                                new AgentTaskProgressNode { Name = "child-b", Status = AgentTaskProgressStatus.Failed },
+                            },
+                        },
+                    },
+                },
             },
             cancellationToken);
         await view.Render(
             new Event
             {
                 AgentSessionId = "child",
-                AgentTaskProgressSnapshot = Snapshot(AgentTaskProgressStatus.Succeeded),
+                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                {
+                    OriginToolCallId = "call",
+                    Revision = 1,
+                    RootNodes =
+                    {
+                        new AgentTaskProgressNode
+                        {
+                            Name = "root",
+                            Status = AgentTaskProgressStatus.Succeeded,
+                            Children =
+                            {
+                                new AgentTaskProgressNode { Name = "child-a", Status = AgentTaskProgressStatus.Pending },
+                                new AgentTaskProgressNode { Name = "child-b", Status = AgentTaskProgressStatus.Failed },
+                            },
+                        },
+                    },
+                },
             },
             cancellationToken);
 
@@ -1086,19 +1120,21 @@ internal sealed class EnhancedHierarchyTests
     public async Task Hierarchical_tool_rows_fit_columns_and_remove_owner_before_layout(int columns, string label)
     {
         var palette = new TerminalPalette(false);
-        var live = new HierarchicalLiveValue(
+        ILiveBufferItem liveItem = new HierarchicalLiveValue(
             new ToolLiveValue($"{label}: $ alpha beta", [], 0),
             1,
             label,
             label,
             "✓",
-            null).Render(new LiveBufferRenderContext(columns, palette));
-        var scrollback = new HierarchicalScrollbackValue(
+            null);
+        var live = liveItem.Render(new LiveBufferRenderContext(columns, palette));
+        IScrollbackItem scrollbackItem = new HierarchicalScrollbackValue(
             new ToolScrollbackValue($"{label}: $ alpha beta", ["output value"], ToolTerminalStatus.Succeeded),
             1,
             label,
             label,
-            "✓").Render(new ScrollbackRenderContext(columns, palette));
+            "✓");
+        var scrollback = scrollbackItem.Render(new ScrollbackRenderContext(columns, palette));
 
         _ = await Assert.That(live.Lines.All(line => TerminalText.Width(line.Text) <= columns)).IsTrue();
         _ = await Assert.That(scrollback.All(line => TerminalText.Width(line) <= columns)).IsTrue();
@@ -1114,7 +1150,7 @@ internal sealed class EnhancedHierarchyTests
     public async Task Child_model_alias_icon_styles_only_the_glyph_and_reserves_its_cell_width()
     {
         var palette = new TerminalPalette(true);
-        var value = new HierarchicalLiveValue(
+        ILiveBufferItem value = new HierarchicalLiveValue(
             new MarqueeValue("● ", "12345678901234567890", 0),
             1,
             "界 worker",
@@ -1159,10 +1195,46 @@ internal sealed class EnhancedHierarchyTests
         await view.ReplaceQueues(
             "root",
             [
-                Queue("root", "main", string.Empty, string.Empty, "root-q", "root queue"),
-                Queue("z", "z-parent", "root", "main", "work", "z queue"),
-                Queue("child", "child", "z", "z-parent", "work", "child queue"),
-                Queue("a", "a-sibling", "root", "main", "work", "a queue"),
+                new QueueState
+                {
+                    OwnerAgentSessionId = "root",
+                    OwnerAgentName = "main",
+                    ParentAgentSessionId = string.Empty,
+                    ParentAgentName = string.Empty,
+                    Name = "root-q",
+                    Description = "root queue",
+                    ItemCount = 1,
+                },
+                new QueueState
+                {
+                    OwnerAgentSessionId = "z",
+                    OwnerAgentName = "z-parent",
+                    ParentAgentSessionId = "root",
+                    ParentAgentName = "main",
+                    Name = "work",
+                    Description = "z queue",
+                    ItemCount = 1,
+                },
+                new QueueState
+                {
+                    OwnerAgentSessionId = "child",
+                    OwnerAgentName = "child",
+                    ParentAgentSessionId = "z",
+                    ParentAgentName = "z-parent",
+                    Name = "work",
+                    Description = "child queue",
+                    ItemCount = 1,
+                },
+                new QueueState
+                {
+                    OwnerAgentSessionId = "a",
+                    OwnerAgentName = "a-sibling",
+                    ParentAgentSessionId = "root",
+                    ParentAgentName = "main",
+                    Name = "work",
+                    Description = "a queue",
+                    ItemCount = 1,
+                },
             ],
             cancellationToken);
 
@@ -1199,7 +1271,18 @@ internal sealed class EnhancedHierarchyTests
 
         await view.ReplaceQueues(
             "opaque-root",
-            [Queue("opaque-root", "main", string.Empty, string.Empty, "work", "root queue")],
+            [
+                new QueueState
+                {
+                    OwnerAgentSessionId = "opaque-root",
+                    OwnerAgentName = "main",
+                    ParentAgentSessionId = string.Empty,
+                    ParentAgentName = string.Empty,
+                    Name = "work",
+                    Description = "root queue",
+                    ItemCount = 1,
+                },
+            ],
             cancellationToken);
 
         _ = await Assert.That(draws[^1]).IsEqualTo("  queue: work · 1 item — root queue");
@@ -1452,7 +1535,7 @@ internal sealed class EnhancedHierarchyTests
             return Task.CompletedTask;
         }
 
-        var presenters = new ToolPresenterRegistry([new RunAgentTasksToolPresenter()], new GenericToolPresenter());
+        var presenters = new ToolPresenterRegistry([new RunAgentTasksToolPresenter(new GenericToolPresenter())], new GenericToolPresenter());
         await using var view = new RawActivityView(
             Draw,
             Commit,
@@ -1462,16 +1545,104 @@ internal sealed class EnhancedHierarchyTests
             static (_, _) => Task.CompletedTask);
         await StartChildAgentTask(view, "call", cancellationToken);
 
-        await view.Render(ProgressEvent("child", TaskSnapshot("call", 1, "first")), cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                {
+                    OriginToolCallId = "call",
+                    Revision = 1,
+                    RootNodes =
+                    {
+                        new AgentTaskProgressNode
+                        {
+                            Name = "first",
+                            Status = AgentTaskProgressStatus.Running,
+                            Children =
+                            {
+                                new AgentTaskProgressNode { Name = "nested", Status = AgentTaskProgressStatus.Pending },
+                            },
+                        },
+                    },
+                },
+            },
+            cancellationToken);
         _ = await Assert.That(drawn[^1]).Contains("◐ first");
-        await view.Render(ProgressEvent("child", TaskSnapshot("call", 2, "higher")), cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                {
+                    OriginToolCallId = "call",
+                    Revision = 2,
+                    RootNodes =
+                    {
+                        new AgentTaskProgressNode
+                        {
+                            Name = "higher",
+                            Status = AgentTaskProgressStatus.Running,
+                            Children =
+                            {
+                                new AgentTaskProgressNode { Name = "nested", Status = AgentTaskProgressStatus.Pending },
+                            },
+                        },
+                    },
+                },
+            },
+            cancellationToken);
         _ = await Assert.That(drawn[^1]).Contains("◐ higher");
         _ = await Assert.That(drawn[^1]).DoesNotContain("◐ first");
         _ = await Assert.That(progressDelay.Count).IsEqualTo(2);
 
         var drawCount = drawn.Count;
-        await view.Render(ProgressEvent("child", TaskSnapshot("call", 1, "stale")), cancellationToken);
-        await view.Render(ProgressEvent("child", TaskSnapshot("wrong", 99, "wrong")), cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                {
+                    OriginToolCallId = "call",
+                    Revision = 1,
+                    RootNodes =
+                    {
+                        new AgentTaskProgressNode
+                        {
+                            Name = "stale",
+                            Status = AgentTaskProgressStatus.Running,
+                            Children =
+                            {
+                                new AgentTaskProgressNode { Name = "nested", Status = AgentTaskProgressStatus.Pending },
+                            },
+                        },
+                    },
+                },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                {
+                    OriginToolCallId = "wrong",
+                    Revision = 99,
+                    RootNodes =
+                    {
+                        new AgentTaskProgressNode
+                        {
+                            Name = "wrong",
+                            Status = AgentTaskProgressStatus.Running,
+                            Children =
+                            {
+                                new AgentTaskProgressNode { Name = "nested", Status = AgentTaskProgressStatus.Pending },
+                            },
+                        },
+                    },
+                },
+            },
+            cancellationToken);
         _ = await Assert.That(drawn).Count().IsEqualTo(drawCount);
         _ = await Assert.That(progressDelay.Count).IsEqualTo(2);
 
@@ -1480,7 +1651,29 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(committed[0]).Contains("  • [worker] Agent tasks:|    [worker] ◐ higher|    [worker] └── ○ nested");
         _ = await Assert.That(drawn[^1]).Contains("◐ higher");
 
-        await view.Render(ProgressEvent("child", TaskSnapshot("call", 3, "newer")), cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                {
+                    OriginToolCallId = "call",
+                    Revision = 3,
+                    RootNodes =
+                    {
+                        new AgentTaskProgressNode
+                        {
+                            Name = "newer",
+                            Status = AgentTaskProgressStatus.Running,
+                            Children =
+                            {
+                                new AgentTaskProgressNode { Name = "nested", Status = AgentTaskProgressStatus.Pending },
+                            },
+                        },
+                    },
+                },
+            },
+            cancellationToken);
         progressDelay.Release(2);
         await WaitForCount(committed, 2, cancellationToken);
         _ = await Assert.That(committed[1]).Contains("◐ newer");
@@ -1495,7 +1688,29 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(committed).Count().IsEqualTo(3);
         _ = await Assert.That(committed[2]).DoesNotContain("Agent tasks:");
         _ = await Assert.That(drawn[^1]).Contains("Agent tasks:");
-        await view.Render(ProgressEvent("child", TaskSnapshot("call", 4, "late")), cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                {
+                    OriginToolCallId = "call",
+                    Revision = 4,
+                    RootNodes =
+                    {
+                        new AgentTaskProgressNode
+                        {
+                            Name = "late",
+                            Status = AgentTaskProgressStatus.Running,
+                            Children =
+                            {
+                                new AgentTaskProgressNode { Name = "nested", Status = AgentTaskProgressStatus.Pending },
+                            },
+                        },
+                    },
+                },
+            },
+            cancellationToken);
         _ = await Assert.That(progressDelay.Count).IsEqualTo(4);
         progressDelay.Release(3);
         await WaitForCount(committed, 4, cancellationToken);
@@ -1528,10 +1743,32 @@ internal sealed class EnhancedHierarchyTests
             Commit,
             static token => Task.Delay(Timeout.InfiniteTimeSpan, token),
             static (_, token) => Task.Delay(Timeout.InfiniteTimeSpan, token),
-            new ToolPresenterRegistry([new RunAgentTasksToolPresenter()], new GenericToolPresenter()),
+            new ToolPresenterRegistry([new RunAgentTasksToolPresenter(new GenericToolPresenter())], new GenericToolPresenter()),
             static (_, _) => Task.CompletedTask);
         await StartChildAgentTask(view, "call", cancellationToken);
-        await view.Render(ProgressEvent("child", TaskSnapshot("call", 1, "pending")), cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                {
+                    OriginToolCallId = "call",
+                    Revision = 1,
+                    RootNodes =
+                    {
+                        new AgentTaskProgressNode
+                        {
+                            Name = "pending",
+                            Status = AgentTaskProgressStatus.Running,
+                            Children =
+                            {
+                                new AgentTaskProgressNode { Name = "nested", Status = AgentTaskProgressStatus.Pending },
+                            },
+                        },
+                    },
+                },
+            },
+            cancellationToken);
         await view.Render(TerminalEvent(terminalCase), cancellationToken);
 
         _ = await Assert.That(committed).Count().IsEqualTo(2);
@@ -1561,12 +1798,56 @@ internal sealed class EnhancedHierarchyTests
             Commit,
             static token => Task.Delay(Timeout.InfiniteTimeSpan, token),
             progressDelay.Delay,
-            new ToolPresenterRegistry([new RunAgentTasksToolPresenter()], new GenericToolPresenter()),
+            new ToolPresenterRegistry([new RunAgentTasksToolPresenter(new GenericToolPresenter())], new GenericToolPresenter()),
             static (_, _) => Task.CompletedTask);
         await StartChildAgentTask(view, "first-call", cancellationToken);
         await StartChildAgentTask(view, "second-call", cancellationToken);
-        await view.Render(ProgressEvent("child", TaskSnapshot("first-call", 1, "first-call-tree")), cancellationToken);
-        await view.Render(ProgressEvent("child", TaskSnapshot("second-call", 1, "second-call-tree")), cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                {
+                    OriginToolCallId = "first-call",
+                    Revision = 1,
+                    RootNodes =
+                    {
+                        new AgentTaskProgressNode
+                        {
+                            Name = "first-call-tree",
+                            Status = AgentTaskProgressStatus.Running,
+                            Children =
+                            {
+                                new AgentTaskProgressNode { Name = "nested", Status = AgentTaskProgressStatus.Pending },
+                            },
+                        },
+                    },
+                },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                {
+                    OriginToolCallId = "second-call",
+                    Revision = 1,
+                    RootNodes =
+                    {
+                        new AgentTaskProgressNode
+                        {
+                            Name = "second-call-tree",
+                            Status = AgentTaskProgressStatus.Running,
+                            Children =
+                            {
+                                new AgentTaskProgressNode { Name = "nested", Status = AgentTaskProgressStatus.Pending },
+                            },
+                        },
+                    },
+                },
+            },
+            cancellationToken);
 
         progressDelay.Release(0);
         await WaitForCount(committed, 1, cancellationToken);
@@ -1608,10 +1889,32 @@ internal sealed class EnhancedHierarchyTests
             Commit,
             static token => Task.Delay(Timeout.InfiniteTimeSpan, token),
             progressDelay.Delay,
-            new ToolPresenterRegistry([new RunAgentTasksToolPresenter()], new GenericToolPresenter()),
+            new ToolPresenterRegistry([new RunAgentTasksToolPresenter(new GenericToolPresenter())], new GenericToolPresenter()),
             static (_, _) => Task.CompletedTask);
         await StartChildAgentTask(view, "call", cancellationToken);
-        await view.Render(ProgressEvent("child", TaskSnapshot("call", 1, "pending")), cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                {
+                    OriginToolCallId = "call",
+                    Revision = 1,
+                    RootNodes =
+                    {
+                        new AgentTaskProgressNode
+                        {
+                            Name = "pending",
+                            Status = AgentTaskProgressStatus.Running,
+                            Children =
+                            {
+                                new AgentTaskProgressNode { Name = "nested", Status = AgentTaskProgressStatus.Pending },
+                            },
+                        },
+                    },
+                },
+            },
+            cancellationToken);
 
         progressDelay.Release(0);
         await firstAttempt.Task.WaitAsync(cancellationToken);
@@ -1644,10 +1947,32 @@ internal sealed class EnhancedHierarchyTests
             Commit,
             static token => Task.Delay(Timeout.InfiniteTimeSpan, token),
             progressDelay.Delay,
-            new ToolPresenterRegistry([new RunAgentTasksToolPresenter()], new GenericToolPresenter()),
+            new ToolPresenterRegistry([new RunAgentTasksToolPresenter(new GenericToolPresenter())], new GenericToolPresenter()),
             static (_, _) => Task.CompletedTask);
         await StartChildAgentTask(view, "call", cancellationToken);
-        await view.Render(ProgressEvent("child", TaskSnapshot("call", 1, "pending")), cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                {
+                    OriginToolCallId = "call",
+                    Revision = 1,
+                    RootNodes =
+                    {
+                        new AgentTaskProgressNode
+                        {
+                            Name = "pending",
+                            Status = AgentTaskProgressStatus.Running,
+                            Children =
+                            {
+                                new AgentTaskProgressNode { Name = "nested", Status = AgentTaskProgressStatus.Pending },
+                            },
+                        },
+                    },
+                },
+            },
+            cancellationToken);
 
         progressDelay.Release(0);
         await WaitForCount(committed, 1, cancellationToken);
@@ -1718,51 +2043,11 @@ internal sealed class EnhancedHierarchyTests
         }
     }
 
-    private static Event ProgressEvent(string agentSessionId, AgentTaskProgressSnapshot snapshot) =>
-        new() { AgentSessionId = agentSessionId, AgentTaskProgressSnapshot = snapshot };
-
-    private static AgentTaskProgressSnapshot TaskSnapshot(string callId, ulong revision, string name)
-    {
-        var snapshot = new AgentTaskProgressSnapshot { OriginToolCallId = callId, Revision = revision };
-        var root = new AgentTaskProgressNode { Name = name, Status = AgentTaskProgressStatus.Running };
-        root.Children.Add(new AgentTaskProgressNode { Name = "nested", Status = AgentTaskProgressStatus.Pending });
-        snapshot.RootNodes.Add(root);
-        return snapshot;
-    }
-
-    private static QueueState Queue(
-        string ownerAgentSessionId,
-        string ownerAgentName,
-        string parentAgentSessionId,
-        string parentAgentName,
-        string name,
-        string description) =>
-        new()
-        {
-            OwnerAgentSessionId = ownerAgentSessionId,
-            OwnerAgentName = ownerAgentName,
-            ParentAgentSessionId = parentAgentSessionId,
-            ParentAgentName = parentAgentName,
-            Name = name,
-            Description = description,
-            ItemCount = 1,
-        };
-
     private static string Render(IReadOnlyList<ILiveBufferItem> items, LiveBufferRenderContext context) =>
         string.Join('|', items.SelectMany(item => item.Render(context).Lines).Select(static line => line.Text));
 
     private static int Count(string value, string fragment) =>
         value.Split(fragment, StringSplitOptions.None).Length - 1;
-
-    private static AgentTaskProgressSnapshot Snapshot(AgentTaskProgressStatus rootStatus)
-    {
-        var snapshot = new AgentTaskProgressSnapshot { OriginToolCallId = "call", Revision = 1 };
-        var root = new AgentTaskProgressNode { Name = "root", Status = rootStatus };
-        root.Children.Add(new AgentTaskProgressNode { Name = "child-a", Status = AgentTaskProgressStatus.Pending });
-        root.Children.Add(new AgentTaskProgressNode { Name = "child-b", Status = AgentTaskProgressStatus.Failed });
-        snapshot.RootNodes.Add(root);
-        return snapshot;
-    }
 
     private sealed class ControlledProgressDelay
     {

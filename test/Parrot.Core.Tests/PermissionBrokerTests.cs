@@ -71,7 +71,7 @@ internal sealed class PermissionBrokerTests : IDisposable
             TimeSpan.FromSeconds(30),
             TimeProvider.System);
         var request = broker.Request(
-            Identity("requesting"),
+            AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
             Security(_root),
             "modify dependency",
             [Target("dependency")],
@@ -105,7 +105,7 @@ internal sealed class PermissionBrokerTests : IDisposable
             TimeProvider.System);
 
         var reply = await broker.Request(
-            Identity("requesting"),
+            AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
             Security(_root),
             "modify dependency",
             [Target("dependency")],
@@ -129,7 +129,7 @@ internal sealed class PermissionBrokerTests : IDisposable
             TimeSpan.FromMinutes(20),
             time);
         var request = broker.Request(
-            Identity("requesting"),
+            AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
             Security(_root),
             "modify dependency",
             [Target("dependency")],
@@ -158,7 +158,7 @@ internal sealed class PermissionBrokerTests : IDisposable
             Timeout.InfiniteTimeSpan,
             time);
         var request = broker.Request(
-            Identity("requesting"),
+            AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
             Security(_root),
             "modify dependency",
             [Target("dependency")],
@@ -185,7 +185,7 @@ internal sealed class PermissionBrokerTests : IDisposable
             TimeSpan.FromMinutes(20),
             time);
         var request = broker.Request(
-            Identity("requesting"),
+            AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
             Security(_root),
             "modify dependency",
             [Target("dependency")],
@@ -212,7 +212,7 @@ internal sealed class PermissionBrokerTests : IDisposable
             TimeProvider.System);
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var request = broker.Request(
-            Identity("requesting"),
+            AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
             Security(_root),
             "modify dependency",
             [Target("dependency")],
@@ -238,7 +238,7 @@ internal sealed class PermissionBrokerTests : IDisposable
             TimeProvider.System);
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var request = broker.Request(
-            Identity("requesting"),
+            AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
             Security(_root),
             "modify dependency",
             [Target("dependency")],
@@ -288,16 +288,13 @@ internal sealed class PermissionBrokerTests : IDisposable
             cancellationToken)).Throws<ObjectDisposedException>();
     }
 
-    private static AgentIdentity Identity(string id) =>
-        AgentIdentity.Main(id, string.Empty, TestModels.PromptTemplates);
-
     private static AgentSessionSecurity Security(string root)
     {
         _ = root;
-        return SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], []));
+        return new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security;
     }
 
-    private static AgentSession Session(
+    private static IAgentSession Session(
         string id,
         SessionDatabase database,
         EventBroker events,
@@ -305,9 +302,9 @@ internal sealed class PermissionBrokerTests : IDisposable
     {
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
         var repository = new EventRepository(database);
-        var identity = Identity(id);
+        var identity = AgentIdentity.Main(id, string.Empty, TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events), security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
     }
 
     private static async Task<PermissionPending> WaitForPending(

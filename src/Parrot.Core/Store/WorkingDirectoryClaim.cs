@@ -64,7 +64,7 @@ internal sealed partial class WorkingDirectoryClaim
         var associations = ReadAssociations(canonical, out var corrupt);
         if (corrupt)
         {
-            return Failed(ClaimDisposition.Corrupt);
+            return new AdmissionResult(ClaimDisposition.Corrupt, null, null, null);
         }
 
         var catalog = new SessionCatalog(new Parrot.State.StatePaths(StateDirectory, string.Empty, string.Empty));
@@ -74,7 +74,7 @@ internal sealed partial class WorkingDirectoryClaim
             _ = ReadActivation(sessionId, canonical, out corrupt);
             if (corrupt)
             {
-                return Failed(ClaimDisposition.Corrupt);
+                return new AdmissionResult(ClaimDisposition.Corrupt, null, null, null);
             }
 
             var metadata = catalog.Find(sessionId);
@@ -89,7 +89,7 @@ internal sealed partial class WorkingDirectoryClaim
             if (metadata is not null && (metadata.State == SessionCatalogState.Corrupt
                 || !string.Equals(Canonicalize(metadata.WorkingDirectory), canonical, StringComparison.Ordinal)))
             {
-                return Failed(ClaimDisposition.Corrupt);
+                return new AdmissionResult(ClaimDisposition.Corrupt, null, null, null);
             }
 
             var recency = string.IsNullOrEmpty(metadata?.LastOpenedAt)
@@ -100,7 +100,7 @@ internal sealed partial class WorkingDirectoryClaim
 
         if (candidates.Count == 0)
         {
-            return Failed(ClaimDisposition.Fresh);
+            return new AdmissionResult(ClaimDisposition.Fresh, null, null, null);
         }
 
         var selected = candidates.OrderByDescending(candidate => candidate.Recency, StringComparer.Ordinal)
@@ -250,9 +250,6 @@ internal sealed partial class WorkingDirectoryClaim
 
     private static bool IsState(OwnerRecord record, ActivationState state) =>
         string.Equals(record.State, state.ToString(), StringComparison.OrdinalIgnoreCase);
-
-    private static AdmissionResult Failed(ClaimDisposition disposition) =>
-        new(disposition, null, null, null);
 
     private static OwnerRecord? Read(string path)
     {

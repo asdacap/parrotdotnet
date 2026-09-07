@@ -44,13 +44,13 @@ internal sealed class ToolPresenterBatchCTests
         _ = await Assert.That(live[0]).IsEqualTo($"⠋ {expectedLabel}");
         _ = await Assert.That(completed[0]).IsEqualTo($"✗ {expectedLabel}");
         _ = await Assert.That(completed[1]).IsEqualTo("  error: tool failure");
-        _ = await Assert.That(((IToolPresentationValue)item).Report.Block.Kind).IsEqualTo(ToolBlockKind.Error);
+        _ = await Assert.That(completed).Count().IsEqualTo(2);
     }
 
     [Test]
     public async Task Glob_uses_the_workspace_when_path_is_omitted()
     {
-        var presenter = new GlobToolPresenter();
+        IToolPresenter presenter = new GlobToolPresenter();
         var call = new ToolCallPresentation("main", "glob", "{\"pattern\":\"src/**/*.cs\"}");
 
         var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines.Select(line => line.Text).ToArray();
@@ -67,24 +67,20 @@ internal sealed class ToolPresenterBatchCTests
         string result,
         string error)
     {
-        var presenter = new ReadToolPresenter();
+        IToolPresenter presenter = new ReadToolPresenter();
         const string arguments = "{\"path\":\"src/App.cs\",\"offset\":12,\"limit\":3}";
         var call = new ToolCallPresentation("main", "read", arguments);
         var terminal = new ToolTerminalPresentation(status, resultPresent, result, error);
 
         var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines[0].Text;
-        var item = presenter.PresentTerminal(call, terminal);
-        var report = ((IToolPresentationValue)item).Report;
+        var item = presenter.PresentTerminal(call, terminal)
+            ?? throw new InvalidOperationException("Terminal presentation missing.");
         var rendered = string.Join('\n', item.Render(ScrollbackContext));
         var expectedError = resultPresent ? result : error;
-        var expectedStatus = resultPresent ? ToolTerminalStatus.ReportedFailure : ToolTerminalStatus.Errored;
         var expectedBlock = $"path: \"src/App.cs\"\noffset: 12\nlimit: 3\n---\n{expectedError}";
 
         _ = await Assert.That(live).IsEqualTo("⠋ main: read src/App.cs");
-        _ = await Assert.That(report.Label).IsEqualTo("main: read src/App.cs");
-        _ = await Assert.That(report.Status).IsEqualTo(expectedStatus);
-        _ = await Assert.That(report.Block.Kind).IsEqualTo(ToolBlockKind.Error);
-        _ = await Assert.That(report.Block.Text).IsEqualTo(expectedBlock);
+        _ = await Assert.That(rendered).IsEqualTo($"✗ main: read src/App.cs\n  {expectedBlock.Replace("\n", "\n  ", StringComparison.Ordinal)}");
         _ = await Assert.That(rendered).Contains("✗ main: read src/App.cs");
         _ = await Assert.That(rendered).Contains("  path: \"src/App.cs\"");
         _ = await Assert.That(rendered).Contains("  offset: 12");
@@ -104,19 +100,18 @@ internal sealed class ToolPresenterBatchCTests
         string error,
         string expectedMarker)
     {
-        var presenter = new ReadToolPresenter();
+        IToolPresenter presenter = new ReadToolPresenter();
         var call = new ToolCallPresentation(
             "main",
             "read",
             "{\"path\":\"README.md\",\"offset\":2,\"limit\":4}");
         var terminal = new ToolTerminalPresentation(status, resultPresent, result, error);
 
-        var item = presenter.PresentTerminal(call, terminal);
-        var report = ((IToolPresentationValue)item).Report;
+        var item = presenter.PresentTerminal(call, terminal)
+            ?? throw new InvalidOperationException("Terminal presentation missing.");
         var rendered = string.Join('\n', item.Render(ScrollbackContext));
 
         _ = await Assert.That(rendered).IsEqualTo($"{expectedMarker} main: read README.md");
-        _ = await Assert.That(report.Block.Kind).IsEqualTo(ToolBlockKind.None);
         _ = await Assert.That(rendered).DoesNotContain("path:");
         _ = await Assert.That(rendered).DoesNotContain("offset:");
         _ = await Assert.That(rendered).DoesNotContain("limit:");

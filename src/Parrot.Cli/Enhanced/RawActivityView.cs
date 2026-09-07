@@ -22,7 +22,7 @@ internal sealed class RawActivityView(
     private readonly AgentSessionHierarchy _hierarchy = new();
     private readonly Dictionary<string, ProcessState> _processes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, CompletedShellProcess> _processCompletions = new(StringComparer.Ordinal);
-    private readonly Dictionary<(string OwnerAgentSessionId, string Name), QueueLiveBufferItem> _queues = [];
+    private readonly Dictionary<(string OwnerAgentSessionId, string Name), ILiveBufferItem> _queues = [];
     private readonly HashSet<string> _completedProcesses = new(StringComparer.Ordinal);
     private readonly HashSet<(string OwnerAgentSessionId, string ToolCallId)> _omittedProcessTools = [];
     private readonly HashSet<(string OwnerAgentSessionId, string ToolCallId)> _terminalProcessTools = [];
@@ -775,7 +775,7 @@ internal sealed class RawActivityView(
     private List<ILiveBufferItem> Snapshot()
     {
         var items = new List<ILiveBufferItem>(_content.Count + _activities.Count + 1);
-        items.AddRange(_content.Select(item => item is MarqueeValue value ? value.Animate(_frame - value.Frame) : item));
+        items.AddRange(_content.Select(item => item.AnimateSinceCapture(_frame)));
         if (_reasoning.Length > 0)
         {
             items.Add(new SpinnerValue("Thinking…", _frame));
@@ -834,11 +834,11 @@ internal sealed class RawActivityView(
             1,
             process.Process.ProcessId,
             (ILiveBufferItem)CreateProcessItem(process))));
-        rows.AddRange(_queues.Values.Select(queue => (
-            queue.OwnerAgentSessionId,
+        rows.AddRange(_queues.Select(queue => (
+            queue.Key.OwnerAgentSessionId,
             2,
-            queue.Name,
-            CreateQueueItem(queue))));
+            queue.Key.Name,
+            CreateQueueItem(queue.Key.OwnerAgentSessionId, queue.Value))));
         rows.AddRange((IEnumerable<(string OwnerId, int Kind, string Id, ILiveBufferItem Item)>)_agentSessions.Values
             .Where(state => !_hierarchy.IsRoot(state.AgentSessionId)
                 && !state.IsAgentActive
@@ -876,7 +876,7 @@ internal sealed class RawActivityView(
     }
 
     private IReadOnlyList<ILiveBufferItem> Capture(IReadOnlyList<ILiveBufferItem> items) =>
-        [.. items.Select(item => item is MarqueeValue value ? value.Animate(_frame) : item)];
+        [.. items.Select(item => item.CaptureAnimation(_frame))];
 
     private AgentSessionState GetAgentSession(string agentSessionId)
     {
@@ -1117,17 +1117,17 @@ internal sealed class RawActivityView(
         && _agentSessions.TryGetValue(process.OwnerAgentSessionId, out var owner)
         && owner.IsToolActive(process.OriginToolCallId);
 
-    private ILiveBufferItem CreateQueueItem(QueueLiveBufferItem queue)
+    private ILiveBufferItem CreateQueueItem(string ownerAgentSessionId, ILiveBufferItem queue)
     {
-        if (queue.OwnerAgentSessionId.Length == 0 || _hierarchy.IsRoot(queue.OwnerAgentSessionId))
+        if (ownerAgentSessionId.Length == 0 || _hierarchy.IsRoot(ownerAgentSessionId))
         {
             return queue;
         }
 
-        var owner = _hierarchy.GetLabel(queue.OwnerAgentSessionId) ?? queue.OwnerAgentSessionId;
+        var owner = _hierarchy.GetLabel(ownerAgentSessionId) ?? ownerAgentSessionId;
         return new HierarchicalLiveValue(
             queue,
-            _hierarchy.GetDepth(queue.OwnerAgentSessionId),
+            _hierarchy.GetDepth(ownerAgentSessionId),
             owner,
             owner,
             null,

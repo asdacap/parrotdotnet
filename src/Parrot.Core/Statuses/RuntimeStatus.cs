@@ -46,20 +46,23 @@ internal sealed class RuntimeStatus
 
     public Task<string> ObserveWithTools(
         IAgentSession session,
-        IAgentSessionContext context,
         AgentTurnSelection selection,
         IAgentProfile profile,
         IReadOnlyList<LLMToolDefinition> tools,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(session);
-        ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(selection);
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(tools);
-        var contextStatus = new ContextStatusProvider(context.EstimateContextForTools(selection, tools), _templates);
+        IStatusProvider contextStatus = new ContextStatusProvider(session.EstimateContextForTools(selection, tools), _templates);
         return _full.ObserveWithProvider(
-            Query(session, selection, profile.Id),
+            new StatusQuery(
+                session.SessionId,
+                session.ParentSessionId,
+                session.ParentSessionName,
+                profile.Id,
+                selection.RequestedModel.Value),
             new ProfileStatusProvider($"profile:{profile.Id}", profile.Prompt),
             contextStatus,
             cancellationToken);
@@ -67,16 +70,19 @@ internal sealed class RuntimeStatus
 
     public Task<string> ObserveRuntime(
         IAgentSession session,
-        IAgentSessionContext context,
         AgentTurnSelection selection,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(session);
-        ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(selection);
-        var contextStatus = new ContextStatusProvider(context.EstimateContext(selection), _templates);
+        IStatusProvider contextStatus = new ContextStatusProvider(session.EstimateContext(selection), _templates);
         return _activity.ObserveWithProvider(
-            Query(session, selection, selection.Profile.Id),
+            new StatusQuery(
+                session.SessionId,
+                session.ParentSessionId,
+                session.ParentSessionName,
+                selection.Profile.Id,
+                selection.RequestedModel.Value),
             null,
             contextStatus,
             cancellationToken);
@@ -94,7 +100,12 @@ internal sealed class RuntimeStatus
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(contextSnapshot);
         return _full.ObserveWithProvider(
-            Query(session, selection, profile.Id),
+            new StatusQuery(
+                session.SessionId,
+                session.ParentSessionId,
+                session.ParentSessionName,
+                profile.Id,
+                selection.RequestedModel.Value),
             new ProfileStatusProvider($"profile:{profile.Id}", profile.Prompt),
             new ContextStatusProvider(contextSnapshot, _templates),
             cancellationToken);
@@ -109,20 +120,16 @@ internal sealed class RuntimeStatus
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(selection);
         ArgumentNullException.ThrowIfNull(contextSnapshot);
-        var observation = await new ContextStatusProvider(contextSnapshot, _templates)
-            .Observe(Query(session, selection, selection.Profile.Id), cancellationToken)
+        var contextStatus = ContextStatusProvider.Create(contextSnapshot, _templates);
+        var observation = await contextStatus.Observe(
+            new StatusQuery(
+                session.SessionId,
+                session.ParentSessionId,
+                session.ParentSessionName,
+                selection.Profile.Id,
+                selection.RequestedModel.Value),
+            cancellationToken)
             .ConfigureAwait(false);
         return observation.Available ? observation.Text : string.Empty;
     }
-
-    private static StatusQuery Query(
-        IAgentSession session,
-        AgentTurnSelection selection,
-        string profile) =>
-        new(
-            session.SessionId,
-            session.ParentSessionId,
-            session.ParentSessionName,
-            profile,
-            selection.RequestedModel.Value);
 }

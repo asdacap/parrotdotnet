@@ -139,7 +139,8 @@ internal sealed class PermissionBroker : IDisposable
         {
             return [.. _pending
                 .OrderBy(item => item.Key, StringComparer.Ordinal)
-                .Select(item => ToDomain(item.Key, item.Value))];
+                .Select(item => new PermissionPending(
+                    item.Key, item.Value.Identity.SessionId, item.Value.Reason, item.Value.Targets, DeclaredChoices))];
         }
     }
 
@@ -210,9 +211,6 @@ internal sealed class PermissionBroker : IDisposable
             }
         }
     }
-
-    private static PermissionPending ToDomain(string id, PendingRequest request) =>
-        new(id, request.Identity.SessionId, request.Reason, request.Targets, DeclaredChoices);
 
     private static PendingPermission ToProtocol(string id, PendingRequest request)
     {

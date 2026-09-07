@@ -58,11 +58,6 @@ internal sealed class SkillsCommand(
         }
     }
 
-    private static SlashDialogOption Option(ProtocolSkill skill) => new(
-        skill.Path,
-        $"[{(skill.Enabled ? 'x' : ' ')}] {DisplayName(skill)}",
-        $"{Description(skill)} — {Scope(skill.Scope)} — {skill.Path}");
-
     private static string Line(ProtocolSkill skill) =>
         $"[{(skill.Enabled ? 'x' : ' ')}] {DisplayName(skill)} — {Description(skill)} — {Scope(skill.Scope)} — {skill.Path}";
 
@@ -108,7 +103,10 @@ internal sealed class SkillsCommand(
 
             var selected = await dialog.Select(
                 "Enable or disable skills",
-                [.. listed.Skills.Select(Option)],
+                [.. listed.Skills.Select(item => new SlashDialogOption(
+                    item.Path,
+                    $"[{(item.Enabled ? 'x' : ' ')}] {DisplayName(item)}",
+                    $"{Description(item)} — {Scope(item.Scope)} — {item.Path}"))],
                 cancellationToken).ConfigureAwait(false);
             if (selected is null)
             {

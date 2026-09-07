@@ -6,7 +6,7 @@ namespace Parrot.Llm;
 // remaining fields are vendor extensions used when present.
 internal sealed class StandardModelDecoder : IModelListDecoder
 {
-    public static StandardModelDecoder Instance { get; } = new();
+    public static IModelListDecoder Instance { get; } = new StandardModelDecoder();
 
     public IReadOnlyList<LLMModel> Decode(string providerId, string json)
     {

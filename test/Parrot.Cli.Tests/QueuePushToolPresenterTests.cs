@@ -12,14 +12,16 @@ internal sealed class QueuePushToolPresenterTests
     [Test]
     public async Task Queue_push_renders_items_after_an_open_or_closed_state_header()
     {
-        var presenter = new QueuePushToolPresenter();
-        var open = presenter.PresentTerminal(
+        IToolPresenter presenter = new QueuePushToolPresenter();
+        var open = (presenter.PresentTerminal(
             new ToolCallPresentation("main", "queue_push", "{\"name\":\"work\",\"items\":[\"first\",\"second\"]}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty))
+            ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
-        var closed = presenter.PresentTerminal(
+        var closed = (presenter.PresentTerminal(
             new ToolCallPresentation("main", "queue_push", "{\"name\":\"work\",\"items\":[\"final\"],\"close\":true}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty))
+            ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
         var live = presenter.PresentLive(
             new ToolCallPresentation("main", "queue_push", "{\"name\":\"work\",\"items\":[\"final\"],\"close\":true}"),
@@ -33,11 +35,12 @@ internal sealed class QueuePushToolPresenterTests
     [Test]
     public async Task Queue_push_renders_source_file_path_without_loading_contents()
     {
-        var presenter = new QueuePushToolPresenter();
+        IToolPresenter presenter = new QueuePushToolPresenter();
         const string arguments = "{\"name\":\"work\",\"source_file\":\"tasks/items.txt\",\"close\":true}";
-        var terminal = presenter.PresentTerminal(
+        var terminal = (presenter.PresentTerminal(
             new ToolCallPresentation("main", "queue_push", arguments),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty))
+            ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
         var live = presenter.PresentLive(
             new ToolCallPresentation("main", "queue_push", arguments),
@@ -52,8 +55,8 @@ internal sealed class QueuePushToolPresenterTests
     [Test]
     public async Task Queue_push_source_file_failure_renders_the_error_instead_of_success_details()
     {
-        var presenter = new QueuePushToolPresenter();
-        var rendered = presenter.PresentTerminal(
+        IToolPresenter presenter = new QueuePushToolPresenter();
+        var rendered = (presenter.PresentTerminal(
             new ToolCallPresentation(
                 "main",
                 "queue_push",
@@ -63,6 +66,7 @@ internal sealed class QueuePushToolPresenterTests
                 true,
                 "error: access denied",
                 string.Empty))
+            ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
 
         _ = await Assert.That(rendered[0]).IsEqualTo("✗ main: Push to queue work · open");
@@ -73,14 +77,15 @@ internal sealed class QueuePushToolPresenterTests
     [Test]
     public async Task Queue_push_closed_queue_failure_keeps_the_closed_state_in_its_header()
     {
-        var presenter = new QueuePushToolPresenter();
-        var rendered = presenter.PresentTerminal(
+        IToolPresenter presenter = new QueuePushToolPresenter();
+        var rendered = (presenter.PresentTerminal(
             new ToolCallPresentation("main", "queue_push", "{\"name\":\"work\",\"items\":[\"again\"]}"),
             new ToolTerminalPresentation(
                 ToolTerminalStatus.Succeeded,
                 true,
                 "error: queue: 'work' is closed",
                 string.Empty))
+            ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
 
         _ = await Assert.That(rendered[0]).IsEqualTo("✗ main: Push to queue work · closed");
@@ -90,20 +95,22 @@ internal sealed class QueuePushToolPresenterTests
     [Test]
     public async Task Queue_push_uses_30_rendered_lines_and_standard_detail_sanitization_and_byte_bound()
     {
-        var presenter = new QueuePushToolPresenter();
+        IToolPresenter presenter = new QueuePushToolPresenter();
         var items = Enumerable.Range(1, 40)
             .Select(static value => $"item {value}\u001b[2J")
             .ToArray();
         var arguments = "{\"name\":\"work\",\"items\":["
             + string.Join(',', items.Select(static item => $"\"{item.Replace("\u001b", "\\u001b", StringComparison.Ordinal)}\""))
             + "]}";
-        var rendered = presenter.PresentTerminal(
+        var rendered = (presenter.PresentTerminal(
             new ToolCallPresentation("main", "queue_push", arguments),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty))
+            ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
-        var large = presenter.PresentTerminal(
+        var large = (presenter.PresentTerminal(
             new ToolCallPresentation("main", "queue_push", $"{{\"name\":\"work\",\"items\":[\"{new string('界', 8_000)}\"]}}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty))
+            ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(new ScrollbackRenderContext(32_768, new TerminalPalette(false)));
 
         _ = await Assert.That(rendered).Count().IsEqualTo(30);

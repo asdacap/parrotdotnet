@@ -10,7 +10,7 @@ internal sealed class OpenAiOAuthClientTests
     public async Task Authorization_url_carries_the_exact_pkce_parameters(CancellationToken cancellationToken)
     {
         using var http = new HttpClient();
-        var client = new OpenAiOAuthClient(http, new NoopBrowserOpener(), new OpenAiOAuthOptions());
+        IOAuthClient client = new OpenAiOAuthClient(http, new NoopBrowserOpener(), new OpenAiOAuthOptions());
 
         var url = client.AuthorizationUrl("http://localhost:1455/auth/callback", "CHALLENGE", "STATE");
 

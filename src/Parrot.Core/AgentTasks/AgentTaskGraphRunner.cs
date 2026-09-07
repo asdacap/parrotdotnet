@@ -76,46 +76,8 @@ internal sealed class AgentTaskGraphRunner(
         }
     }
 
-    private static AgentTaskResult Failed(string name, string failure) => new(
-        name,
-        AgentTaskExecutionStatus.Failed,
-        0,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        failure,
-        null,
-        null);
-
     private static System.Collections.ObjectModel.ReadOnlyCollection<string>? RetainFeedback(List<string> feedback) =>
         feedback.Count == 0 ? null : feedback.AsReadOnly();
-
-    private static AgentTaskResult CompletedFailure(
-        string name,
-        int attempt,
-        AgentTaskPatch? taskPatch,
-        string? context,
-        string? result,
-        string? execution,
-        AcceptanceVerdict? verdict,
-        IReadOnlyList<string>? retryFeedback,
-        IReadOnlyList<AgentTaskResult>? nested,
-        string failure) => new(
-            name,
-            AgentTaskExecutionStatus.Failed,
-            attempt,
-            context,
-            result,
-            taskPatch,
-            execution,
-            verdict,
-            retryFeedback,
-            failure,
-            null,
-            nested);
 
     private AgentTaskResult Blocked(string name, IReadOnlyList<string> dependencies) => new(
         name,
@@ -440,7 +402,7 @@ internal sealed class AgentTaskGraphRunner(
             }
             catch (Exception failure)
             {
-                results[completedPair.Key] = Failed(tasks[completedPair.Key].Name, failure.Message);
+                results[completedPair.Key] = AgentTaskResult.CreateFailed(tasks[completedPair.Key].Name, failure.Message);
                 progress.MarkTerminal(
                     handles[completedPair.Key],
                     AgentTaskExecutionStatus.Failed,
@@ -496,7 +458,7 @@ internal sealed class AgentTaskGraphRunner(
         var prepare = prepareRun.Execution;
         if (prepare.Status != AgentExecutionStatus.Succeeded)
         {
-            return Failed(approved.Name, RoleFailure("prepare", prepare));
+            return AgentTaskResult.CreateFailed(approved.Name, RoleFailure("prepare", prepare));
         }
 
         AgentTaskPrepareResult preparation;
@@ -523,7 +485,7 @@ internal sealed class AgentTaskGraphRunner(
         }
         catch (Exception failure) when (failure is ArgumentException or LLMProviderException)
         {
-            return Failed(approved.Name, $"prepare response invalid: {failure.Message}");
+            return AgentTaskResult.CreateFailed(approved.Name, $"prepare response invalid: {failure.Message}");
         }
 
         var currentContexts = inheritedContexts
@@ -582,7 +544,7 @@ internal sealed class AgentTaskGraphRunner(
             var executed = payloadRun.Execution;
             if (executed.Status != AgentExecutionStatus.Succeeded)
             {
-                return CompletedFailure(
+                return AgentTaskResult.CreateCompletedFailure(
                     approved.Name,
                     attempt,
                     null,
@@ -603,7 +565,7 @@ internal sealed class AgentTaskGraphRunner(
             }
             catch (ArgumentException failure)
             {
-                return CompletedFailure(
+                return AgentTaskResult.CreateCompletedFailure(
                     approved.Name,
                     attempt,
                     null,
@@ -644,7 +606,7 @@ internal sealed class AgentTaskGraphRunner(
             {
                 var rejection = verdict.Feedback
                     ?? throw new InvalidOperationException("A reject_and_halt verdict requires feedback.");
-                return CompletedFailure(
+                return AgentTaskResult.CreateCompletedFailure(
                     approved.Name,
                     attempt,
                     null,
@@ -665,7 +627,7 @@ internal sealed class AgentTaskGraphRunner(
             feedback.Add(retryFeedback);
             if (attempt == maximumAttempts)
             {
-                return CompletedFailure(
+                return AgentTaskResult.CreateCompletedFailure(
                     approved.Name,
                     attempt,
                     null,
@@ -685,7 +647,7 @@ internal sealed class AgentTaskGraphRunner(
             }
             catch (ArgumentException failure)
             {
-                return CompletedFailure(
+                return AgentTaskResult.CreateCompletedFailure(
                     approved.Name,
                     attempt,
                     null,
@@ -717,7 +679,7 @@ internal sealed class AgentTaskGraphRunner(
             var prepare = prepareRun.Execution;
             if (prepare.Status != AgentExecutionStatus.Succeeded)
             {
-                return CompletedFailure(
+                return AgentTaskResult.CreateCompletedFailure(
                     approved.Name,
                     attempt,
                     null,
@@ -754,7 +716,7 @@ internal sealed class AgentTaskGraphRunner(
             }
             catch (Exception failure) when (failure is ArgumentException or LLMProviderException)
             {
-                return CompletedFailure(
+                return AgentTaskResult.CreateCompletedFailure(
                     approved.Name,
                     attempt,
                     null,
@@ -837,7 +799,7 @@ internal sealed class AgentTaskGraphRunner(
                 var executed = executionRun.Execution;
                 if (executed.Status != AgentExecutionStatus.Succeeded)
                 {
-                    return CompletedFailure(
+                    return AgentTaskResult.CreateCompletedFailure(
                         approved.Name,
                         attempt,
                         taskPatch,
@@ -886,7 +848,7 @@ internal sealed class AgentTaskGraphRunner(
             var reviewed = acceptanceRun.Execution;
             if (reviewed.Status != AgentExecutionStatus.Succeeded)
             {
-                return CompletedFailure(
+                return AgentTaskResult.CreateCompletedFailure(
                     approved.Name,
                     attempt,
                     taskPatch,
@@ -905,7 +867,7 @@ internal sealed class AgentTaskGraphRunner(
             }
             catch (ArgumentException failure)
             {
-                return CompletedFailure(
+                return AgentTaskResult.CreateCompletedFailure(
                     approved.Name,
                     attempt,
                     taskPatch,
@@ -939,7 +901,7 @@ internal sealed class AgentTaskGraphRunner(
             {
                 var rejection = verdict.Feedback
                     ?? throw new InvalidOperationException("A reject_and_halt verdict requires feedback.");
-                return CompletedFailure(
+                return AgentTaskResult.CreateCompletedFailure(
                     approved.Name,
                     attempt,
                     taskPatch,
@@ -964,7 +926,7 @@ internal sealed class AgentTaskGraphRunner(
             {
                 feedback.Add(Bound(retryFeedback, MaxSummaryCharacters));
                 currentContexts[^1] = new AgentTaskPrepareContext(path, replacementContext);
-                return CompletedFailure(
+                return AgentTaskResult.CreateCompletedFailure(
                     approved.Name,
                     attempt,
                     taskPatch,
@@ -985,7 +947,7 @@ internal sealed class AgentTaskGraphRunner(
             }
             catch (ArgumentException failure)
             {
-                return CompletedFailure(
+                return AgentTaskResult.CreateCompletedFailure(
                     approved.Name,
                     attempt,
                     taskPatch,

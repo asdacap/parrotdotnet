@@ -4,4 +4,7 @@ internal sealed record AgentTurnCompletionCandidate(
     string SessionId,
     string MessageId,
     string AssistantText,
-    IMode Profile);
+    IMode Mode)
+{
+    public IAgentProfile Profile => Mode.Profile;
+}

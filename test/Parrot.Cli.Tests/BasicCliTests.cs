@@ -194,7 +194,7 @@ internal sealed class BasicCliTests
         driver.Input.Type("work");
         await driver.Sent(1, cancellationToken);
 
-        var pending = Permission("permission-1", requiresReason: false);
+        var pending = new PermissionFixture("permission-1", requiresReason: false).Pending;
         driver.Invoker.AddPendingPermission(pending);
         await driver.Invoker.Publish(new Event { PermissionPending = pending.Clone() });
         await driver.OutputContains("Allow this write", cancellationToken);
@@ -224,7 +224,7 @@ internal sealed class BasicCliTests
     {
         using var driver = new CliLifecycleDriver(enhanced);
         var running = driver.Drive(cancellationToken);
-        driver.Invoker.AddPendingPermission(Permission("permission-dropped", requiresReason: false));
+        driver.Invoker.AddPendingPermission(new PermissionFixture("permission-dropped", requiresReason: false).Pending);
 
         await driver.OutputContains("Allow this write", cancellationToken);
         driver.Input.Type(enhanced ? string.Empty : "allow");
@@ -246,7 +246,7 @@ internal sealed class BasicCliTests
     {
         using var driver = new CliLifecycleDriver(enhanced: false);
         var running = driver.Drive(cancellationToken);
-        var pending = Permission("permission-reason", requiresReason: true);
+        var pending = new PermissionFixture("permission-reason", requiresReason: true).Pending;
         driver.Invoker.AddPendingPermission(pending);
         await driver.Invoker.Publish(new Event { PermissionPending = pending.Clone() });
 
@@ -665,9 +665,9 @@ internal sealed class BasicCliTests
         await stream.WriteAsync(
             new Event { TextChunk = new TextChunk { Fragment = "partial" } }, cancellationToken);
         await stream.WriteAsync(
-            new Event { AgentTaskProgressSnapshot = Snapshot(AgentTaskProgressStatus.Running) }, cancellationToken);
+            new Event { AgentTaskProgressSnapshot = new ProgressFixture(AgentTaskProgressStatus.Running).Snapshot }, cancellationToken);
         await stream.WriteAsync(
-            new Event { AgentTaskProgressSnapshot = Snapshot(AgentTaskProgressStatus.Succeeded) }, cancellationToken);
+            new Event { AgentTaskProgressSnapshot = new ProgressFixture(AgentTaskProgressStatus.Succeeded).Snapshot }, cancellationToken);
         stream.Complete();
         using var output = new FlushTrackingWriter();
         using var error = new StringWriter();
@@ -731,19 +731,6 @@ internal sealed class BasicCliTests
         _ = await Assert.That(output.ToString()).IsEqualTo("# Plan" + Environment.NewLine);
     }
 
-    private static AgentTaskProgressSnapshot Snapshot(AgentTaskProgressStatus rootStatus)
-    {
-        var snapshot = new AgentTaskProgressSnapshot { OriginToolCallId = "call", Revision = 1 };
-        var root = new AgentTaskProgressNode { Name = "root\u001b[2J\t日本", Status = rootStatus };
-        root.Children.Add(new AgentTaskProgressNode { Name = "pending", Status = AgentTaskProgressStatus.Pending });
-        root.Children.Add(new AgentTaskProgressNode { Name = "succeeded", Status = AgentTaskProgressStatus.Succeeded });
-        root.Children.Add(new AgentTaskProgressNode { Name = "failed", Status = AgentTaskProgressStatus.Failed });
-        root.Children.Add(new AgentTaskProgressNode { Name = "blocked", Status = AgentTaskProgressStatus.Blocked });
-        root.Children.Add(new AgentTaskProgressNode { Name = "canceled", Status = AgentTaskProgressStatus.Canceled });
-        snapshot.RootNodes.Add(root);
-        return snapshot;
-    }
-
     private static int Count(string value, string part)
     {
         var count = 0;
@@ -757,34 +744,57 @@ internal sealed class BasicCliTests
         return count;
     }
 
-    private static PendingPermission Permission(string id, bool requiresReason)
+    private sealed class ProgressFixture
     {
-        var pending = new PendingPermission
+        public ProgressFixture(AgentTaskProgressStatus rootStatus)
         {
-            Id = id,
-            AgentSessionId = "agent",
-            Reason = "Allow this write",
-        };
-        pending.Targets.Add(new PermissionTarget
+            var snapshot = new AgentTaskProgressSnapshot { OriginToolCallId = "call", Revision = 1 };
+            var root = new AgentTaskProgressNode { Name = "root\u001b[2J\t日本", Status = rootStatus };
+            root.Children.Add(new AgentTaskProgressNode { Name = "pending", Status = AgentTaskProgressStatus.Pending });
+            root.Children.Add(new AgentTaskProgressNode { Name = "succeeded", Status = AgentTaskProgressStatus.Succeeded });
+            root.Children.Add(new AgentTaskProgressNode { Name = "failed", Status = AgentTaskProgressStatus.Failed });
+            root.Children.Add(new AgentTaskProgressNode { Name = "blocked", Status = AgentTaskProgressStatus.Blocked });
+            root.Children.Add(new AgentTaskProgressNode { Name = "canceled", Status = AgentTaskProgressStatus.Canceled });
+            snapshot.RootNodes.Add(root);
+            Snapshot = snapshot;
+        }
+
+        public AgentTaskProgressSnapshot Snapshot { get; }
+    }
+
+    private sealed class PermissionFixture
+    {
+        public PermissionFixture(string id, bool requiresReason)
         {
-            Kind = PermissionTargetKind.File,
-            Scope = PermissionTargetScope.Write,
-            Path = "/workspace/file.txt",
-        });
-        pending.Choices.Add(new PermissionChoice
-        {
-            Value = "allow",
-            Label = "Allow",
-            Action = PermissionAction.Allow,
-            RequiresReason = requiresReason,
-        });
-        pending.Choices.Add(new PermissionChoice
-        {
-            Value = "reject",
-            Label = "Reject",
-            Action = PermissionAction.Deny,
-        });
-        return pending;
+            var pending = new PendingPermission
+            {
+                Id = id,
+                AgentSessionId = "agent",
+                Reason = "Allow this write",
+            };
+            pending.Targets.Add(new PermissionTarget
+            {
+                Kind = PermissionTargetKind.File,
+                Scope = PermissionTargetScope.Write,
+                Path = "/workspace/file.txt",
+            });
+            pending.Choices.Add(new PermissionChoice
+            {
+                Value = "allow",
+                Label = "Allow",
+                Action = PermissionAction.Allow,
+                RequiresReason = requiresReason,
+            });
+            pending.Choices.Add(new PermissionChoice
+            {
+                Value = "reject",
+                Label = "Reject",
+                Action = PermissionAction.Deny,
+            });
+            Pending = pending;
+        }
+
+        public PendingPermission Pending { get; }
     }
 
     private sealed class FlushTrackingWriter : StringWriter

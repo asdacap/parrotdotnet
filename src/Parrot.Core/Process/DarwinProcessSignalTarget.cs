@@ -12,7 +12,7 @@ internal sealed partial class DarwinProcessSignalTarget : IProcessSignalTarget
 
     private DarwinProcessSignalTarget(int processId) => _processId = processId;
 
-    public static DarwinProcessSignalTarget Open(System.Diagnostics.Process process)
+    public static IProcessSignalTarget Open(System.Diagnostics.Process process)
     {
         ArgumentNullException.ThrowIfNull(process);
 

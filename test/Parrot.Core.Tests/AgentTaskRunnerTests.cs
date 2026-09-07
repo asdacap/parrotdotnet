@@ -35,7 +35,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"leaf","description":"Implement leaf","payload":"Do leaf work","acceptance_criteria":"Leaf is proven"}]}
             """);
 
-        var result = await Runner(runtime, "runner-call")
+        var result = await new RunnerFixture(runtime, "runner-call", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
@@ -148,7 +148,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"leaf","description":"Implement leaf","payload":"Do leaf work","acceptance_criteria":"Leaf is proven"}]}
             """);
 
-        _ = await Runner(runtime, "acceptance-contract")
+        _ = await new RunnerFixture(runtime, "acceptance-contract", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         var prompt = provider.Requests[0].Messages.Last(message => message.Role == LLMRole.User).Content;
@@ -170,7 +170,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"leaf","description":"Implement leaf","payload":"Do leaf work","acceptance_criteria":"Leaf is proven"}]}
             """);
 
-        var result = await Runner(runtime, "invalid-leaf-response")
+        var result = await new RunnerFixture(runtime, "invalid-leaf-response", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
@@ -201,7 +201,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"leaf","description":"Implement leaf","payload":"first payload","acceptance_criteria":"Leaf is proven"}]}
             """);
 
-        var result = await Runner(runtime, "bounded-leaf-response")
+        var result = await new RunnerFixture(runtime, "bounded-leaf-response", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
@@ -227,7 +227,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"leaf","description":"Implement leaf","payload":"Do leaf work","acceptance_criteria":"Leaf is proven"}]}
             """);
 
-        var result = await RunnerWithAttempts(runtime, "halt-contract", 2)
+        var result = await new RunnerFixture(runtime, "halt-contract", 2, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
@@ -254,7 +254,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
             """);
 
-        var result = await Runner(runtime, "runner-call")
+        var result = await new RunnerFixture(runtime, "runner-call", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
@@ -280,7 +280,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
             """);
 
-        var result = await RunnerWithAttempts(runtime, "runner-call", 2)
+        var result = await new RunnerFixture(runtime, "runner-call", 2, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
@@ -305,7 +305,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
             """);
 
-        var result = await Runner(runtime, "runner-call")
+        var result = await new RunnerFixture(runtime, "runner-call", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
@@ -335,7 +335,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
             """);
 
-        var result = await Runner(runtime, "replacement-context")
+        var result = await new RunnerFixture(runtime, "replacement-context", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Tasks.Single().Result).IsEqualTo("replacement result");
@@ -358,7 +358,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
             """);
 
-        var result = await Runner(runtime, "retained-context")
+        var result = await new RunnerFixture(runtime, "retained-context", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Tasks.Single().Result).IsEqualTo("initial result");
@@ -378,7 +378,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
             """);
 
-        var result = await RunnerWithAttempts(runtime, "final-context", 1)
+        var result = await new RunnerFixture(runtime, "final-context", 1, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Tasks.Single().Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
@@ -400,7 +400,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"parent","description":"Parent","payload":[{"name":"child","description":"Child","payload":"child work","acceptance_criteria":"Child proof"}],"acceptance_criteria":"Parent decides"}]}
             """);
 
-        var result = await Runner(runtime, "runner-call")
+        var result = await new RunnerFixture(runtime, "runner-call", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
@@ -429,7 +429,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"parent","description":"Parent","payload":[{"name":"old-child","description":"Old child","payload":"old work","acceptance_criteria":"Old proof"}],"acceptance_criteria":"Parent proof"}]}
             """);
 
-        var result = await Runner(runtime, "preparation-replacement")
+        var result = await new RunnerFixture(runtime, "preparation-replacement", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
@@ -467,7 +467,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"parent","description":"Parent","payload":[{"name":"child","description":"Child","payload":"child work","acceptance_criteria":"Child proof"}],"acceptance_criteria":"Parent proof"}]}
             """);
 
-        _ = await Runner(runtime, "description-replacement")
+        _ = await new RunnerFixture(runtime, "description-replacement", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         var snapshots = ProgressEvents("description-replacement");
@@ -494,7 +494,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"parent","description":"Parent","payload":"first work","acceptance_criteria":"Parent proof"}]}
             """);
 
-        var result = await Runner(runtime, "retry-replacement")
+        var result = await new RunnerFixture(runtime, "retry-replacement", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
@@ -546,7 +546,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"parent","description":"Parent","payload":[{"name":"nested","description":"Nested","payload":"nested work","acceptance_criteria":"Nested proof"}],"acceptance_criteria":"Parent proof"}]}
             """);
 
-        var running = Runner(runtime, "composite-interleaving")
+        var running = new RunnerFixture(runtime, "composite-interleaving", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
         await provider.WaitForRequest(cancellationToken);
         await provider.WaitForRequest(cancellationToken);
@@ -601,7 +601,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"top","description":"Top","payload":[{"name":"child","description":"Child","payload":[{"name":"leaf","description":"Leaf","payload":"leaf work","acceptance_criteria":"Leaf done"}],"acceptance_criteria":"Child done"}],"acceptance_criteria":"Top done"}]}
             """);
 
-        var result = await Runner(runtime, "recursive-composites")
+        var result = await new RunnerFixture(runtime, "recursive-composites", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
@@ -643,7 +643,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             ]}
             """);
 
-        var result = await Runner(runtime, "dependency-evidence")
+        var result = await new RunnerFixture(runtime, "dependency-evidence", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
@@ -684,7 +684,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             ]}
             """);
 
-        var graphResult = await Runner(runtime, "composite-dependency-result")
+        var graphResult = await new RunnerFixture(runtime, "composite-dependency-result", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(graphResult.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
@@ -731,7 +731,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             ]}
             """);
 
-        var result = await Runner(runtime, "blocked-subtree")
+        var result = await new RunnerFixture(runtime, "blocked-subtree", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
@@ -760,7 +760,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             ]}
             """);
 
-        var result = await Runner(runtime, "runner-call")
+        var result = await new RunnerFixture(runtime, "runner-call", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
@@ -788,7 +788,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"failed-role","description":"Fail task","payload":"work","acceptance_criteria":"Done"}]}
             """);
 
-        var result = await Runner(runtime, "failed-role")
+        var result = await new RunnerFixture(runtime, "failed-role", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
@@ -812,7 +812,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"root","description":"Root task","payload":[{"name":"child","description":"Child task","payload":"work","acceptance_criteria":"Child done"}],"acceptance_criteria":"Root done"}]}
             """);
 
-        var result = await Runner(runtime, "nested-cleanup")
+        var result = await new RunnerFixture(runtime, "nested-cleanup", 5, _broker, _repository).Runner
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
@@ -830,7 +830,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"cancel","description":"Cancel task","payload":"work","acceptance_criteria":"Done"}]}
             """);
         using var canceled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var running = Runner(runtime, "runner-call")
+        var running = new RunnerFixture(runtime, "runner-call", 5, _broker, _repository).Runner
             .Run(artifact, canceled.Token);
         await provider.WaitUntilArrived(cancellationToken);
 
@@ -852,25 +852,6 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             .Select(published => published.AgentTaskProgressSnapshot)
             .Where(snapshot => snapshot.OriginToolCallId == originToolCallId)];
 
-    private AgentTaskGraphRunner Runner(
-        RuntimeContext runtime,
-        string originToolCallId) => RunnerWithAttempts(runtime, originToolCallId, 5);
-
-    private AgentTaskGraphRunner RunnerWithAttempts(
-        RuntimeContext runtime,
-        string originToolCallId,
-        int maximumAttempts) => new(
-            runtime.Router,
-            runtime.ParentScope,
-            runtime.Selection,
-            new AgentTaskProgress(
-                _broker,
-                _repository,
-                runtime.Parent.SessionId,
-                originToolCallId),
-            new AgentTaskConfig(maximumAttempts, true, TestModels.PromptTemplates),
-            new HistoryForkBoundary.AfterCompletedHistory());
-
     private RuntimeContext Runtime(ILLMProvider provider, CancellationToken cancellationToken)
     {
         var model = new LLMModel("model", provider.Id);
@@ -883,7 +864,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             sessions,
             _broker,
             _repository,
-            TestModels.ProfileRegistry(),
+            new TestProfileFixture().Registry,
             TestModels.PromptTemplates,
             cancellationToken);
         var identity = AgentIdentity.Main("agent-task-parent", "parent", TestModels.PromptTemplates);
@@ -907,13 +888,8 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             childQuestions,
             dependencies.ExitReminder,
             dependencies.Profile,
-            TestModels.CompletionCallbacks(
-                childQuestions,
-                dependencies.ActiveWorkReminder,
-                dependencies.ExitReminder,
-                _repository,
-                _broker),
-            SecurityProfileTestFactory.Create(SecurityProfile.Compose(false, [], [], [])),
+            new TestCompletionCallbacksFixture(childQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, _repository, _broker).Callbacks,
+            new SecurityProfileTestFixture(SecurityProfile.Compose(false, [], [], [])).Security,
             dependencies.Status,
             dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),
@@ -924,15 +900,31 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         var selection = new AgentTurnSelection(
             selected.RequestedModel,
             router.Resolve(selected.RequestedModel.Value),
-            selected.Profile,
+            selected.Mode,
             selected.SecurityProfile);
         return new RuntimeContext(router, sessions, registry, parentScope, parent, selection);
+    }
+
+    private sealed class RunnerFixture(
+        RuntimeContext runtime,
+        string originToolCallId,
+        int maximumAttempts,
+        EventBroker broker,
+        EventRepository repository)
+    {
+        internal AgentTaskGraphRunner Runner { get; } = new(
+            runtime.Router,
+            runtime.ParentScope,
+            runtime.Selection,
+            new AgentTaskProgress(broker, repository, runtime.Parent.SessionId, originToolCallId),
+            new AgentTaskConfig(maximumAttempts, true, TestModels.PromptTemplates),
+            new HistoryForkBoundary.AfterCompletedHistory());
     }
 
     private sealed record RuntimeContext(
         ModelRouter Router,
         AgentTaskTestSessionFactory Sessions,
-        AgentRegistry Registry,
+        IAgentRegistry Registry,
         IAgentSessionScope ParentScope,
         IAgentSession Parent,
         AgentTurnSelection Selection);

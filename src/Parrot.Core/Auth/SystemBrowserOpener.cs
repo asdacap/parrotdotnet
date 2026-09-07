@@ -13,18 +13,13 @@ internal sealed class SystemBrowserOpener(Func<System.Diagnostics.ProcessStartIn
         try
         {
             using var process = start(new System.Diagnostics.ProcessStartInfo(command, [url]) { UseShellExecute = false })
-                ?? throw OpenFailure(null);
+                ?? throw new AuthException("auth: cannot open authorization URL; retry with --device");
         }
         catch (Exception failure) when (failure is Win32Exception or InvalidOperationException)
         {
-            throw OpenFailure(failure);
+            throw new AuthException("auth: cannot open authorization URL; retry with --device", failure);
         }
 
         return Task.CompletedTask;
     }
-
-    private static AuthException OpenFailure(Exception? failure) =>
-        failure is null
-            ? new AuthException("auth: cannot open authorization URL; retry with --device")
-            : new AuthException("auth: cannot open authorization URL; retry with --device", failure);
 }

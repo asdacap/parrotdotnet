@@ -12,14 +12,14 @@ internal sealed class QuestionToolTests
     public async Task Schema_shaped_input_is_mapped_and_answer_uses_labels(CancellationToken cancellationToken)
     {
         using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System);
-        var tool = new QuestionTool(new UserQuestionRequester(broker));
+        ITool tool = new QuestionTool(new UserQuestionRequester(broker));
         const string argumentsJson =
             """
             {"questions":[{"header":"Palette","prompt":"Pick a colour","options":["Blue"],"multiple":true,"custom":true}]}
             """;
         var executing = tool.Execute(
             new ToolInvocation("test-call", argumentsJson),
-            Selection(),
+            new SelectionFixture().Selection,
             cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
         var question = pending.Questions.Single();
@@ -43,9 +43,10 @@ internal sealed class QuestionToolTests
             """
             {"questions":[{"prompt":"Pick colours","options":["Red","Blue"],"multiple":true,"custom":true},{"prompt":"Pick a size","options":["Large"]}]}
             """;
-        var executing = new QuestionTool(new UserQuestionRequester(broker)).Execute(
+        ITool tool = new QuestionTool(new UserQuestionRequester(broker));
+        var executing = tool.Execute(
             new ToolInvocation("test-call", argumentsJson),
-            Selection(),
+            new SelectionFixture().Selection,
             cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
 
@@ -66,7 +67,8 @@ internal sealed class QuestionToolTests
     public async Task Unknown_wire_properties_are_rejected(string argumentsJson, CancellationToken cancellationToken)
     {
         using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System);
-        var result = (await new QuestionTool(new UserQuestionRequester(broker)).Execute(new ToolInvocation("test-call", argumentsJson), Selection(), cancellationToken)).Text;
+        ITool tool = new QuestionTool(new UserQuestionRequester(broker));
+        var result = (await tool.Execute(new ToolInvocation("test-call", argumentsJson), new SelectionFixture().Selection, cancellationToken)).Text;
 
         _ = await Assert.That(result).StartsWith("error:");
         _ = await Assert.That(broker.Pending()).IsEmpty();
@@ -77,11 +79,12 @@ internal sealed class QuestionToolTests
     {
         var time = new ControlledTimeProvider();
         using var broker = new QuestionBroker(TimeSpan.FromMinutes(20), time);
-        var executing = new QuestionTool(new UserQuestionRequester(broker)).Execute(
+        ITool tool = new QuestionTool(new UserQuestionRequester(broker));
+        var executing = tool.Execute(
             new ToolInvocation(
                 "test-call",
                 """{"questions":[{"prompt":"Pick","options":["Blue"]}]}"""),
-            Selection(),
+            new SelectionFixture().Selection,
             cancellationToken);
         _ = await WaitForPending(broker, cancellationToken);
         await time.WaitForTimer(cancellationToken);
@@ -95,28 +98,18 @@ internal sealed class QuestionToolTests
     public async Task Rejected_question_returns_error(CancellationToken cancellationToken)
     {
         using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System);
-        var executing = new QuestionTool(new UserQuestionRequester(broker)).Execute(
+        ITool tool = new QuestionTool(new UserQuestionRequester(broker));
+        var executing = tool.Execute(
             new ToolInvocation(
                 "test-call",
                 """{"questions":[{"prompt":"Pick","options":["Blue"]}]}"""),
-            Selection(),
+            new SelectionFixture().Selection,
             cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
 
         broker.Reject(pending.Id);
 
         _ = await Assert.That((await executing).Text).IsEqualTo("error: question request rejected");
-    }
-
-    private static AgentTurnSelection Selection()
-    {
-        var provider = new UnusedProvider();
-        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        return new AgentTurnSelection(
-            new ModelSelector(model.Selector),
-            TestModels.Resolve(model),
-            TestModels.Profile(),
-            SecurityProfile.Compose(readOnly: false, [], [], []));
     }
 
     private static async Task<PendingQuestionRequest> WaitForPending(
@@ -133,5 +126,21 @@ internal sealed class QuestionToolTests
 
             await Task.Delay(1, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private sealed class SelectionFixture
+    {
+        public SelectionFixture()
+        {
+            ILLMProvider provider = new UnusedProvider();
+            var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+            Selection = new AgentTurnSelection(
+                new ModelSelector(model.Selector),
+                TestModels.Resolve(model),
+                new TestProfileFixture().Mode,
+                SecurityProfile.Compose(readOnly: false, [], [], []));
+        }
+
+        public AgentTurnSelection Selection { get; }
     }
 }

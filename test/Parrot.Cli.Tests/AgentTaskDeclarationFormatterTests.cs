@@ -9,8 +9,25 @@ internal sealed class AgentTaskDeclarationFormatterTests
     {
         var declarations = new[]
         {
-            Leaf("first", [], "First description", "First instruction", "First criteria", "low_llm"),
-            Leaf("second", ["first"], "Second description", "Second instruction", "Second criteria", "provider/model"),
+            new PlanTaskDeclaration
+            {
+                Name = "first",
+                Status = AgentTaskProgressStatus.Pending,
+                Description = "First description",
+                Instruction = "First instruction",
+                AcceptanceCriteria = "First criteria",
+                Model = "low_llm",
+            },
+            new PlanTaskDeclaration
+            {
+                Name = "second",
+                Status = AgentTaskProgressStatus.Pending,
+                Dependencies = { "first" },
+                Description = "Second description",
+                Instruction = "Second instruction",
+                AcceptanceCriteria = "Second criteria",
+                Model = "provider/model",
+            },
             new PlanTaskDeclaration
             {
                 Name = "composite",
@@ -24,8 +41,24 @@ internal sealed class AgentTaskDeclarationFormatterTests
                 {
                     Tasks =
                     {
-                        Leaf("child", ["external"], "Child description", "Child instruction", "Child criteria", "child-model"),
-                        Leaf("last child", [], "Last child description", "Last child instruction", "Last child criteria", null),
+                        new PlanTaskDeclaration
+                        {
+                            Name = "child",
+                            Status = AgentTaskProgressStatus.Pending,
+                            Dependencies = { "external" },
+                            Description = "Child description",
+                            Instruction = "Child instruction",
+                            AcceptanceCriteria = "Child criteria",
+                            Model = "child-model",
+                        },
+                        new PlanTaskDeclaration
+                        {
+                            Name = "last child",
+                            Status = AgentTaskProgressStatus.Pending,
+                            Description = "Last child description",
+                            Instruction = "Last child instruction",
+                            AcceptanceCriteria = "Last child criteria",
+                        },
                     },
                 },
             },
@@ -62,13 +95,16 @@ internal sealed class AgentTaskDeclarationFormatterTests
     {
         var declarations = new[]
         {
-            Leaf(
-                "task\u001b[2J\nname\tvalue",
-                ["dependency\nname"],
-                "first line\nsecond\tline\u001b[H",
-                "instruction",
-                "criteria",
-                "model"),
+            new PlanTaskDeclaration
+            {
+                Name = "task\u001b[2J\nname\tvalue",
+                Status = AgentTaskProgressStatus.Pending,
+                Dependencies = { "dependency\nname" },
+                Description = "first line\nsecond\tline\u001b[H",
+                Instruction = "instruction",
+                AcceptanceCriteria = "criteria",
+                Model = "model",
+            },
         };
 
         var rendered = string.Join('\n', AgentTaskDeclarationFormatter.Format(declarations));
@@ -92,13 +128,15 @@ internal sealed class AgentTaskDeclarationFormatterTests
     {
         var declarations = new[]
         {
-            Leaf(
-                "日本語-task",
-                [],
-                "説明文 words\nsecond line",
-                "instruction words",
-                "criteria words",
-                "narrow-model"),
+            new PlanTaskDeclaration
+            {
+                Name = "日本語-task",
+                Status = AgentTaskProgressStatus.Pending,
+                Description = "説明文 words\nsecond line",
+                Instruction = "instruction words",
+                AcceptanceCriteria = "criteria words",
+                Model = "narrow-model",
+            },
         };
 
         var rendered = AgentTaskDeclarationFormatter.FormatForWidth(declarations, 16);
@@ -123,30 +161,5 @@ internal sealed class AgentTaskDeclarationFormatterTests
         _ = await Assert.That(descriptionLine).IsGreaterThan(0);
         _ = await Assert.That(rendered[descriptionLine + 1]).StartsWith("    ");
         _ = await Assert.That(rendered[descriptionLine + 2]).StartsWith("    ");
-    }
-
-    private static PlanTaskDeclaration Leaf(
-        string name,
-        IReadOnlyList<string> dependencies,
-        string description,
-        string instruction,
-        string acceptanceCriteria,
-        string? model)
-    {
-        var declaration = new PlanTaskDeclaration
-        {
-            Name = name,
-            Status = AgentTaskProgressStatus.Pending,
-            Description = description,
-            Instruction = instruction,
-            AcceptanceCriteria = acceptanceCriteria,
-        };
-        declaration.Dependencies.Add(dependencies);
-        if (model is not null)
-        {
-            declaration.Model = model;
-        }
-
-        return declaration;
     }
 }

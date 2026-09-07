@@ -22,9 +22,6 @@ internal sealed class EnvironmentTemplateResolver(IReadOnlyDictionary<string, st
 
     private static bool IsNameCharacter(char value) => IsNameStart(value) || char.IsAsciiDigit(value);
 
-    private static InvalidDataException Invalid(string field, string message) =>
-        new($"{field} {message}");
-
     private string ResolveSegment(
         string template,
         string field,
@@ -35,7 +32,7 @@ internal sealed class EnvironmentTemplateResolver(IReadOnlyDictionary<string, st
     {
         if (depth > MaximumDepth)
         {
-            throw Invalid(field, "template nesting is too deep");
+            throw new InvalidDataException($"{field} template nesting is too deep");
         }
 
         var result = new StringBuilder();
@@ -45,7 +42,7 @@ internal sealed class EnvironmentTemplateResolver(IReadOnlyDictionary<string, st
             {
                 if (!nested)
                 {
-                    throw Invalid(field, "contains an unmatched '}'");
+                    throw new InvalidDataException($"{field} contains an unmatched '}}'");
                 }
 
                 return result.ToString();
@@ -63,7 +60,7 @@ internal sealed class EnvironmentTemplateResolver(IReadOnlyDictionary<string, st
 
         if (nested)
         {
-            throw Invalid(field, "contains an unclosed environment template");
+            throw new InvalidDataException($"{field} contains an unclosed environment template");
         }
 
         return result.ToString();
@@ -75,7 +72,7 @@ internal sealed class EnvironmentTemplateResolver(IReadOnlyDictionary<string, st
         var nameStart = index;
         if (index >= template.Length || !IsNameStart(template[index]))
         {
-            throw Invalid(field, "contains an invalid environment variable name");
+            throw new InvalidDataException($"{field} contains an invalid environment variable name");
         }
 
         index++;
@@ -87,7 +84,7 @@ internal sealed class EnvironmentTemplateResolver(IReadOnlyDictionary<string, st
         var name = template[nameStart..index];
         if (index >= template.Length)
         {
-            throw Invalid(field, "contains an unclosed environment template");
+            throw new InvalidDataException($"{field} contains an unclosed environment template");
         }
 
         if (template[index] == '}')
@@ -98,7 +95,7 @@ internal sealed class EnvironmentTemplateResolver(IReadOnlyDictionary<string, st
 
         if (template[index] != ':' || index + 1 >= template.Length || template[index + 1] != '-')
         {
-            throw Invalid(field, "contains an unsupported environment template operator");
+            throw new InvalidDataException($"{field} contains an unsupported environment template operator");
         }
 
         index += 2;
@@ -107,7 +104,7 @@ internal sealed class EnvironmentTemplateResolver(IReadOnlyDictionary<string, st
         var fallback = ResolveSegment(template, field, ref index, depth, nested: true, evaluate: evaluate && !hasValue);
         if (index >= template.Length || template[index] != '}')
         {
-            throw Invalid(field, "contains an unclosed environment template");
+            throw new InvalidDataException($"{field} contains an unclosed environment template");
         }
 
         index++;
@@ -122,5 +119,5 @@ internal sealed class EnvironmentTemplateResolver(IReadOnlyDictionary<string, st
     private string LookupRequired(string name, string field) =>
         _environment.TryGetValue(name, out var value) && value.Length > 0
             ? value
-            : throw Invalid(field, $"requires nonempty environment variable {name}");
+            : throw new InvalidDataException($"{field} requires nonempty environment variable {name}");
 }

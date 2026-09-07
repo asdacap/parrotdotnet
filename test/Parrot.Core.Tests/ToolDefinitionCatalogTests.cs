@@ -10,7 +10,11 @@ internal sealed class ToolDefinitionCatalogTests
     public async Task Configured_definition_is_forwarded_without_rewriting_schema()
     {
         const string parameters = """{"type":"object","properties":{"description":{"type":"string","description":"Semantic value."}},"required":["description"],"additionalProperties":false}""";
-        var catalog = Catalog(new ConfiguredToolDefinition("Does work.", parameters));
+        var catalog = new ToolDefinitionCatalog(
+            new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal)
+            {
+                ["work"] = new ConfiguredToolDefinition("Does work.", parameters),
+            });
 
         var definition = catalog.Document([new StructuralTool("work")]).Single();
 
@@ -28,7 +32,7 @@ internal sealed class ToolDefinitionCatalogTests
     {
         var definitions = new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal)
         {
-            ["work"] = Definition(),
+            ["work"] = new ConfiguredToolDefinition("Does work.", """{"type":"object","additionalProperties":false}"""),
         };
         if (string.Equals(scenario, "missing-tool", StringComparison.Ordinal))
         {
@@ -36,7 +40,7 @@ internal sealed class ToolDefinitionCatalogTests
         }
         else
         {
-            definitions["extra"] = Definition();
+            definitions["extra"] = new ConfiguredToolDefinition("Does work.", """{"type":"object","additionalProperties":false}""");
         }
 
         var exception = Assert.Throws<InvalidDataException>(() =>
@@ -48,20 +52,17 @@ internal sealed class ToolDefinitionCatalogTests
     [Test]
     public async Task Duplicate_runtime_tool_ids_fail_closed()
     {
-        var catalog = Catalog(Definition());
+        var catalog = new ToolDefinitionCatalog(
+            new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal)
+            {
+                ["work"] = new ConfiguredToolDefinition("Does work.", """{"type":"object","additionalProperties":false}"""),
+            });
 
         var exception = Assert.Throws<InvalidDataException>(() =>
             catalog.Document([new StructuralTool("work"), new StructuralTool("work")]));
 
         _ = await Assert.That(exception.Message).IsEqualTo("tool 'work' is registered more than once");
     }
-
-    private static ToolDefinitionCatalog Catalog(ConfiguredToolDefinition definition) => new(
-        new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal) { ["work"] = definition });
-
-    private static ConfiguredToolDefinition Definition() => new(
-        "Does work.",
-        """{"type":"object","additionalProperties":false}""");
 
     private sealed class StructuralTool(string name) : ITool
     {

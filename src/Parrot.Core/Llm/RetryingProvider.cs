@@ -19,6 +19,10 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
 
     public string Id => inner.Id;
 
+    public IUsageReporter? UsageReporter => inner.UsageReporter;
+
+    public IReadOnlyList<LLMModel> SeedModels() => inner.SeedModels();
+
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) =>
         inner.HasCredential(cancellationToken);
 
@@ -230,8 +234,8 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
     private sealed class RetryingProviderSession(ILLMProviderSession innerSession) : ILLMProviderSession
     {
         private readonly ILLMProviderSession _innerSession = innerSession;
-        private readonly IProviderSessionFallback? _fallback =
-            innerSession is IProviderSessionFallback fallback ? fallback : null;
+
+        public ValueTask<bool> TryFallBackToHttp() => _innerSession.TryFallBackToHttp();
 
         public void BeginTurn() => _innerSession.BeginTurn();
 
@@ -284,10 +288,12 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
 
                 if (retry.FallBackToHttp)
                 {
-                    await (_fallback
-                        ?? throw new InvalidOperationException(
-                            "A provider call requested HTTP fallback without supporting it."))
-                        .FallBackToHttp().ConfigureAwait(false);
+                    if (!await _innerSession.TryFallBackToHttp().ConfigureAwait(false))
+                    {
+                        throw new InvalidOperationException(
+                            "A provider call requested HTTP fallback without supporting it.");
+                    }
+
                     state.ResetStream();
                 }
 

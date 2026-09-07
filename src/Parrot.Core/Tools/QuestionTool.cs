@@ -16,7 +16,12 @@ internal sealed class QuestionTool(IQuestionRequester requester) : ITool
             var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, QuestionJsonContext.Default.QuestionToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
             var wireQuestions = input.Questions ?? throw new FormatException("Tool arguments require an array 'questions'.");
-            QuestionDefinition[] questions = [.. wireQuestions.Select(ToDomain)];
+            QuestionDefinition[] questions = [.. wireQuestions.Select(question => new QuestionDefinition(
+                question.Header ?? string.Empty,
+                question.Prompt ?? string.Empty,
+                question.Options ?? [],
+                question.Multiple,
+                question.Custom))];
             var reply = await requester.Ask(questions, cancellationToken).ConfigureAwait(false);
             return reply.Kind == QuestionReplyKind.UserAway
                 ? ToolResultFormatter.Text(invocation, "The user is away.")
@@ -31,13 +36,6 @@ internal sealed class QuestionTool(IQuestionRequester requester) : ITool
     private static string FormatReply(ToolInvocation invocation, IReadOnlyList<QuestionDefinition> questions, QuestionReply reply) =>
         string.Join("\n\n", questions.Zip(reply.Answers, (question, answer) =>
             ToolResultFormatter.QuestionAnswer(invocation, question.Prompt, answer.Text)));
-
-    private static QuestionDefinition ToDomain(Input.Question question) => new(
-        question.Header ?? string.Empty,
-        question.Prompt ?? string.Empty,
-        question.Options ?? [],
-        question.Multiple,
-        question.Custom);
 
     internal sealed class Input
     {

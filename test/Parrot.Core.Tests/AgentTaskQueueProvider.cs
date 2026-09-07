@@ -12,6 +12,8 @@ internal sealed class AgentTaskQueueProvider(IEnumerable<string> answers) : ILLM
 
     internal IReadOnlyList<LLMRequest> Requests => [.. _requests];
 
+    public IReadOnlyList<LLMModel> SeedModels() => [];
+
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
     public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>

@@ -25,7 +25,7 @@ internal sealed partial class LinuxPseudoTerminal : IDisposable
         var master = PosixOpenPseudoTerminal(OpenReadWrite | OpenNoControllingTerminal);
         if (master < 0)
         {
-            throw NativeFailure("failed to open PTY master");
+            throw new IOException($"failed to open PTY master (errno {Marshal.GetLastPInvokeError()}).");
         }
 
         var slave = -1;
@@ -46,7 +46,7 @@ internal sealed partial class LinuxPseudoTerminal : IDisposable
             slave = OpenFile(path, OpenReadWrite | OpenNoControllingTerminal);
             if (slave < 0)
             {
-                throw NativeFailure("failed to open PTY slave");
+                throw new IOException($"failed to open PTY slave (errno {Marshal.GetLastPInvokeError()}).");
             }
 
             return new LinuxPseudoTerminal(master, slave);
@@ -69,7 +69,7 @@ internal sealed partial class LinuxPseudoTerminal : IDisposable
         var attributes = default(LinuxTermios);
         if (GetAttributes(SlaveDescriptor, (nint)(&attributes)) != 0)
         {
-            throw NativeFailure("failed to read PTY slave attributes");
+            throw new IOException($"failed to read PTY slave attributes (errno {Marshal.GetLastPInvokeError()}).");
         }
 
         return attributes;
@@ -80,7 +80,7 @@ internal sealed partial class LinuxPseudoTerminal : IDisposable
         EnsureNotDisposed();
         if (WriteFile(_master, [value], 1) != 1)
         {
-            throw NativeFailure("failed to write PTY master");
+            throw new IOException($"failed to write PTY master (errno {Marshal.GetLastPInvokeError()}).");
         }
     }
 
@@ -109,7 +109,7 @@ internal sealed partial class LinuxPseudoTerminal : IDisposable
         var result = Poll(ref pollDescriptor, 1, timeoutMilliseconds);
         if (result < 0)
         {
-            throw NativeFailure("failed to poll PTY descriptor");
+            throw new IOException($"failed to poll PTY descriptor (errno {Marshal.GetLastPInvokeError()}).");
         }
 
         return result > 0 && (pollDescriptor.ReturnedEvents & PollInput) != 0;
@@ -119,12 +119,9 @@ internal sealed partial class LinuxPseudoTerminal : IDisposable
     {
         if (result != 0)
         {
-            throw NativeFailure(message);
+            throw new IOException($"{message} (errno {Marshal.GetLastPInvokeError()}).");
         }
     }
-
-    private static IOException NativeFailure(string message) =>
-        new($"{message} (errno {Marshal.GetLastPInvokeError()}).");
 
     [LibraryImport("libc", EntryPoint = "posix_openpt", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]

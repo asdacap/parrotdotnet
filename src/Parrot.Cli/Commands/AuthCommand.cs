@@ -5,7 +5,7 @@ namespace Parrot.Cli.Commands;
 
 internal sealed class AuthCommand(
     ICredentialStore credentials,
-    OpenAiOAuthClient oauth,
+    IOAuthClient oauth,
     IReadOnlyList<string> providerIds,
     ISlashDialog dialog) : ISlashCommand
 {

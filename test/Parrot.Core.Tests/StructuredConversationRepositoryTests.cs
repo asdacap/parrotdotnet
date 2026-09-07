@@ -27,24 +27,24 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         {
             var repository = new EventRepository(database);
             repository.AppendConversation(
-                Published("assistant"),
+                new Event { Id = "assistant", AgentSessionId = "agent" },
                 ConversationOrigin.Model,
                 LLMRole.Assistant,
                 [ConversationPart.TextPart(string.Empty)],
                 [new LLMToolCall("call-1", "read_image", "{}")],
                 string.Empty);
             repository.AppendConversation(
-                Published("tool"),
+                new Event { Id = "tool", AgentSessionId = "agent" },
                 ConversationOrigin.Tool,
                 LLMRole.Tool,
                 [ConversationPart.TextPart("read image")],
                 [],
                 "call-1");
             repository.AppendConversation(
-                Published("images"),
+                new Event { Id = "images", AgentSessionId = "agent" },
                 ConversationOrigin.Tool,
                 LLMRole.User,
-                [ConversationPart.ImageArtifact(Image())],
+                [ConversationPart.ImageArtifact(new ImageArtifactMetadata(new string('a', 64), new string('a', 64), "image/png", 1, 1, 1, 1, 1, "pixel.png", "test"))],
                 [],
                 string.Empty);
         }
@@ -54,7 +54,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         _ = await Assert.That(restored).Count().IsEqualTo(3);
         _ = await Assert.That(restored[0].ToolCalls.Single().Id).IsEqualTo("call-1");
         _ = await Assert.That(restored[1].ToolCallId).IsEqualTo("call-1");
-        _ = await Assert.That(restored[2].Parts.Single().ArtifactId).IsEqualTo(Image().ArtifactId);
+        _ = await Assert.That(restored[2].Parts.Single().ArtifactId).IsEqualTo(new ImageArtifactMetadata(new string('a', 64), new string('a', 64), "image/png", 1, 1, 1, 1, 1, "pixel.png", "test").ArtifactId);
         _ = await Assert.That(new EventRepository(reopened).ConversationAfter("agent", restored[1].Sequence))
             .HasSingleItem();
     }
@@ -66,7 +66,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         using var database = SessionDatabase.Open(resources.DatabasePath);
         var repository = new EventRepository(database);
         repository.AppendConversation(
-            Published("assistant"),
+            new Event { Id = "assistant", AgentSessionId = "agent" },
             ConversationOrigin.Model,
             LLMRole.Assistant,
             [ConversationPart.TextPart("before")],
@@ -74,7 +74,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             string.Empty);
         _ = repository.SaveCompaction("agent", new CompactionSnapshot("summary one", 1));
         repository.AppendConversation(
-            Published("tool"),
+            new Event { Id = "tool", AgentSessionId = "agent" },
             ConversationOrigin.Tool,
             LLMRole.Tool,
             [ConversationPart.TextPart("result")],
@@ -104,39 +104,39 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         using var database = SessionDatabase.Open(resources.DatabasePath);
         var repository = new EventRepository(database);
         repository.AppendConversation(
-            Published("before"),
+            new Event { Id = "before", AgentSessionId = "agent" },
             ConversationOrigin.Model,
             LLMRole.User,
             [ConversationPart.TextPart("before")],
             [],
             string.Empty);
-        var firstStatus = Published("first-status");
+        var firstStatus = new Event { Id = "first-status", AgentSessionId = "agent" };
         _ = await Assert.That(repository.AppendCompactionStatus(
             firstStatus,
             new CompactionSnapshot("first summary", 0),
             "first status")).IsTrue();
         repository.AppendConversation(
-            Published("between"),
+            new Event { Id = "between", AgentSessionId = "agent" },
             ConversationOrigin.Model,
             LLMRole.User,
             [ConversationPart.TextPart("between")],
             [],
             string.Empty);
-        var reminder = Published("reminder");
+        var reminder = new Event { Id = "reminder", AgentSessionId = "agent" };
         _ = await Assert.That(repository.AppendContextReminder(
             reminder,
             new ContextReminderCheckpoint("provider/model", 10_000, 75),
             77,
             "reminder")).IsTrue();
         _ = await Assert.That(repository.LatestContextReminder("agent")).IsNotNull();
-        var secondStatus = Published("second-status");
+        var secondStatus = new Event { Id = "second-status", AgentSessionId = "agent" };
         _ = await Assert.That(repository.AppendCompactionStatus(
             secondStatus,
             new CompactionSnapshot("second summary", 3),
             "second status")).IsTrue();
         _ = await Assert.That(repository.LatestContextReminder("agent")).IsNull();
         repository.AppendConversation(
-            Published("after"),
+            new Event { Id = "after", AgentSessionId = "agent" },
             ConversationOrigin.Model,
             LLMRole.User,
             [ConversationPart.TextPart("after")],
@@ -156,7 +156,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             .Contains("first-status")
             .And.Contains("second-status");
         _ = await Assert.That(repository.AppendCompactionStatus(
-            Published("duplicate"),
+            new Event { Id = "duplicate", AgentSessionId = "agent" },
             new CompactionSnapshot("duplicate", 3),
             "duplicate status")).IsFalse();
     }
@@ -172,10 +172,10 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
                 "call-1",
                 "read_image",
                 ToolExecutionStatus.Finished,
-                [ConversationPart.TextPart("done"), ConversationPart.ImageArtifact(Image())],
+                [ConversationPart.TextPart("done"), ConversationPart.ImageArtifact(new ImageArtifactMetadata(new string('a', 64), new string('a', 64), "image/png", 1, 1, 1, 1, 1, "pixel.png", "test"))],
                 string.Empty);
-            _ = await Assert.That(repository.AppendToolTerminal(Published("first"), terminal)).IsTrue();
-            _ = await Assert.That(repository.AppendToolTerminal(Published("replay"), terminal)).IsFalse();
+            _ = await Assert.That(repository.AppendToolTerminal(new Event { Id = "first", AgentSessionId = "agent" }, terminal)).IsTrue();
+            _ = await Assert.That(repository.AppendToolTerminal(new Event { Id = "replay", AgentSessionId = "agent" }, terminal)).IsFalse();
             _ = await Assert.That(repository.Replay()).Count().IsEqualTo(1);
         }
 
@@ -194,14 +194,14 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         using var database = SessionDatabase.Open(resources.DatabasePath);
         var repository = new EventRepository(database);
         repository.AppendConversation(
-            Published("before"),
+            new Event { Id = "before", AgentSessionId = "agent" },
             ConversationOrigin.UserInput,
             LLMRole.User,
             [ConversationPart.TextPart("before")],
             [],
             string.Empty);
         repository.AppendConversation(
-            Published("checkpoint-call"),
+            new Event { Id = "checkpoint-call", AgentSessionId = "agent" },
             ConversationOrigin.Model,
             LLMRole.Assistant,
             [ConversationPart.TextPart(string.Empty)],
@@ -210,7 +210,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         var checkpointAssistant = repository.Conversation("agent")[1].Sequence;
         _ = repository.RecordCheckpoint("agent", "handoff", checkpointAssistant, "checkpoint");
         _ = repository.AppendToolSettlement(
-            Published("checkpoint-result"),
+            new Event { Id = "checkpoint-result", AgentSessionId = "agent" },
             checkpointAssistant,
             new ToolExecutionTerminal(
                 "checkpoint",
@@ -219,14 +219,14 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
                 [ConversationPart.TextPart("handoff")],
                 "handoff"));
         repository.AppendConversation(
-            Published("between"),
+            new Event { Id = "between", AgentSessionId = "agent" },
             ConversationOrigin.UserInput,
             LLMRole.User,
             [ConversationPart.TextPart("between")],
             [],
             string.Empty);
         repository.AppendConversation(
-            Published("spawn-call"),
+            new Event { Id = "spawn-call", AgentSessionId = "agent" },
             ConversationOrigin.Model,
             LLMRole.Assistant,
             [ConversationPart.TextPart(string.Empty)],
@@ -259,14 +259,14 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         using var database = SessionDatabase.Open(resources.DatabasePath);
         var repository = new EventRepository(database);
         repository.AppendConversation(
-            Published("before"),
+            new Event { Id = "before", AgentSessionId = "agent" },
             ConversationOrigin.UserInput,
             LLMRole.User,
             [ConversationPart.TextPart("before")],
             [],
             string.Empty);
         repository.AppendConversation(
-            Published("checkpoint-call"),
+            new Event { Id = "checkpoint-call", AgentSessionId = "agent" },
             ConversationOrigin.Model,
             LLMRole.Assistant,
             [ConversationPart.TextPart(string.Empty)],
@@ -275,7 +275,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         var assistant = repository.Conversation("agent")[^1].Sequence;
         _ = repository.RecordCheckpoint("agent", "handoff", assistant, "checkpoint");
         _ = repository.AppendToolSettlement(
-            Published("checkpoint-result"),
+            new Event { Id = "checkpoint-result", AgentSessionId = "agent" },
             assistant,
             new ToolExecutionTerminal(
                 "checkpoint",
@@ -284,7 +284,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
                 [ConversationPart.TextPart("handoff")],
                 "handoff"));
         repository.AppendConversation(
-            Published("after"),
+            new Event { Id = "after", AgentSessionId = "agent" },
             ConversationOrigin.UserInput,
             LLMRole.User,
             [ConversationPart.TextPart("after")],
@@ -313,19 +313,19 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         using var database = SessionDatabase.Open(resources.DatabasePath);
         var repository = new EventRepository(database);
         repository.AppendConversation(
-            Published("compacted"),
+            new Event { Id = "compacted", AgentSessionId = "agent" },
             ConversationOrigin.UserInput,
             LLMRole.User,
             [ConversationPart.TextPart("compacted away")],
             [],
             string.Empty);
-        var status = Published("status");
+        var status = new Event { Id = "status", AgentSessionId = "agent" };
         _ = await Assert.That(repository.AppendCompactionStatus(
             status,
             new CompactionSnapshot("effective summary", 1),
             "effective status")).IsTrue();
         repository.AppendConversation(
-            Published("tail"),
+            new Event { Id = "tail", AgentSessionId = "agent" },
             ConversationOrigin.UserInput,
             LLMRole.User,
             [ConversationPart.TextPart("retained tail")],
@@ -356,7 +356,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         using var database = SessionDatabase.Open(resources.DatabasePath);
         var repository = new EventRepository(database);
         repository.AppendConversation(
-            Published("incomplete"),
+            new Event { Id = "incomplete", AgentSessionId = "agent" },
             ConversationOrigin.Model,
             LLMRole.Assistant,
             [ConversationPart.TextPart(string.Empty)],
@@ -379,7 +379,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         var files = new AgentHistoryFiles(resources);
         var repository = new EventRepository(database, new ImageArtifactStore(resources), files);
         repository.AppendConversation(
-            Published("message"),
+            new Event { Id = "message", AgentSessionId = "agent" },
             ConversationOrigin.UserInput,
             LLMRole.User,
             [ConversationPart.TextPart("durable")],
@@ -403,7 +403,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         foreach (var call in new[] { "first", "latest" })
         {
             repository.AppendConversation(
-                Published($"{call}-assistant"),
+                new Event { Id = $"{call}-assistant", AgentSessionId = "agent" },
                 ConversationOrigin.Model,
                 LLMRole.Assistant,
                 [ConversationPart.TextPart(string.Empty)],
@@ -414,7 +414,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             if (string.Equals(call, "first", StringComparison.Ordinal))
             {
                 _ = repository.AppendToolSettlement(
-                    Published("first-result"),
+                    new Event { Id = "first-result", AgentSessionId = "agent" },
                     assistant,
                     new ToolExecutionTerminal(
                         call,
@@ -454,11 +454,6 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         _ = await Assert.That(contents[1].Image).IsNotEmpty();
         _ = await Assert.That(contents[1].MediaType).IsEqualTo("image/png");
     }
-
-    private static Event Published(string id) => new() { Id = id, AgentSessionId = "agent" };
-
-    private static ImageArtifactMetadata Image() => new(
-        new string('a', 64), new string('a', 64), "image/png", 1, 1, 1, 1, 1, "pixel.png", "test");
 
     private UserSessionResources Resources(string id) => new(
         new StatePaths(_root, _root, _root),

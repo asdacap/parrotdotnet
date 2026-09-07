@@ -27,7 +27,7 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
     [Test]
     public async Task Default_open_resumes_one_inactive_association()
     {
-        var claim = Claim("host", static _ => Missing(), "start");
+        var claim = new WorkingDirectoryClaim(_root, new RuntimeIdentityFixture("host", static _ => new ProcessIdentity(ProcessIdentityStatus.Missing, null), "start").Identity);
         var created = claim.CreateFresh(_workspace, "user-session-one");
         await ReleaseAsync(created.ActivationLease);
 
@@ -41,7 +41,7 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
     [Test]
     public async Task Default_open_returns_live_candidate_without_activating()
     {
-        var claim = Claim("host", static _ => Found("start"), "start");
+        var claim = new WorkingDirectoryClaim(_root, new RuntimeIdentityFixture("host", static _ => new ProcessIdentity(ProcessIdentityStatus.Found, "start"), "start").Identity);
         var first = claim.CreateFresh(_workspace, "user-session-one");
 
         var second = claim.OpenDefault(_workspace);
@@ -56,7 +56,7 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
     [Test]
     public async Task Default_open_uses_ordinal_tie_break_for_multiple_inactive_associations()
     {
-        var claim = Claim("host", static _ => Missing(), "start");
+        var claim = new WorkingDirectoryClaim(_root, new RuntimeIdentityFixture("host", static _ => new ProcessIdentity(ProcessIdentityStatus.Missing, null), "start").Identity);
         var first = claim.CreateFresh(_workspace, "user-session-one");
         await ReleaseAsync(first.ActivationLease);
         var second = claim.CreateFresh(_workspace, "user-session-two");
@@ -72,17 +72,18 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
     [Test]
     public async Task Foreign_host_fails_closed_without_inspecting_its_process_id()
     {
-        var foreign = Claim("foreign", static _ => Found("foreign-start"), "foreign-start");
+        var foreign = new WorkingDirectoryClaim(_root, new RuntimeIdentityFixture("foreign", static _ => new ProcessIdentity(ProcessIdentityStatus.Found, "foreign-start"), "foreign-start").Identity);
         var foreignActivation = foreign.CreateFresh(_workspace, "user-session-foreign");
         var inspected = false;
-        var local = Claim(
+        var localIdentity = new RuntimeIdentityFixture(
             "local",
             _ =>
             {
                 inspected = true;
-                return Missing();
+                return new ProcessIdentity(ProcessIdentityStatus.Missing, null);
             },
-            "local-start");
+            "local-start").Identity;
+        var local = new WorkingDirectoryClaim(_root, localIdentity);
 
         var result = local.OpenDefault(_workspace);
 
@@ -96,9 +97,9 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
     [Test]
     public async Task Reused_pid_with_a_different_process_start_is_inactive()
     {
-        var first = Claim("host", static _ => Found("old-start"), "old-start");
+        var first = new WorkingDirectoryClaim(_root, new RuntimeIdentityFixture("host", static _ => new ProcessIdentity(ProcessIdentityStatus.Found, "old-start"), "old-start").Identity);
         var activation = first.CreateFresh(_workspace, "user-session-reused-pid");
-        var second = Claim("host", static _ => Found("new-start"), "new-start");
+        var second = new WorkingDirectoryClaim(_root, new RuntimeIdentityFixture("host", static _ => new ProcessIdentity(ProcessIdentityStatus.Found, "new-start"), "new-start").Identity);
 
         var result = second.OpenDefault(_workspace);
 
@@ -113,7 +114,7 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
     {
         var alias = Path.Combine(_root, "workspace-alias");
         _ = Directory.CreateSymbolicLink(alias, _workspace);
-        var claim = Claim("host", static _ => Missing(), "start");
+        var claim = new WorkingDirectoryClaim(_root, new RuntimeIdentityFixture("host", static _ => new ProcessIdentity(ProcessIdentityStatus.Missing, null), "start").Identity);
         var created = claim.CreateFresh(alias, "user-session-linked");
         await ReleaseAsync(created.ActivationLease);
 
@@ -143,7 +144,7 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
         await File.WriteAllTextAsync(
             Path.Combine(directory, "v1.json"),
             JsonSerializer.Serialize(legacy, StoreJsonContext.Default.OwnerRecord));
-        var claim = Claim("host", static _ => Missing(), "start");
+        var claim = new WorkingDirectoryClaim(_root, new RuntimeIdentityFixture("host", static _ => new ProcessIdentity(ProcessIdentityStatus.Missing, null), "start").Identity);
 
         var result = claim.OpenDefault(_workspace);
 
@@ -156,7 +157,7 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
     public async Task Invalid_session_id_fails_before_filesystem_access()
     {
         var untouched = Path.Combine(_root, "untouched-state");
-        var claim = new WorkingDirectoryClaim(untouched, Identity("host", static _ => Missing(), "start"));
+        var claim = new WorkingDirectoryClaim(untouched, new RuntimeIdentityFixture("host", static _ => new ProcessIdentity(ProcessIdentityStatus.Missing, null), "start").Identity);
 
         _ = await Assert.That(() => claim.Resume(_workspace, "../user-session-other")).Throws<FormatException>();
         _ = await Assert.That(Directory.Exists(untouched)).IsFalse();
@@ -165,7 +166,7 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
     [Test]
     public async Task Release_is_fenced_by_runtime_lease_and_generation()
     {
-        var claim = Claim("host", static _ => Found("start"), "start");
+        var claim = new WorkingDirectoryClaim(_root, new RuntimeIdentityFixture("host", static _ => new ProcessIdentity(ProcessIdentityStatus.Found, "start"), "start").Identity);
         var result = claim.CreateFresh(_workspace, "user-session-fenced");
         var lease = result.ActivationLease ?? throw new InvalidOperationException("Expected an activation lease.");
         var directory = Path.Combine(_root, "owners", "activations", "user-session-fenced");
@@ -197,7 +198,7 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
     public async Task Discovery_uses_successful_open_recency_without_activation(
         int count, bool reopened, string expected)
     {
-        var claim = Claim("host", static _ => Missing(), "start");
+        var claim = new WorkingDirectoryClaim(_root, new RuntimeIdentityFixture("host", static _ => new ProcessIdentity(ProcessIdentityStatus.Missing, null), "start").Identity);
         var paths = new Parrot.State.StatePaths(_root, string.Empty, string.Empty);
         var workspace = ProjectWorkspace.FromLaunchDirectory(_workspace);
         for (var index = 0; index < count; index++)
@@ -230,7 +231,7 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
     [Arguments(true)]
     public async Task Unreadable_owner_and_corrupt_metadata_are_not_activated(bool corrupt)
     {
-        var claim = Claim("host", static _ => new ProcessIdentity(ProcessIdentityStatus.Unreadable, null), "start");
+        var claim = new WorkingDirectoryClaim(_root, new RuntimeIdentityFixture("host", static _ => new ProcessIdentity(ProcessIdentityStatus.Unreadable, null), "start").Identity);
         var admission = claim.CreateFresh(_workspace, "user-session-uncertain");
         if (corrupt)
         {
@@ -247,7 +248,7 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
     [Test]
     public async Task Concurrent_resume_grants_exactly_one_activation()
     {
-        var claim = Claim("host", static _ => Found("start"), "start");
+        var claim = new WorkingDirectoryClaim(_root, new RuntimeIdentityFixture("host", static _ => new ProcessIdentity(ProcessIdentityStatus.Found, "start"), "start").Identity);
         var initial = claim.CreateFresh(_workspace, "user-session-contended");
         await ReleaseAsync(initial.ActivationLease);
         var attempts = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ =>
@@ -260,23 +261,6 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
         }
     }
 
-    private static ProcessIdentity Missing() => new(ProcessIdentityStatus.Missing, null);
-
-    private static ProcessIdentity Found(string processStartToken) =>
-        new(ProcessIdentityStatus.Found, processStartToken);
-
-    private static RuntimeIdentity Identity(
-        string hostKey,
-        Func<int, ProcessIdentity> inspect,
-        string processStartToken) =>
-        new(
-            RuntimeIdentityCapture.FingerprintHost(hostKey),
-            "boot",
-            4312,
-            processStartToken,
-            Guid.NewGuid().ToString("n"),
-            inspect);
-
     private static async ValueTask ReleaseAsync(SessionActivationLease? lease)
     {
         if (lease is not null)
@@ -285,9 +269,14 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
         }
     }
 
-    private WorkingDirectoryClaim Claim(
-        string hostKey,
-        Func<int, ProcessIdentity> inspect,
-        string processStartToken) =>
-        new(_root, Identity(hostKey, inspect, processStartToken));
+    private sealed class RuntimeIdentityFixture(string hostKey, Func<int, ProcessIdentity> inspect, string processStartToken)
+    {
+        public RuntimeIdentity Identity { get; } = new(
+            RuntimeIdentityCapture.FingerprintHost(hostKey),
+            "boot",
+            4312,
+            processStartToken,
+            Guid.NewGuid().ToString("n"),
+            inspect);
+    }
 }

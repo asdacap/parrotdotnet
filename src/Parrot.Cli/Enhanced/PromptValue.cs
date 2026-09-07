@@ -1,18 +1,15 @@
 namespace Parrot.Cli.Enhanced;
 
-internal readonly record struct PromptValue(string Prefix, string Text, int Cursor) : ILiveBufferItem
+internal readonly record struct PromptValue(PromptState State) : ILiveBufferItem
 {
-    public PromptValue Sanitize()
+    public PromptValue(string prefix, string text, int cursor)
+        : this(new PromptState(prefix, text, cursor))
     {
-        var cleanPrefix = TerminalText.Sanitize(Prefix).Replace("\n", string.Empty, StringComparison.Ordinal);
-        var cleanText = TerminalText.Sanitize(Text);
-        var runeCount = cleanText.EnumerateRunes().Count();
-        return new PromptValue(cleanPrefix, cleanText, Math.Clamp(Cursor, 0, runeCount));
     }
 
     public MultiLine Render(LiveBufferRenderContext context)
     {
-        var clean = Sanitize();
+        var clean = State.Sanitize();
         var indent = new string(' ', TerminalText.Width(clean.Prefix));
         var lines = TerminalText.LayoutHanging(clean.Prefix + clean.Text, context.Columns, indent);
         var before = clean.Prefix + string.Concat(clean.Text.EnumerateRunes().Take(clean.Cursor));

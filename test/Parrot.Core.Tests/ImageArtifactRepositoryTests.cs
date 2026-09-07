@@ -19,7 +19,8 @@ internal sealed class ImageArtifactRepositoryTests : IDisposable
     public async Task Record_reopens_and_is_idempotent()
     {
         var resources = Resources("first");
-        var image = Image();
+        var image = new ImageArtifactMetadata(
+            new string('a', 64), new string('a', 64), "image/png", 1, 1, 1, 1, 1, "pixel.png", "test");
         using (var database = SessionDatabase.Open(resources.DatabasePath))
         {
             var repository = new EventRepository(database);
@@ -37,10 +38,16 @@ internal sealed class ImageArtifactRepositoryTests : IDisposable
     {
         using var database = SessionDatabase.Open(Resources("conflict").DatabasePath);
         var repository = new EventRepository(database);
-        _ = repository.RecordImageArtifact(Image(), "upload-1");
+        _ = repository.RecordImageArtifact(
+            new ImageArtifactMetadata(
+                new string('a', 64), new string('a', 64), "image/png", 1, 1, 1, 1, 1, "pixel.png", "test"),
+            "upload-1");
 
         _ = await Assert.That(() => repository.RecordImageArtifact(
-            Image() with { ArtifactId = new string('b', 64), Sha256 = new string('b', 64) }, "upload-1"))
+            new ImageArtifactMetadata(
+                new string('a', 64), new string('a', 64), "image/png", 1, 1, 1, 1, 1, "pixel.png", "test") with
+            { ArtifactId = new string('b', 64), Sha256 = new string('b', 64) },
+            "upload-1"))
             .Throws<InputConflictException>();
     }
 
@@ -49,7 +56,8 @@ internal sealed class ImageArtifactRepositoryTests : IDisposable
     {
         using var database = SessionDatabase.Open(Resources("durable-reference").DatabasePath);
         var repository = new EventRepository(database);
-        var image = Image();
+        var image = new ImageArtifactMetadata(
+            new string('a', 64), new string('a', 64), "image/png", 1, 1, 1, 1, 1, "pixel.png", "test");
         _ = repository.RecordImageArtifact(image, "upload-1");
         repository.AppendConversation(
             new Parrot.Protocol.Event { Id = "event", AgentSessionId = "agent" },
@@ -67,7 +75,8 @@ internal sealed class ImageArtifactRepositoryTests : IDisposable
     {
         using var database = SessionDatabase.Open(Resources("claim").DatabasePath);
         var repository = new EventRepository(database);
-        var image = Image();
+        var image = new ImageArtifactMetadata(
+            new string('a', 64), new string('a', 64), "image/png", 1, 1, 1, 1, 1, "pixel.png", "test");
         _ = repository.RecordImageArtifact(image, "upload-1");
         repository.ClaimImageArtifact(image.ArtifactId, "message-1");
 
@@ -76,9 +85,6 @@ internal sealed class ImageArtifactRepositoryTests : IDisposable
         _ = await Assert.That(repository.RemoveStaleUnreferencedImageArtifacts(DateTimeOffset.UtcNow.AddMinutes(1)))
             .Contains(image);
     }
-
-    private static ImageArtifactMetadata Image() => new(
-        new string('a', 64), new string('a', 64), "image/png", 1, 1, 1, 1, 1, "pixel.png", "test");
 
     private UserSessionResources Resources(string id) => new(
         new StatePaths(_root, _root, _root),

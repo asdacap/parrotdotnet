@@ -74,12 +74,12 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
             var router = source._router ?? throw new InvalidOperationException("model router is not configured");
             var queues = owner.QueueCatalog.Register(identity);
             source._queues.Add(queues);
-            var security = SecurityProfileTestFactory.Create(securityProfile);
+            var security = new SecurityProfileTestFixture(securityProfile).Security;
             source._securities.Add(security);
             var scope = TestAgentSessionScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, owningScope, children, childQuestions) =>
             {
                 var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
-                var session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, source._includeStatusTool ? [new StatusToolFactory(owner.Status)] : [], source._includeStatusTool ? TestModels.DocumentTools("status") : TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates, null), exitReminder, eventRepository, eventBroker), security, status, queues, new AgentSessionActivity(source._timeProvider), lifetime);
+                IAgentSession session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, source._includeStatusTool ? [new StatusToolFactory(owner.Status)] : [], source._includeStatusTool ? new TestToolDefinitionsFixture("status").Definitions : TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates, null), exitReminder, eventRepository, eventBroker).Callbacks, security, status, queues, new AgentSessionActivity(source._timeProvider), lifetime);
                 queues.Attach(session);
                 source._sessions.Add(session);
                 return session;

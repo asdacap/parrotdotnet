@@ -90,7 +90,10 @@ internal sealed class ModeRegistryTests : IDisposable
     [Test]
     public async Task Plan_prepare_creates_private_artifact_and_preserves_existing_content()
     {
-        var profile = OwnerModes("session").Resolve(ModeRegistry.Plan);
+        var profile = new UserSessionModes(
+            Registry(),
+            TestModels.PromptTemplates,
+            Path.Combine(_root, "sessions", "session", "plan")).Resolve(ModeRegistry.Plan);
         profile.Prepare();
         var artifact = PlanArtifact("session");
         await File.WriteAllTextAsync(artifact, "stale plan");
@@ -123,7 +126,11 @@ internal sealed class ModeRegistryTests : IDisposable
         string promptFragment,
         string policyFragment)
     {
-        var profile = OwnerModes("session").Resolve(id);
+        var mode = new UserSessionModes(
+            Registry(),
+            TestModels.PromptTemplates,
+            Path.Combine(_root, "sessions", "session", "plan")).Resolve(id);
+        var profile = mode.Profile;
 
         _ = await Assert.That(profile.Id).IsEqualTo(id);
         _ = await Assert.That(profile.SecurityProfile.ReadOnly).IsEqualTo(readOnly);
@@ -134,11 +141,61 @@ internal sealed class ModeRegistryTests : IDisposable
 
         if (id == ModeRegistry.Plan)
         {
-            profile.Prepare();
+            mode.Prepare();
             var artifact = PlanArtifact("session");
             _ = await Assert.That(profile.Prompt).Contains(artifact);
             _ = await Assert.That(profile.Prompt).Contains(Path.Combine(_root, "sessions", "session", "plan"));
         }
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Mode_profiles_preserve_lazy_prompts_policy_and_lifecycle(bool noOp)
+    {
+        var registry = Registry();
+        var configured = registry.Resolve(ModeRegistry.Build);
+        var securityProfile = registry.Resolve(ModeRegistry.Query).SecurityProfile;
+        var promptReads = 0;
+        var prepared = false;
+        IMode sessionMode = new SessionMode(
+            configured,
+            () =>
+            {
+                promptReads++;
+                return prepared ? "prepared" : "initial";
+            },
+            configured.SecurityProfile,
+            () => prepared = true,
+            (sessionId, messageId) => ModeCompletionOutcome.Repair($"{sessionId}/{messageId}"));
+        var mode = noOp
+            ? new NoopMode(sessionMode.Profile, securityProfile)
+            : sessionMode;
+        var profile = mode.Profile;
+
+        _ = await Assert.That(promptReads).IsEqualTo(0);
+        _ = await Assert.That(profile.Id).IsEqualTo(configured.Id);
+        _ = await Assert.That(profile.Usage).IsEqualTo(configured.Usage);
+        _ = await Assert.That(profile.RecursionLimit).IsEqualTo(configured.RecursionLimit);
+        _ = await Assert.That(profile.AllowedTools).IsEqualTo(configured.AllowedTools);
+        _ = await Assert.That(profile.DisabledTools.SequenceEqual(configured.DisabledTools, StringComparer.Ordinal)).IsTrue();
+        _ = await Assert.That(profile.MaxTurns).IsEqualTo(configured.MaxTurns);
+        _ = await Assert.That(profile.EnforceActiveWorkCompletion).IsEqualTo(configured.EnforceActiveWorkCompletion);
+        _ = await Assert.That(profile.IsUserSelectable).IsEqualTo(configured.IsUserSelectable);
+        _ = await Assert.That(profile.IsAgentSelectable).IsEqualTo(configured.IsAgentSelectable);
+        _ = await Assert.That(profile.SecurityProfile.ReadOnly)
+            .IsEqualTo(noOp ? securityProfile.ReadOnly : configured.SecurityProfile.ReadOnly);
+        _ = await Assert.That(profile.Prompt).IsEqualTo("initial");
+
+        mode.Prepare();
+
+        _ = await Assert.That(prepared).IsEqualTo(!noOp);
+        _ = await Assert.That(profile.Prompt).IsEqualTo(noOp ? "initial" : "prepared");
+        _ = await Assert.That(mode.Profile.Prompt).IsEqualTo(noOp ? "initial" : "prepared");
+        _ = await Assert.That(promptReads).IsEqualTo(3);
+        var completion = mode.Complete("session", "message");
+        _ = await Assert.That(completion.Completion).IsNull();
+        _ = await Assert.That(completion.RepairDiagnostic).IsEqualTo(noOp ? null : "session/message");
     }
 
     [Test]
@@ -193,15 +250,15 @@ internal sealed class ModeRegistryTests : IDisposable
         var build = ownerModes.Resolve(ModeRegistry.Build);
         var plan = ownerModes.Resolve(ModeRegistry.Plan);
 
-        _ = await Assert.That(build.SecurityProfile.ReadOnly).IsTrue();
-        _ = await Assert.That(build.SecurityProfile.AllowsWrite(allowed)).IsTrue();
-        _ = await Assert.That(build.SecurityProfile.AllowsWrite(denied)).IsFalse();
+        _ = await Assert.That(build.Profile.SecurityProfile.ReadOnly).IsTrue();
+        _ = await Assert.That(build.Profile.SecurityProfile.AllowsWrite(allowed)).IsTrue();
+        _ = await Assert.That(build.Profile.SecurityProfile.AllowsWrite(denied)).IsFalse();
         plan.Prepare();
         var artifact = PlanArtifactIn(planDirectory);
-        _ = await Assert.That(plan.SecurityProfile.AllowsWrite(artifact)).IsFalse();
-        _ = await Assert.That(plan.SecurityProfile.AllowsWrite(
+        _ = await Assert.That(plan.Profile.SecurityProfile.AllowsWrite(artifact)).IsFalse();
+        _ = await Assert.That(plan.Profile.SecurityProfile.AllowsWrite(
             Path.Combine(planDirectory, "supporting.md"))).IsFalse();
-        _ = await Assert.That(plan.SecurityProfile.AllowsWrite(
+        _ = await Assert.That(plan.Profile.SecurityProfile.AllowsWrite(
             Path.Combine(planDirectory, "..", "outside.md"))).IsFalse();
     }
 
@@ -222,21 +279,27 @@ internal sealed class ModeRegistryTests : IDisposable
         var outside = Path.Combine(_root, "outside.md");
         var scratch = new AgentScratchDirectory(Path.GetDirectoryName(planDirectory)
             ?? throw new InvalidOperationException("Plan directory has no parent."));
-        var security = SecurityProfile.ForAgent(plan.SecurityProfile, [], scratch.Root, []);
+        var security = SecurityProfile.ForAgent(plan.Profile.SecurityProfile, [], scratch.Root, []);
         var write = new WriteTool(new ToolWorkspace(workspace));
+        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
+        var selection = new AgentTurnSelection(
+            new ModelSelector(model.Selector),
+            TestModels.Resolve(model),
+            new TestProfileFixture().Mode,
+            security);
 
         var supporting = Path.Combine(planDirectory, "supporting.md");
         var written = await write.Execute(
             new ToolInvocation("write-plan", WriteArguments(artifact, "# Plan")),
-            Turn(security),
+            selection,
             cancellationToken);
         var supported = await write.Execute(
             new ToolInvocation("write-supporting", WriteArguments(supporting, "details")),
-            Turn(security),
+            selection,
             cancellationToken);
         var denied = await write.Execute(
             new ToolInvocation("write-outside", WriteArguments(outside, "outside")),
-            Turn(security),
+            selection,
             cancellationToken);
 
         _ = await Assert.That(written.Text).DoesNotStartWith("error: ");
@@ -250,7 +313,10 @@ internal sealed class ModeRegistryTests : IDisposable
     [Test]
     public async Task Plan_completion_trims_artifact_and_declares_approval_policy()
     {
-        var profile = OwnerModes("session", Registry([], ModeRegistry.Query)).Resolve(ModeRegistry.Plan);
+        var profile = new UserSessionModes(
+            Registry([], ModeRegistry.Query),
+            TestModels.PromptTemplates,
+            Path.Combine(_root, "sessions", "session", "plan")).Resolve(ModeRegistry.Plan);
         profile.Prepare();
         var artifact = PlanArtifact("session");
         await File.WriteAllTextAsync(artifact, "  # Plan\n\n- change code\n");
@@ -277,7 +343,10 @@ internal sealed class ModeRegistryTests : IDisposable
     [Test]
     public async Task Plan_completion_projects_validated_tasks_as_an_ordered_pending_tree()
     {
-        var profile = OwnerModes("tree").Resolve(ModeRegistry.Plan);
+        var profile = new UserSessionModes(
+            Registry(),
+            TestModels.PromptTemplates,
+            Path.Combine(_root, "sessions", "tree", "plan")).Resolve(ModeRegistry.Plan);
         profile.Prepare();
         var artifact = PlanArtifact("tree");
         await File.WriteAllTextAsync(artifact, "# Plan");
@@ -319,7 +388,10 @@ internal sealed class ModeRegistryTests : IDisposable
     [Test]
     public async Task Plan_completion_accepts_multi_root_artifact()
     {
-        var profile = OwnerModes("multi-root").Resolve(ModeRegistry.Plan);
+        var profile = new UserSessionModes(
+            Registry(),
+            TestModels.PromptTemplates,
+            Path.Combine(_root, "sessions", "multi-root", "plan")).Resolve(ModeRegistry.Plan);
         profile.Prepare();
         var artifact = PlanArtifact("multi-root");
         await File.WriteAllTextAsync(artifact, "# Plan");
@@ -339,7 +411,10 @@ internal sealed class ModeRegistryTests : IDisposable
     [Test]
     public async Task Plan_completion_uses_the_user_session_artifact_and_the_main_agent_identity()
     {
-        var profile = OwnerModes("user-session").Resolve(ModeRegistry.Plan);
+        var profile = new UserSessionModes(
+            Registry(),
+            TestModels.PromptTemplates,
+            Path.Combine(_root, "sessions", "user-session", "plan")).Resolve(ModeRegistry.Plan);
         profile.Prepare();
         await File.WriteAllTextAsync(PlanArtifact("user-session"), "# Plan");
         await WriteValidTasks(PlanArtifact("user-session"));
@@ -358,7 +433,10 @@ internal sealed class ModeRegistryTests : IDisposable
     [Test]
     public async Task Plan_completion_requires_and_validates_the_task_artifact()
     {
-        var profile = OwnerModes("repair").Resolve(ModeRegistry.Plan);
+        var profile = new UserSessionModes(
+            Registry(),
+            TestModels.PromptTemplates,
+            Path.Combine(_root, "sessions", "repair", "plan")).Resolve(ModeRegistry.Plan);
         profile.Prepare();
         var artifact = PlanArtifact("repair");
         await File.WriteAllTextAsync(artifact, "# Plan");
@@ -380,7 +458,10 @@ internal sealed class ModeRegistryTests : IDisposable
     [Test]
     public async Task Plan_completion_omits_a_blank_artifact()
     {
-        var profile = OwnerModes("session").Resolve(ModeRegistry.Plan);
+        var profile = new UserSessionModes(
+            Registry(),
+            TestModels.PromptTemplates,
+            Path.Combine(_root, "sessions", "session", "plan")).Resolve(ModeRegistry.Plan);
         profile.Prepare();
         await File.WriteAllTextAsync(PlanArtifact("session"), " \n\t ");
 
@@ -448,21 +529,6 @@ internal sealed class ModeRegistryTests : IDisposable
             "\",\"content\":\"",
             JsonEncodedText.Encode(content),
             "\"}");
-
-    private static AgentTurnSelection Turn(SecurityProfile securityProfile)
-    {
-        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
-        return new AgentTurnSelection(
-            new ModelSelector(model.Selector),
-            TestModels.Resolve(model),
-            TestModels.Profile(),
-            securityProfile);
-    }
-
-    private UserSessionModes OwnerModes(string ownerId) => OwnerModes(ownerId, Registry());
-
-    private UserSessionModes OwnerModes(string ownerId, ModeRegistry registry) =>
-        new(registry, TestModels.PromptTemplates, Path.Combine(_root, "sessions", ownerId, "plan"));
 
     private string PlanArtifact(string ownerId) =>
         PlanArtifactIn(Path.Combine(_root, "sessions", ownerId, "plan"));

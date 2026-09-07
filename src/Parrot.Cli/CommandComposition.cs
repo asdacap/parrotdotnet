@@ -30,7 +30,7 @@ internal partial class CommandComposition
             .Bind().As(Lifetime.Singleton).To<IBrowserOpener>(_ =>
                 new SystemBrowserOpener(System.Diagnostics.Process.Start))
             .Bind().As(Lifetime.Singleton).To(_ => new OpenAiOAuthOptions())
-            .Bind().As(Lifetime.Singleton).To(ctx =>
+            .Bind<IOAuthClient>().As(Lifetime.Singleton).To(ctx =>
             {
                 ctx.Inject<HttpClient>(out var httpClient);
                 ctx.Inject<IBrowserOpener>(out var browserOpener);
@@ -44,7 +44,7 @@ internal partial class CommandComposition
                 ctx.Inject<TextWriter>("error", out var error);
                 ctx.Inject<ProviderHttpClientCatalog>(out var httpClients);
                 ctx.Inject<IBrowserOpener>(out var browserOpener);
-                ctx.Inject<OpenAiOAuthClient>(out var oauthClient);
+                ctx.Inject<IOAuthClient>(out var oauthClient);
                 ctx.Inject<ModelsDevInformationProvider>(out var modelsDev);
                 return new CommandDispatcher(
                     interrupts, output, error, httpClients, browserOpener, oauthClient, modelsDev);

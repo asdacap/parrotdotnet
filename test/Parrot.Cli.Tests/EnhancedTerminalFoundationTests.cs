@@ -1,4 +1,5 @@
 using Parrot.Cli.Enhanced;
+using Parrot.Cli.Enhanced.Tools;
 using Parrot.Protocol;
 
 namespace Parrot.Cli.Tests;
@@ -76,10 +77,12 @@ internal sealed class EnhancedTerminalFoundationTests
 
         _ = await Assert.That(string.Join('|', user)).IsEqualTo("◆ abcdef|  界");
         _ = await Assert.That(string.Join('|', assistant)).IsEqualTo("● abcdef|  界");
-        _ = await Assert.That(new ModelineValue("build", "working", "provider/model").Render(32))
+        ILiveBufferItem providerModeline = new ModelineValue("build", "working", "provider/model");
+        ILiveBufferItem modeline = new ModelineValue("build", "working", "model");
+        _ = await Assert.That(providerModeline.Render(new LiveBufferRenderContext(32, context.Palette)).Lines.Single().Text)
             .IsEqualTo("─ mode: build ─ provider/model ");
-        _ = await Assert.That(new ModelineValue("build", "working", "model").Render(1)).IsEqualTo("─");
-        _ = await Assert.That(new ModelineValue("build", "working", "model").Render(2)).IsEqualTo("─");
+        _ = await Assert.That(modeline.Render(new LiveBufferRenderContext(1, context.Palette)).Lines.Single().Text).IsEqualTo("─");
+        _ = await Assert.That(modeline.Render(new LiveBufferRenderContext(2, context.Palette)).Lines.Single().Text).IsEqualTo("─");
 
         var colorPalette = new TerminalPalette(true);
         _ = await Assert.That(colorPalette.Prompt.Start).IsEqualTo("\u001b[48;5;236m\u001b[32m\u001b[1m");
@@ -139,10 +142,9 @@ internal sealed class EnhancedTerminalFoundationTests
             4 => "+new\tvalue",
             _ => " context",
         }));
-        var plain = new DiffScrollbackValue("changed files", source)
-            .Render(new ScrollbackRenderContext(24, new TerminalPalette(false)));
-        var colored = new DiffScrollbackValue("changed files", source)
-            .Render(new ScrollbackRenderContext(24, new TerminalPalette(true)));
+        IScrollbackItem diff = new DiffScrollbackValue("changed files", source);
+        var plain = diff.Render(new ScrollbackRenderContext(24, new TerminalPalette(false)));
+        var colored = diff.Render(new ScrollbackRenderContext(24, new TerminalPalette(true)));
 
         _ = await Assert.That(plain.Count).IsEqualTo(DiffScrollbackValue.MaximumRows + 2);
         _ = await Assert.That(string.Join('\n', plain)).Contains("1 -old[2J    value");
@@ -153,14 +155,85 @@ internal sealed class EnhancedTerminalFoundationTests
         _ = await Assert.That(plain.All(line => TerminalText.Width(line) <= 24)).IsTrue();
     }
 
+    [Test]
+    public async Task Live_items_preserve_stationary_absolute_and_capture_relative_animation_semantics()
+    {
+        var context = new LiveBufferRenderContext(6, new TerminalPalette(false));
+        ILiveBufferItem stationary = new LiveTextValue("still");
+        _ = await Assert.That(stationary.Animate(7).Render(context).Lines.Single().Text).IsEqualTo("still");
+        _ = await Assert.That(stationary.CaptureAnimation(10).Render(context).Lines.Single().Text).IsEqualTo("still");
+        _ = await Assert.That(stationary.AnimateSinceCapture(12).Render(context).Lines.Single().Text).IsEqualTo("still");
+        _ = await Assert.That(stationary.Render(context).Lines.Single().Text).IsEqualTo("still");
+
+        ILiveBufferItem marquee = new MarqueeValue("> ", "abcdefghij", 1);
+        var captured = marquee.CaptureAnimation(10);
+        _ = await Assert.That(marquee.Render(context).Lines.Single().Text).IsEqualTo("> bcde");
+        _ = await Assert.That(marquee.Animate(3).Render(context).Lines.Single().Text).IsEqualTo("> defg");
+        _ = await Assert.That(captured.AnimateSinceCapture(10).Render(context).Lines.Single().Text).IsEqualTo("> abcd");
+        _ = await Assert.That(captured.AnimateSinceCapture(12).Render(context).Lines.Single().Text).IsEqualTo("> cdef");
+        _ = await Assert.That(captured.Animate(3).Render(context).Lines.Single().Text).IsEqualTo("> defg");
+        _ = await Assert.That(marquee.Render(context).Lines.Single().Text).IsEqualTo("> bcde");
+
+        ILiveBufferItem tool = new ToolLiveValue("work", [], 1);
+        _ = await Assert.That(tool.CaptureAnimation(10).Render(context).Lines.Single().Text).IsEqualTo("⠙ work");
+        _ = await Assert.That(tool.AnimateSinceCapture(12).Render(context).Lines.Single().Text).IsEqualTo("⠙ work");
+        _ = await Assert.That(tool.Render(context).Lines.Single().Text).IsEqualTo("⠙ work");
+        _ = await Assert.That(tool.Animate(3).Render(context).Lines.Single().Text).IsEqualTo("⠸ work");
+        _ = await Assert.That(tool.Render(context).Lines.Single().Text).IsEqualTo("⠙ work");
+    }
+
+    [Test]
+    public async Task Streaming_items_preserve_continuation_when_completion_resets_layout()
+    {
+        var sequence = new StreamingScrollbackSequenceValue();
+        var distinctSequence = new StreamingScrollbackSequenceValue();
+        var first = sequence.Append(["first"]);
+        var continuation = sequence.Append(["next"]);
+        var distinct = distinctSequence.Append(["other"]);
+        var immediate = ImmediateScrollbackValue.Trusted(["immediate"]);
+        var anotherImmediate = ImmediateScrollbackValue.Trusted(["another"]);
+
+        _ = await Assert.That(continuation.Continues(first)).IsTrue();
+        _ = await Assert.That(distinct.Continues(first)).IsFalse();
+        _ = await Assert.That(first.Continues(distinct)).IsFalse();
+        _ = await Assert.That(immediate.Continues(anotherImmediate)).IsFalse();
+        _ = await Assert.That(first.Continues(immediate)).IsFalse();
+        _ = await Assert.That(immediate.Continues(first)).IsFalse();
+        _ = await Assert.That(first.StartsLayout).IsTrue();
+        _ = await Assert.That(first.EndsLayout).IsFalse();
+        _ = await Assert.That(first.IsCompleted).IsFalse();
+        _ = await Assert.That(continuation.StartsLayout).IsFalse();
+
+        var completed = sequence.Complete([]);
+        _ = await Assert.That(completed.Continues(first)).IsTrue();
+        _ = await Assert.That(completed.IsCompleted).IsTrue();
+        _ = await Assert.That(completed.Layout).IsEqualTo(ScrollbackLayout.Assistant);
+        _ = await Assert.That(completed.StartsLayout).IsFalse();
+        _ = await Assert.That(completed.EndsLayout).IsTrue();
+
+        var emptyCompletion = sequence.Complete([]);
+        _ = await Assert.That(emptyCompletion.Continues(completed)).IsTrue();
+        _ = await Assert.That(emptyCompletion.IsCompleted).IsTrue();
+        _ = await Assert.That(emptyCompletion.Layout).IsEqualTo(ScrollbackLayout.Compact);
+        _ = await Assert.That(emptyCompletion.StartsLayout).IsFalse();
+        _ = await Assert.That(emptyCompletion.EndsLayout).IsFalse();
+
+        var restarted = sequence.Append(["restarted"]);
+        _ = await Assert.That(restarted.Continues(completed)).IsTrue();
+        _ = await Assert.That(restarted.Layout).IsEqualTo(ScrollbackLayout.Assistant);
+        _ = await Assert.That(restarted.StartsLayout).IsTrue();
+        _ = await Assert.That(restarted.EndsLayout).IsFalse();
+        _ = await Assert.That(restarted.IsCompleted).IsFalse();
+    }
+
     private sealed class SequencedScrollbackValue(string line, object sequence, bool completed) : IScrollbackItem
     {
-        private readonly object _sequence = sequence;
+        public object? SequenceIdentity => sequence;
 
         public bool IsCompleted => completed;
 
         public bool Continues(IScrollbackItem previous) =>
-            previous is SequencedScrollbackValue value && ReferenceEquals(_sequence, value._sequence);
+            ReferenceEquals(sequence, previous.SequenceIdentity);
 
         public IReadOnlyList<string> Render(ScrollbackRenderContext context) => line.Length == 0 ? [] : [line];
     }

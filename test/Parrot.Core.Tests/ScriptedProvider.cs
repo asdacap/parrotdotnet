@@ -14,6 +14,8 @@ internal sealed class ScriptedProvider(string reply) : ILLMProvider
 
     public IReadOnlyList<LLMModel> Models { get; init; } = [];
 
+    public IReadOnlyList<LLMModel> SeedModels() => Models;
+
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
     public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>

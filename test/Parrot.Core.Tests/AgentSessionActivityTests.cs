@@ -43,14 +43,14 @@ internal sealed class AgentSessionActivityTests
         var time = new ControlledTimeProvider();
         var activity = new AgentSessionActivity(time);
 
-        activity.ObserveProviderEvent(Summary("named ", "part", completed: false));
-        activity.ObserveProviderEvent(Summary("summary", "part", completed: false));
+        activity.ObserveProviderEvent(LLMEvent.ReasoningDelta("named ", LLMReasoningKind.Summary, "part", completed: false));
+        activity.ObserveProviderEvent(LLMEvent.ReasoningDelta("summary", LLMReasoningKind.Summary, "part", completed: false));
         _ = await Assert.That(activity.Capture().Recent).IsEmpty();
-        activity.ObserveProviderEvent(Summary(string.Empty, "part", completed: true));
+        activity.ObserveProviderEvent(LLMEvent.ReasoningDelta(string.Empty, LLMReasoningKind.Summary, "part", completed: true));
 
-        activity.ObserveProviderEvent(Summary("first", string.Empty, completed: false));
-        activity.ObserveProviderEvent(Summary(string.Empty, string.Empty, completed: true));
-        activity.ObserveProviderEvent(Summary("second", string.Empty, completed: true));
+        activity.ObserveProviderEvent(LLMEvent.ReasoningDelta("first", LLMReasoningKind.Summary, string.Empty, completed: false));
+        activity.ObserveProviderEvent(LLMEvent.ReasoningDelta(string.Empty, LLMReasoningKind.Summary, string.Empty, completed: true));
+        activity.ObserveProviderEvent(LLMEvent.ReasoningDelta("second", LLMReasoningKind.Summary, string.Empty, completed: true));
 
         var captured = activity.Capture();
         _ = await Assert.That(captured.Recent).Count().IsEqualTo(3);
@@ -66,12 +66,12 @@ internal sealed class AgentSessionActivityTests
     {
         var activity = new AgentSessionActivity(new ControlledTimeProvider());
 
-        activity.ObserveProviderEvent(Summary("stale named", "reused", completed: false));
-        activity.ObserveProviderEvent(Summary("stale unnamed", string.Empty, completed: false));
+        activity.ObserveProviderEvent(LLMEvent.ReasoningDelta("stale named", LLMReasoningKind.Summary, "reused", completed: false));
+        activity.ObserveProviderEvent(LLMEvent.ReasoningDelta("stale unnamed", LLMReasoningKind.Summary, string.Empty, completed: false));
         activity.FinishProviderRequest();
-        activity.ObserveProviderEvent(Summary("fresh named", "reused", completed: true));
-        activity.ObserveProviderEvent(Summary("fresh unnamed", string.Empty, completed: true));
-        activity.ObserveProviderEvent(Summary("   ", "blank", completed: true));
+        activity.ObserveProviderEvent(LLMEvent.ReasoningDelta("fresh named", LLMReasoningKind.Summary, "reused", completed: true));
+        activity.ObserveProviderEvent(LLMEvent.ReasoningDelta("fresh unnamed", LLMReasoningKind.Summary, string.Empty, completed: true));
+        activity.ObserveProviderEvent(LLMEvent.ReasoningDelta("   ", LLMReasoningKind.Summary, "blank", completed: true));
 
         var captured = activity.Capture();
         _ = await Assert.That(captured.Recent).Count().IsEqualTo(2);
@@ -149,9 +149,9 @@ internal sealed class AgentSessionActivityTests
         var activity = new AgentSessionActivity(time);
 
         activity.RecordAssistantMessage("dropped");
-        activity.ObserveProviderEvent(Summary("summary-1", "one", completed: true));
+        activity.ObserveProviderEvent(LLMEvent.ReasoningDelta("summary-1", LLMReasoningKind.Summary, "one", completed: true));
         activity.RecordAssistantMessage("assistant-2");
-        activity.ObserveProviderEvent(Summary("summary-3", "three", completed: true));
+        activity.ObserveProviderEvent(LLMEvent.ReasoningDelta("summary-3", LLMReasoningKind.Summary, "three", completed: true));
         activity.RecordAssistantMessage("assistant-4");
         activity.RecordAssistantMessage("assistant-5");
 
@@ -251,7 +251,4 @@ internal sealed class AgentSessionActivityTests
         _ = await Assert.That(rewound.LatestProviderActivityAge).IsEqualTo(TimeSpan.Zero);
         _ = await Assert.That(rewound.Recent[0].Age).IsEqualTo(TimeSpan.Zero);
     }
-
-    private static LLMEvent Summary(string fragment, string partId, bool completed) =>
-        LLMEvent.ReasoningDelta(fragment, LLMReasoningKind.Summary, partId, completed);
 }

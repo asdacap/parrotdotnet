@@ -73,9 +73,60 @@ internal sealed class StorageInvariantTests : IDisposable
         {
             var repository = new EventRepository(database);
             var root = repository.SessionState("user", "build").AgentSessionId;
-            _ = repository.Append(Statistics("root-1", root, 10, 3, 4, 8, 128, 1, 2), null, null);
-            _ = repository.Append(Statistics("child-1", "child", 7, 2, 5, 99, 999, 0.5, 0.25), null, null);
-            var usage = repository.Append(Statistics("root-2", root, 15, 5, 6, 9, 128, 1.5, 2.5), null, null)
+            _ = repository.Append(
+                new Event
+                {
+                    Id = "root-1",
+                    AgentSessionId = root,
+                    AgentStatisticsUpdated = new AgentStatisticsUpdatedEvent
+                    {
+                        InputTokens = 10,
+                        CachedInputTokens = 3,
+                        OutputTokens = 4,
+                        ContextSize = 8,
+                        ContextLimit = 128,
+                        InputCost = 1,
+                        OutputCost = 2,
+                    },
+                },
+                null,
+                null);
+            _ = repository.Append(
+                new Event
+                {
+                    Id = "child-1",
+                    AgentSessionId = "child",
+                    AgentStatisticsUpdated = new AgentStatisticsUpdatedEvent
+                    {
+                        InputTokens = 7,
+                        CachedInputTokens = 2,
+                        OutputTokens = 5,
+                        ContextSize = 99,
+                        ContextLimit = 999,
+                        InputCost = 0.5,
+                        OutputCost = 0.25,
+                    },
+                },
+                null,
+                null);
+            var usage = repository.Append(
+                new Event
+                {
+                    Id = "root-2",
+                    AgentSessionId = root,
+                    AgentStatisticsUpdated = new AgentStatisticsUpdatedEvent
+                    {
+                        InputTokens = 15,
+                        CachedInputTokens = 5,
+                        OutputTokens = 6,
+                        ContextSize = 9,
+                        ContextLimit = 128,
+                        InputCost = 1.5,
+                        OutputCost = 2.5,
+                    },
+                },
+                null,
+                null)
                 ?? throw new InvalidOperationException("statistics did not project usage");
 
             revision = usage.Revision;
@@ -101,9 +152,60 @@ internal sealed class StorageInvariantTests : IDisposable
         using var database = SessionDatabase.Open(Path.Combine(_root, "sessions", "legacy-usage", "session.db"));
         var repository = new EventRepository(database);
         var root = repository.SessionState("user", "build").AgentSessionId;
-        _ = repository.Append(Statistics("old-root", root, 4, 1, 2, 3, 100, 0.4, 0.2), null, null);
-        _ = repository.Append(Statistics("new-root", root, 9, 2, 5, 6, 100, 0.9, 0.5), null, null);
-        _ = repository.Append(Statistics("child", "child", 3, 1, 1, 80, 200, 0.3, 0.1), null, null);
+        _ = repository.Append(
+            new Event
+            {
+                Id = "old-root",
+                AgentSessionId = root,
+                AgentStatisticsUpdated = new AgentStatisticsUpdatedEvent
+                {
+                    InputTokens = 4,
+                    CachedInputTokens = 1,
+                    OutputTokens = 2,
+                    ContextSize = 3,
+                    ContextLimit = 100,
+                    InputCost = 0.4,
+                    OutputCost = 0.2,
+                },
+            },
+            null,
+            null);
+        _ = repository.Append(
+            new Event
+            {
+                Id = "new-root",
+                AgentSessionId = root,
+                AgentStatisticsUpdated = new AgentStatisticsUpdatedEvent
+                {
+                    InputTokens = 9,
+                    CachedInputTokens = 2,
+                    OutputTokens = 5,
+                    ContextSize = 6,
+                    ContextLimit = 100,
+                    InputCost = 0.9,
+                    OutputCost = 0.5,
+                },
+            },
+            null,
+            null);
+        _ = repository.Append(
+            new Event
+            {
+                Id = "child",
+                AgentSessionId = "child",
+                AgentStatisticsUpdated = new AgentStatisticsUpdatedEvent
+                {
+                    InputTokens = 3,
+                    CachedInputTokens = 1,
+                    OutputTokens = 1,
+                    ContextSize = 80,
+                    ContextLimit = 200,
+                    InputCost = 0.3,
+                    OutputCost = 0.1,
+                },
+            },
+            null,
+            null);
 
         using (var legacy = database.Connection.CreateCommand())
         {
@@ -130,11 +232,39 @@ internal sealed class StorageInvariantTests : IDisposable
         using var database = SessionDatabase.Open(Path.Combine(_root, "sessions", "atomic-usage", "session.db"));
         var repository = new EventRepository(database);
         var root = repository.SessionState("user", "build").AgentSessionId;
-        var first = Statistics("same", root, 4, 1, 2, 3, 100, 0.4, 0.2);
+        var first = new Event
+        {
+            Id = "same",
+            AgentSessionId = root,
+            AgentStatisticsUpdated = new AgentStatisticsUpdatedEvent
+            {
+                InputTokens = 4,
+                CachedInputTokens = 1,
+                OutputTokens = 2,
+                ContextSize = 3,
+                ContextLimit = 100,
+                InputCost = 0.4,
+                OutputCost = 0.2,
+            },
+        };
         _ = repository.Append(first, null, null);
 
         _ = await Assert.That(() => repository.Append(
-            Statistics("same", root, 40, 10, 20, 30, 100, 4, 2),
+            new Event
+            {
+                Id = "same",
+                AgentSessionId = root,
+                AgentStatisticsUpdated = new AgentStatisticsUpdatedEvent
+                {
+                    InputTokens = 40,
+                    CachedInputTokens = 10,
+                    OutputTokens = 20,
+                    ContextSize = 30,
+                    ContextLimit = 100,
+                    InputCost = 4,
+                    OutputCost = 2,
+                },
+            },
             null,
             null)).ThrowsException();
 
@@ -225,30 +355,4 @@ internal sealed class StorageInvariantTests : IDisposable
         _ = await Assert.That(WorkingDirectoryClaim.Fingerprint("/a"))
             .IsEqualTo(WorkingDirectoryClaim.Fingerprint("/a"));
     }
-
-    private static Event Statistics(
-        string id,
-        string agentSessionId,
-        long inputTokens,
-        long cachedInputTokens,
-        long outputTokens,
-        long contextSize,
-        long contextLimit,
-        double inputCost,
-        double outputCost) =>
-        new()
-        {
-            Id = id,
-            AgentSessionId = agentSessionId,
-            AgentStatisticsUpdated = new AgentStatisticsUpdatedEvent
-            {
-                InputTokens = inputTokens,
-                CachedInputTokens = cachedInputTokens,
-                OutputTokens = outputTokens,
-                ContextSize = contextSize,
-                ContextLimit = contextLimit,
-                InputCost = inputCost,
-                OutputCost = outputCost,
-            },
-        };
 }

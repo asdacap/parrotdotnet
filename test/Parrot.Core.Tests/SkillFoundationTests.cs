@@ -102,9 +102,9 @@ internal sealed class SkillFoundationTests
     [Test]
     public async Task Mentions_and_selection_are_ordered_deduplicated_and_use_first_enabled_duplicate()
     {
-        var first = Skill("same", "/first/SKILL.md", enabled: false);
-        var second = Skill("same", "/second/SKILL.md", enabled: true);
-        var third = Skill("other", "/third/SKILL.md", enabled: true);
+        var first = new SkillMetadata("same", "description", "/first/SKILL.md", SkillScope.User, null, null, false, true);
+        var second = new SkillMetadata("same", "description", "/second/SKILL.md", SkillScope.User, null, null, true, true);
+        var third = new SkillMetadata("other", "description", "/third/SKILL.md", SkillScope.User, null, null, true, true);
         var mentions = SkillMentionParser.Parse("$HOME then $other, $same, and $same again");
 
         var selected = SkillSelection.Select([first, second, third], mentions);
@@ -131,8 +131,8 @@ internal sealed class SkillFoundationTests
     [Test]
     public async Task Linked_mentions_select_the_exact_duplicate_path()
     {
-        var first = Skill("same", Path.GetFullPath("/first/SKILL.md"), enabled: true);
-        var second = Skill("same", Path.GetFullPath("/second/SKILL.md"), enabled: true);
+        var first = new SkillMetadata("same", "description", Path.GetFullPath("/first/SKILL.md"), SkillScope.User, null, null, true, true);
+        var second = new SkillMetadata("same", "description", Path.GetFullPath("/second/SKILL.md"), SkillScope.User, null, null, true, true);
         var mentions = SkillMentionParser.Parse($"use [$same]({second.Path})");
 
         var selected = SkillSelection.Select([first, second], mentions);
@@ -172,9 +172,6 @@ internal sealed class SkillFoundationTests
         var manifest = await Manifest(packaged, files);
         _ = await Assert.That(manifest).IsEqualTo("F2B747CF559AB58A9AE4B9789C39DAC7A8A659046640AFD3132E08026CB1F317");
     }
-
-    private static SkillMetadata Skill(string name, string path, bool enabled) =>
-        new(name, "description", path, SkillScope.User, null, null, enabled, true);
 
     private static List<string> RelativeFiles(string root) =>
         [.. Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)

@@ -4,13 +4,15 @@ using Parrot.Store;
 
 namespace Parrot.Core.Tests;
 
-internal static class SecurityProfileTestFactory
+internal sealed class SecurityProfileTestFixture
 {
     private static readonly ProjectWorkspace Workspace = ProjectWorkspace.FromLaunchDirectory(Directory.GetCurrentDirectory());
 
-    public static AgentSessionSecurity Create(SecurityProfile policy)
+    public SecurityProfileTestFixture(SecurityProfile policy)
     {
         ArgumentNullException.ThrowIfNull(policy);
-        return new AgentSessionSecurity(policy, Workspace, Workspace.LaunchDirectory);
+        Security = new AgentSessionSecurity(policy, Workspace, Workspace.LaunchDirectory);
     }
+
+    public AgentSessionSecurity Security { get; }
 }

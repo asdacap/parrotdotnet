@@ -23,7 +23,13 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
     [Test]
     public async Task Start_info_uses_a_profile_file_and_private_environment()
     {
-        var resources = Resources();
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var environment = new ProcessEnvironmentOverrides(
         [
             new KeyValuePair<string, string>("COMMAND_VALUE", "present"),
@@ -53,7 +59,13 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
     [Test]
     public async Task Writable_policy_limits_writes_and_preserves_protected_runtime_exceptions()
     {
-        var resources = Resources();
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var denied = Directory.CreateDirectory(Path.Combine(_workspace, "denied")).FullName;
         var scratch = Scratch(resources);
         var profile = SecurityProfile.ForAgent(
@@ -79,7 +91,13 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
     [Test]
     public async Task Shared_scratch_omits_nested_write_denials_from_seatbelt_policy()
     {
-        var resources = Resources();
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var siblingScratch = resources.AgentScratch("agent-session-sibling");
         var profile = SecurityProfile.ForAgent(
             SecurityProfile.Compose(
@@ -100,7 +118,13 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
     [Test]
     public async Task Read_only_policy_ignores_workspace_writes_but_allows_shared_scratch()
     {
-        var resources = Resources();
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var ignoredWorkspace = Directory.CreateTempSubdirectory();
 
         try
@@ -141,13 +165,4 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
 
     private static AgentScratchDirectory Scratch(UserSessionResources resources) =>
         resources.AgentScratch("agent-session-test");
-
-    private UserSessionResources Resources() =>
-        new(
-            new StatePaths(
-                Path.Combine(_workspace, ".test-state"),
-                Path.Combine(_workspace, ".test-config"),
-                Path.Combine(_workspace, ".test-data")),
-            UserSessionId.Parse("session-test"),
-            ProjectWorkspace.FromLaunchDirectory(_workspace));
 }

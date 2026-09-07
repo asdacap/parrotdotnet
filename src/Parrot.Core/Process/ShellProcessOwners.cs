@@ -6,7 +6,7 @@ namespace Parrot.Process;
 internal sealed class ShellProcessOwners(
     UserSessionResources resources,
     ProcessRunner runner,
-    CancellationToken lifetime) : IActiveWorkSource, IProcessStatusSource, IDisposable
+    CancellationToken lifetime) : IDisposable
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<string, ShellProcessOwner> _owners = new(StringComparer.Ordinal);

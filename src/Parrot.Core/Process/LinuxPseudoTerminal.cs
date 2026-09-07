@@ -111,7 +111,7 @@ internal static partial class LinuxPseudoTerminal
 
                 if (error != InterruptedSystemCall)
                 {
-                    throw Failure("read PTY", error);
+                    throw new IOException($"failed to read PTY (errno {error})");
                 }
             }
         }
@@ -147,7 +147,7 @@ internal static partial class LinuxPseudoTerminal
 
                 if (error != InterruptedSystemCall)
                 {
-                    throw Failure("write PTY", error);
+                    throw new IOException($"failed to write PTY (errno {error})");
                 }
             }
         }
@@ -191,15 +191,16 @@ internal static partial class LinuxPseudoTerminal
 
             if (error != InterruptedSystemCall)
             {
-                throw Failure("poll PTY", error);
+                throw new IOException($"failed to poll PTY (errno {error})");
             }
         }
     }
 
-    private static IOException Failure(string operation) => Failure(operation, Marshal.GetLastPInvokeError());
-
-    private static IOException Failure(string operation, int error) =>
-        new($"failed to {operation} (errno {error})");
+    private static IOException Failure(string operation)
+    {
+        var error = Marshal.GetLastPInvokeError();
+        return new IOException($"failed to {operation} (errno {error})");
+    }
 
     [LibraryImport("libc", EntryPoint = "posix_openpt", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]

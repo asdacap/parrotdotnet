@@ -87,33 +87,31 @@ internal sealed partial class AgentSession
     private WaitAgentResult Terminal(AgentExecution completed, long elapsedMilliseconds) =>
         completed.Status switch
         {
-            AgentExecutionStatus.Succeeded => TaskResult(
+            AgentExecutionStatus.Succeeded => new WaitAgentResult(
+                SessionId,
+                Name,
                 AgentTaskStatus.Succeeded,
-                yielded: false,
+                Yielded: false,
                 elapsedMilliseconds,
                 completed.Output,
                 completed.Error),
-            AgentExecutionStatus.Failed => TaskResult(
+            AgentExecutionStatus.Failed => new WaitAgentResult(
+                SessionId,
+                Name,
                 AgentTaskStatus.Failed,
-                yielded: false,
+                Yielded: false,
                 elapsedMilliseconds,
                 completed.Output,
                 completed.Error),
-            _ => TaskResult(
+            _ => new WaitAgentResult(
+                SessionId,
+                Name,
                 AgentTaskStatus.Canceled,
-                yielded: false,
+                Yielded: false,
                 elapsedMilliseconds,
                 completed.Output,
                 completed.Error),
         };
-
-    private WaitAgentResult TaskResult(
-        AgentTaskStatus status,
-        bool yielded,
-        long elapsedMilliseconds,
-        string output,
-        string error) =>
-        new(SessionId, Name, status, yielded, elapsedMilliseconds, output, error);
 
     private async Task<(AgentSendResult Result, Task<AgentExecution> Execution)> SendAndSelectExecution(
         string message,
@@ -528,12 +526,12 @@ internal sealed partial class AgentSession
                 {
                     _skills.EndTurn();
                     var captured = CaptureSelection();
-                    captured.Profile.Prepare();
+                    captured.Mode.Prepare();
                     var resolved = ResolveModel(captured);
                     activeSelection = new AgentTurnSelection(
                         resolved.RequestedSelector,
                         resolved,
-                        captured.Profile,
+                        captured.Mode,
                         captured.SecurityProfile);
                     providerRequests = 0;
                     turnOpen = true;
@@ -684,7 +682,7 @@ internal sealed partial class AgentSession
                     SessionId,
                     Identifier.MessageId(),
                     completed.AssistantText,
-                    activeSelection.Profile);
+                    activeSelection.Mode);
                 List<IDisposable> completionReservations = [];
                 PlanCompleted? deferredPlanCompletion = null;
                 AgentTurnCompletionOutcome.RetryOutcome? retryOutcome = null;
@@ -907,7 +905,7 @@ internal sealed partial class AgentSession
         var selection = new AgentTurnSelection(
             resolved.RequestedSelector,
             resolved,
-            captured.Profile,
+            captured.Mode,
             captured.SecurityProfile);
         var tools = MaterializeTools()
             .Without(captured.Profile.DisabledTools)
@@ -1115,7 +1113,7 @@ internal sealed partial class AgentSession
                     {
                         Id = Identifier.EventId(),
                         AgentSessionId = SessionId,
-                        AgentStatisticsUpdated = statistics.ConvertToPayload(),
+                        AgentStatisticsUpdated = AgentStatisticsUpdatedEvent.From(statistics),
                     };
                     await EmitEvent(published, null, null, CancellationToken.None).ConfigureAwait(false);
                     eventBroker.PublishTransient(

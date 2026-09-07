@@ -24,7 +24,7 @@ internal sealed class AgentQueueTests : IDisposable
         var resources = Resources("direct-access");
         using var catalog = new AgentQueueCatalog(resources);
         using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        using var child = catalog.Register(Child("child-agent", "root-agent", "root", "child", 1));
+        using var child = catalog.Register(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
         var parentQueue = root.Create("parent-work", "parent owned");
         var childQueue = child.Create("child-work", "child owned");
 
@@ -53,7 +53,7 @@ internal sealed class AgentQueueTests : IDisposable
     {
         using var catalog = new AgentQueueCatalog(Resources("child-close"));
         using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        using var child = catalog.Register(Child("child-agent", "root-agent", "root", "child", 1));
+        using var child = catalog.Register(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
         _ = root.Create("parent-work", "shared");
         _ = await root.Push("parent-work", ["final-item"], QueueDirection.Back, false, cancellationToken);
         _ = await child.Listen("parent-work", true, cancellationToken);
@@ -80,9 +80,9 @@ internal sealed class AgentQueueTests : IDisposable
     {
         using var catalog = new AgentQueueCatalog(Resources("denied-access"));
         using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        using var left = catalog.Register(Child("left-agent", "root-agent", "root", "left", 1));
-        using var right = catalog.Register(Child("right-agent", "root-agent", "root", "right", 1));
-        using var grandchild = catalog.Register(Child("grandchild-agent", "left-agent", "left", "grandchild", 2));
+        using var left = catalog.Register(AgentIdentity.Child("left-agent", "root-agent", "root", "left", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
+        using var right = catalog.Register(AgentIdentity.Child("right-agent", "root-agent", "root", "right", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
+        using var grandchild = catalog.Register(AgentIdentity.Child("grandchild-agent", "left-agent", "left", "grandchild", 2, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
         _ = root.Create("root-secret", string.Empty);
         _ = left.Create("left-secret", string.Empty);
         _ = grandchild.Create("grandchild-secret", string.Empty);
@@ -109,7 +109,7 @@ internal sealed class AgentQueueTests : IDisposable
     {
         using var catalog = new AgentQueueCatalog(Resources("collision-orders"));
         using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        using var child = catalog.Register(Child("child-agent", "root-agent", "root", "child", 1));
+        using var child = catalog.Register(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
 
         _ = root.Create("parent-first", string.Empty);
         _ = await Assert.That(() => child.Create("parent-first", string.Empty))
@@ -129,7 +129,7 @@ internal sealed class AgentQueueTests : IDisposable
         var resources = Resources("concurrent-collision");
         using var catalog = new AgentQueueCatalog(resources);
         using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        using var child = catalog.Register(Child("child-agent", "root-agent", "root", "child", 1));
+        using var child = catalog.Register(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
         using var start = new ManualResetEventSlim();
         var parentAttempt = Task.Run(() => TryCreate(root, "same-name", start));
         var childAttempt = Task.Run(() => TryCreate(child, "same-name", start));
@@ -149,8 +149,8 @@ internal sealed class AgentQueueTests : IDisposable
     {
         using var catalog = new AgentQueueCatalog(Resources("sibling-isolation"));
         using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        using var left = catalog.Register(Child("left-agent", "root-agent", "root", "left", 1));
-        using var right = catalog.Register(Child("right-agent", "root-agent", "root", "right", 1));
+        using var left = catalog.Register(AgentIdentity.Child("left-agent", "root-agent", "root", "left", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
+        using var right = catalog.Register(AgentIdentity.Child("right-agent", "root-agent", "root", "right", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
         var leftInfo = left.Create("shared-name", "left queue");
         var rightInfo = right.Create("shared-name", "right queue");
 
@@ -173,7 +173,7 @@ internal sealed class AgentQueueTests : IDisposable
         var resources = Resources("child-cleanup");
         using var catalog = new AgentQueueCatalog(resources);
         using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        var child = catalog.Register(Child("child-agent", "root-agent", "root", "child", 1));
+        var child = catalog.Register(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
         var childDirectory = resources.AgentQueueDirectory("child-agent");
         _ = child.Create("temporary-work", string.Empty);
         _ = root.Create("root-work", string.Empty);
@@ -182,7 +182,7 @@ internal sealed class AgentQueueTests : IDisposable
 
         _ = await Assert.That(Directory.Exists(childDirectory)).IsFalse();
         _ = await Assert.That(File.Exists(root.Get("root-work").Path)).IsTrue();
-        using var replacement = catalog.Register(Child("child-agent", "root-agent", "root", "child", 1));
+        using var replacement = catalog.Register(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
         _ = await Assert.That(string.Join(',', replacement.List().Select(static queue => queue.Name)))
             .IsEqualTo("root-work");
         _ = replacement.Create("fresh-work", string.Empty);
@@ -253,7 +253,7 @@ internal sealed class AgentQueueTests : IDisposable
     {
         using var catalog = new AgentQueueCatalog(Resources("listener-cleanup"));
         using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        var child = catalog.Register(Child("child-agent", "root-agent", "root", "child", 1));
+        var child = catalog.Register(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
         _ = root.Create("parent-work", string.Empty);
         _ = root.Local.Monitor("parent-work", child.SessionId, true);
         _ = root.Local.Monitor("parent-work", "other-agent", true);
@@ -317,8 +317,8 @@ internal sealed class AgentQueueTests : IDisposable
     {
         using var catalog = new AgentQueueCatalog(Resources("aggregate-inventory"));
         using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        var left = catalog.Register(Child("left-agent", "root-agent", "root", "left", 1));
-        using var right = catalog.Register(Child("right-agent", "root-agent", "root", "right", 1));
+        var left = catalog.Register(AgentIdentity.Child("left-agent", "root-agent", "root", "left", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
+        using var right = catalog.Register(AgentIdentity.Child("right-agent", "root-agent", "root", "right", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
         _ = root.Create("root-work", "root");
         _ = left.Create("shared-name", "left");
         _ = right.Create("shared-name", "right");
@@ -381,14 +381,6 @@ internal sealed class AgentQueueTests : IDisposable
             }
         }
     }
-
-    private static AgentIdentity Child(
-        string sessionId,
-        string parentSessionId,
-        string parentName,
-        string name,
-        int depth) =>
-        AgentIdentity.Child(sessionId, parentSessionId, parentName, name, depth, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates);
 
     private static QueueNotFoundException CaptureNotFound(Action action)
     {

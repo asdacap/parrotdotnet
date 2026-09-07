@@ -9,7 +9,7 @@ internal sealed class IncrementalEditor(string prefix, int maximumRunes)
 
     public bool IsEmpty => _text.Count == 0;
 
-    public PromptValue Prompt => new(prefix, string.Concat(_text), _cursor);
+    public PromptState Prompt => new(prefix, string.Concat(_text), _cursor);
 
     public string? Apply(TerminalKey key)
     {

@@ -104,7 +104,7 @@ internal sealed class EnhancedCliTests
         var invoker = new ScriptedInvoker();
         using var loadedConfiguration = new LoadedConfiguration(string.Empty);
         var configuration = loadedConfiguration.Value;
-        var presenters = Presenters();
+        var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
         var renderer = new EnhancedTurnRenderer(terminal, configuration, presenters);
         var cli = new EnhancedCli(
             new GeneratedParrot.ParrotClient(invoker),
@@ -119,7 +119,7 @@ internal sealed class EnhancedCliTests
             renderer,
             TimeProvider.System,
             ImmediateDelay(),
-            Attachments());
+            new AttachmentsFixture().Uploader);
         var running = cli.Run(cancellationToken);
 
         terminal.Type("first prompt\r");
@@ -223,7 +223,24 @@ internal sealed class EnhancedCliTests
             PlanCompleted = new PlanCompleted
             {
                 Markdown = "# Written plan",
-                TaskTree = TaskTree(),
+                TaskTree = new AgentTaskProgressSnapshot
+                {
+                    OriginToolCallId = "plan",
+                    Revision = 1,
+                    RootNodes =
+                    {
+                        new AgentTaskProgressNode
+                        {
+                            Name = "first root",
+                            Status = AgentTaskProgressStatus.Pending,
+                            Children =
+                            {
+                                new AgentTaskProgressNode { Name = "nested task", Status = AgentTaskProgressStatus.Pending },
+                            },
+                        },
+                        new AgentTaskProgressNode { Name = "second root", Status = AgentTaskProgressStatus.Pending },
+                    },
+                },
                 Dialog = new TurnCompleteDialog
                 {
                     Prompt = "Plan complete: ",
@@ -421,7 +438,7 @@ internal sealed class EnhancedCliTests
         await driver.Sent(1, cancellationToken);
         await PublishQuestionStart(driver);
         await WaitForQuestionList(driver, 1, cancellationToken);
-        driver.Invoker.AddPendingQuestion(Question("question-request", "Pick a colour"));
+        driver.Invoker.AddPendingQuestion(new QuestionFixture("question-request", "Pick a colour").Pending);
 
         await driver.OutputContains("Pick a colour", cancellationToken);
         var listedBeforeSettlement = driver.Invoker.PendingQuestionLists;
@@ -450,7 +467,7 @@ internal sealed class EnhancedCliTests
         await driver.Sent(1, cancellationToken);
         await PublishQuestionStart(driver);
         await WaitForQuestionList(driver, 1, cancellationToken);
-        var pending = Question("question-request", "First choice");
+        var pending = new QuestionFixture("question-request", "First choice").Pending;
         pending.Questions.Add(new QuestionDefinition
         {
             Header = "Question",
@@ -478,8 +495,8 @@ internal sealed class EnhancedCliTests
     {
         using var driver = new CliLifecycleDriver(enhanced: true);
         var running = driver.Drive(cancellationToken);
-        driver.Invoker.AddPendingQuestion(Question("question-a", "Active question"));
-        driver.Invoker.AddPendingQuestion(Question("question-b", "Queued question"));
+        driver.Invoker.AddPendingQuestion(new QuestionFixture("question-a", "Active question").Pending);
+        driver.Invoker.AddPendingQuestion(new QuestionFixture("question-b", "Queued question").Pending);
         driver.Input.Type("ask me");
         await driver.Sent(1, cancellationToken);
         await PublishQuestionStart(driver);
@@ -513,7 +530,7 @@ internal sealed class EnhancedCliTests
         await driver.Sent(1, cancellationToken);
         await PublishQuestionStart(driver);
         await WaitForQuestionList(driver, 1, cancellationToken);
-        driver.Invoker.AddPendingQuestion(Question("question-request", "Pick a colour"));
+        driver.Invoker.AddPendingQuestion(new QuestionFixture("question-request", "Pick a colour").Pending);
 
         await driver.OutputContains("Pick a colour", cancellationToken);
         driver.Input.Type("\u001b");
@@ -631,7 +648,7 @@ internal sealed class EnhancedCliTests
             return Task.CompletedTask;
         }
 
-        await using var view = new RawActivityView(Draw, Commit, Delay, Presenters(), UpdateMainAgentActivity);
+        await using var view = new RawActivityView(Draw, Commit, Delay, new ToolPresenterRegistry([], new GenericToolPresenter()), UpdateMainAgentActivity);
         using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var animation = view.Run(animating.Token);
 
@@ -810,7 +827,7 @@ internal sealed class EnhancedCliTests
         }
 
         using var error = new StringWriter();
-        var view = new EnhancedTurnView(Replace, Commit, error, static () => 80, true, false, new ForegroundTurn(), Presenters());
+        var view = new EnhancedTurnView(Replace, Commit, error, static () => 80, true, false, new ForegroundTurn(), new ToolPresenterRegistry([], new GenericToolPresenter()));
         var text = new Event { TextChunk = new TextChunk { Fragment = "pending" } };
         await view.Prepare(text, cancellationToken);
         _ = await view.Render(text, cancellationToken);
@@ -847,21 +864,14 @@ internal sealed class EnhancedCliTests
         }
 
         using var error = new StringWriter();
-        var view = new EnhancedTurnView(Replace, Commit, error, static () => 80, true, false, new ForegroundTurn(), Presenters());
-        _ = await view.Render(new Event { AgentTaskProgressSnapshot = Progress("first", AgentTaskProgressStatus.Running) }, cancellationToken);
-        _ = await view.Render(new Event { AgentTaskProgressSnapshot = Progress("latest", AgentTaskProgressStatus.Succeeded) }, cancellationToken);
+        var view = new EnhancedTurnView(Replace, Commit, error, static () => 80, true, false, new ForegroundTurn(), new ToolPresenterRegistry([], new GenericToolPresenter()));
+        _ = await view.Render(new Event { AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot { RootNodes = { new AgentTaskProgressNode { Name = "first", Status = AgentTaskProgressStatus.Running } } } }, cancellationToken);
+        _ = await view.Render(new Event { AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot { RootNodes = { new AgentTaskProgressNode { Name = "latest", Status = AgentTaskProgressStatus.Succeeded } } } }, cancellationToken);
 
         _ = await Assert.That(replacements).Count().IsEqualTo(2);
         _ = await Assert.That(replacements[^1]).Contains("✓ latest");
         _ = await Assert.That(replacements[^1]).DoesNotContain("first");
         _ = await Assert.That(committed).IsEmpty();
-
-        static AgentTaskProgressSnapshot Progress(string name, AgentTaskProgressStatus status)
-        {
-            var snapshot = new AgentTaskProgressSnapshot();
-            snapshot.RootNodes.Add(new AgentTaskProgressNode { Name = name, Status = status });
-            return snapshot;
-        }
     }
 
     [Test]
@@ -886,7 +896,7 @@ internal sealed class EnhancedCliTests
         }
 
         using var error = new StringWriter();
-        var view = new EnhancedTurnView(Draw, Commit, error, static () => 80, false, false, new ForegroundTurn(), Presenters());
+        var view = new EnhancedTurnView(Draw, Commit, error, static () => 80, false, false, new ForegroundTurn(), new ToolPresenterRegistry([], new GenericToolPresenter()));
         _ = await view.Render(
             new Event { TextChunk = new TextChunk { Fragment = "complete line\nsuffix" } },
             cancellationToken);
@@ -966,7 +976,7 @@ internal sealed class EnhancedCliTests
         var invoker = new ScriptedInvoker();
         using var loadedConfiguration = new LoadedConfiguration(string.Empty);
         var configuration = loadedConfiguration.Value;
-        var presenters = Presenters();
+        var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
         var renderer = new EnhancedTurnRenderer(terminal, configuration, presenters);
         var cli = new EnhancedCli(
             new GeneratedParrot.ParrotClient(invoker),
@@ -981,7 +991,7 @@ internal sealed class EnhancedCliTests
             renderer,
             TimeProvider.System,
             ImmediateDelay(),
-            Attachments());
+            new AttachmentsFixture().Uploader);
         var running = cli.Run(cancellationToken);
 
         terminal.Type("/m");
@@ -1322,57 +1332,6 @@ internal sealed class EnhancedCliTests
         });
     }
 
-    private static PendingQuestion Question(string requestId, string prompt)
-    {
-        var pending = new PendingQuestion { Id = requestId };
-        pending.Questions.Add(new QuestionDefinition
-        {
-            Header = "Question",
-            Prompt = prompt,
-            Options = { "One" },
-        });
-        return pending;
-    }
-
-    private static PromptAttachmentUploader Attachments()
-    {
-        var profiles = new Dictionary<string, ProfileConfig>(StringComparer.Ordinal)
-        {
-            [ModeRegistry.Build] = Profile(),
-            [ModeRegistry.Plan] = Profile(),
-            [ModeRegistry.Query] = Profile(),
-        };
-        return new PromptAttachmentUploader(
-            new ToolWorkspace(Directory.GetCurrentDirectory()),
-            new ModeRegistry(new ProfileRegistry(profiles, [], [], new HashSet<string>(StringComparer.Ordinal)), ModeRegistry.Build));
-    }
-
-    private static ProfileConfig Profile() => new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []);
-
-    private static AgentTaskProgressSnapshot TaskTree()
-    {
-        var tree = new AgentTaskProgressSnapshot { OriginToolCallId = "plan", Revision = 1 };
-        var first = new AgentTaskProgressNode
-        {
-            Name = "first root",
-            Status = AgentTaskProgressStatus.Pending,
-        };
-        first.Children.Add(new AgentTaskProgressNode
-        {
-            Name = "nested task",
-            Status = AgentTaskProgressStatus.Pending,
-        });
-        tree.RootNodes.Add(first);
-        tree.RootNodes.Add(new AgentTaskProgressNode
-        {
-            Name = "second root",
-            Status = AgentTaskProgressStatus.Pending,
-        });
-        return tree;
-    }
-
-    private static ToolPresenterRegistry Presenters() => new([], new GenericToolPresenter());
-
     private static async Task WaitForQuestionList(
         CliLifecycleDriver driver,
         int count,
@@ -1399,6 +1358,41 @@ internal sealed class EnhancedCliTests
         {
             await Task.Delay(5, cancellationToken);
         }
+    }
+
+    private sealed class QuestionFixture
+    {
+        public QuestionFixture(string requestId, string prompt)
+        {
+            var pending = new PendingQuestion { Id = requestId };
+            pending.Questions.Add(new QuestionDefinition
+            {
+                Header = "Question",
+                Prompt = prompt,
+                Options = { "One" },
+            });
+            Pending = pending;
+        }
+
+        public PendingQuestion Pending { get; }
+    }
+
+    private sealed class AttachmentsFixture
+    {
+        public AttachmentsFixture()
+        {
+            var profiles = new Dictionary<string, ProfileConfig>(StringComparer.Ordinal)
+            {
+                [ModeRegistry.Build] = new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []),
+                [ModeRegistry.Plan] = new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []),
+                [ModeRegistry.Query] = new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []),
+            };
+            Uploader = new PromptAttachmentUploader(
+                new ToolWorkspace(Directory.GetCurrentDirectory()),
+                new ModeRegistry(new ProfileRegistry(profiles, [], [], new HashSet<string>(StringComparer.Ordinal)), ModeRegistry.Build));
+        }
+
+        public PromptAttachmentUploader Uploader { get; }
     }
 
     private sealed class LoadedConfiguration : IDisposable

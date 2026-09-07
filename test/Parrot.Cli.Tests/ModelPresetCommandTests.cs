@@ -17,9 +17,11 @@ internal sealed class ModelPresetCommandTests
         var activity = new TestSlashActivity();
         var dialog = new TestSlashDialog();
 
-        await new ModelPresetSetCommand(session, dialog).Run("Work", cancellationToken);
-        await new ModelPresetSetCommand(session, dialog).Run("Work", cancellationToken);
-        await new ModelPresetSelectCommand(session, activity, dialog).Run("Work", cancellationToken);
+        ISlashCommand setCommand = new ModelPresetSetCommand(session, dialog);
+        await setCommand.Run("Work", cancellationToken);
+        await setCommand.Run("Work", cancellationToken);
+        ISlashCommand selectCommand = new ModelPresetSelectCommand(session, activity, dialog);
+        await selectCommand.Run("Work", cancellationToken);
 
         _ = await Assert.That(string.Join(',', session.SetModelPresets)).IsEqualTo("Work,Work");
         _ = await Assert.That(string.Join(',', session.SelectedModelPresets)).IsEqualTo("Work");
@@ -43,7 +45,8 @@ internal sealed class ModelPresetCommandTests
         var activity = new TestSlashActivity();
         var dialog = new TestSlashDialog().Select("Research");
 
-        await new ModelPresetSelectCommand(session, activity, dialog).Run(string.Empty, cancellationToken);
+        ISlashCommand selectCommand = new ModelPresetSelectCommand(session, activity, dialog);
+        await selectCommand.Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(string.Join(',', session.SelectedModelPresets)).IsEqualTo("Research");
         _ = await Assert.That(session.Model).IsEqualTo("medium_llm");
@@ -64,7 +67,8 @@ internal sealed class ModelPresetCommandTests
         var activity = new TestSlashActivity();
         var dialog = new TestSlashDialog().Select([null]);
 
-        await new ModelPresetSelectCommand(session, activity, dialog).Run("   ", cancellationToken);
+        ISlashCommand selectCommand = new ModelPresetSelectCommand(session, activity, dialog);
+        await selectCommand.Run("   ", cancellationToken);
 
         _ = await Assert.That(session.SelectedModelPresets).IsEmpty();
         _ = await Assert.That(session.SetModelPresets).IsEmpty();
@@ -80,7 +84,8 @@ internal sealed class ModelPresetCommandTests
         var activity = new TestSlashActivity();
         var dialog = new TestSlashDialog();
 
-        await new ModelPresetSelectCommand(session, activity, dialog).Run(string.Empty, cancellationToken);
+        ISlashCommand selectCommand = new ModelPresetSelectCommand(session, activity, dialog);
+        await selectCommand.Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(session.SelectedModelPresets).IsEmpty();
         _ = await Assert.That(activity.Waits).IsEqualTo(1);
@@ -100,8 +105,10 @@ internal sealed class ModelPresetCommandTests
         var activity = new TestSlashActivity();
         var dialog = new TestSlashDialog();
 
-        await new ModelPresetSetCommand(session, dialog).Run(name, cancellationToken);
-        await new ModelPresetSelectCommand(session, activity, dialog).Run(name, cancellationToken);
+        ISlashCommand setCommand = new ModelPresetSetCommand(session, dialog);
+        await setCommand.Run(name, cancellationToken);
+        ISlashCommand selectCommand = new ModelPresetSelectCommand(session, activity, dialog);
+        await selectCommand.Run(name, cancellationToken);
 
         _ = await Assert.That(session.SetModelPresets).IsEmpty();
         _ = await Assert.That(session.SelectedModelPresets).IsEmpty();
@@ -116,7 +123,7 @@ internal sealed class ModelPresetCommandTests
     {
         var invoker = new ScriptedInvoker { ModelPresetFailure = StatusCode.NotFound };
         var client = new GeneratedParrot.ParrotClient(invoker);
-        var session = new SlashSession(
+        ISlashSession session = new SlashSession(
             client,
             new UserSession { Id = "session-7", Model = "provider/model", Mode = "build" },
             new Parrot.Config.Configuration(Path.Combine(Path.GetTempPath(), $"parrot-{Guid.NewGuid():N}.yaml")),
@@ -125,8 +132,10 @@ internal sealed class ModelPresetCommandTests
         var activity = new TestSlashActivity();
         var dialog = new TestSlashDialog();
 
-        await new ModelPresetSetCommand(session, dialog).Run("missing", cancellationToken);
-        await new ModelPresetSelectCommand(session, activity, dialog).Run("missing", cancellationToken);
+        ISlashCommand setCommand = new ModelPresetSetCommand(session, dialog);
+        await setCommand.Run("missing", cancellationToken);
+        ISlashCommand selectCommand = new ModelPresetSelectCommand(session, activity, dialog);
+        await selectCommand.Run("missing", cancellationToken);
 
         _ = await Assert.That(string.Join('|', dialog.Errors)).IsEqualTo(
             "scripted model preset failure|scripted model preset failure");
@@ -136,9 +145,9 @@ internal sealed class ModelPresetCommandTests
 
         using var cancelled = new CancellationTokenSource();
         await cancelled.CancelAsync();
-        _ = await Assert.That(async () => await new ModelPresetSetCommand(session, dialog)
+        _ = await Assert.That(async () => await setCommand
             .Run("work", cancelled.Token)).Throws<OperationCanceledException>();
-        _ = await Assert.That(async () => await new ModelPresetSelectCommand(session, activity, dialog)
+        _ = await Assert.That(async () => await selectCommand
             .Run("work", cancelled.Token)).Throws<OperationCanceledException>();
     }
 
@@ -151,7 +160,7 @@ internal sealed class ModelPresetCommandTests
         var invoker = new ScriptedInvoker { SelectedModelPresetModel = "high_llm" };
         invoker.ModelPreset.Name = "Work";
         invoker.ModelPreset.Model = "high_llm";
-        var session = new SlashSession(
+        ISlashSession session = new SlashSession(
             new GeneratedParrot.ParrotClient(invoker),
             new UserSession { Id = "session-7", Model = "provider/old", Mode = "build" },
             configuration,

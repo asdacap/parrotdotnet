@@ -22,7 +22,7 @@ internal sealed class ModeRegistry
 
     public IReadOnlyList<string> List() => _modes;
 
-    public AgentProfile Resolve(string id)
+    public IAgentProfile Resolve(string id)
     {
         var selected = id.Length == 0 ? Default : id;
         if (!_modes.Contains(selected, StringComparer.Ordinal))

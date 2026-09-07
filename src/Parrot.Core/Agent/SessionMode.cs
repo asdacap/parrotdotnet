@@ -9,23 +9,7 @@ internal sealed class SessionMode(
     Action prepare,
     Func<string, string, ModeCompletionOutcome> complete) : IMode
 {
-    public string Id => profile.Id;
-
-    public string Prompt => prompt();
-
-    public IReadOnlyList<string>? AllowedTools => profile.AllowedTools;
-
-    public IReadOnlyList<string> DisabledTools => profile.DisabledTools;
-
-    public int MaxTurns => profile.MaxTurns;
-
-    public bool EnforceActiveWorkCompletion => profile.EnforceActiveWorkCompletion;
-
-    public bool IsUserSelectable => profile.IsUserSelectable;
-
-    public bool IsAgentSelectable => profile.IsAgentSelectable;
-
-    public SecurityProfile SecurityProfile { get; } = securityProfile;
+    public IAgentProfile Profile { get; } = new SessionModeProfile(profile, prompt, securityProfile);
 
     public void Prepare() => prepare();
 

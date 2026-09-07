@@ -23,7 +23,7 @@ internal sealed class BasicSlashDialogTests
         using var reader = new StringReader(input);
         using var output = new StringWriter();
         using var error = new StringWriter();
-        var dialog = new BasicSlashDialog(reader, output, error);
+        ISlashDialog dialog = new BasicSlashDialog(reader, output, error);
 
         var selected = await dialog.Select("Choose a mode", options, cancellationToken);
 
@@ -49,7 +49,7 @@ internal sealed class BasicSlashDialogTests
         using var reader = new StringReader(input);
         using var output = new StringWriter();
         using var error = new StringWriter();
-        var dialog = new BasicSlashDialog(reader, output, error);
+        ISlashDialog dialog = new BasicSlashDialog(reader, output, error);
 
         var confirmed = await dialog.Confirm(["Continue"], cancellationToken);
 
@@ -65,7 +65,7 @@ internal sealed class BasicSlashDialogTests
         using var input = new StringReader("answer\nsecret\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        var dialog = new BasicSlashDialog(input, output, error);
+        ISlashDialog dialog = new BasicSlashDialog(input, output, error);
 
         var text = await dialog.ReadText("Question", cancellationToken);
         var secret = await dialog.ReadSecret("Key", cancellationToken);

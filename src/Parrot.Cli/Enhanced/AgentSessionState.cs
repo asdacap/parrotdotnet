@@ -435,7 +435,7 @@ internal sealed class AgentSessionState(string agentSessionId)
             _toolLive.Add(toolCallId, live);
         }
 
-        return live is ToolLiveValue value ? value.Animate(frame) : live;
+        return live.Animate(frame);
     }
 
     private static bool IsTerminal(AgentTaskProgressSnapshot snapshot) =>

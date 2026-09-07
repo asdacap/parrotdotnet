@@ -13,9 +13,10 @@ internal sealed class QueueToolTests
     {
         using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-open", "main", TestModels.PromptTemplates));
         _ = queues.Create("work", string.Empty);
-        var result = await new QueueTakeTool(queues).Execute(
+        ITool tool = new QueueTakeTool(queues);
+        var result = await tool.Execute(
             new ToolInvocation("call", "{\"name\":\"work\",\"yield_after_ms\":20}"),
-            Selection(),
+            new SelectionFixture().Selection,
             cancellationToken);
 
         using var document = JsonDocument.Parse(result.Text);
@@ -28,14 +29,16 @@ internal sealed class QueueToolTests
     {
         using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-close", "main", TestModels.PromptTemplates));
         _ = queues.Create("work", string.Empty);
-        var waiting = new QueueTakeTool(queues).Execute(
+        ITool takeTool = new QueueTakeTool(queues);
+        var waiting = takeTool.Execute(
             new ToolInvocation("take", "{\"name\":\"work\",\"yield_after_ms\":30000}"),
-            Selection(),
+            new SelectionFixture().Selection,
             cancellationToken);
 
-        _ = await new QueuePushTool(queues, new ToolWorkspace(Environment.CurrentDirectory)).Execute(
+        ITool pushTool = new QueuePushTool(queues, new ToolWorkspace(Environment.CurrentDirectory));
+        _ = await pushTool.Execute(
             new ToolInvocation("close", "{\"name\":\"work\",\"items\":[],\"close\":true}"),
-            Selection(),
+            new SelectionFixture().Selection,
             cancellationToken);
         var completed = await Task.WhenAny(waiting, Task.Delay(TimeSpan.FromSeconds(1), cancellationToken));
         _ = await Assert.That(completed).IsSameReferenceAs(waiting);
@@ -52,19 +55,19 @@ internal sealed class QueueToolTests
     {
         using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-final", "main", TestModels.PromptTemplates));
         _ = queues.Create("work", string.Empty);
-        var tool = new QueuePushTool(queues, new ToolWorkspace(Environment.CurrentDirectory));
+        ITool tool = new QueuePushTool(queues, new ToolWorkspace(Environment.CurrentDirectory));
 
         var closed = await tool.Execute(
             new ToolInvocation("close", "{\"name\":\"work\",\"items\":[\"final\"],\"close\":true}"),
-            Selection(),
+            new SelectionFixture().Selection,
             cancellationToken);
         var closedAgain = await tool.Execute(
             new ToolInvocation("close-again", "{\"name\":\"work\",\"items\":[],\"close\":true}"),
-            Selection(),
+            new SelectionFixture().Selection,
             cancellationToken);
         var late = await tool.Execute(
             new ToolInvocation("late", "{\"name\":\"work\",\"items\":[\"late\"]}"),
-            Selection(),
+            new SelectionFixture().Selection,
             cancellationToken);
         var taken = queues.TryTake("work", 1, Parrot.Queues.QueueDirection.Front);
 
@@ -82,17 +85,17 @@ internal sealed class QueueToolTests
     {
         using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-sources", "main", TestModels.PromptTemplates));
         _ = queues.Create("work", string.Empty);
-        var tool = new QueuePushTool(queues, new ToolWorkspace(Environment.CurrentDirectory));
+        ITool tool = new QueuePushTool(queues, new ToolWorkspace(Environment.CurrentDirectory));
 
         var neither = await tool.Execute(
             new ToolInvocation("neither", "{\"name\":\"work\"}"),
-            Selection(),
+            new SelectionFixture().Selection,
             cancellationToken);
         var both = await tool.Execute(
             new ToolInvocation(
                 "both",
                 "{\"name\":\"work\",\"items\":[],\"source_file\":\"items.txt\"}"),
-            Selection(),
+            new SelectionFixture().Selection,
             cancellationToken);
 
         _ = await Assert.That(neither.Text)
@@ -119,18 +122,23 @@ internal sealed class QueueToolTests
             .Throws<JsonException>();
     }
 
-    private static AgentTurnSelection Selection()
+    private sealed class SelectionFixture
     {
-        var provider = new UnusedProvider();
-        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        return new AgentTurnSelection(
-            new ModelSelector(model.Selector),
-            new ResolvedModelSelection(
+        public SelectionFixture()
+        {
+            ILLMProvider provider = new UnusedProvider();
+            var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+            Selection = new AgentTurnSelection(
                 new ModelSelector(model.Selector),
-                null,
-                model,
-                new ModelRoutingSnapshot(model.Selector, new ModelAliasSnapshot([]), 0)),
-            TestModels.Profile(),
-            SecurityProfile.Compose(readOnly: false, [], [], []));
+                new ResolvedModelSelection(
+                    new ModelSelector(model.Selector),
+                    null,
+                    model,
+                    new ModelRoutingSnapshot(model.Selector, new ModelAliasSnapshot([]), 0)),
+                new TestProfileFixture().Mode,
+                SecurityProfile.Compose(readOnly: false, [], [], []));
+        }
+
+        public AgentTurnSelection Selection { get; }
     }
 }

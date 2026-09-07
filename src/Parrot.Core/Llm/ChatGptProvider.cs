@@ -9,13 +9,12 @@ namespace Parrot.Llm;
 // The fixed ChatGPT subscription provider. It uses OAuth credentials only, with
 // compiled-in endpoints and the responses dialect, and reports subscription
 // usage. Port of Go's ChatGPT provider.
-internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
+internal sealed class ChatGptProvider : ILLMProvider
 {
     public const string ProviderId = "chatgpt";
 
     private const string StreamEndpoint = "https://chatgpt.com/backend-api/codex/responses";
     private const string ModelsEndpoint = "https://chatgpt.com/backend-api/codex/models";
-    private const string UsageEndpoint = "https://chatgpt.com/backend-api/wham/usage";
     private const string ModelsClientVersion = "0.144.5";
     private static readonly TimeSpan HeaderTimeout = TimeSpan.FromSeconds(10);
 
@@ -41,6 +40,7 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
         ArgumentNullException.ThrowIfNull(tokens);
         ArgumentNullException.ThrowIfNull(websocketConnector);
         _tokens = tokens;
+        UsageReporter = new ChatGptUsageReporter(tokens, client);
         _client = client;
         _declared = declared;
         _defaults = defaults;
@@ -48,6 +48,8 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
         _disableWebSocket = disableWebSocket;
         _websocketConnector = websocketConnector;
     }
+
+    public IUsageReporter? UsageReporter { get; }
 
     public string Id => ProviderId;
 
@@ -89,45 +91,6 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
 
     public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
         CallHttp(_sessionId, request, string.Empty, static _ => { }, cancellationToken);
-
-    public async Task<SubscriptionUsage> Usage(CancellationToken cancellationToken)
-    {
-        var access = await _tokens.Token(cancellationToken).ConfigureAwait(false);
-        RequireToken(access);
-
-        var body = await HttpStreaming
-            .Get(_client, new Uri(UsageEndpoint), Headers(access), HttpStreaming.RequestTimeout, HttpStreaming.MaxErrorBytes, cancellationToken)
-            .ConfigureAwait(false);
-
-        using var document = JsonDocument.Parse(body);
-        var root = document.RootElement;
-        UsageWindow? primary = null;
-        UsageWindow? secondary = null;
-
-        if (root.TryGetProperty("rate_limit", out var rateLimit) && rateLimit.ValueKind == JsonValueKind.Object)
-        {
-            primary = Window(rateLimit, "primary_window");
-            secondary = Window(rateLimit, "secondary_window");
-        }
-
-        UsageCredits? credits = null;
-
-        if (root.TryGetProperty("credits", out var creditsElement) && creditsElement.ValueKind == JsonValueKind.Object)
-        {
-            var balance = creditsElement.TryGetProperty("balance", out var raw)
-                ? raw.GetRawText().Trim('"')
-                : string.Empty;
-            credits = new UsageCredits(JsonRead.Bool(creditsElement, "has_credits"), balance);
-        }
-
-        return new SubscriptionUsage
-        {
-            PlanType = JsonRead.String(root, "plan_type"),
-            PrimaryWindow = primary,
-            SecondaryWindow = secondary,
-            Credits = credits,
-        };
-    }
 
     private static List<LLMModel> DecodeModels(string json)
     {
@@ -199,17 +162,6 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
         return models.Count == 0
             ? throw new LLMProviderException("provider: models response contains no usable models")
             : models;
-    }
-
-    private static UsageWindow? Window(JsonElement scope, string name)
-    {
-        if (!scope.TryGetProperty(name, out var window) || window.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        var resetAt = DateTimeOffset.FromUnixTimeSeconds(JsonRead.Long(window, "reset_at"));
-        return new UsageWindow(JsonRead.Number(window, "used_percent"), resetAt, JsonRead.Long(window, "limit_window_seconds"));
     }
 
     private static void RequireToken(OAuthAccess access)

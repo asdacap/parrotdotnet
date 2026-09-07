@@ -22,6 +22,9 @@ internal sealed class DiffScrollbackValue(string status, string diff) : IScrollb
 
     public ScrollbackLayout Layout => ScrollbackLayout.Block;
 
+    public static IScrollbackItem Create(string status, string diff) =>
+        new DiffScrollbackValue(status, diff);
+
     public bool Continues(IScrollbackItem previous) => false;
 
     public IReadOnlyList<string> Render(ScrollbackRenderContext context)

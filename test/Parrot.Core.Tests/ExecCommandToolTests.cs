@@ -47,7 +47,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
         var scratch = resources.AgentScratch(identity.SessionId);
-        await using var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(scratch.BlobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
+        await using IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(scratch.BlobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
         using var inventory = new ShellProcessInventory();
         var processes = new ShellProcessOwner(
             session.SessionId,
@@ -57,11 +57,11 @@ internal sealed class ExecCommandToolTests : IDisposable
             inventory,
             CancellationToken.None);
         var securityProfile = SecurityProfile.Compose(readOnly: false, [], [], []);
-        var tool = new ExecCommandTool(processes, session);
+        ITool tool = new ExecCommandTool(processes, session);
         var selection = new AgentTurnSelection(
             new ModelSelector(model.Selector),
             TestModels.Resolve(model),
-            TestModels.Profile(),
+            new TestProfileFixture().Mode,
             securityProfile);
         var factoryTool = new ExecCommandToolFactory(processes).Create(session);
         var writeStdinFactoryTool = new WriteStdinToolFactory(processes).Create(session);
@@ -181,14 +181,7 @@ internal sealed class ExecCommandToolTests : IDisposable
     }
 
     private static Task<ToolExecutionResult> Execute(
-        ExecCommandTool tool,
-        string argumentsJson,
-        AgentTurnSelection selection,
-        CancellationToken cancellationToken) =>
-        tool.Execute(new ToolInvocation("call-id", argumentsJson), selection, cancellationToken);
-
-    private static Task<ToolExecutionResult> Execute(
-        InterruptProcessTool tool,
+        ITool tool,
         string argumentsJson,
         AgentTurnSelection selection,
         CancellationToken cancellationToken) =>

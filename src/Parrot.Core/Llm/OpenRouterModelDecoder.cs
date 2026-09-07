@@ -8,7 +8,7 @@ namespace Parrot.Llm;
 // default_effort) that a plain model list cannot express.
 internal sealed class OpenRouterModelDecoder : IModelListDecoder
 {
-    public static OpenRouterModelDecoder Instance { get; } = new();
+    public static IModelListDecoder Instance { get; } = new OpenRouterModelDecoder();
 
     public IReadOnlyList<LLMModel> Decode(string providerId, string json)
     {

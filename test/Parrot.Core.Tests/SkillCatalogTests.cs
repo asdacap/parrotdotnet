@@ -1,5 +1,6 @@
 using Parrot.Agent;
 using Parrot.Config;
+using Parrot.Context;
 using Parrot.Llm;
 using Parrot.Security;
 using Parrot.Skills;
@@ -299,16 +300,17 @@ internal sealed class SkillCatalogTests : IDisposable
         var catalog = new SkillCatalog(
             [new(root.FullName, SkillScope.User, true)],
             () => (SkillConfiguration.Default, 0L));
-        var provider = new AgentSkillPromptProvider(new AgentSkills(catalog, TestModels.PromptTemplates));
+        ISystemPromptProvider provider = new AgentSkillPromptProvider(new AgentSkills(catalog, TestModels.PromptTemplates));
         var first = provider.Materialize(AgentIdentity.Main("first", "first", TestModels.PromptTemplates));
         var second = provider.Materialize(AgentIdentity.Main("second", "second", TestModels.PromptTemplates));
-        var modelProvider = new UnusedProvider();
+        ILLMProvider modelProvider = new UnusedProvider();
         var model = new ProviderModel(modelProvider, new LLMModel("model", modelProvider.Id));
+        var mode = new TestProfileFixture().Mode;
         var selection = new AgentTurnSelection(
             new ModelSelector(model.Selector),
             TestModels.Resolve(model),
-            TestModels.Profile(),
-            TestModels.Profile().SecurityProfile);
+            mode,
+            mode.Profile.SecurityProfile);
 
         var firstPrompt = first.Build(selection);
         var secondPrompt = second.Build(selection);

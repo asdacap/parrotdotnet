@@ -12,18 +12,34 @@ internal sealed class SkillsCommandTests
         var session = new TestSlashSession("provider/model");
         session.Skills.Skills.AddRange(
         [
-            Skill("same", "/repo/one/SKILL.md", true, ListedSkillScope.SkillScopeRepo, "Repo Same", "repo short"),
-            Skill("same", "/user/two/SKILL.md", false, ListedSkillScope.SkillScopeUser, string.Empty, string.Empty),
+            new Skill
+            {
+                Name = "same",
+                Description = "same description",
+                Path = "/repo/one/SKILL.md",
+                Enabled = true,
+                Scope = ListedSkillScope.SkillScopeRepo,
+                DisplayName = "Repo Same",
+                ShortDescription = "repo short",
+            },
+            new Skill
+            {
+                Name = "same",
+                Description = "same description",
+                Path = "/user/two/SKILL.md",
+                Enabled = false,
+                Scope = ListedSkillScope.SkillScopeUser,
+            },
         ]);
         session.Skills.Errors.Add(new SkillLoadError { Path = "/bad/SKILL.md", Message = "invalid frontmatter" });
         var activity = new TestSlashActivity();
         var refreshes = 0;
         var listDialog = new TestSlashDialog().Select("list");
-        await new SkillsCommand(session, activity, listDialog, _ => Task.CompletedTask)
-            .Run(string.Empty, cancellationToken);
+        ISlashCommand listCommand = new SkillsCommand(session, activity, listDialog, _ => Task.CompletedTask);
+        await listCommand.Run(string.Empty, cancellationToken);
 
         var manageDialog = new TestSlashDialog().Select("manage", "/user/two/SKILL.md", "/repo/one/SKILL.md", null);
-        await new SkillsCommand(
+        ISlashCommand manageCommand = new SkillsCommand(
             session,
             activity,
             manageDialog,
@@ -31,7 +47,8 @@ internal sealed class SkillsCommandTests
             {
                 refreshes++;
                 return Task.CompletedTask;
-            }).Run(string.Empty, cancellationToken);
+            });
+        await manageCommand.Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(string.Join('\n', listDialog.Shown)).Contains("[x] Repo Same (same) — repo short — repo — /repo/one/SKILL.md");
         _ = await Assert.That(string.Join('\n', listDialog.Shown)).Contains("[ ] same — ");
@@ -50,7 +67,7 @@ internal sealed class SkillsCommandTests
     {
         var session = new TestSlashSession("provider/model");
         var dialog = new TestSlashDialog();
-        var command = new SkillsCommand(session, new TestSlashActivity(), dialog, _ => Task.CompletedTask);
+        ISlashCommand command = new SkillsCommand(session, new TestSlashActivity(), dialog, _ => Task.CompletedTask);
 
         await command.Run("extra", cancellationToken);
         _ = dialog.Select("list");
@@ -62,40 +79,11 @@ internal sealed class SkillsCommandTests
         _ = await Assert.That(string.Join('|', dialog.Shown)).IsEqualTo("No skills available.");
         _ = await Assert.That(session.ConfiguredSkills).IsEmpty();
 
-        var failure = new FailingSlashSession();
+        ISlashSession failure = new FailingSlashSession();
         var failureDialog = new TestSlashDialog().Select("list");
-        await new SkillsCommand(failure, new TestSlashActivity(), failureDialog, _ => Task.CompletedTask)
-            .Run(string.Empty, cancellationToken);
+        ISlashCommand failureCommand = new SkillsCommand(failure, new TestSlashActivity(), failureDialog, _ => Task.CompletedTask);
+        await failureCommand.Run(string.Empty, cancellationToken);
         _ = await Assert.That(string.Join('|', failureDialog.Errors)).IsEqualTo("skills unavailable: unavailable");
-    }
-
-    private static Skill Skill(
-        string name,
-        string path,
-        bool enabled,
-        ListedSkillScope scope,
-        string displayName,
-        string shortDescription)
-    {
-        var skill = new Skill
-        {
-            Name = name,
-            Description = $"{name} description",
-            Path = path,
-            Enabled = enabled,
-            Scope = scope,
-        };
-        if (displayName.Length > 0)
-        {
-            skill.DisplayName = displayName;
-        }
-
-        if (shortDescription.Length > 0)
-        {
-            skill.ShortDescription = shortDescription;
-        }
-
-        return skill;
     }
 
     private sealed class FailingSlashSession : ISlashSession

@@ -37,7 +37,10 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             [new SandboxRule(_root, SandboxRuleAction.DenyWrite)],
             [],
             []);
-        var tool = BuildTool(broker, SecurityProfileTestFactory.Create(profile));
+        ITool tool = new RequestWritePermissionTool(
+            AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
+            new SecurityProfileTestFixture(profile).Security,
+            broker);
         var path = Path.Combine(_root, "dependency");
         await File.WriteAllTextAsync(path, "content", cancellationToken);
 
@@ -46,20 +49,20 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             new ToolInvocation(
                 "test-call",
                 $$"""{"paths":["{{encodedPath}}"],"reason":"update dependency"}"""),
-            Selection(profile),
+            new SelectionFixture(profile).Selection,
             cancellationToken)).Text;
-        var missingReason = (await tool.Execute(new ToolInvocation("test-call", $$"""{"paths":["{{encodedPath}}"]}"""), Selection(profile), cancellationToken)).Text;
+        var missingReason = (await tool.Execute(new ToolInvocation("test-call", $$"""{"paths":["{{encodedPath}}"]}"""), new SelectionFixture(profile).Selection, cancellationToken)).Text;
         var missingPath = (await tool.Execute(
             new ToolInvocation(
                 "test-call",
                 $$"""{"paths":["{{Encode(Path.Combine(_root, "missing"))}}"],"reason":"update"}"""),
-            Selection(profile),
+            new SelectionFixture(profile).Selection,
             cancellationToken)).Text;
         var unexpected = (await tool.Execute(
             new ToolInvocation(
                 "test-call",
                 $$"""{"paths":["{{encodedPath}}"],"reason":"update","extra":true}"""),
-            Selection(profile),
+            new SelectionFixture(profile).Selection,
             cancellationToken)).Text;
 
         _ = await Assert.That(result).IsEqualTo("Write permission request rejected.");
@@ -90,15 +93,16 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             ],
             [],
             []);
-        var security = SecurityProfileTestFactory.Create(profile);
+        var security = new SecurityProfileTestFixture(profile).Security;
         await using var session = Session(database, events, security);
-        var tool = BuildTool(broker, security);
+        ITool tool = new RequestWritePermissionTool(
+            AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates), security, broker);
 
         var result = (await tool.Execute(
             new ToolInvocation(
                 "test-call",
                 $$"""{"paths":["{{Encode(path)}}"],"reason":"update dependency"}"""),
-            Selection(profile),
+            new SelectionFixture(profile).Selection,
             cancellationToken)).Text;
 
         _ = await Assert.That(result).Contains("already allowed by the current security profile");
@@ -123,14 +127,17 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             [new SandboxRule(_root, SandboxRuleAction.DenyWrite)],
             [],
             []);
-        var tool = BuildTool(broker, SecurityProfileTestFactory.Create(profile));
+        ITool tool = new RequestWritePermissionTool(
+            AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
+            new SecurityProfileTestFixture(profile).Security,
+            broker);
         var path = Path.Combine(_root, "dependency");
         await File.WriteAllTextAsync(path, "content", cancellationToken);
         var executing = tool.Execute(
             new ToolInvocation(
                 "test-call",
                 $$"""{"paths":["{{Encode(path)}}"],"reason":"update dependency"}"""),
-            Selection(profile),
+            new SelectionFixture(profile).Selection,
             cancellationToken);
         _ = await WaitForPending(broker, cancellationToken);
         await time.WaitForTimer(cancellationToken);
@@ -152,7 +159,10 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             TimeSpan.FromSeconds(30),
             TimeProvider.System);
         var profile = SecurityProfile.Compose(readOnly: true, [], [], []);
-        var tool = BuildTool(broker, SecurityProfileTestFactory.Create(profile));
+        ITool tool = new RequestWritePermissionTool(
+            AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
+            new SecurityProfileTestFixture(profile).Security,
+            broker);
         var path = Path.Combine(_root, "dependency");
         await File.WriteAllTextAsync(path, "content", cancellationToken);
 
@@ -160,27 +170,11 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             new ToolInvocation(
                 "test-call",
                 $$"""{"paths":["{{Encode(path)}}"],"reason":"update dependency"}"""),
-            Selection(profile),
+            new SelectionFixture(profile).Selection,
             cancellationToken)).Text;
 
         _ = await Assert.That(result).Contains("not permitted by the current security profile");
         _ = await Assert.That(broker.Pending()).IsEmpty();
-    }
-
-    private static RequestWritePermissionTool BuildTool(
-        PermissionBroker broker,
-        AgentSessionSecurity security) =>
-        new(AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates), security, broker);
-
-    private static AgentTurnSelection Selection(SecurityProfile profile)
-    {
-        var provider = new UnusedProvider();
-        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        return new AgentTurnSelection(
-            new ModelSelector(model.Selector),
-            TestModels.Resolve(model),
-            TestModels.Profile(),
-            profile);
     }
 
     private static string Encode(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal);
@@ -201,7 +195,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
         }
     }
 
-    private static AgentSession Session(
+    private static IAgentSession Session(
         SessionDatabase database,
         EventBroker events,
         AgentSessionSecurity security)
@@ -210,6 +204,22 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
         var repository = new EventRepository(database);
         var identity = AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events), security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
+    }
+
+    private sealed class SelectionFixture
+    {
+        public SelectionFixture(SecurityProfile profile)
+        {
+            ILLMProvider provider = new UnusedProvider();
+            var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+            Selection = new AgentTurnSelection(
+                new ModelSelector(model.Selector),
+                TestModels.Resolve(model),
+                new TestProfileFixture().Mode,
+                profile);
+        }
+
+        public AgentTurnSelection Selection { get; }
     }
 }

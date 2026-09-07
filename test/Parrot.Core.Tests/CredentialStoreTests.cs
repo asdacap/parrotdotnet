@@ -12,7 +12,8 @@ internal sealed class CredentialStoreTests
 
         try
         {
-            using var store = new FileCredentialStore(path);
+            using var storeOwner = new FileCredentialStore(path);
+            ICredentialStore store = storeOwner;
             await store.Set("openrouter", Credential.ForApiKey("sk-123"), cancellationToken);
             await store.Set(
                 "chatgpt",
@@ -60,7 +61,8 @@ internal sealed class CredentialStoreTests
 
         try
         {
-            using var store = new FileCredentialStore(path);
+            using var storeOwner = new FileCredentialStore(path);
+            ICredentialStore store = storeOwner;
             _ = await Assert.That(async () => await store.Get("x", cancellationToken)).Throws<AuthException>();
         }
         finally

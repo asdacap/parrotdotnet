@@ -21,15 +21,30 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         var connector = new ScriptedConnector([socket]);
         using var handler = new EmptyHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = Provider(client, connector);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+            },
+            client,
+            connector);
         await using var session = provider.OpenSession();
 
-        _ = await Drain(session.Call(Request([LLMMessage.User("hello")]), cancellationToken));
-        var continued = Request([
-            LLMMessage.User("hello"),
-            LLMMessage.Assistant("answer", []),
-            LLMMessage.User("next"),
-        ]);
+        _ = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("hello")] }, cancellationToken));
+        var continued = new LLMRequest
+        {
+            Model = "model",
+            Messages =
+            [
+                LLMMessage.User("hello"),
+                LLMMessage.Assistant("answer", []),
+                LLMMessage.User("next"),
+            ],
+        };
         _ = await Drain(session.Call(continued, cancellationToken));
 
         using var second = JsonDocument.Parse(socket.Sent[1]);
@@ -60,26 +75,44 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         ]);
         using var handler = new EmptyHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = Provider(client, connector);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+            },
+            client,
+            connector);
         await using var session = provider.OpenSession();
 
-        _ = await Drain(session.Call(Request([LLMMessage.User("one")]), cancellationToken));
-        var secondRequest = Request(
+        _ = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("one")] }, cancellationToken));
+        var secondRequest = new LLMRequest
+        {
+            Model = "model",
+            Messages =
             [
                 LLMMessage.User("one"),
                 LLMMessage.Assistant("answer", []),
                 LLMMessage.User("two"),
-            ]);
+            ],
+        };
         _ = await Drain(session.Call(secondRequest, cancellationToken));
         session.BeginTurn();
-        var thirdRequest = Request(
+        var thirdRequest = new LLMRequest
+        {
+            Model = "model",
+            Messages =
             [
                 LLMMessage.User("one"),
                 LLMMessage.Assistant("answer", []),
                 LLMMessage.User("two"),
                 LLMMessage.Assistant("answer", []),
                 LLMMessage.User("three"),
-            ]);
+            ],
+        };
         _ = await Drain(session.Call(thirdRequest, cancellationToken));
 
         using var first = JsonDocument.Parse(socket.Sent[0]);
@@ -107,16 +140,30 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         var connector = new ScriptedConnector([socket]);
         using var handler = new EmptyHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = Provider(client, connector);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+            },
+            client,
+            connector);
         await using var session = provider.OpenSession();
 
-        _ = await Drain(session.Call(Request([LLMMessage.User("one")]), cancellationToken));
-        var secondRequest = Request(
+        _ = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("one")] }, cancellationToken));
+        var secondRequest = new LLMRequest
+        {
+            Model = "model",
+            Messages =
             [
                 LLMMessage.User("one"),
                 LLMMessage.Assistant("answer", []),
                 LLMMessage.User("two"),
-            ]);
+            ],
+        };
         _ = await Drain(session.Call(secondRequest, cancellationToken));
 
         using var first = JsonDocument.Parse(socket.Sent[0]);
@@ -140,20 +187,33 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         var connector = new ScriptedConnector([socket]);
         using var handler = new EmptyHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = Provider(client, connector);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+            },
+            client,
+            connector);
         await using var session = provider.OpenSession();
-        var first = Request([LLMMessage.User("hello")]) with
+        var first = new LLMRequest
         {
+            Model = "model",
+            Messages = [LLMMessage.User("hello")],
             Instructions = "same",
             MaxTokens = 1,
         };
-        var second = Request([
-            LLMMessage.User("hello"),
-            LLMMessage.Assistant("answer", []),
-            LLMMessage.User("next"),
-        ]) with
+        var second = new LLMRequest
         {
             Model = model,
+            Messages = [
+                LLMMessage.User("hello"),
+                LLMMessage.Assistant("answer", []),
+                LLMMessage.User("next"),
+            ],
             Instructions = instructions,
             MaxTokens = maxTokens,
         };
@@ -178,10 +238,20 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         var connector = new ScriptedConnector([failed, recovered]);
         using var handler = new EmptyHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = Provider(client, connector);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+            },
+            client,
+            connector);
         await using var session = provider.OpenSession();
 
-        var events = await Drain(session.Call(Request([LLMMessage.User("hello")]), cancellationToken));
+        var events = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("hello")] }, cancellationToken));
 
         using var sent = JsonDocument.Parse(recovered.Sent.Single());
         _ = await Assert.That(connector.Calls).IsEqualTo(2);
@@ -196,11 +266,21 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         var connector = new ScriptedConnector([new ResponsesWebSocketUpgradeException(404, "missing", new IOException())]);
         using var handler = new ResponsesHandler(2);
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = Provider(client, connector);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+            },
+            client,
+            connector);
         await using var session = provider.OpenSession();
 
-        _ = await Drain(session.Call(Request([LLMMessage.User("one")]), cancellationToken));
-        _ = await Drain(session.Call(Request([LLMMessage.User("two")]), cancellationToken));
+        _ = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("one")] }, cancellationToken));
+        _ = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("two")] }, cancellationToken));
 
         _ = await Assert.That(connector.Calls).IsEqualTo(1);
         _ = await Assert.That(handler.Calls).IsEqualTo(2);
@@ -213,11 +293,20 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         var connector = new ScriptedConnector([]);
         using var handler = new ResponsesHandler(2);
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = ProviderWithDefaults(client, connector);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+            },
+            client,
+            connector);
         await using var session = provider.OpenSession();
 
-        _ = await Drain(session.Call(Request([LLMMessage.User("one")]), cancellationToken));
-        _ = await Drain(session.Call(Request([LLMMessage.User("two")]), cancellationToken));
+        _ = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("one")] }, cancellationToken));
+        _ = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("two")] }, cancellationToken));
 
         _ = await Assert.That(connector.Calls).IsEqualTo(0);
         _ = await Assert.That(handler.Calls).IsEqualTo(2);
@@ -229,11 +318,21 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         var connector = new ScriptedConnector([new ResponsesWebSocketUpgradeException(404, "missing", new IOException())]);
         using var handler = new TurnStateResponsesHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = Provider(client, connector);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+            },
+            client,
+            connector);
         await using var session = provider.OpenSession();
 
-        _ = await Drain(session.Call(Request([LLMMessage.User("one")]), cancellationToken));
-        _ = await Drain(session.Call(Request([LLMMessage.User("two")]), cancellationToken));
+        _ = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("one")] }, cancellationToken));
+        _ = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("two")] }, cancellationToken));
 
         _ = await Assert.That(handler.Calls).IsEqualTo(2);
         _ = await Assert.That(handler.RequestHeaders[0].ContainsKey("x-codex-turn-state")).IsFalse();
@@ -253,13 +352,23 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         ]);
         using var handler = new ResponsesHandler(2);
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = new RetryingProvider(Provider(client, connector));
+        ILLMProvider provider = new RetryingProvider(new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+            },
+            client,
+            connector));
         await using var failedSession = provider.OpenSession();
         await using var independentSession = provider.OpenSession();
 
-        _ = await Drain(failedSession.Call(Request([LLMMessage.User("one")]), cancellationToken));
-        _ = await Drain(failedSession.Call(Request([LLMMessage.User("two")]), cancellationToken));
-        _ = await Drain(independentSession.Call(Request([LLMMessage.User("three")]), cancellationToken));
+        _ = await Drain(failedSession.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("one")] }, cancellationToken));
+        _ = await Drain(failedSession.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("two")] }, cancellationToken));
+        _ = await Drain(independentSession.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("three")] }, cancellationToken));
 
         _ = await Assert.That(connector.Calls).IsEqualTo(7);
         _ = await Assert.That(handler.Calls).IsEqualTo(2);
@@ -275,17 +384,27 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         var connector = new ScriptedConnector([abandoned, next]);
         using var handler = new EmptyHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = Provider(client, connector);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+            },
+            client,
+            connector);
         await using var session = provider.OpenSession();
 
-        await using (var enumerator = session.Call(Request([LLMMessage.User("one")]), cancellationToken)
+        await using (var enumerator = session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("one")] }, cancellationToken)
             .GetAsyncEnumerator(cancellationToken))
         {
             _ = await Assert.That(await enumerator.MoveNextAsync()).IsTrue();
             _ = await Assert.That(enumerator.Current.Text).IsEqualTo("partial");
         }
 
-        var events = await Drain(session.Call(Request([LLMMessage.User("two")]), cancellationToken));
+        var events = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("two")] }, cancellationToken));
 
         _ = await Assert.That(abandoned.Aborted).IsTrue();
         _ = await Assert.That(connector.Calls).IsEqualTo(2);
@@ -303,16 +422,26 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         var connector = new ScriptedConnector([cancelledSocket, next]);
         using var handler = new EmptyHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = Provider(client, connector);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+            },
+            client,
+            connector);
         await using var session = provider.OpenSession();
         using var cancelled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        await using var enumerator = session.Call(Request([LLMMessage.User("one")]), cancelled.Token)
+        await using var enumerator = session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("one")] }, cancelled.Token)
             .GetAsyncEnumerator(cancelled.Token);
 
         _ = await Assert.That(await enumerator.MoveNextAsync()).IsTrue();
         await cancelled.CancelAsync();
         _ = await Assert.That(async () => await enumerator.MoveNextAsync()).Throws<OperationCanceledException>();
-        var events = await Drain(session.Call(Request([LLMMessage.User("two")]), cancellationToken));
+        var events = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("two")] }, cancellationToken));
 
         _ = await Assert.That(cancelledSocket.Aborted).IsTrue();
         _ = await Assert.That(connector.Calls).IsEqualTo(2);
@@ -330,10 +459,20 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         ]);
         using var handler = new TransientResponsesHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = new RetryingProvider(Provider(client, connector));
+        ILLMProvider provider = new RetryingProvider(new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+            },
+            client,
+            connector));
         await using var session = provider.OpenSession();
 
-        var events = await Drain(session.Call(Request([LLMMessage.User("one")]), cancellationToken));
+        var events = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("one")] }, cancellationToken));
 
         _ = await Assert.That(connector.Calls).IsEqualTo(6);
         _ = await Assert.That(handler.Calls).IsEqualTo(2);
@@ -350,61 +489,35 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         var connector = new ScriptedConnector([socket]);
         using var handler = new ResponsesHandler(1);
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = new RetryingProvider(Provider(client, connector));
+        ILLMProvider provider = new RetryingProvider(new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+            },
+            client,
+            connector));
         await using var session = provider.OpenSession();
         var observed = new List<LLMEvent>();
 
         async Task First()
         {
-            await foreach (var published in session.Call(Request([LLMMessage.User("one")]), cancellationToken))
+            await foreach (var published in session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("one")] }, cancellationToken))
             {
                 observed.Add(published);
             }
         }
 
         _ = await Assert.That(First).Throws<ProviderResponseException>();
-        _ = await Drain(session.Call(Request([LLMMessage.User("two")]), cancellationToken));
+        _ = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("two")] }, cancellationToken));
         _ = await Assert.That(observed).HasSingleItem();
         _ = await Assert.That(observed[0].Text).IsEqualTo("partial");
         _ = await Assert.That(connector.Calls).IsEqualTo(1);
         _ = await Assert.That(handler.Calls).IsEqualTo(1);
     }
-
-    private static OpenAICompatibleProvider Provider(HttpClient client, IResponsesWebSocketConnector connector) =>
-        ProviderWithSetting(client, connector, false);
-
-    private static OpenAICompatibleProvider ProviderWithDefaults(
-        HttpClient client,
-        IResponsesWebSocketConnector connector) =>
-        new(
-            new OpenAICompatibleOptions
-            {
-                Id = "configured",
-                BaseUrl = "https://example.test/v1",
-                Protocol = CompatibleProtocol.Responses,
-                ApiKeySource = new FixedApiKeySource(),
-            },
-            client,
-            connector);
-
-    private static OpenAICompatibleProvider ProviderWithSetting(
-        HttpClient client,
-        IResponsesWebSocketConnector connector,
-        bool disableWebSocket) =>
-        new(
-            new OpenAICompatibleOptions
-            {
-                Id = "configured",
-                BaseUrl = "https://example.test/v1",
-                Protocol = CompatibleProtocol.Responses,
-                ApiKeySource = new FixedApiKeySource(),
-                DisableWebSocket = disableWebSocket,
-            },
-            client,
-            connector);
-
-    private static LLMRequest Request(IReadOnlyList<LLMMessage> messages) =>
-        new() { Model = "model", Messages = messages };
 
     private static async Task<List<LLMEvent>> Drain(IAsyncEnumerable<LLMEvent> events)
     {

@@ -9,7 +9,7 @@ internal sealed class OpenAICompatibleProviderSession(
     Func<LLMRequest, string, Action<string>, CancellationToken, IAsyncEnumerable<LLMEvent>> callHttp,
     Func<CancellationToken, Task<IReadOnlyDictionary<string, string>>> authHeaders,
     bool disableWebSocket,
-    ResponsesWebSocketClient websocketClient) : ILLMProviderSession, IProviderSessionFallback
+    ResponsesWebSocketClient websocketClient) : ILLMProviderSession
 {
     private readonly SemaphoreSlim _exclusive = new(1, 1);
     private ResponsesWebSocket? _connection;
@@ -33,7 +33,6 @@ internal sealed class OpenAICompatibleProviderSession(
     {
         ArgumentNullException.ThrowIfNull(request);
         await _exclusive.WaitAsync(cancellationToken).ConfigureAwait(false);
-        WebSocketAttempt? attempt = null;
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -50,25 +49,49 @@ internal sealed class OpenAICompatibleProviderSession(
             var prepared = ResponsesAdapter.Prepare(prepare(request));
             var previousResponse = _completedResponse;
             _completedResponse = null;
-            attempt = Begin(prepared, IncrementalRequest.Select(prepared, previousResponse));
+            var incrementalRequest = IncrementalRequest.Select(prepared, previousResponse);
             var recovered = false;
             while (true)
             {
-                var step = await Step(attempt, !recovered, cancellationToken).ConfigureAwait(false);
-                if (step.Event is { } published)
+                Recovery recovery;
+                await using (var attempt = new WebSocketAttempt(
+                    prepared, incrementalRequest, GetTurnState, GetConnection, CaptureTurnState))
                 {
-                    yield return published;
-                    continue;
+                    var releasedForRecovery = false;
+                    try
+                    {
+                        while (true)
+                        {
+                            var step = await Step(attempt, !recovered, cancellationToken).ConfigureAwait(false);
+                            if (step.Event is { } published)
+                            {
+                                yield return published;
+                                continue;
+                            }
+
+                            if (step.Recovery == Recovery.None)
+                            {
+                                yield break;
+                            }
+
+                            await attempt.Release().ConfigureAwait(false);
+                            releasedForRecovery = true;
+                            recovery = step.Recovery;
+                            break;
+                        }
+                    }
+                    finally
+                    {
+                        await attempt.DisposeAsync().ConfigureAwait(false);
+                        if (!releasedForRecovery && !attempt.Response.Done)
+                        {
+                            _completedResponse = null;
+                            await Poison().ConfigureAwait(false);
+                        }
+                    }
                 }
 
-                if (step.Recovery == Recovery.None)
-                {
-                    yield break;
-                }
-
-                await attempt.DisposeAsync().ConfigureAwait(false);
-                attempt = null;
-                if (step.Recovery == Recovery.Http)
+                if (recovery == Recovery.Http)
                 {
                     await SelectHttp().ConfigureAwait(false);
                     await foreach (var httpEvent in callHttp(request, _turnState ?? string.Empty, CaptureTurnState, cancellationToken).ConfigureAwait(false))
@@ -82,37 +105,23 @@ internal sealed class OpenAICompatibleProviderSession(
                 await Poison().ConfigureAwait(false);
                 _completedResponse = null;
                 recovered = true;
-                attempt = Begin(prepared, IncrementalRequest.Full(prepared));
+                incrementalRequest = IncrementalRequest.Full(prepared);
             }
         }
         finally
         {
-            try
-            {
-                if (attempt is not null)
-                {
-                    await attempt.DisposeAsync().ConfigureAwait(false);
-                    if (!attempt.Response.Done)
-                    {
-                        _completedResponse = null;
-                        await Poison().ConfigureAwait(false);
-                    }
-                }
-            }
-            finally
-            {
-                _ = _exclusive.Release();
-            }
+            _ = _exclusive.Release();
         }
     }
 
-    public async ValueTask FallBackToHttp()
+    public async ValueTask<bool> TryFallBackToHttp()
     {
         _ = await _exclusive.WaitAsync(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             await SelectHttp().ConfigureAwait(false);
+            return true;
         }
         finally
         {
@@ -146,11 +155,6 @@ internal sealed class OpenAICompatibleProviderSession(
         published.Kind is LLMEventKind.TextDelta or LLMEventKind.ReasoningDelta
             or LLMEventKind.ToolCallDelta or LLMEventKind.Completed;
 
-    private WebSocketAttempt Begin(
-        ResponsesAdapter.PreparedRequest prepared,
-        IncrementalRequest request) =>
-        new(prepared, request, GetTurnState, GetConnection, CaptureTurnState);
-
     private async Task<AttemptStep> Step(
         WebSocketAttempt attempt,
         bool mayRecover,
@@ -175,7 +179,7 @@ internal sealed class OpenAICompatibleProviderSession(
                 await Poison().ConfigureAwait(false);
             }
 
-            await attempt.DisposeAsync().ConfigureAwait(false);
+            await attempt.Release().ConfigureAwait(false);
             return AttemptStep.Done;
         }
         catch (ProviderResponseException failure) when (mayRecover && !attempt.Visible
@@ -275,6 +279,7 @@ internal sealed class OpenAICompatibleProviderSession(
         Action<string> captureTurnState) : IAsyncDisposable
     {
         private IAsyncEnumerator<LLMEvent>? _enumerator;
+        private bool _disposalStarted;
 
         public ResponsesAdapter.PreparedRequest Prepared { get; } = prepared;
 
@@ -299,7 +304,19 @@ internal sealed class OpenAICompatibleProviderSession(
             return await _enumerator.MoveNextAsync().ConfigureAwait(false);
         }
 
-        public async ValueTask DisposeAsync()
+        public ValueTask DisposeAsync()
+        {
+            if (_disposalStarted)
+            {
+                return ValueTask.CompletedTask;
+            }
+
+            // The lexical owner must not retry a failed terminal disposal after explicit cleanup.
+            _disposalStarted = true;
+            return Release();
+        }
+
+        public async ValueTask Release()
         {
             if (_enumerator is not null)
             {

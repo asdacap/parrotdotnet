@@ -75,22 +75,17 @@ internal sealed class ReadToolTests : IDisposable
         _ = await Assert.That(result).EndsWith("[output truncated]\ntotal lines in file: 2001\n");
     }
 
-    private static AgentTurnSelection Turn()
-    {
-        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
-        return new AgentTurnSelection(
-            new ModelSelector(model.Selector),
-            TestModels.Resolve(model),
-            TestModels.Profile(),
-            SecurityProfile.Compose(readOnly: false, [], [], []));
-    }
-
     private async Task<string> Execute(string arguments, CancellationToken cancellationToken)
     {
-        var tool = new ReadTool(new ToolWorkspace(_workspace));
+        ITool tool = new ReadTool(new ToolWorkspace(_workspace));
+        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
         return (await tool.Execute(
             new ToolInvocation("test-call", arguments),
-            Turn(),
+            new AgentTurnSelection(
+                new ModelSelector(model.Selector),
+                TestModels.Resolve(model),
+                new TestProfileFixture().Mode,
+                SecurityProfile.Compose(readOnly: false, [], [], [])),
             cancellationToken)).Text;
     }
 }

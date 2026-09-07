@@ -729,13 +729,13 @@ internal sealed class EventPayloadTests
             LLMEventKind.ToolCallDelta => LLMEvent.ToolCallDelta("call", "glob", "{}"),
             _ => LLMEvent.Retry(2, TimeSpan.FromSeconds(1), "429"),
         };
-        var provider = new PayloadProvider(llmEvent);
+        ILLMProvider provider = new PayloadProvider(llmEvent);
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
         var identity = AgentIdentity.Main("session", string.Empty, TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, events, repository, cancellationToken);
         using var subscription = events.Subscribe();
-        await using var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
+        await using IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
 
         _ = await session.Send(
             [ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
@@ -761,6 +761,9 @@ internal sealed class EventPayloadTests
     private sealed class PayloadProvider(LLMEvent llmEvent) : ILLMProvider
     {
         public string Id => "payload";
+
+        public IReadOnlyList<LLMModel> SeedModels() =>
+            throw new NotSupportedException("the payload test does not list models");
 
         public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 

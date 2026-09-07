@@ -52,9 +52,9 @@ internal sealed class ResponsesWebSocketTests
         const string completed = "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"usage\":{\"input_tokens\":7,\"output_tokens\":2},\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello\"}]}]}}";
         var split = Encoding.UTF8.GetBytes(delta);
         using var socket = new ScriptedWebSocket([
-            Frame(split[..17], WebSocketMessageType.Text, false),
-            Frame(split[17..], WebSocketMessageType.Text, true),
-            Frame(Encoding.UTF8.GetBytes(completed), WebSocketMessageType.Text, true),
+            new ScriptedFrame(split[..17], WebSocketMessageType.Text, false),
+            new ScriptedFrame(split[17..], WebSocketMessageType.Text, true),
+            new ScriptedFrame(Encoding.UTF8.GetBytes(completed), WebSocketMessageType.Text, true),
         ]);
         await using var connection = new ResponsesWebSocket(
             socket,
@@ -93,7 +93,7 @@ internal sealed class ResponsesWebSocketTests
         string expectedMessage,
         CancellationToken cancellationToken)
     {
-        using var socket = new ScriptedWebSocket([Frame([], messageType, true)]);
+        using var socket = new ScriptedWebSocket([new ScriptedFrame([], messageType, true)]);
         await using var connection = new ResponsesWebSocket(
             socket,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
@@ -135,8 +135,6 @@ internal sealed class ResponsesWebSocketTests
         _ = await Assert.That(Consume).Throws<OperationCanceledException>();
         _ = await Assert.That(socket.Aborted).IsTrue();
     }
-
-    private static ScriptedFrame Frame(byte[] bytes, WebSocketMessageType type, bool end) => new(bytes, type, end);
 
     private sealed class RecordingConnector(WebSocket socket) : IResponsesWebSocketConnector
     {

@@ -20,7 +20,19 @@ internal sealed class GlobToolPresenter : IToolPresenter
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
         var (pattern, path) = Arguments(call.ArgumentsJson);
-        return DescribeTerminal(call.Owner, pattern, path, terminal);
+        var status = terminal.ResolveStatus();
+        var label = Label(call.Owner, pattern, path);
+        if (status == ToolTerminalStatus.Succeeded)
+        {
+            var count = ToolOutputText.CountLines(terminal.Result);
+            label += $" · {count} {(count == 1 ? "path" : "paths")}";
+        }
+
+        return new ToolScrollbackValue(
+            label,
+            status == ToolTerminalStatus.Succeeded ? ToolBlock.Empty : terminal.DescribeBlock(ToolBlockKind.None),
+            status,
+            Metadata);
     }
 
     private static (string Pattern, string Path) Arguments(string argumentsJson)
@@ -39,25 +51,4 @@ internal sealed class GlobToolPresenter : IToolPresenter
         && value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? string.Empty
             : string.Empty;
-
-    private ToolScrollbackValue DescribeTerminal(
-        string owner,
-        string pattern,
-        string path,
-        ToolTerminalPresentation terminal)
-    {
-        var status = terminal.ResolveStatus();
-        var label = Label(owner, pattern, path);
-        if (status == ToolTerminalStatus.Succeeded)
-        {
-            var count = ToolOutputText.CountLines(terminal.Result);
-            label += $" · {count} {(count == 1 ? "path" : "paths")}";
-        }
-
-        return new ToolScrollbackValue(
-            label,
-            status == ToolTerminalStatus.Succeeded ? ToolBlock.Empty : terminal.DescribeBlock(ToolBlockKind.None),
-            status,
-            Metadata);
-    }
 }

@@ -12,6 +12,8 @@ internal interface ITool
 {
     string Name { get; }
 
+    // True permits this invocation to run concurrently with other parallel-safe calls;
+    // false keeps it out of parallel batches in the agent session.
     bool IsParallelSafe(ToolInvocation invocation) => false;
 
     Task<ToolExecutionResult> Execute(

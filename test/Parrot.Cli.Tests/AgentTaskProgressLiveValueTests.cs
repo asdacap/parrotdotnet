@@ -119,7 +119,7 @@ internal sealed class AgentTaskProgressLiveValueTests
     [Test]
     public async Task Presenter_redacts_path_and_artifact_from_live_but_retains_terminal_behavior()
     {
-        var presenter = new RunAgentTasksToolPresenter();
+        IToolPresenter presenter = new RunAgentTasksToolPresenter(new GenericToolPresenter());
         var call = new ToolCallPresentation(
             "main",
             "run_agent_tasks",
@@ -140,9 +140,9 @@ internal sealed class AgentTaskProgressLiveValueTests
         _ = await Assert.That(renderedTerminal[1]).IsEqualTo("  complete");
     }
 
-    private static string[] Render(AgentTaskProgressSnapshot snapshot, int columns) =>
-        [.. new AgentTaskProgressLiveValue(snapshot)
-            .Render(new LiveBufferRenderContext(columns, Palette))
-            .Lines
-            .Select(static line => line.Text)];
+    private static string[] Render(AgentTaskProgressSnapshot snapshot, int columns)
+    {
+        ILiveBufferItem value = new AgentTaskProgressLiveValue(snapshot);
+        return [.. value.Render(new LiveBufferRenderContext(columns, Palette)).Lines.Select(static line => line.Text)];
+    }
 }

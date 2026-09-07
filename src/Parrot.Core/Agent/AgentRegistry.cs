@@ -134,7 +134,7 @@ internal sealed class AgentRegistry(
 
     public ValueTask DisposeAsync() => BeginShutdown();
 
-    public AgentProfile ResolveChildProfile(string profileId) => profiles.ResolveChild(profileId);
+    public IAgentProfile ResolveChildProfile(string profileId) => profiles.ResolveChild(profileId);
 
     public RetainedAgentReservation ReserveRetainedAgent()
     {

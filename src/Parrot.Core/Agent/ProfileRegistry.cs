@@ -5,7 +5,7 @@ namespace Parrot.Agent;
 
 internal sealed class ProfileRegistry
 {
-    private readonly IReadOnlyDictionary<string, AgentProfile> _profiles;
+    private readonly IReadOnlyDictionary<string, IAgentProfile> _profiles;
 
     public ProfileRegistry(
         IReadOnlyDictionary<string, ProfileConfig> profiles,
@@ -21,7 +21,7 @@ internal sealed class ProfileRegistry
             item => !string.IsNullOrWhiteSpace(item.Key)
                 ? item.Key
                 : throw new ArgumentException("Agent profile IDs must not be blank.", nameof(profiles)),
-            item => new AgentProfile(
+            item => (IAgentProfile)new AgentProfile(
                 item.Key,
                 item.Value ?? throw new ArgumentException("Agent profiles must not be null.", nameof(profiles)),
                 globalRules,
@@ -30,7 +30,7 @@ internal sealed class ProfileRegistry
             StringComparer.Ordinal);
     }
 
-    public IReadOnlyList<AgentProfile> Children => [.. _profiles.Values
+    public IReadOnlyList<IAgentProfile> Children => [.. _profiles.Values
         .Where(profile => profile.IsAgentSelectable)
         .OrderBy(profile => profile.Id, StringComparer.Ordinal)];
 
@@ -39,7 +39,7 @@ internal sealed class ProfileRegistry
         .OrderBy(profile => profile.Id, StringComparer.Ordinal)
         .Select(profile => profile.Id)];
 
-    public AgentProfile ResolveChild(string id)
+    public IAgentProfile ResolveChild(string id)
     {
         var selected = string.Equals(id, "explore", StringComparison.Ordinal) &&
                        _profiles.TryGetValue("explorer", out var explorer) &&
@@ -52,6 +52,6 @@ internal sealed class ProfileRegistry
             : throw new AgentRegistryException($"agent profile {id} cannot be spawned");
     }
 
-    internal AgentProfile Resolve(string id) => _profiles.GetValueOrDefault(id)
+    internal IAgentProfile Resolve(string id) => _profiles.GetValueOrDefault(id)
         ?? throw new AgentRegistryException($"unknown agent profile {id}");
 }

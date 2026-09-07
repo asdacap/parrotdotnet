@@ -20,7 +20,7 @@ internal sealed class ModelCommandTests : IDisposable
         string expected,
         CancellationToken cancellationToken)
     {
-        var invoker = InvokerWithModels();
+        var invoker = new ModelsFixture().Invoker;
         if (string.Equals(current, "current_llm", StringComparison.Ordinal))
         {
             invoker.ModelAliases.Add(new ModelAlias
@@ -32,12 +32,12 @@ internal sealed class ModelCommandTests : IDisposable
         }
 
         var client = new GeneratedParrot.ParrotClient(invoker);
-        var session = new TestSlashSession(current);
+        ISlashSession session = new TestSlashSession(current);
         var activity = new TestSlashActivity();
         var dialog = new TestSlashDialog().Select("provider", requested);
 
-        await new ModelCommand(new ModelWizard(client, dialog), session, activity, dialog)
-            .Run(string.Empty, cancellationToken);
+        ISlashCommand command = new ModelCommand(new ModelWizard(client, dialog), session, activity, dialog);
+        await command.Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(session.Model).IsEqualTo(expected);
         _ = await Assert.That(activity.Waits).IsEqualTo(1);
@@ -47,7 +47,7 @@ internal sealed class ModelCommandTests : IDisposable
     [Test]
     public async Task Effort_uses_metadata_and_cancellation_does_not_update(CancellationToken cancellationToken)
     {
-        var invoker = InvokerWithModels();
+        var invoker = new ModelsFixture().Invoker;
         invoker.ModelAliases.Add(new ModelAlias
         {
             Name = "current_llm",
@@ -55,18 +55,20 @@ internal sealed class ModelCommandTests : IDisposable
             Usage = "current",
         });
         var client = new GeneratedParrot.ParrotClient(invoker);
-        var selectedSession = new TestSlashSession("current_llm");
+        ISlashSession selectedSession = new TestSlashSession("current_llm");
         var selectedDialog = new TestSlashDialog().Select("high");
         var activity = new TestSlashActivity();
 
-        await new EffortCommand(client, selectedSession, activity, selectedDialog).Run(string.Empty, cancellationToken);
+        ISlashCommand selectedCommand = new EffortCommand(client, selectedSession, activity, selectedDialog);
+        await selectedCommand.Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(selectedSession.Model).IsEqualTo("provider/current/high");
         _ = await Assert.That(selectedDialog.Shown).Contains("Model effort selected: high");
 
-        var cancelledSession = new TestSlashSession("provider/current/high");
+        ISlashSession cancelledSession = new TestSlashSession("provider/current/high");
         var cancelledDialog = new TestSlashDialog().Select((string?)null);
-        await new EffortCommand(client, cancelledSession, activity, cancelledDialog).Run(string.Empty, cancellationToken);
+        ISlashCommand cancelledCommand = new EffortCommand(client, cancelledSession, activity, cancelledDialog);
+        await cancelledCommand.Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(cancelledSession.Model).IsEqualTo("provider/current/high");
     }
@@ -75,7 +77,7 @@ internal sealed class ModelCommandTests : IDisposable
     public async Task Startup_variant_override_replaces_existing_suffix_and_validates_metadata(
         CancellationToken cancellationToken)
     {
-        var invoker = InvokerWithModels();
+        var invoker = new ModelsFixture().Invoker;
         var client = new GeneratedParrot.ParrotClient(invoker);
 
         var selected = await CommandDispatcher.OverrideVariant(
@@ -103,22 +105,47 @@ internal sealed class ModelCommandTests : IDisposable
 
     public void Dispose() => _error.Dispose();
 
-    private static ScriptedInvoker InvokerWithModels()
+    private sealed class ModelsFixture
     {
-        var invoker = new ScriptedInvoker();
-        invoker.Models.Clear();
-        invoker.AddModel(Model("current", ("low", "low"), ("high", "xhigh")));
-        invoker.AddModel(Model("next", ("low", "low"), ("high", "high")));
-        invoker.AddModel(Model("other", ("low", "minimal")));
-        invoker.AddModel(Model("plain"));
-        return invoker;
-    }
+        public ModelsFixture()
+        {
+            Invoker.Models.Clear();
+            Invoker.AddModel(new Model
+            {
+                ProviderId = "provider",
+                Id = "current",
+                Variants =
+                {
+                    new ModelVariant { Name = "low", ReasoningEffort = "low" },
+                    new ModelVariant { Name = "high", ReasoningEffort = "xhigh" },
+                },
+            });
+            Invoker.AddModel(new Model
+            {
+                ProviderId = "provider",
+                Id = "next",
+                Variants =
+                {
+                    new ModelVariant { Name = "low", ReasoningEffort = "low" },
+                    new ModelVariant { Name = "high", ReasoningEffort = "high" },
+                },
+            });
+            Invoker.AddModel(new Model
+            {
+                ProviderId = "provider",
+                Id = "other",
+                Variants =
+                {
+                    new ModelVariant { Name = "low", ReasoningEffort = "minimal" },
+                },
+            });
+            Invoker.AddModel(new Model
+            {
+                ProviderId = "provider",
+                Id = "plain",
+            });
+        }
 
-    private static Model Model(string id, params (string Name, string Effort)[] variants)
-    {
-        var model = new Model { ProviderId = "provider", Id = id };
-        model.Variants.AddRange(variants.Select(
-            variant => new ModelVariant { Name = variant.Name, ReasoningEffort = variant.Effort }));
-        return model;
+        public ScriptedInvoker Invoker { get; } = new();
     }
 }

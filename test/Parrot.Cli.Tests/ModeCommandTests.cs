@@ -10,20 +10,22 @@ internal sealed class ModeCommandTests
     {
         var invoker = new ScriptedInvoker();
         var client = new GeneratedParrot.ParrotClient(invoker);
-        var session = new TestSlashSession("provider/old");
+        ISlashSession session = new TestSlashSession("provider/old");
         var activity = new TestSlashActivity();
         var modeDialog = new TestSlashDialog().Select("plan");
         var clearDialog = new TestSlashDialog().Select("provider", "model", "query");
 
-        await new ModeCommand(new ModeSelection(client, modeDialog), session, activity, modeDialog, _ => Task.CompletedTask)
-            .Run(string.Empty, cancellationToken);
-        await new ClearCommand(
+        ISlashCommand modeCommand = new ModeCommand(new ModeSelection(client, modeDialog), session, activity, modeDialog, _ => Task.CompletedTask);
+        await modeCommand.Run(string.Empty, cancellationToken);
+        ISlashCommand clearCommand = new ClearCommand(
             new ModelWizard(client, clearDialog),
             new ModeSelection(client, clearDialog),
             session,
             activity,
-            clearDialog).Run(string.Empty, cancellationToken);
-        await new ModesCommand(client, modeDialog).Run(string.Empty, cancellationToken);
+            clearDialog);
+        await clearCommand.Run(string.Empty, cancellationToken);
+        ISlashCommand modesCommand = new ModesCommand(client, modeDialog);
+        await modesCommand.Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(session.Id).IsEqualTo("session-1");
         _ = await Assert.That(session.Model).IsEqualTo("provider/model");

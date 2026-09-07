@@ -49,7 +49,7 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
 
         var result = (await tool.Execute(
             new ToolInvocation("test-call", arguments),
-            Turn(security),
+            new ReadTurnFixture(security).Selection,
             cancellationToken)).Text;
 
         _ = await Assert.That(result).IsEqualTo(expected);
@@ -82,7 +82,7 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
 
         var result = (await tool.Execute(
             new ToolInvocation("test-call", arguments),
-            Turn(security),
+            new ReadTurnFixture(security).Selection,
             cancellationToken)).Text;
 
         _ = await Assert.That(result).IsIn(string.Empty, "error: access denied");
@@ -106,7 +106,7 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
 
         var listing = (await new ReadTool(workspace).Execute(
             new ToolInvocation("test-call", "{\"path\":\"alias\"}"),
-            Turn(security),
+            new ReadTurnFixture(security).Selection,
             cancellationToken)).Text;
         _ = await Assert.That(listing).Contains("visible.txt");
         _ = await Assert.That(listing).DoesNotContain("hidden.txt");
@@ -120,17 +120,17 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
         var externalDirectory = Directory.CreateDirectory(Path.Combine(_root, "external")).FullName;
         var externalFile = Path.Combine(externalDirectory, "outside.txt");
         await File.WriteAllTextAsync(externalFile, "outside", cancellationToken);
-        var tool = new ReadTool(new ToolWorkspace(workspaceDirectory));
+        ITool tool = new ReadTool(new ToolWorkspace(workspaceDirectory));
 
         var absolute = (await tool.Execute(
             new ToolInvocation("test-call", FormatPathArguments(externalFile)),
-            Turn(Permissive()),
+            new ReadTurnFixture(Permissive()).Selection,
             cancellationToken)).Text;
         var parentRelative = (await tool.Execute(
             new ToolInvocation(
                 "test-call",
                 FormatPathArguments(Path.Combine("..", "external", "outside.txt"))),
-            Turn(Permissive()),
+            new ReadTurnFixture(Permissive()).Selection,
             cancellationToken)).Text;
 
         _ = await Assert.That(absolute).Contains("1: outside");
@@ -153,13 +153,13 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
             new ToolInvocation(
                 "test-call",
                 FormatPathArguments(Path.Combine("alias", "file.txt"))),
-            Turn(security),
+            new ReadTurnFixture(security).Selection,
             cancellationToken)).Text;
         var glob = (await new GlobTool(workspace).Execute(
             new ToolInvocation(
                 "test-call",
                 FormatGlobArguments("**", alias)),
-            Turn(security),
+            new ReadTurnFixture(security).Selection,
             cancellationToken)).Text;
 
         _ = await Assert.That(read).Contains("1: external text");
@@ -232,13 +232,13 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
             new ToolInvocation(
                 "test-call",
                 FormatPathArguments(externalDirectory)),
-            Turn(security),
+            new ReadTurnFixture(security).Selection,
             cancellationToken)).Text;
         var glob = (await new GlobTool(workspace).Execute(
             new ToolInvocation(
                 "test-call",
                 FormatGlobArguments("**", externalDirectory)),
-            Turn(security),
+            new ReadTurnFixture(security).Selection,
             cancellationToken)).Text;
 
         _ = await Assert.That(read).IsEqualTo("visible.txt\n");
@@ -254,13 +254,13 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
         {
             "read" => (await new ReadTool(workspace).Execute(
                 new ToolInvocation("test-call", FormatPathArguments(path)),
-                Turn(security),
+                new ReadTurnFixture(security).Selection,
                 cancellationToken)).Text,
             "glob" => (await new GlobTool(workspace).Execute(
                 new ToolInvocation(
                     "test-call",
                     FormatGlobArguments("**", path)),
-                Turn(security),
+                new ReadTurnFixture(security).Selection,
                 cancellationToken)).Text,
             _ => throw new InvalidOperationException($"Unknown tool '{toolName}'."),
         };
@@ -278,13 +278,18 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
             JsonEncodedText.Encode(path),
             "\"}");
 
-    private static AgentTurnSelection Turn(SecurityProfile securityProfile)
+    private sealed class ReadTurnFixture
     {
-        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
-        return new AgentTurnSelection(
-            new ModelSelector(model.Selector),
-            TestModels.Resolve(model),
-            TestModels.Profile(),
-            securityProfile);
+        public ReadTurnFixture(SecurityProfile securityProfile)
+        {
+            var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
+            Selection = new AgentTurnSelection(
+                new ModelSelector(model.Selector),
+                TestModels.Resolve(model),
+                new TestProfileFixture().Mode,
+                securityProfile);
+        }
+
+        public AgentTurnSelection Selection { get; }
     }
 }

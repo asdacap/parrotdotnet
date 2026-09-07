@@ -321,7 +321,7 @@ internal sealed partial class CompactionGroupBlobStore
         var error = Marshal.GetLastPInvokeError();
         return error is NoEntry or IsDirectory or InvalidArgument or NotImplemented or OperationNotSupported
             ? null
-            : throw NativeFailure("create an unnamed compaction group staging file", error);
+            : throw new IOException($"Failed to create an unnamed compaction group staging file: {new Win32Exception(error).Message}");
     }
 
     private static FileStream? TryOpenNamedFile(
@@ -341,7 +341,7 @@ internal sealed partial class CompactionGroupBlobStore
                 return null;
             }
 
-            throw NativeFailure("create a compaction group artifact", error);
+            throw new IOException($"Failed to create a compaction group artifact: {new Win32Exception(error).Message}");
         }
 
         return OpenStream(descriptor);
@@ -392,7 +392,7 @@ internal sealed partial class CompactionGroupBlobStore
             return false;
         }
 
-        throw NativeFailure("publish a compaction group artifact", error);
+        throw new IOException($"Failed to publish a compaction group artifact: {new Win32Exception(error).Message}");
     }
 
     private static void DeleteArtifactIfSame(
@@ -458,7 +458,7 @@ internal sealed partial class CompactionGroupBlobStore
             var createError = Marshal.GetLastPInvokeError();
             return createError == AlreadyExists
                 ? CleanupSelection.Collision
-                : throw NativeFailure("reserve a compaction group cleanup placeholder", createError);
+                : throw new IOException($"Failed to reserve a compaction group cleanup placeholder: {new Win32Exception(createError).Message}");
         }
 
         var result = platform == CompactionGroupBlobStorePlatform.Linux
@@ -473,7 +473,7 @@ internal sealed partial class CompactionGroupBlobStore
         RemovePlaceholder(directory, quarantineName, platform);
         return error == NoEntry
             ? CleanupSelection.Missing
-            : throw NativeFailure("quarantine a compaction group artifact", error);
+            : throw new IOException($"Failed to quarantine a compaction group artifact: {new Win32Exception(error).Message}");
     }
 
     private static void RestoreQuarantinedEntry(
@@ -557,7 +557,7 @@ internal sealed partial class CompactionGroupBlobStore
         var error = Marshal.GetLastPInvokeError();
         return error == NoEntry
             ? null
-            : throw NativeFailure("inspect a compaction group artifact", error);
+            : throw new IOException($"Failed to inspect a compaction group artifact: {new Win32Exception(error).Message}");
     }
 
     private static void RequireStatusMask(
@@ -604,10 +604,7 @@ internal sealed partial class CompactionGroupBlobStore
         new($"Failed to {operation}: {new Win32Exception(Marshal.GetLastPInvokeError()).Message}");
 
     private static IOException NativeFailure(string operation) =>
-        NativeFailure(operation, Marshal.GetLastPInvokeError());
-
-    private static IOException NativeFailure(string operation, int error) =>
-        new($"Failed to {operation}: {new Win32Exception(error).Message}");
+        new($"Failed to {operation}: {new Win32Exception(Marshal.GetLastPInvokeError()).Message}");
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32 | DllImportSearchPath.SafeDirectories)]
     [LibraryImport("libc", EntryPoint = "openat", StringMarshalling = StringMarshalling.Utf8, SetLastError = true)]

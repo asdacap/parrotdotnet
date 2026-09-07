@@ -18,8 +18,10 @@ internal sealed class StreamingScrollbackValue(
 
     public bool EndsLayout => endsLayout;
 
+    public object SequenceIdentity => _sequence;
+
     public bool Continues(IScrollbackItem previous) =>
-        previous is StreamingScrollbackValue value && ReferenceEquals(_sequence, value._sequence);
+        ReferenceEquals(_sequence, previous.SequenceIdentity);
 
     public IReadOnlyList<string> Render(ScrollbackRenderContext context) => lines;
 }

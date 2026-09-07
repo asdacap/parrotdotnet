@@ -9,7 +9,7 @@ internal sealed class EnhancedSlashDialogTests
     public async Task Picker_filters_navigates_and_selects_through_live_items(CancellationToken cancellationToken)
     {
         var host = new ScriptedLiveInputHost("al", "\u001b[B", "\r");
-        var dialog = new EnhancedSlashDialog(host);
+        ISlashDialog dialog = new EnhancedSlashDialog(host);
         var options = new SlashDialogOption[]
         {
             new("alpha", "Alpha", "first"),
@@ -24,19 +24,19 @@ internal sealed class EnhancedSlashDialogTests
         _ = await Assert.That(selected).IsSameReferenceAs(options[1]);
         _ = await Assert.That(filtered).Count().IsEqualTo(4);
         _ = await Assert.That(filtered[0]).IsEqualTo(new LiveTextValue("Filter: "));
-        _ = await Assert.That(filtered[1]).IsEqualTo(new PromptValue("> ", "al", 2));
+        await AssertPrompt(filtered[1], "> al", 4);
         _ = await Assert.That(filtered[2]).IsEqualTo(new PickerOptionValue("Alpha", "first", true));
         _ = await Assert.That(filtered[3]).IsEqualTo(new PickerOptionValue("Alpine", "mountain", false));
         _ = await Assert.That(collapsed.Count).IsEqualTo(2);
         _ = await Assert.That(collapsed[0]).IsEqualTo(new LiveTextValue("Filter: "));
-        _ = await Assert.That(collapsed[1]).IsEqualTo(new PromptValue("> ", "Alpine", 6));
+        await AssertPrompt(collapsed[1], "> Alpine", 8);
     }
 
     [Test]
     public async Task Picker_places_prompt_before_no_matches(CancellationToken cancellationToken)
     {
         var host = new ScriptedLiveInputHost("z\u001b", string.Empty);
-        var dialog = new EnhancedSlashDialog(host);
+        ISlashDialog dialog = new EnhancedSlashDialog(host);
 
         _ = await dialog.Select(
             "Question: ",
@@ -46,7 +46,7 @@ internal sealed class EnhancedSlashDialogTests
         var unmatched = host.Frames[1];
         _ = await Assert.That(unmatched).Count().IsEqualTo(3);
         _ = await Assert.That(unmatched[0]).IsEqualTo(new LiveTextValue("Question: "));
-        _ = await Assert.That(unmatched[1]).IsEqualTo(new PromptValue("> ", "z", 1));
+        await AssertPrompt(unmatched[1], "> z", 3);
         _ = await Assert.That(unmatched[2]).IsEqualTo(new PickerOptionValue("No matches", string.Empty, false));
     }
 
@@ -60,7 +60,7 @@ internal sealed class EnhancedSlashDialogTests
         CancellationToken cancellationToken)
     {
         var host = flush is null ? new ScriptedLiveInputHost(key) : new ScriptedLiveInputHost(key, flush);
-        var dialog = new EnhancedSlashDialog(host);
+        ISlashDialog dialog = new EnhancedSlashDialog(host);
 
         var selected = await dialog.Select(
             "Pick: ",
@@ -75,7 +75,7 @@ internal sealed class EnhancedSlashDialogTests
     {
         using var cancellation = new CancellationTokenSource();
         var host = new CancellingLiveInputHost(cancellation, new TerminalKey(TerminalKeyKind.Submit));
-        var dialog = new EnhancedSlashDialog(host);
+        ISlashDialog dialog = new EnhancedSlashDialog(host);
 
         _ = await Assert.That(async () => await dialog.Select(
             "Pick: ",
@@ -90,7 +90,7 @@ internal sealed class EnhancedSlashDialogTests
     {
         using var cancellation = new CancellationTokenSource();
         var host = new CancellingLiveInputHost(cancellation, new TerminalKey(TerminalKeyKind.Character, "x"));
-        var dialog = new EnhancedSlashDialog(host);
+        ISlashDialog dialog = new EnhancedSlashDialog(host);
 
         _ = await Assert.That(async () => await dialog.ReadText("Name: ", cancellation.Token))
             .Throws<OperationCanceledException>();
@@ -101,7 +101,7 @@ internal sealed class EnhancedSlashDialogTests
     [Test]
     public async Task Confirmation_reports_escape_as_cancellation(CancellationToken cancellationToken)
     {
-        var dialog = new EnhancedSlashDialog(new ScriptedLiveInputHost("\u001b", string.Empty));
+        ISlashDialog dialog = new EnhancedSlashDialog(new ScriptedLiveInputHost("\u001b", string.Empty));
 
         var confirmed = await dialog.Confirm(["Continue"], cancellationToken);
 
@@ -109,14 +109,17 @@ internal sealed class EnhancedSlashDialogTests
     }
 
     [Test]
-    public async Task Text_secret_and_information_are_all_live_input_items(CancellationToken cancellationToken)
+    [Arguments("sëcret", 6)]
+    [Arguments("sëcret🙂", 7)]
+    public async Task Text_secret_and_information_are_all_live_input_items(
+        string secretText, int secretRunes, CancellationToken cancellationToken)
     {
         var textHost = new ScriptedLiveInputHost("hello\r");
-        var textDialog = new EnhancedSlashDialog(textHost);
+        ISlashDialog textDialog = new EnhancedSlashDialog(textHost);
         var text = await textDialog.ReadText("Name: ", cancellationToken);
 
-        var secretHost = new ScriptedLiveInputHost("sëcret\r", "\r", "\r");
-        var secretDialog = new EnhancedSlashDialog(secretHost);
+        var secretHost = new ScriptedLiveInputHost($"{secretText}\u001b[D\r", "\r", "\r");
+        ISlashDialog secretDialog = new EnhancedSlashDialog(secretHost);
         var secret = await secretDialog.ReadSecret("Key: ", cancellationToken);
 
         await secretDialog.Show(["first", "second"], cancellationToken);
@@ -125,12 +128,16 @@ internal sealed class EnhancedSlashDialogTests
         _ = await Assert.That(text).IsEqualTo("hello");
         _ = await Assert.That(textHost.Frames[^1].Count).IsEqualTo(2);
         _ = await Assert.That(textHost.Frames[^1][0]).IsEqualTo(new LiveTextValue("Name: "));
-        _ = await Assert.That(textHost.Frames[^1][1]).IsEqualTo(new PromptValue("> ", "hello", 5));
-        _ = await Assert.That(secret).IsEqualTo("sëcret");
-        _ = await Assert.That(secretHost.Frames.SelectMany(frame => frame).OfType<PromptValue>())
-            .DoesNotContain(value => value.Text.Contains("sëcret", StringComparison.Ordinal));
+        await AssertPrompt(textHost.Frames[^1][1], "> hello", 7);
+        _ = await Assert.That(secret).IsEqualTo(secretText);
+        var context = new LiveBufferRenderContext(80, new TerminalPalette(false));
+        _ = await Assert.That(secretHost.Frames.Select(frame => string.Join('\n', frame
+                .SelectMany(item => item.Render(context).Lines).Select(line => line.Text))))
+            .DoesNotContain(value => value.Contains(secretText, StringComparison.Ordinal));
+        await AssertPrompt(secretHost.Frames[^4][1], "> " + new string('*', secretRunes), secretRunes + 1);
+        await AssertPrompt(secretHost.Frames[^3][1], "> " + new string('*', secretRunes), secretRunes + 2);
         _ = await Assert.That(secretHost.Frames[0][0]).IsEqualTo(new LiveTextValue("Key: "));
-        _ = await Assert.That(secretHost.Frames[0][1]).IsEqualTo(new PromptValue("> ", string.Empty, 0));
+        await AssertPrompt(secretHost.Frames[0][1], "> ", 2);
         _ = await Assert.That(secretHost.Frames[^2][0]).IsEqualTo(new DialogMessageValue("first\nsecond", false));
         _ = await Assert.That(secretHost.Frames[^1][0]).IsEqualTo(new DialogMessageValue("failed", true));
     }
@@ -195,6 +202,16 @@ internal sealed class EnhancedSlashDialogTests
         _ = await Assert.That(loaded).IsEqualTo("result");
         _ = await Assert.That(dialog.Loads).Count().IsEqualTo(1);
         _ = await Assert.That(dialog.Loads[0]).IsEqualTo("Loading models…");
+    }
+
+    private static async Task AssertPrompt(ILiveBufferItem item, string text, int column)
+    {
+        var rendered = item.Render(new LiveBufferRenderContext(80, new TerminalPalette(false)));
+
+        _ = await Assert.That(rendered.Lines).HasSingleItem();
+        _ = await Assert.That(rendered.Lines[0].Text).IsEqualTo(text);
+        _ = await Assert.That(rendered.Caret).IsEqualTo(new LiveBufferCaret(0, column));
+        _ = await Assert.That(rendered.Retention).IsEqualTo(LiveBufferRetention.Caret);
     }
 
     private sealed class CancellingLiveInputHost(

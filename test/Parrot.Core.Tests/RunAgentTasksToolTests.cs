@@ -50,7 +50,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
     {
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = Tool(runtime);
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(new ToolInvocation("call", arguments), runtime.Selection, cancellationToken);
 
@@ -73,7 +73,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
     {
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = Tool(runtime);
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(new ToolInvocation("call", arguments), runtime.Selection, cancellationToken);
 
@@ -91,7 +91,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = Tool(runtime);
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(new ToolInvocation("multi-root-call", arguments), runtime.Selection, cancellationToken);
         var terminal = await runtime.Completion.Wait("multi-root-call", cancellationToken);
@@ -125,7 +125,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = Tool(runtime);
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(
             new ToolInvocation("multi-root-path-call", "{\"path\":\"multi-root.json\"}"),
@@ -157,7 +157,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         using var provider = new AgentTaskBlockingProvider();
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = Tool(runtime);
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
         using var invocation = new CancellationTokenSource();
 
         var result = await tool.Execute(new ToolInvocation("background-call", arguments), runtime.Selection, invocation.Token);
@@ -188,7 +188,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = ToolWithAttempts(runtime, 2);
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(2, false, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(new ToolInvocation("retry-call", arguments), runtime.Selection, cancellationToken);
         var terminal = await runtime.Completion.Wait("retry-call", cancellationToken);
@@ -240,7 +240,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         AppendCompletedRootHistory(runtime, "prior user history", "prior assistant history");
         const long assistantSequence = 3;
         AppendCurrentToolBatch(runtime, assistantSequence, "history-call", arguments);
-        var tool = ToolWithHistoryFork(runtime, forkParentHistory);
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, forkParentHistory, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(
             new ToolInvocation("history-call", arguments, assistantSequence),
@@ -274,7 +274,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = Tool(runtime);
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(new ToolInvocation("transition-call", arguments), runtime.Selection, cancellationToken);
         var terminal = await runtime.Completion.Wait("transition-call", cancellationToken);
@@ -315,7 +315,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = Tool(runtime);
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
         var denied = runtime.Selection with
         {
             SecurityProfile = SecurityProfile.Compose(false, [], [new SandboxRule(_root, SandboxRuleAction.DenyRead)], []),
@@ -349,7 +349,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         await File.WriteAllTextAsync(artifact, "{}", cancellationToken);
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = Tool(runtime);
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
         var denied = runtime.Selection with
         {
             SecurityProfile = SecurityProfile.Compose(
@@ -375,7 +375,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         _ = File.CreateSymbolicLink(Path.Combine(_root, "alias.json"), artifact);
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = Tool(runtime);
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(
             new ToolInvocation("call", "{\"path\":\"alias.json\"}"),
@@ -402,7 +402,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
         using var subscription = _broker.Subscribe();
-        var tool = Tool(runtime);
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
         var running = tool.Execute(
             new ToolInvocation("distinctive-call", "{\"path\":\"artifact.json\"}"),
             runtime.Selection,
@@ -443,7 +443,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         await File.WriteAllTextAsync(Path.Combine(_root, "artifact.json"), "{}", cancellationToken);
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = Tool(runtime);
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(
             new ToolInvocation("call", "{\"path\":\"artifact.json\"}"),
@@ -459,14 +459,14 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         string assistantContent)
     {
         runtime.Repository.AppendConversation(
-            Published(runtime, "prior-user"),
+            new Event { Id = "prior-user", AgentSessionId = runtime.Parent.SessionId },
             ConversationOrigin.UserInput,
             LLMRole.User,
             [ConversationPart.TextPart(userContent)],
             [],
             string.Empty);
         runtime.Repository.AppendConversation(
-            Published(runtime, "prior-assistant"),
+            new Event { Id = "prior-assistant", AgentSessionId = runtime.Parent.SessionId },
             ConversationOrigin.Model,
             LLMRole.Assistant,
             [ConversationPart.TextPart(assistantContent)],
@@ -481,7 +481,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         string arguments)
     {
         runtime.Repository.AppendConversation(
-            Published(runtime, "current-batch"),
+            new Event { Id = "current-batch", AgentSessionId = runtime.Parent.SessionId },
             ConversationOrigin.Model,
             LLMRole.Assistant,
             [ConversationPart.TextPart(string.Empty)],
@@ -493,12 +493,6 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             throw new InvalidOperationException("The current test tool batch has an unexpected sequence.");
         }
     }
-
-    private static Event Published(RuntimeContext runtime, string id) => new()
-    {
-        Id = id,
-        AgentSessionId = runtime.Parent.SessionId,
-    };
 
     private static async Task<Event[]> ObserveProgress(
         EventSubscription subscription,
@@ -528,25 +522,6 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         return [.. observed];
     }
 
-    private RunAgentTasksTool Tool(RuntimeContext runtime) =>
-        ToolWithAttempts(runtime, 5);
-
-    private RunAgentTasksTool ToolWithAttempts(RuntimeContext runtime, int maximumAttempts) =>
-        Tool(runtime, new AgentTaskConfig(maximumAttempts, false, TestModels.PromptTemplates));
-
-    private RunAgentTasksTool ToolWithHistoryFork(RuntimeContext runtime, bool forkParentHistory) =>
-        Tool(runtime, new AgentTaskConfig(5, forkParentHistory, TestModels.PromptTemplates));
-
-    private RunAgentTasksTool Tool(RuntimeContext runtime, AgentTaskConfig configuration) => new(
-        new ToolWorkspace(_root),
-        runtime.Router,
-        runtime.ParentScope,
-        runtime.Runs,
-        runtime.Completion,
-        _broker,
-        runtime.Repository,
-        configuration);
-
     private RuntimeContext Runtime(CancellationToken cancellationToken) =>
         Runtime(new AgentTaskQueueProvider([]), cancellationToken);
 
@@ -559,7 +534,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         var router = new ModelRouter(providers, new ModelRouting(new ModelAliasCatalog(providers, []), $"{provider.Id}/model"));
         var repository = new EventRepository(_database);
         var sessions = new AgentTaskTestSessionFactory(router);
-        var registry = TestModels.Registry(sessions, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);
+        var registry = TestModels.Registry(sessions, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, cancellationToken);
         var identity = AgentIdentity.Main("tool-parent", "parent", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, repository, cancellationToken);
         using var parentScope = TestAgentSessionScope.Build(identity, AgentSessionParentLink.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) => new AgentSession(
@@ -581,13 +556,8 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             childQuestions,
             dependencies.ExitReminder,
             dependencies.Profile,
-            TestModels.CompletionCallbacks(
-                childQuestions,
-                dependencies.ActiveWorkReminder,
-                dependencies.ExitReminder,
-                repository,
-                _broker),
-            SecurityProfileTestFactory.Create(SecurityProfile.Compose(false, [], [], [])),
+            new TestCompletionCallbacksFixture(childQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks,
+            new SecurityProfileTestFixture(SecurityProfile.Compose(false, [], [], [])).Security,
             dependencies.Status,
             dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),
@@ -605,13 +575,30 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             parent,
             repository,
             catalog,
-            catalog.Prepare(parent.SessionId),
+            new AgentTaskRunOwner(parent.SessionId, catalog),
             new Completion(),
             new AgentTurnSelection(
                 selected.RequestedModel,
                 router.Resolve(selected.RequestedModel.Value),
-                selected.Profile,
+                selected.Mode,
                 selected.SecurityProfile));
+    }
+
+    private sealed class ToolFixture(
+        RuntimeContext runtime,
+        AgentTaskConfig configuration,
+        string root,
+        EventBroker broker)
+    {
+        internal ITool Tool { get; } = new RunAgentTasksTool(
+            new ToolWorkspace(root),
+            runtime.Router,
+            runtime.ParentScope,
+            runtime.Runs,
+            runtime.Completion,
+            broker,
+            runtime.Repository,
+            configuration);
     }
 
     private sealed class RuntimeContext
@@ -619,7 +606,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         internal RuntimeContext(
             ModelRouter router,
             AgentTaskTestSessionFactory sessions,
-            AgentRegistry registry,
+            IAgentRegistry registry,
             IAgentSessionScope parentScope,
             IAgentSession parent,
             EventRepository repository,
@@ -644,7 +631,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
 
         internal AgentTaskTestSessionFactory Sessions { get; }
 
-        internal AgentRegistry Registry { get; }
+        internal IAgentRegistry Registry { get; }
 
         internal IAgentSessionScope ParentScope { get; }
 

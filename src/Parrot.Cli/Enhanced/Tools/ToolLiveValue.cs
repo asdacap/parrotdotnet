@@ -1,6 +1,6 @@
 namespace Parrot.Cli.Enhanced.Tools;
 
-internal sealed class ToolLiveValue : ILiveBufferItem, IToolPresentationValue
+internal sealed class ToolLiveValue : ILiveBufferItem
 {
     private const string Frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
@@ -48,9 +48,9 @@ internal sealed class ToolLiveValue : ILiveBufferItem, IToolPresentationValue
         _runningDuration = runningDuration;
     }
 
-    public ToolReport Report { get; }
+    private ToolReport Report { get; }
 
-    public ToolLiveValue Animate(int frame) => new(Report, frame, _runningDuration);
+    public ILiveBufferItem Animate(int frame) => new ToolLiveValue(Report, frame, _runningDuration);
 
     public MultiLine Render(LiveBufferRenderContext context)
     {

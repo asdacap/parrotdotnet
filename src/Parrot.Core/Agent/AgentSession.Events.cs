@@ -70,7 +70,7 @@ internal sealed partial class AgentSession
         await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
         if (usage is not null)
         {
-            await eventBroker.Publish(usage.ConvertToEvent(), cancellationToken).ConfigureAwait(false);
+            await eventBroker.Publish(new Event { SessionUsageSnapshot = SessionUsageSnapshot.From(usage) }, cancellationToken).ConfigureAwait(false);
         }
     }
 }

@@ -1,13 +1,21 @@
 namespace Parrot.Llm;
 
+// Supplies model discovery and calls; sessions and optional usage reporters borrow provider resources.
 internal interface ILLMProvider
 {
     string Id { get; }
+
+    // Null means the provider does not support account usage reporting.
+    IUsageReporter? UsageReporter => null;
+
+    // Returns locally available model metadata without fetching the remote catalogue.
+    IReadOnlyList<LLMModel> SeedModels();
 
     ValueTask<bool> HasCredential(CancellationToken cancellationToken);
 
     Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken);
 
+    // The caller owns the session and must dispose it after all calls finish.
     ILLMProviderSession OpenSession() => new StatelessProviderSession(this);
 
     // Streaming is an IAsyncEnumerable, per MIGRATION.md section 3. The last

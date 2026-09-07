@@ -15,7 +15,7 @@ internal sealed class LiteLlmModelInfoDecoder : IModelListDecoder
         | ModelMetadataFields.Output
         | ModelMetadataFields.Variants;
 
-    public static LiteLlmModelInfoDecoder Instance { get; } = new();
+    public static IModelListDecoder Instance { get; } = new LiteLlmModelInfoDecoder();
 
     public static bool NeedsSupplement(IReadOnlyList<LLMModel> models) =>
         models.Any(model => (model.Fields & SupplementalFields) != SupplementalFields);

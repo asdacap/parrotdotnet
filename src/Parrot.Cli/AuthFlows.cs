@@ -12,7 +12,7 @@ internal static class AuthFlows
         await store.Set(providerId, Credential.ForApiKey(key), cancellationToken).ConfigureAwait(false);
 
     public static async Task OAuthLogin(
-        OpenAiOAuthClient oauth,
+        IOAuthClient oauth,
         ICredentialStore store,
         bool device,
         TextWriter output,

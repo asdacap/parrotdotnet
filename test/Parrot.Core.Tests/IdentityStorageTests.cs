@@ -56,7 +56,7 @@ internal sealed class IdentityStorageTests : IDisposable
     public async Task Session_resource_descriptors_are_contained_and_disjoint()
     {
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
-        var paths = Paths();
+        var paths = new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data"));
         var first = new UserSessionResources(
             paths, UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
         var second = new UserSessionResources(
@@ -80,7 +80,7 @@ internal sealed class IdentityStorageTests : IDisposable
     {
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
-            Paths(), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
         var expectedRoot = Path.Combine(resources.ScratchRootDirectory, "agent-session-child");
         var expectedBlobs = Path.Combine(expectedRoot, "blobs");
 
@@ -100,7 +100,7 @@ internal sealed class IdentityStorageTests : IDisposable
     {
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
-            Paths(), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
 
         var agentQueueDirectory = resources.AgentQueueDirectory("agent-session-child");
 
@@ -129,7 +129,7 @@ internal sealed class IdentityStorageTests : IDisposable
     {
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
-            Paths(), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
 
         _ = await Assert.That(() => resources.AgentQueueDirectory(value)).Throws<ArgumentException>();
     }
@@ -139,7 +139,7 @@ internal sealed class IdentityStorageTests : IDisposable
     {
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
-            Paths(), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
         var files = new AgentHistoryFiles(resources);
 
         var history = files.PathFor("agent-session-child");
@@ -156,7 +156,7 @@ internal sealed class IdentityStorageTests : IDisposable
     {
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
-            Paths(), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
         var files = new AgentHistoryFiles(resources);
 
         files.Publish("agent-session-child", [new AgentHistoryCompactionEntry(7, "summary", 4)]);
@@ -170,7 +170,7 @@ internal sealed class IdentityStorageTests : IDisposable
     {
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
-            Paths(), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
         var files = new AgentHistoryFiles(resources);
         var entry = new AgentHistoryMessageEntry(
             2,
@@ -199,7 +199,7 @@ internal sealed class IdentityStorageTests : IDisposable
     {
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
-            Paths(), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
         var files = new AgentHistoryFiles(resources);
 
         _ = await Assert.That(() => files.PathFor(value)).Throws<ArgumentException>();
@@ -210,10 +210,16 @@ internal sealed class IdentityStorageTests : IDisposable
     {
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
-            Paths(), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
         var index = new SessionIndex(resources);
 
-        _ = await Assert.That(() => index.Publish(Meta("session-two", workspaceDirectory)))
+        _ = await Assert.That(() => index.Publish(new SessionMeta
+        {
+            Id = "session-two",
+            WorkingDirectory = workspaceDirectory,
+            ProviderId = "provider",
+            Model = "provider/model",
+        }))
             .Throws<InvalidOperationException>();
         _ = await Assert.That(Directory.Exists(resources.Root)).IsFalse();
     }
@@ -221,11 +227,17 @@ internal sealed class IdentityStorageTests : IDisposable
     [Test]
     public async Task Catalog_isolates_corrupt_entries_and_omits_unsafe_directory_names()
     {
-        var paths = Paths();
+        var paths = new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data"));
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
             paths, UserSessionId.Parse("session-valid"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
-        new SessionIndex(resources).Publish(Meta(resources.Id.Value, workspaceDirectory));
+        new SessionIndex(resources).Publish(new SessionMeta
+        {
+            Id = resources.Id.Value,
+            WorkingDirectory = workspaceDirectory,
+            ProviderId = "provider",
+            Model = "provider/model",
+        });
         var corrupt = Directory.CreateDirectory(Path.Combine(paths.State, "sessions", "session-corrupt")).FullName;
         await File.WriteAllTextAsync(Path.Combine(corrupt, "meta.json"), "not json");
         _ = Directory.CreateDirectory(Path.Combine(paths.State, "sessions", "..unsafe"));
@@ -241,16 +253,4 @@ internal sealed class IdentityStorageTests : IDisposable
         _ = await Assert.That(invalid.ProviderId).IsEmpty();
         _ = await Assert.That(invalid.Model).IsEmpty();
     }
-
-    private static SessionMeta Meta(string id, string workingDirectory) =>
-        new()
-        {
-            Id = id,
-            WorkingDirectory = workingDirectory,
-            ProviderId = "provider",
-            Model = "provider/model",
-        };
-
-    private StatePaths Paths() =>
-        new(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data"));
 }
