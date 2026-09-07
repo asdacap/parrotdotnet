@@ -31,6 +31,8 @@ internal sealed record OpenAICompatibleOptions
     // not serve the id, and only survives as an offline fallback.
     public IReadOnlyList<LLMModel> ModelDefaults { get; init; } = [];
 
+    public IReadOnlyList<LLMModel> ExternalModels { get; init; } = [];
+
     public IModelListDecoder Decoder { get; init; } = StandardModelDecoder.Instance;
 
     public TimeSpan HeaderTimeout { get; init; }

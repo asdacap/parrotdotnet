@@ -2,29 +2,23 @@ namespace Parrot.Llm;
 
 // Builds a provider's model catalogue from what the endpoint serves. Endpoint
 // metadata has priority; declarations and then preset defaults fill fields the
-// endpoint omitted. Declared models are always kept, while defaults disappear
-// after a successful endpoint response omits them. A null fetched list means no
-// catalogue has loaded yet, and configured models stand in for one.
+// endpoint omitted. External catalogue data is the lowest-priority source.
+// Declared and external models are always kept, while defaults disappear after
+// a successful endpoint response omits them. A null fetched list means no
+// catalogue has loaded yet, and configured and external models stand in for one.
 internal static class ModelCatalogue
 {
     public static IReadOnlyList<LLMModel> Merge(
         IReadOnlyList<LLMModel>? fetched,
         IReadOnlyList<LLMModel> declared,
-        IReadOnlyList<LLMModel> defaults)
+        IReadOnlyList<LLMModel> defaults,
+        IReadOnlyList<LLMModel> external)
     {
         var configured = new Dictionary<string, LLMModel>(StringComparer.Ordinal);
 
-        foreach (var item in defaults)
-        {
-            configured[item.Id] = item;
-        }
-
-        foreach (var item in declared)
-        {
-            configured[item.Id] = configured.TryGetValue(item.Id, out var fallback)
-                ? Overlay(fallback, item)
-                : item;
-        }
+        Add(external);
+        Add(defaults);
+        Add(declared);
 
         var source = fetched ?? [.. configured.Values];
         var result = new List<LLMModel>();
@@ -37,36 +31,37 @@ internal static class ModelCatalogue
                 continue;
             }
 
-            var model = configured.TryGetValue(item.Id, out var fallback)
+            result.Add(Normalize(configured.TryGetValue(item.Id, out var fallback)
                 ? Overlay(fallback, item)
-                : item;
-
-            if (model.Name.Length == 0)
-            {
-                model = model with { Name = model.Id };
-            }
-
-            if (!model.Capabilities.Reasoning && model.Capabilities.Variants.Count > 0)
-            {
-                model = model with
-                {
-                    Capabilities = model.Capabilities with { Reasoning = true },
-                };
-            }
-
-            result.Add(model);
+                : item));
         }
 
-        foreach (var item in declared)
-        {
-            if (!listed.Contains(item.Id))
-            {
-                result.Add(configured[item.Id]);
-            }
-        }
+        AddMissing(declared);
+        AddMissing(external);
 
         result.Sort((left, right) => string.CompareOrdinal(left.Id, right.Id));
         return result;
+
+        void Add(IReadOnlyList<LLMModel> models)
+        {
+            foreach (var item in models)
+            {
+                configured[item.Id] = configured.TryGetValue(item.Id, out var fallback)
+                    ? Overlay(fallback, item)
+                    : item;
+            }
+        }
+
+        void AddMissing(IReadOnlyList<LLMModel> models)
+        {
+            foreach (var item in models)
+            {
+                if (listed.Add(item.Id))
+                {
+                    result.Add(Normalize(configured[item.Id]));
+                }
+            }
+        }
     }
 
     public static IReadOnlyList<LLMModel> Supplement(
@@ -86,6 +81,18 @@ internal static class ModelCatalogue
                 ? Overlay(fallback, model)
                 : model),
         ];
+    }
+
+    private static LLMModel Normalize(LLMModel model)
+    {
+        if (model.Name.Length == 0)
+        {
+            model = model with { Name = model.Id };
+        }
+
+        return !model.Capabilities.Reasoning && model.Capabilities.Variants.Count > 0
+            ? model with { Capabilities = model.Capabilities with { Reasoning = true } }
+            : model;
     }
 
     private static LLMModel Overlay(LLMModel fallback, LLMModel preferred)
@@ -109,6 +116,9 @@ internal static class ModelCatalogue
             MaxOutputTokens = Prefer(ModelMetadataFields.MaxOutputTokens)
                 ? preferred.MaxOutputTokens
                 : fallback.MaxOutputTokens,
+            MaxInputTokens = Prefer(ModelMetadataFields.MaxInputTokens)
+                ? preferred.MaxInputTokens
+                : fallback.MaxInputTokens,
             InputPrice = Prefer(ModelMetadataFields.InputPrice) ? preferred.InputPrice : fallback.InputPrice,
             CachedInputPrice = Prefer(ModelMetadataFields.CachedInputPrice)
                 ? preferred.CachedInputPrice

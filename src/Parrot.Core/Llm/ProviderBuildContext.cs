@@ -8,4 +8,5 @@ internal sealed record ProviderBuildContext(
     ProviderConfig Config,
     ICredentialStore CredentialStore,
     HttpClient HttpClient,
-    IBrowserOpener BrowserOpener);
+    IBrowserOpener BrowserOpener,
+    IReadOnlyList<LLMModel> ExternalModels);

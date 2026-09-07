@@ -90,7 +90,7 @@ internal sealed class OpenAICompatibleProviderAuthTests
             new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    """{"data":[{"id":"model-a","max_input_tokens":1,"max_output_tokens":1,"input_cost_per_token":0,"cache_read_input_token_cost":0,"output_cost_per_token":0,"supports_function_calling":true,"supports_reasoning":false,"supported_output_modalities":["text"],"supported_reasoning_efforts":[]}]}""", Encoding.UTF8, "application/json"),
+                    """{"data":[{"id":"model-a","context_window":2,"max_input_tokens":1,"max_output_tokens":1,"input_cost_per_token":0,"cache_read_input_token_cost":0,"output_cost_per_token":0,"supports_function_calling":true,"supports_reasoning":false,"supported_output_modalities":["text"],"supported_reasoning_efforts":[]}]}""", Encoding.UTF8, "application/json"),
             },
             new HttpResponseMessage(HttpStatusCode.OK)
             {
@@ -165,7 +165,8 @@ internal sealed class OpenAICompatibleProviderAuthTests
         _ = await Assert.That(string.Join("|", handler.TenantHeaders)).IsEqualTo("tenant|tenant");
         _ = await Assert.That(source.RequestCount).IsEqualTo(1);
         _ = await Assert.That(string.Join(",", listed.Select(model => model.Id))).IsEqualTo("primary-only,served");
-        _ = await Assert.That(served.ContextWindow).IsEqualTo(512);
+        _ = await Assert.That(served.ContextWindow).IsEqualTo(0);
+        _ = await Assert.That(served.MaxInputTokens).IsEqualTo(512);
         _ = await Assert.That(served.MaxOutputTokens).IsEqualTo(0);
         _ = await Assert.That(served.Capabilities.Tools).IsFalse();
         _ = await Assert.That(served.Capabilities.Reasoning).IsTrue();
@@ -177,7 +178,7 @@ internal sealed class OpenAICompatibleProviderAuthTests
     public async Task Complete_models_metadata_does_not_probe_model_info(CancellationToken cancellationToken)
     {
         const string completeModels = """
-            {"data":[{"id":"complete","max_input_tokens":0,"max_output_tokens":0,"input_cost_per_token":0,"cache_read_input_token_cost":0,"output_cost_per_token":0,"supports_function_calling":false,"supports_reasoning":false,"supported_output_modalities":[],"supported_reasoning_efforts":[]}]}
+            {"data":[{"id":"complete","context_window":0,"max_input_tokens":0,"max_output_tokens":0,"input_cost_per_token":0,"cache_read_input_token_cost":0,"output_cost_per_token":0,"supports_function_calling":false,"supports_reasoning":false,"supported_output_modalities":[],"supported_reasoning_efforts":[]}]}
             """;
         using var handler = new RecordingHandler(JsonResponse(completeModels));
         using var client = new HttpClient(handler, disposeHandler: false);

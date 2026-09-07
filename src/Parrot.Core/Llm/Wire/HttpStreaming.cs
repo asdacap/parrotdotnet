@@ -190,30 +190,25 @@ internal static class HttpStreaming
             _ = message.Headers.TryAddWithoutValidation(name, value);
         }
 
-        HttpResponseMessage response;
-
         try
         {
-            response = await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token)
+            using var response = await client
+                .SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token)
                 .ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw await ParseError(response, timeoutCts.Token).ConfigureAwait(false);
+            }
+
+            var stream = await response.Content.ReadAsStreamAsync(timeoutCts.Token).ConfigureAwait(false);
+            await using (stream.ConfigureAwait(false))
+            {
+                return await ReadBounded(stream, maxBytes, timeoutCts.Token).ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             throw new ProviderHttpException("provider: request timed out");
-        }
-
-        using (response)
-        {
-            if (!response.IsSuccessStatusCode)
-            {
-                throw await ParseError(response, cancellationToken).ConfigureAwait(false);
-            }
-
-            var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            await using (stream.ConfigureAwait(false))
-            {
-                return await ReadBounded(stream, maxBytes, cancellationToken).ConfigureAwait(false);
-            }
         }
     }
 
@@ -257,7 +252,7 @@ internal static class HttpStreaming
                 body = await ReadErrorBody(stream, cancellationToken).ConfigureAwait(false);
             }
         }
-        catch (Exception failure) when (failure is not ProviderHttpException)
+        catch (Exception failure) when (failure is not ProviderHttpException && !cancellationToken.IsCancellationRequested)
         {
             return new ProviderHttpException(status, string.Empty, string.Empty, "unable to read provider error");
         }

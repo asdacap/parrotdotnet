@@ -30,7 +30,7 @@ internal sealed class StandardModelDecoder : IModelListDecoder
                     providerId,
                     id,
                     item,
-                    ["context_window", "context_length", "max_input_tokens"],
+                    ["context_window", "context_length"],
                     readName: true));
             }
         }

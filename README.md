@@ -39,19 +39,44 @@ assembly should have a clear architectural reason.
 A model selection is either a configured model alias or a canonical
 `provider/model[/effort-variant]` selector. The provider is the first path
 segment, and the model may itself contain slashes. The refreshed provider
-catalog supplies autocomplete and model metadata. `/models` controls endpoint
-catalog membership. When an OpenAI-compatible `/models` entry omits metadata
-Parrot can represent, Parrot conditionally and best-effort queries LiteLLM's
-sibling `/model/info` endpoint. It reads both LiteLLM's normalized
-`data[].model_info` and configured `data[].litellm_params.model_info`, using
-valid normalized fields in preference to configured fields. An unavailable or
-malformed supplemental response does not fail an otherwise successful refresh.
-Field precedence is `/models`, then `/model/info`, then configured `models`,
-then `model_defaults`.
-Declared `models` are always selectable, even when an endpoint does not list
-them. Offline `model_defaults` catalogues seed model names and descriptions, but
-a successful endpoint refresh drops entries that the endpoint omits. An
-undeclared model ID is still passed to the provider and can fail when called.
+catalog supplies autocomplete and model metadata.
+
+Parrot fetches `https://models.dev/api.json` once while constructing each
+provider registry. This is a bounded, best-effort request: an unavailable or
+malformed response does not prevent startup or provider model refresh. A
+models.dev provider contributes models only to an already-configured provider
+with the same exact ID; it cannot create providers or configure their endpoint,
+credentials, or headers. Its models remain selectable after a successful live
+refresh even when the provider's `/models` response omits them. Because
+models.dev describes a general catalog rather than account entitlements, the
+provider can still reject an imported model when it is called.
+
+When an OpenAI-compatible `/models` entry omits metadata Parrot can represent,
+Parrot conditionally and best-effort queries LiteLLM's sibling `/model/info`
+endpoint. It reads both LiteLLM's normalized `data[].model_info` and configured
+`data[].litellm_params.model_info`, using valid normalized fields in preference
+to configured fields. Field precedence is live `/models` (supplemented by
+`/model/info`), then configured `models`, then `model_defaults`, then
+models.dev. Declared `models` are always selectable. Offline `model_defaults`
+seed model names and descriptions, but a successful endpoint refresh drops an
+entry that exists only in `model_defaults`; models.dev and declared entries
+remain in the union. An undeclared model ID is still passed to the provider and
+can fail when called.
+
+For the `chatgpt` OAuth provider, Parrot also projects the models.dev `openai`
+catalog through OpenCode's Codex model-eligibility rules and unions the result
+with the account-specific ChatGPT `/codex/models` catalog. The filter admits
+its explicit legacy models and GPT versions newer than 5.4 using separate
+major/minor comparison, while explicitly excluding `gpt-5.5-pro` and bare
+`gpt-5.6`. It applies only to models.dev imports, so it never removes a model
+listed by the live account endpoint or explicitly declared by the user.
+Imported models retain API pricing; Parrot does not apply OpenCode's zero-cost
+presentation. ChatGPT model IDs containing `gpt-5.5` or `gpt-5.6` use the Codex
+limits of 400,000 total context tokens, 272,000 input tokens, and 128,000 output
+tokens. The input ceiling is enforced separately during compaction and request
+admission but is not displayed; context status and usage continue to report the
+total context window.
+
 The optional final segment is treated as an effort variant only when the
 complete remainder is not an exact catalog model ID. This makes selectors
 stable even when a provider offers slash-containing model IDs.

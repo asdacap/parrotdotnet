@@ -1759,6 +1759,7 @@ internal sealed partial class Configuration(string path)
                 Name = Scalar(item, "name"),
                 Context = Integer(item, "context") ?? 0,
                 MaxTokens = Integer(item, "max_tokens") ?? 0,
+                MaxInputTokens = ReadOptionalNonNegativeInteger(item, "max_input_tokens", $"{key}.{id}.max_input_tokens"),
                 InputPrice = ReadNonNegativeNumber(item, "input_price", $"{key}.{id}.input_price"),
                 CachedInputPrice = ReadNonNegativeNumber(item, "cached_input_price", $"{key}.{id}.cached_input_price"),
                 OutputPrice = ReadNonNegativeNumber(item, "output_price", $"{key}.{id}.output_price"),
@@ -1771,6 +1772,23 @@ internal sealed partial class Configuration(string path)
         }
 
         return result;
+    }
+
+    private static int ReadOptionalNonNegativeInteger(YamlMappingNode parent, string key, string path)
+    {
+        if (!Child(parent, key, out var node))
+        {
+            return 0;
+        }
+
+        if (node is not YamlScalarNode { Value: { } value }
+            || !int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed)
+            || parsed < 0)
+        {
+            throw new InvalidDataException($"{path} must be a non-negative integer");
+        }
+
+        return parsed;
     }
 
     private static double ReadNonNegativeNumber(YamlMappingNode parent, string key, string path)
@@ -1797,6 +1815,7 @@ internal sealed partial class Configuration(string path)
         fields |= Child(model, "name", out _) ? ModelConfigFields.Name : ModelConfigFields.None;
         fields |= Child(model, "context", out _) ? ModelConfigFields.Context : ModelConfigFields.None;
         fields |= Child(model, "max_tokens", out _) ? ModelConfigFields.MaxTokens : ModelConfigFields.None;
+        fields |= Child(model, "max_input_tokens", out _) ? ModelConfigFields.MaxInputTokens : ModelConfigFields.None;
         fields |= Child(model, "input_price", out _) ? ModelConfigFields.InputPrice : ModelConfigFields.None;
         fields |= Child(model, "cached_input_price", out _) ? ModelConfigFields.CachedInputPrice : ModelConfigFields.None;
         fields |= Child(model, "output_price", out _) ? ModelConfigFields.OutputPrice : ModelConfigFields.None;

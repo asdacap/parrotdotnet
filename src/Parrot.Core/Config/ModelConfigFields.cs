@@ -7,6 +7,7 @@ internal enum ModelConfigFields
     Name = 1 << 0,
     Context = 1 << 1,
     MaxTokens = 1 << 2,
+    MaxInputTokens = 1 << 10,
     InputPrice = 1 << 3,
     CachedInputPrice = 1 << 4,
     OutputPrice = 1 << 5,

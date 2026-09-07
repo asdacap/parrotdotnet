@@ -28,6 +28,7 @@ internal sealed class ModelCatalogueTests
 
         _ = await Assert.That(rich.Name).IsEqualTo("Rich");
         _ = await Assert.That(rich.ContextWindow).IsEqualTo(0);
+        _ = await Assert.That(rich.MaxInputTokens).IsEqualTo(0);
         _ = await Assert.That(rich.MaxOutputTokens).IsEqualTo(42);
         _ = await Assert.That(rich.InputPrice).IsEqualTo(0);
         _ = await Assert.That(rich.CachedInputPrice).IsEqualTo(0.00025);
@@ -39,8 +40,8 @@ internal sealed class ModelCatalogueTests
             .IsEqualTo("high,low");
         _ = await Assert.That(rich.Fields).IsEqualTo(
             ModelMetadataFields.Name
-                | ModelMetadataFields.ContextWindow
                 | ModelMetadataFields.MaxOutputTokens
+                | ModelMetadataFields.MaxInputTokens
                 | ModelMetadataFields.InputPrice
                 | ModelMetadataFields.CachedInputPrice
                 | ModelMetadataFields.OutputPrice
@@ -48,6 +49,7 @@ internal sealed class ModelCatalogueTests
                 | ModelMetadataFields.Reasoning
                 | ModelMetadataFields.Output
                 | ModelMetadataFields.Variants);
+        _ = await Assert.That(invalid.MaxInputTokens).IsEqualTo(0);
         _ = await Assert.That(invalid.Fields).IsEqualTo(ModelMetadataFields.None);
     }
 
@@ -63,7 +65,8 @@ internal sealed class ModelCatalogueTests
         _ = await Assert.That(models.Count).IsEqualTo(2);
         _ = await Assert.That(model.Name).IsEqualTo("served");
         _ = await Assert.That(model.Fields.HasFlag(ModelMetadataFields.Name)).IsFalse();
-        _ = await Assert.That(model.ContextWindow).IsEqualTo(64);
+        _ = await Assert.That(model.ContextWindow).IsEqualTo(0);
+        _ = await Assert.That(model.MaxInputTokens).IsEqualTo(64);
         _ = await Assert.That(model.MaxOutputTokens).IsEqualTo(32);
         _ = await Assert.That(model.Fields.HasFlag(ModelMetadataFields.InputPrice)).IsFalse();
         _ = await Assert.That(model.InputPrice).IsEqualTo(0);
@@ -91,18 +94,24 @@ internal sealed class ModelCatalogueTests
 
         _ = await Assert.That(string.Join(",", models.Select(model => model.Id)))
             .IsEqualTo("qwen38-27b,nested-only,normalized-only,malformed-normalized,duplicate");
-        _ = await Assert.That(qwen.ContextWindow).IsEqualTo(262144);
+        _ = await Assert.That(qwen.ContextWindow).IsEqualTo(0);
+        _ = await Assert.That(qwen.MaxInputTokens).IsEqualTo(262144);
         _ = await Assert.That(qwen.MaxOutputTokens).IsEqualTo(64);
         _ = await Assert.That(qwen.Capabilities.Tools).IsFalse();
         _ = await Assert.That(qwen.Capabilities.Reasoning).IsTrue();
         _ = await Assert.That(string.Join(",", qwen.Capabilities.Variants.Select(variant => variant.Name)))
             .IsEqualTo("low,medium,xhigh");
-        _ = await Assert.That(models.Single(model => model.Id == "nested-only").ContextWindow).IsEqualTo(1024);
-        _ = await Assert.That(models.Single(model => model.Id == "normalized-only").ContextWindow).IsEqualTo(2048);
+        _ = await Assert.That(models.Single(model => model.Id == "nested-only").ContextWindow).IsEqualTo(0);
+        _ = await Assert.That(models.Single(model => model.Id == "nested-only").MaxInputTokens).IsEqualTo(1024);
+        _ = await Assert.That(models.Single(model => model.Id == "normalized-only").ContextWindow).IsEqualTo(0);
+        _ = await Assert.That(models.Single(model => model.Id == "normalized-only").MaxInputTokens).IsEqualTo(2048);
         _ = await Assert.That(models.Single(model => model.Id == "normalized-only").Capabilities.Reasoning).IsFalse();
         _ = await Assert.That(models.Single(model => model.Id == "malformed-normalized").ContextWindow)
+            .IsEqualTo(0);
+        _ = await Assert.That(models.Single(model => model.Id == "malformed-normalized").MaxInputTokens)
             .IsEqualTo(4096);
-        _ = await Assert.That(duplicate.ContextWindow).IsEqualTo(4096);
+        _ = await Assert.That(duplicate.ContextWindow).IsEqualTo(0);
+        _ = await Assert.That(duplicate.MaxInputTokens).IsEqualTo(4096);
         _ = await Assert.That(duplicate.MaxOutputTokens).IsEqualTo(128);
         _ = await Assert.That(string.Join(",", duplicate.Capabilities.Variants.Select(variant => variant.Name)))
             .IsEqualTo("medium,xhigh");
@@ -130,12 +139,13 @@ internal sealed class ModelCatalogueTests
         };
 
         var supplemented = ModelCatalogue.Supplement(primary, supplemental);
-        var merged = ModelCatalogue.Merge(supplemented, [configured], []);
+        var merged = ModelCatalogue.Merge(supplemented, [configured], [], []);
         var served = merged.Single(model => model.Id == "served");
 
         _ = await Assert.That(string.Join(",", merged.Select(model => model.Id)))
             .IsEqualTo("primary-only,served");
-        _ = await Assert.That(served.ContextWindow).IsEqualTo(512);
+        _ = await Assert.That(served.ContextWindow).IsEqualTo(256);
+        _ = await Assert.That(served.MaxInputTokens).IsEqualTo(512);
         _ = await Assert.That(served.MaxOutputTokens).IsEqualTo(0);
         _ = await Assert.That(served.InputPrice).IsEqualTo(0.01);
         _ = await Assert.That(served.Capabilities.Tools).IsFalse();
@@ -174,7 +184,7 @@ internal sealed class ModelCatalogueTests
             "p",
             """{"data":[{"id":"m","pricing":{"prompt":"0","input_cache_read":"0","completion":"0"}}]}""");
 
-        var merged = ModelCatalogue.Merge(fetched, [configured], []).Single();
+        var merged = ModelCatalogue.Merge(fetched, [configured], [], []).Single();
 
         _ = await Assert.That(merged.InputPrice).IsEqualTo(0);
         _ = await Assert.That(merged.CachedInputPrice).IsEqualTo(0);
@@ -197,7 +207,7 @@ internal sealed class ModelCatalogueTests
             "p",
             "{\"data\":[{\"id\":\"m\",\"pricing\":{\"prompt\":\"" + price + "\"}}]}");
 
-        var merged = ModelCatalogue.Merge(fetched, [configured], []).Single();
+        var merged = ModelCatalogue.Merge(fetched, [configured], [], []).Single();
 
         _ = await Assert.That(merged.InputPrice).IsEqualTo(0.01);
         _ = await Assert.That(merged.CachedInputPrice).IsEqualTo(0.005);
@@ -214,7 +224,7 @@ internal sealed class ModelCatalogueTests
         var fetched = StandardModelDecoder.Instance.Decode(
             "p", """{"data":[{"id":"m","supports_reasoning":false}]}""");
 
-        var merged = ModelCatalogue.Merge(fetched, [configured], []).Single();
+        var merged = ModelCatalogue.Merge(fetched, [configured], [], []).Single();
 
         _ = await Assert.That(merged.Capabilities.Reasoning).IsFalse();
         _ = await Assert.That(merged.Capabilities.Variants).IsEmpty();
@@ -231,7 +241,7 @@ internal sealed class ModelCatalogueTests
         };
         var fetched = OpenRouterModelDecoder.Instance.Decode("p", """{"data":[{"id":"m","reasoning":{}}]}""");
 
-        var merged = ModelCatalogue.Merge(fetched, [configured], []).Single();
+        var merged = ModelCatalogue.Merge(fetched, [configured], [], []).Single();
 
         _ = await Assert.That(merged.Capabilities.Reasoning).IsTrue();
         _ = await Assert.That(merged.Capabilities.Variants).HasSingleItem();
@@ -277,7 +287,7 @@ internal sealed class ModelCatalogueTests
                 | ModelMetadataFields.Variants,
         };
 
-        var merged = ModelCatalogue.Merge([fetched], [configured], []).Single();
+        var merged = ModelCatalogue.Merge([fetched], [configured], [], []).Single();
 
         _ = await Assert.That(merged.Name).IsEqualTo("Endpoint");
         _ = await Assert.That(merged.ContextWindow).IsEqualTo(0);
@@ -318,13 +328,117 @@ internal sealed class ModelCatalogueTests
             new LLMModel("fresh", "p") { Name = "Fresh", Fields = ModelMetadataFields.Name },
         };
 
-        var merged = ModelCatalogue.Merge(fetched, declared, defaults);
+        var merged = ModelCatalogue.Merge(fetched, declared, defaults, []);
         var ids = string.Join(",", merged.Select(model => model.Id));
         var served = merged.Single(model => model.Id == "served");
 
         _ = await Assert.That(ids).IsEqualTo("declared,fresh,served");
         _ = await Assert.That(served.Name).IsEqualTo("Declared");
         _ = await Assert.That(served.ContextWindow).IsEqualTo(500);
+    }
+
+    [Test]
+    public async Task Merge_preserves_external_membership_and_uses_all_four_metadata_levels()
+    {
+        var external = new LLMModel("shared", "p")
+        {
+            Name = "External",
+            ContextWindow = 100,
+            MaxInputTokens = 80,
+            MaxOutputTokens = 60,
+            InputPrice = 0.01,
+            CachedInputPrice = 0.001,
+            OutputPrice = 0.02,
+            Capabilities = new ModelCapabilities(true, true, ["text"], [new ModelVariant("low", "low")]),
+            Fields = ModelMetadataFields.Name
+                | ModelMetadataFields.ContextWindow
+                | ModelMetadataFields.MaxInputTokens
+                | ModelMetadataFields.MaxOutputTokens
+                | ModelMetadataFields.InputPrice
+                | ModelMetadataFields.CachedInputPrice
+                | ModelMetadataFields.OutputPrice
+                | ModelMetadataFields.Tools
+                | ModelMetadataFields.Reasoning
+                | ModelMetadataFields.Output
+                | ModelMetadataFields.Variants,
+        };
+        var defaults = new LLMModel("shared", "p")
+        {
+            Name = "Default",
+            ContextWindow = 200,
+            MaxInputTokens = 160,
+            MaxOutputTokens = 120,
+            InputPrice = 0.02,
+            CachedInputPrice = 0.002,
+            OutputPrice = 0.04,
+            Capabilities = new ModelCapabilities(false, false, [], []),
+            Fields = external.Fields,
+        };
+        var declared = new LLMModel("shared", "p")
+        {
+            Name = "Declared",
+            ContextWindow = 300,
+            MaxInputTokens = 240,
+            MaxOutputTokens = 180,
+            InputPrice = 0.03,
+            CachedInputPrice = 0.003,
+            OutputPrice = 0.06,
+            Capabilities = new ModelCapabilities(true, true, ["image"], [new ModelVariant("high", "high")]),
+            Fields = external.Fields,
+        };
+        var fetched = new LLMModel("shared", "p")
+        {
+            Name = "Live",
+            ContextWindow = 0,
+            MaxInputTokens = 0,
+            MaxOutputTokens = 0,
+            InputPrice = 0,
+            CachedInputPrice = 0,
+            OutputPrice = 0,
+            Capabilities = new ModelCapabilities(false, false, [], []),
+            Fields = external.Fields,
+        };
+
+        var seeded = ModelCatalogue.Merge(null, [declared], [defaults, new LLMModel("default-only", "p")], [external, new LLMModel("external-only", "p")]);
+        var defaulted = ModelCatalogue.Merge(null, [], [defaults], [external]);
+        var refreshed = ModelCatalogue.Merge([fetched, new LLMModel("live-only", "p"), fetched], [declared], [defaults, new LLMModel("default-only", "p")], [external, new LLMModel("external-only", "p")]);
+        var seededShared = seeded.Single(item => item.Id == "shared");
+        var model = refreshed.Single(item => item.Id == "shared");
+
+        _ = await Assert.That(string.Join(",", seeded.Select(item => item.Id)))
+            .IsEqualTo("default-only,external-only,shared");
+        _ = await Assert.That(seededShared.Name).IsEqualTo("Declared");
+        _ = await Assert.That(seededShared.ContextWindow).IsEqualTo(300);
+        _ = await Assert.That(seededShared.MaxInputTokens).IsEqualTo(240);
+        _ = await Assert.That(defaulted.Single().Name).IsEqualTo("Default");
+        _ = await Assert.That(defaulted.Single().ContextWindow).IsEqualTo(200);
+        _ = await Assert.That(defaulted.Single().MaxInputTokens).IsEqualTo(160);
+        _ = await Assert.That(string.Join(",", refreshed.Select(item => item.Id)))
+            .IsEqualTo("external-only,live-only,shared");
+        _ = await Assert.That(model.Name).IsEqualTo("Live");
+        _ = await Assert.That(model.ContextWindow).IsEqualTo(0);
+        _ = await Assert.That(model.MaxInputTokens).IsEqualTo(0);
+        _ = await Assert.That(model.MaxOutputTokens).IsEqualTo(0);
+        _ = await Assert.That(model.InputPrice).IsEqualTo(0);
+        _ = await Assert.That(model.CachedInputPrice).IsEqualTo(0);
+        _ = await Assert.That(model.OutputPrice).IsEqualTo(0);
+        _ = await Assert.That(model.Capabilities.Tools).IsFalse();
+        _ = await Assert.That(model.Capabilities.Reasoning).IsFalse();
+        _ = await Assert.That(model.Capabilities.Output).IsEmpty();
+        _ = await Assert.That(model.Capabilities.Variants).IsEmpty();
+    }
+
+    [Test]
+    public async Task Merge_with_empty_external_preserves_existing_membership_lifecycle()
+    {
+        LLMModel[] defaults = [new("default", "p")];
+        LLMModel[] declared = [new("declared", "p")];
+
+        var seeded = ModelCatalogue.Merge(null, declared, defaults, []);
+        var refreshed = ModelCatalogue.Merge([new LLMModel("live", "p")], declared, defaults, []);
+
+        _ = await Assert.That(string.Join(",", seeded.Select(item => item.Id))).IsEqualTo("declared,default");
+        _ = await Assert.That(string.Join(",", refreshed.Select(item => item.Id))).IsEqualTo("declared,live");
     }
 
     [Test]
@@ -340,7 +454,7 @@ internal sealed class ModelCatalogueTests
         };
         var fetched = StandardModelDecoder.Instance.Decode("p", """{"data":[{"id":"m"}]}""");
 
-        var merged = ModelCatalogue.Merge(fetched, [configured], []).Single();
+        var merged = ModelCatalogue.Merge(fetched, [configured], [], []).Single();
 
         _ = await Assert.That(merged.Capabilities.Tools).IsFalse();
         _ = await Assert.That(merged.Capabilities.Reasoning).IsTrue();

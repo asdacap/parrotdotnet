@@ -60,7 +60,10 @@ internal sealed class Compactor(
                 ? 100
                 : Math.Clamp((int)(estimatedTokens * 100L / contextLimit), 0, 100)
             : null;
-        return new ContextSnapshot(estimatedTokens, contextLimit, usagePercent, triggerPercent);
+        return new ContextSnapshot(estimatedTokens, contextLimit, usagePercent, triggerPercent)
+        {
+            InputLimit = selectedModel.Model.InputTokenLimit,
+        };
     }
 
     public bool ShouldCompact(
@@ -256,8 +259,8 @@ internal sealed class Compactor(
             return null;
         }
 
-        var contextWindow = selectedModel.Model.ContextWindow;
-        var targetBudget = PercentageBudget(contextWindow, targetPercent);
+        var inputTokenLimit = selectedModel.Model.InputTokenLimit;
+        var targetBudget = PercentageBudget(inputTokenLimit, targetPercent);
         var keepGroupFrom = groups.Count - 1;
         var retained = groups[^1].Messages.ToList();
 
@@ -285,7 +288,7 @@ internal sealed class Compactor(
             .Where(candidate =>
             {
                 var estimate = EstimateWithSummary(instructions, tools, fixedMessage, candidate.Retained) + 1;
-                return estimate <= targetBudget || (naturalRequiredExceedsTarget && estimate <= contextWindow);
+                return estimate <= targetBudget || (naturalRequiredExceedsTarget && estimate <= inputTokenLimit);
             })
             .OrderBy(candidate => Math.Abs(candidate.Index - keepGroupFrom))
             .ThenBy(candidate => candidate.Index)
@@ -311,14 +314,16 @@ internal sealed class Compactor(
 
         var summaryBaseTokens = EstimateWithSummary(instructions, tools, fixedMessage, retained);
         var targetExceededByRequiredContext = summaryBaseTokens + 1 > targetBudget;
-        var summaryBudget = (targetExceededByRequiredContext ? contextWindow : targetBudget) - summaryBaseTokens;
+        var summaryBudget = (targetExceededByRequiredContext ? inputTokenLimit : targetBudget) - summaryBaseTokens;
         if (summaryBudget <= 0)
         {
             throw new InvalidOperationException("The recent conversation leaves no room for a compaction summary.");
         }
 
         var summaryTokens = checked((int)Math.Min(summaryOutputTokens, summaryBudget));
-        var inputBudget = Math.Min((long)maximumInputTokens, contextWindow - summaryTokens);
+        var inputBudget = Math.Min(
+            Math.Min((long)maximumInputTokens, inputTokenLimit),
+            selectedModel.Model.ContextWindow - summaryTokens);
         if (inputBudget <= 0)
         {
             throw new InvalidOperationException("The selected model leaves no room for a compaction request.");
@@ -402,9 +407,9 @@ internal sealed class Compactor(
         var summaryMessage = LLMMessage.System($"{_summaryPrefix}{summary}");
         IReadOnlyList<LLMMessage> compacted = [summaryMessage, fixedMessage, .. retained];
         var compactedTokens = EstimateInputTokens(instructions, tools, compacted);
-        if (compactedTokens > contextWindow)
+        if (compactedTokens > inputTokenLimit)
         {
-            throw new InvalidOperationException("The compacted conversation exceeds the selected model context window.");
+            throw new InvalidOperationException("The compacted conversation exceeds the selected model input limit.");
         }
 
         if (!targetExceededByRequiredContext && compactedTokens > targetBudget)

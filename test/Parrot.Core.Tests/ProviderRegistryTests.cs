@@ -41,7 +41,8 @@ internal sealed class ProviderRegistryTests
                 configuration,
                 store,
                 httpClients,
-                new SystemBrowserOpener(static _ => null)).Build(cancellationToken);
+                new SystemBrowserOpener(static _ => null),
+                new ModelsDevInformationProvider(client)).Build(cancellationToken);
             var provider = registry.List().Single(item => item.Id == "openrouter");
             var request = new LLMRequest
             {
@@ -188,7 +189,8 @@ internal sealed class ProviderRegistryTests
                 Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml")),
                 store,
                 httpClients,
-                new SystemBrowserOpener(static _ => null)).Build(cancellationToken);
+                new SystemBrowserOpener(static _ => null),
+                new ModelsDevInformationProvider(client)).Build(cancellationToken);
 
             _ = await Assert.That(registry.List().Select(provider => provider.Id)).Contains("openai");
             _ = await Assert.That(registry.Models("openai").Select(model => model.Id)).Contains("gpt-5.4");
@@ -223,7 +225,8 @@ internal sealed class ProviderRegistryTests
                 Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml")),
                 store,
                 httpClients,
-                new SystemBrowserOpener(static _ => null)).Build(cancellationToken);
+                new SystemBrowserOpener(static _ => null),
+                new ModelsDevInformationProvider(client)).Build(cancellationToken);
 
             var selected = registry.ResolveCanonical("configured/not-listed");
 
@@ -258,7 +261,8 @@ internal sealed class ProviderRegistryTests
                 Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml")),
                 new InMemoryCredentialStore(),
                 httpClients,
-                new SystemBrowserOpener(static _ => null)).Build(cancellationToken);
+                new SystemBrowserOpener(static _ => null),
+                new ModelsDevInformationProvider(client)).Build(cancellationToken);
 
             var seed = registry.Models("custom").Single();
 
@@ -292,6 +296,7 @@ internal sealed class ProviderRegistryTests
                     Fields = ModelMetadataFields.InputPrice,
                 },
             ],
+            [],
             false,
             new ResponsesWebSocketConnector());
 
@@ -308,7 +313,7 @@ internal sealed class ProviderRegistryTests
     {
         using var handler = new ChatGptCallHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = new ChatGptProvider(new FakeOAuthTokenSource(), client, [], [], false, new ResponsesWebSocketConnector());
+        var provider = new ChatGptProvider(new FakeOAuthTokenSource(), client, [], [], [], false, new ResponsesWebSocketConnector());
         var request = new LLMRequest
         {
             Model = "gpt-5.6-sol",

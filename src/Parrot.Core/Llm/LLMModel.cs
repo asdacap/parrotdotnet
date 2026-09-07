@@ -8,6 +8,12 @@ internal sealed record LLMModel(string Id, string ProviderId)
 
     public int MaxOutputTokens { get; init; }
 
+    public int MaxInputTokens { get; init; }
+
+    public int InputTokenLimit => ContextWindow > 0 && MaxInputTokens > 0
+        ? Math.Min(ContextWindow, MaxInputTokens)
+        : Math.Max(ContextWindow, MaxInputTokens);
+
     // USD per token.
     public double InputPrice { get; init; }
 

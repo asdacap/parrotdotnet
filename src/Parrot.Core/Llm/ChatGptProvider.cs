@@ -23,6 +23,7 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
     private readonly HttpClient _client;
     private readonly IReadOnlyList<LLMModel> _declared;
     private readonly IReadOnlyList<LLMModel> _defaults;
+    private readonly IReadOnlyList<LLMModel> _external;
     private readonly Uri _endpoint = new(StreamEndpoint);
     private readonly string _sessionId = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
     private readonly IResponsesWebSocketConnector _websocketConnector;
@@ -33,6 +34,7 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
         HttpClient client,
         IReadOnlyList<LLMModel> declared,
         IReadOnlyList<LLMModel> defaults,
+        IReadOnlyList<LLMModel> external,
         bool disableWebSocket,
         IResponsesWebSocketConnector websocketConnector)
     {
@@ -42,13 +44,15 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
         _client = client;
         _declared = declared;
         _defaults = defaults;
+        _external = external;
         _disableWebSocket = disableWebSocket;
         _websocketConnector = websocketConnector;
     }
 
     public string Id => ProviderId;
 
-    public IReadOnlyList<LLMModel> SeedModels() => ModelCatalogue.Merge(null, _declared, _defaults);
+    public IReadOnlyList<LLMModel> SeedModels() =>
+        ChatGptModelCatalogue.ApplyLimits(ModelCatalogue.Merge(null, _declared, _defaults, _external));
 
     public ILLMProviderSession OpenSession()
     {
@@ -79,7 +83,8 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
             .Get(_client, uri, Headers(access), HttpStreaming.ModelsRefreshTimeout, 16 << 20, cancellationToken)
             .ConfigureAwait(false);
 
-        return ModelCatalogue.Merge(DecodeModels(body), _declared, _defaults);
+        return ChatGptModelCatalogue.ApplyLimits(
+            ModelCatalogue.Merge(DecodeModels(body), _declared, _defaults, _external));
     }
 
     public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>

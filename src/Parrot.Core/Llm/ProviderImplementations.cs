@@ -50,6 +50,7 @@ internal static class ProviderImplementations
                 context.HttpClient,
                 ProviderModels.ReadDeclared(context.Id, context.Config.Models),
                 ProviderModels.ReadDefaults(context.Id, context.Config.ModelDefaults),
+                context.ExternalModels,
                 context.Config.DisableWebSocket,
                 new ResponsesWebSocketConnector());
             return new(provider, provider.SeedModels());
@@ -92,6 +93,7 @@ internal static class ProviderImplementations
                 DisableWebSocket = config.DisableWebSocket,
                 Models = ProviderModels.ReadDeclared(context.Id, config.Models),
                 ModelDefaults = ProviderModels.ReadDefaults(context.Id, config.ModelDefaults),
+                ExternalModels = context.ExternalModels,
                 Decoder = decoder,
                 HeaderTimeout = config.HeaderTimeoutMs is { } milliseconds
                     ? TimeSpan.FromMilliseconds(milliseconds)

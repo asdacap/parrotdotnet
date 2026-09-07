@@ -123,7 +123,7 @@ internal sealed class ChatGptProviderWebSocketTests
         HttpClient client,
         IResponsesWebSocketConnector connector,
         bool disableWebSocket) =>
-        new(new FixedOAuthTokenSource(), client, [], [], disableWebSocket, connector);
+        new(new FixedOAuthTokenSource(), client, [], [], [], disableWebSocket, connector);
 
     private static LLMRequest Request(IReadOnlyList<LLMMessage> messages) =>
         new() { Model = "gpt-5.6-sol", MaxTokens = 4096, Messages = messages };
