@@ -146,6 +146,61 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    public async Task Up_on_an_empty_prompt_recalls_the_previous_prompt_and_down_discards_it(CancellationToken cancellationToken)
+    {
+        var delay = new ControlledSubmitDelay();
+        using var terminal = new ScriptedTerminal(80);
+        using var stopping = new CancellationTokenSource();
+        using var http = new HttpClient();
+        var invoker = new ScriptedInvoker();
+        using var loadedConfiguration = new LoadedConfiguration(string.Empty);
+        var configuration = loadedConfiguration.Value;
+        var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
+        var renderer = new EnhancedTurnRenderer(terminal, configuration, presenters);
+        using var diagnostics = new TransportDiagnosticsFixture();
+        var cli = new EnhancedCli(
+            new GeneratedParrot.ParrotClient(invoker),
+            new Interrupts(stopping),
+            new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
+            new UnusedCredentials(),
+            new OpenAiOAuthClient(http, new UnusedBrowser(), new OpenAiOAuthOptions()),
+            configuration,
+            ["provider"],
+            terminal,
+            presenters,
+            renderer,
+            TimeProvider.System,
+            delay.Wait,
+            new AttachmentsFixture().Uploader,
+            diagnostics.Log);
+        var running = cli.Run(cancellationToken);
+
+        terminal.Type("first prompt\r");
+        (await delay.Read(cancellationToken)).Release();
+        await Sent(invoker, 1, cancellationToken);
+        terminal.Type("second prompt\r");
+        (await delay.Read(cancellationToken)).Release();
+        await Sent(invoker, 2, cancellationToken);
+
+        terminal.Type("\u001b[A");
+        await Task.Delay(50, cancellationToken);
+        _ = await Assert.That(invoker.Sent.Count).IsEqualTo(2);
+
+        terminal.Type("\u001b[B");
+        await Task.Delay(50, cancellationToken);
+        terminal.Type("\u001b[A");
+        await Task.Delay(50, cancellationToken);
+
+        terminal.Type("\r");
+        (await delay.Read(cancellationToken)).Release();
+        await Sent(invoker, 3, cancellationToken);
+        _ = await Assert.That(invoker.Sent[2]).IsEqualTo("second prompt");
+
+        terminal.End();
+        _ = await running;
+    }
+
+    [Test]
     public async Task Plan_completion_renders_markdown_and_approves_with_picker(CancellationToken cancellationToken)
     {
         using var driver = new CliLifecycleDriver(enhanced: true);

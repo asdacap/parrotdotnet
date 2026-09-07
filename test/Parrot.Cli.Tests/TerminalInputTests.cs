@@ -271,6 +271,42 @@ internal sealed class TerminalInputTests
     }
 
     [Test]
+    public async Task Editor_recalls_submitted_entries_up_from_an_empty_prompt_and_edits_away_from_them()
+    {
+        var editor = new IncrementalEditor("> ", 64 * 1024);
+        editor.Remember("first");
+        editor.Remember("second");
+        editor.Remember("   ");
+
+        editor.Recall();
+        var mostRecent = editor.Prompt;
+        editor.Recall();
+        var oldest = editor.Prompt;
+        editor.Next();
+        var next = editor.Prompt;
+        _ = editor.Apply(new TerminalKey(TerminalKeyKind.Character, "x"));
+        var edited = editor.Prompt;
+        _ = editor.Apply(new TerminalKey(TerminalKeyKind.Character, "y"));
+        editor.Recall();
+        var recallAfterEdit = editor.Prompt;
+        editor.Next();
+        editor.Next();
+        var backToDraft = editor.Prompt;
+
+        _ = await Assert.That(mostRecent.Text).IsEqualTo("second");
+        _ = await Assert.That(mostRecent.Cursor).IsEqualTo(6);
+        _ = await Assert.That(oldest.Text).IsEqualTo("first");
+        _ = await Assert.That(next.Text).IsEqualTo("second");
+        _ = await Assert.That(edited.Text).IsEqualTo("secondx");
+        _ = await Assert.That(recallAfterEdit.Text).IsEqualTo("second");
+        _ = await Assert.That(backToDraft.Text).IsEqualTo("secondxy");
+
+        var empty = new IncrementalEditor("> ", 64 * 1024);
+        empty.Recall();
+        _ = await Assert.That(empty.Prompt).IsEqualTo(new PromptState("> ", string.Empty, 0));
+    }
+
+    [Test]
     [Arguments(-1, 0, 2)]
     [Arguments(1, 1, 4)]
     [Arguments(99, 2, 5)]

@@ -5,11 +5,62 @@ namespace Parrot.Cli.Enhanced;
 internal sealed class IncrementalEditor(string prefix, int maximumRunes)
 {
     private readonly List<Rune> _text = [];
+    private readonly List<string> _history = [];
+    private string _draft = string.Empty;
     private int _cursor;
+    private int _historyIndex;
 
     public bool IsEmpty => _text.Count == 0;
 
+    public bool IsRecalling => _historyIndex > 0;
+
     public PromptState Prompt => new(prefix, string.Concat(_text), _cursor);
+
+    /// <summary>Remembers a submitted entry so an empty prompt can revisit it.</summary>
+    public void Remember(string entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        if (entry.Trim().Length > 0)
+        {
+            _history.Add(entry);
+        }
+    }
+
+    /// <summary>Captures the draft before recall and steps back to the previous entry.</summary>
+    public void Recall()
+    {
+        if (_historyIndex < _history.Count)
+        {
+            if (_historyIndex == 0)
+            {
+                _draft = string.Concat(_text);
+            }
+
+            _historyIndex++;
+            ReplaceText(_history[^_historyIndex]);
+        }
+    }
+
+    /// <summary>Steps forward one entry, or restores the draft past the most recent one.</summary>
+    public void Next()
+    {
+        if (_historyIndex == 0)
+        {
+            return;
+        }
+
+        _historyIndex--;
+        ReplaceText(_historyIndex == 0 ? _draft : _history[^_historyIndex]);
+    }
+
+    /// <summary>Replaces the draft without touching the history of submitted entries.</summary>
+    public void ReplaceText(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        Clear();
+        Insert(value);
+    }
 
     public string? Apply(TerminalKey key)
     {
@@ -18,6 +69,7 @@ internal sealed class IncrementalEditor(string prefix, int maximumRunes)
             case TerminalKeyKind.Character:
             case TerminalKeyKind.Paste:
                 Insert(key.Text);
+                EndRecall();
                 break;
             case TerminalKeyKind.Left:
                 _cursor = Math.Max(0, _cursor - 1);
@@ -36,15 +88,19 @@ internal sealed class IncrementalEditor(string prefix, int maximumRunes)
                 break;
             case TerminalKeyKind.Backspace when _cursor > 0:
                 _text.RemoveAt(--_cursor);
+                EndRecall();
                 break;
             case TerminalKeyKind.Delete when _cursor < _text.Count:
                 _text.RemoveAt(_cursor);
+                EndRecall();
                 break;
             case TerminalKeyKind.KillLine:
                 KillLine();
+                EndRecall();
                 break;
             case TerminalKeyKind.Newline:
                 Insert("\n");
+                EndRecall();
                 break;
             case TerminalKeyKind.EndOfFile when _text.Count > 0:
                 if (_cursor < _text.Count)
@@ -52,11 +108,14 @@ internal sealed class IncrementalEditor(string prefix, int maximumRunes)
                     _text.RemoveAt(_cursor);
                 }
 
+                EndRecall();
                 break;
             case TerminalKeyKind.Submit:
                 var submitted = string.Concat(_text).Trim();
                 _text.Clear();
                 _cursor = 0;
+                _historyIndex = 0;
+                _draft = string.Empty;
                 return submitted;
             default:
                 break;
@@ -75,8 +134,8 @@ internal sealed class IncrementalEditor(string prefix, int maximumRunes)
     {
         ArgumentNullException.ThrowIfNull(value);
 
-        Clear();
-        Insert(value);
+        ReplaceText(value);
+        EndRecall();
     }
 
     public void ReplaceRange(int start, int length, string value)
@@ -92,7 +151,10 @@ internal sealed class IncrementalEditor(string prefix, int maximumRunes)
         _text.RemoveRange(start, length);
         _cursor = start;
         Insert(value);
+        EndRecall();
     }
+
+    private void EndRecall() => _historyIndex = 0;
 
     private void Insert(string value)
     {

@@ -243,6 +243,7 @@ internal sealed class EnhancedCli(
                 return;
             }
 
+            editor.Remember(entered);
             _busy = true;
             await renderingSession.BeginTurn(
                 ImmediateScrollbackValue.User(entered),
@@ -404,6 +405,16 @@ internal sealed class EnhancedCli(
             else if (key.Kind == TerminalKeyKind.Complete)
             {
                 AcceptCompletion();
+                entered = null;
+            }
+            else if (key.Kind == TerminalKeyKind.Up)
+            {
+                editor.Recall();
+                entered = null;
+            }
+            else if (key.Kind == TerminalKeyKind.Down && editor.IsRecalling)
+            {
+                editor.Next();
                 entered = null;
             }
             else
