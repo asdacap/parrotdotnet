@@ -16,7 +16,10 @@ internal sealed class ModelWizard(GeneratedParrot.ParrotClient client, ISlashDia
         bool selectEffort,
         CancellationToken cancellationToken)
     {
-        var listed = await client.ListModelsAsync(new ListModelsRequest(), cancellationToken: cancellationToken);
+        var listed = await dialog.Load(
+            "Loading models…",
+            async token => await client.ListModelsAsync(new ListModelsRequest(), cancellationToken: token),
+            cancellationToken).ConfigureAwait(false);
         var providers = listed.Models
             .Select(model => model.ProviderId)
             .Distinct(StringComparer.Ordinal)

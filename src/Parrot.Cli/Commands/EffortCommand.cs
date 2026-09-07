@@ -15,9 +15,15 @@ internal sealed class EffortCommand(
 
     public async Task Run(string arguments, CancellationToken cancellationToken)
     {
-        var selector = await ModelAliasSelection.Resolve(client, session.Model, cancellationToken)
-            .ConfigureAwait(false);
-        var listed = await client.ListModelsAsync(new ListModelsRequest(), cancellationToken: cancellationToken);
+        var (selector, listed) = await dialog.Load(
+            "Loading models…",
+            async token =>
+            {
+                var resolved = await ModelAliasSelection.Resolve(client, session.Model, token).ConfigureAwait(false);
+                var models = await client.ListModelsAsync(new ListModelsRequest(), cancellationToken: token);
+                return (resolved, models);
+            },
+            cancellationToken).ConfigureAwait(false);
         var current = ModelSelection.Resolve(listed.Models, selector);
         if (current is null)
         {

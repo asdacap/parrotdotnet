@@ -7,7 +7,10 @@ internal sealed class ModeSelection(GeneratedParrot.ParrotClient client, ISlashD
 {
     public async Task<string?> Select(CancellationToken cancellationToken)
     {
-        var listed = await client.ListModesAsync(new ListModesRequest(), cancellationToken: cancellationToken);
+        var listed = await dialog.Load(
+            "Loading modes…",
+            async token => await client.ListModesAsync(new ListModesRequest(), cancellationToken: token),
+            cancellationToken).ConfigureAwait(false);
         var options = listed.Modes
             .Select(mode => new SlashDialogOption(mode.Id, mode.Id, "Session mode"))
             .ToArray();

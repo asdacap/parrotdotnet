@@ -11,7 +11,10 @@ internal sealed class ModesCommand(GeneratedParrot.ParrotClient client, ISlashDi
 
     public async Task Run(string arguments, CancellationToken cancellationToken)
     {
-        var listed = await client.ListModesAsync(new ListModesRequest(), cancellationToken: cancellationToken);
+        var listed = await dialog.Load(
+            "Loading modes…",
+            async token => await client.ListModesAsync(new ListModesRequest(), cancellationToken: token),
+            cancellationToken).ConfigureAwait(false);
         await dialog.Show([.. listed.Modes.Select(mode => mode.Id)], cancellationToken).ConfigureAwait(false);
     }
 }

@@ -19,8 +19,11 @@ internal sealed class ModelAliasCommand(
     {
         try
         {
-            var listed = await client.ListModelAliasesAsync(
-                new ListModelAliasesRequest(), cancellationToken: cancellationToken);
+            var listed = await dialog.Load(
+                "Loading aliases…",
+                async token => await client.ListModelAliasesAsync(
+                    new ListModelAliasesRequest(), cancellationToken: token),
+                cancellationToken).ConfigureAwait(false);
             var options = listed.Aliases
                 .OrderBy(alias => alias.Name, StringComparer.Ordinal)
                 .Select(alias => new SlashDialogOption(
@@ -44,8 +47,11 @@ internal sealed class ModelAliasCommand(
 
             if (string.Equals(selectedAlias.Id, ProviderDefaultsId, StringComparison.Ordinal))
             {
-                var defaults = await client.ListProviderModelAliasDefaultsAsync(
-                    new ListProviderModelAliasDefaultsRequest(), cancellationToken: cancellationToken);
+                var defaults = await dialog.Load(
+                    "Loading provider defaults…",
+                    async token => await client.ListProviderModelAliasDefaultsAsync(
+                        new ListProviderModelAliasDefaultsRequest(), cancellationToken: token),
+                    cancellationToken).ConfigureAwait(false);
                 if (defaults.Providers.Count == 0)
                 {
                     await dialog.ShowError(
@@ -64,9 +70,12 @@ internal sealed class ModelAliasCommand(
                     return;
                 }
 
-                var applied = await client.ApplyProviderModelAliasDefaultsAsync(
-                    new ApplyProviderModelAliasDefaultsRequest { ProviderId = provider.Id },
-                    cancellationToken: cancellationToken);
+                var applied = await dialog.Load(
+                    "Applying provider defaults…",
+                    async token => await client.ApplyProviderModelAliasDefaultsAsync(
+                        new ApplyProviderModelAliasDefaultsRequest { ProviderId = provider.Id },
+                        cancellationToken: token),
+                    cancellationToken).ConfigureAwait(false);
                 var lines = new List<string>
                 {
                     $"Model aliases configured from {provider.Id} defaults:",

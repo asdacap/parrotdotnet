@@ -107,8 +107,10 @@ internal sealed class AuthCommand(
                     return;
                 }
 
-                credential = await oauth.AwaitDeviceAuthorization(authorization, cancellationToken)
-                    .ConfigureAwait(false);
+                credential = await dialog.Load(
+                    "Waiting for authorization…",
+                    token => oauth.AwaitDeviceAuthorization(authorization, token),
+                    cancellationToken).ConfigureAwait(false);
             }
             else
             {
@@ -119,7 +121,10 @@ internal sealed class AuthCommand(
                     return;
                 }
 
-                credential = await oauth.BrowserLogin(cancellationToken).ConfigureAwait(false);
+                credential = await dialog.Load(
+                    "Waiting for browser authorization…",
+                    oauth.BrowserLogin,
+                    cancellationToken).ConfigureAwait(false);
             }
 
             await credentials.Set(ChatGptProvider.ProviderId, Credential.ForOAuth(credential), cancellationToken)
@@ -135,14 +140,20 @@ internal sealed class AuthCommand(
 
     private async Task List(CancellationToken cancellationToken)
     {
-        var stored = await credentials.List(cancellationToken).ConfigureAwait(false);
+        var stored = await dialog.Load(
+            "Loading credentials…",
+            async token => await credentials.List(token).ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
         await dialog.Show(stored.Count == 0 ? ["no credentials are stored"] : stored, cancellationToken)
             .ConfigureAwait(false);
     }
 
     private async Task Logout(CancellationToken cancellationToken)
     {
-        var stored = await credentials.List(cancellationToken).ConfigureAwait(false);
+        var stored = await dialog.Load(
+            "Loading credentials…",
+            async token => await credentials.List(token).ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
         if (stored.Count == 0)
         {
             await dialog.Show(["no credentials are stored"], cancellationToken).ConfigureAwait(false);

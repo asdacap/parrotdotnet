@@ -13,6 +13,8 @@ internal sealed class TestSlashDialog : ISlashDialog
 
     public List<(string Title, IReadOnlyList<SlashDialogOption> Options)> Pickers { get; } = [];
 
+    public List<string> Loads { get; } = [];
+
     public TestSlashDialog Select(params string?[] ids)
     {
         foreach (var id in ids)
@@ -65,5 +67,12 @@ internal sealed class TestSlashDialog : ISlashDialog
     {
         Errors.Add(message);
         return Task.CompletedTask;
+    }
+
+    public Task<T> Load<T>(string activity, Func<CancellationToken, Task<T>> load, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Loads.Add(activity);
+        return load(cancellationToken);
     }
 }
