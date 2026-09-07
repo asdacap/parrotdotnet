@@ -902,6 +902,7 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    [Timeout(15_000)]
     public async Task Loaded_live_buffer_row_budget_clips_oldest_activity(CancellationToken cancellationToken)
     {
         using var driver = new CliLifecycleDriver(true, "live_buffer_rows: 2\n");
@@ -915,7 +916,7 @@ internal sealed class EnhancedCliTests
             TurnStarted = new TurnStarted { Model = "model" },
         });
         var oldest = $"oldest-tail {new string('o', 70)}\n";
-        var newest = $"newest-tail {new string('n', 70)}";
+        var newest = $"newest-tail {new string('n', 66)}";
         await driver.Invoker.Publish(new Event
         {
             AgentSessionId = "agent",
@@ -926,7 +927,7 @@ internal sealed class EnhancedCliTests
         driver.Resize(81);
         var liveFrameStart = driver.Output.Length;
         driver.Input.Type("x");
-        var liveFrame = await driver.FlushedOutputContainsAfter(liveFrameStart, "newest-tail", cancellationToken);
+        var liveFrame = await driver.FlushedOutputContainsAfter(liveFrameStart, "❯ x", cancellationToken);
 
         _ = await Assert.That(liveFrame).DoesNotContain("oldest-tail");
         _ = await Assert.That(liveFrame).Contains("newest-tail");
@@ -998,6 +999,7 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    [Timeout(15_000)]
     public async Task Shift_tab_cycles_through_foreground_modes(CancellationToken cancellationToken)
     {
         using var driver = new CliLifecycleDriver(enhanced: true);
@@ -1008,29 +1010,7 @@ internal sealed class EnhancedCliTests
             await Task.Delay(5, cancellationToken);
         }
 
-        driver.Input.Type("\u001b[Z");
-        while (driver.Invoker.Updated.Count < 1)
-        {
-            await Task.Delay(5, cancellationToken);
-        }
-
-        while (driver.Input.Reads < 2)
-        {
-            await Task.Delay(5, cancellationToken);
-        }
-
-        driver.Input.Type("\u001b[Z");
-        while (driver.Invoker.Updated.Count < 2)
-        {
-            await Task.Delay(5, cancellationToken);
-        }
-
-        while (driver.Input.Reads < 3)
-        {
-            await Task.Delay(5, cancellationToken);
-        }
-
-        driver.Input.Type("\u001b[Z");
+        driver.Input.Type("\u001b[Z\u001b[Z\u001b[Z");
         while (driver.Invoker.Updated.Count < 3)
         {
             await Task.Delay(5, cancellationToken);
