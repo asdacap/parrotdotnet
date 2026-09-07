@@ -2,7 +2,7 @@ namespace Parrot.Context;
 
 internal sealed class ContextCadence
 {
-    internal const int NotificationInterval = 5;
+    internal const int NotificationInterval = 10;
 
     private string? _canonicalModel;
     private int? _contextWindow;
@@ -72,13 +72,13 @@ internal sealed class ContextCadence
 
         var crossedBand = band;
         _observedBand = band;
-        if (crossedBand <= 0 || crossedBand <= _reportedBand)
+        if (crossedBand * NotificationInterval < 50 || crossedBand <= _reportedBand)
         {
             return null;
         }
 
         _reportedBand = crossedBand;
-        return crossedBand * 5;
+        return crossedBand * NotificationInterval;
     }
 
     internal void Acknowledge(

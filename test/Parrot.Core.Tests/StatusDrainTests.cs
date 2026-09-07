@@ -324,7 +324,7 @@ internal sealed class StatusDrainTests : IDisposable
         var usage = estimated >= contextLimit
             ? 100
             : (int)(estimated * 100L / contextLimit);
-        var expected = $"Context: {usage}% used ({estimated} estimated tokens / {contextLimit} limit); reminders every 5%; automatic compaction at 90%.";
+        var expected = $"Context: {usage}% used ({estimated} estimated tokens / {contextLimit} limit); reminders every 10%; automatic compaction at 90%.";
         _ = await Assert.That(content).Contains(expected);
     }
 

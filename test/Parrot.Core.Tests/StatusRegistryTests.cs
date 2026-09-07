@@ -56,11 +56,11 @@ internal sealed class StatusRegistryTests
         _ = await Assert.That(observation.Available).IsTrue();
         _ = await Assert.That(observation.Text).Contains($"{estimatedTokens} estimated");
         _ = await Assert.That(observation.Text).Contains($"{contextLimit} limit");
-        _ = await Assert.That(observation.Text).Contains("every 5%");
+        _ = await Assert.That(observation.Text).Contains("every 10%");
         _ = await Assert.That(observation.Text).Contains("automatic compaction at 90%");
         if (available)
         {
-            _ = await Assert.That(observation.Text).IsEqualTo($"Context: {usage}% used ({estimatedTokens} estimated tokens / {contextLimit} limit); reminders every 5%; automatic compaction at 90%.");
+            _ = await Assert.That(observation.Text).IsEqualTo($"Context: {usage}% used ({estimatedTokens} estimated tokens / {contextLimit} limit); reminders every 10%; automatic compaction at 90%.");
         }
         else
         {

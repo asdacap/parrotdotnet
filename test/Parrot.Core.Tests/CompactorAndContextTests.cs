@@ -526,7 +526,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             provider,
             new LLMModel("first", provider.Id) { ContextWindow = 20_000 });
         await using var session = Build(firstModel);
-        foreach (var prompt in new[] { "start", new string('x', 4_000), new string('y', 12_000) })
+        foreach (var prompt in new[] { "start", new string('x', 4_000), new string('y', 40_000) })
         {
             _ = await session.Send(
                 [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
@@ -546,7 +546,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(reminderMessages[^1].Content)
             .Contains($"entered the {firstCheckpoint.Percentage}% notification band")
             .And.Contains("/ 20000 configured limit")
-            .And.Contains("every 5%")
+            .And.Contains("every 10%")
             .And.Contains("strictly above 99%");
 
         var reminderCountBeforeRestart = reminderMessages.Length;
@@ -574,7 +574,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(remindersAfterRebase).IsEqualTo(reminderCountBeforeRestart);
 
         _ = await restarted.Send(
-            [ConversationPart.TextPart(new string('z', 12_000))],
+            [ConversationPart.TextPart(new string('z', 40_000))],
             Identifier.MessageId(),
             Delivery.Steer,
             cancellationToken);
@@ -689,7 +689,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        var toolFactory = new FixedToolFactory(new SettledTool(new string('r', 4_000)));
+        var toolFactory = new FixedToolFactory(new SettledTool(new string('r', 32_000)));
         var profile = Profile(allowedTools: ["settled"], disabledTools: new HashSet<string>(StringComparer.Ordinal));
         await using var session = new AgentSession(
             identity,
@@ -723,7 +723,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             cancellationToken);
 
         _ = await session.Send(
-            [ConversationPart.TextPart(new string('p', 4_000))],
+            [ConversationPart.TextPart(new string('p', 24_000))],
             Identifier.MessageId(),
             Delivery.Steer,
             cancellationToken);
