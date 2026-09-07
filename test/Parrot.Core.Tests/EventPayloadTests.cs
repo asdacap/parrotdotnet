@@ -647,10 +647,11 @@ internal sealed class EventPayloadTests
         var checkpoint = new ContextReminderCheckpoint("provider/model", 10_000, 25);
         var published = new Event { Id = "context-reminder", AgentSessionId = "session" };
 
-        var inserted = repository.AppendContextReminder(published, checkpoint, "context reminder");
+        var inserted = repository.AppendContextReminder(published, checkpoint, 27, "context reminder");
         var duplicate = repository.AppendContextReminder(
             new Event { Id = "duplicate", AgentSessionId = "session" },
             checkpoint,
+            27,
             "duplicate reminder");
 
         _ = await Assert.That(inserted).IsTrue();
@@ -660,6 +661,7 @@ internal sealed class EventPayloadTests
         _ = await Assert.That(string.Join(" | ", repository.Messages("session")))
             .IsEqualTo("system: context reminder");
         _ = await Assert.That(repository.LatestContextReminder("session")).IsEqualTo(checkpoint);
+        _ = await Assert.That(published.ContextReminderInjected.UsagePercent).IsEqualTo(27);
         _ = await Assert.That(repository.Replay()).IsEmpty();
     }
 

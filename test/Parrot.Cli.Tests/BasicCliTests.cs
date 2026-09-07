@@ -369,7 +369,7 @@ internal sealed class BasicCliTests
             new Event { Id = "text", TextChunk = new TextChunk { Fragment = "draft" } },
             cancellationToken);
         await stream.WriteAsync(
-            new Event { Id = "reminder", ContextReminderInjected = new ContextReminderInjected() },
+            new Event { Id = "reminder", ContextReminderInjected = new ContextReminderInjected { UsagePercent = 27 } },
             cancellationToken);
         await stream.WriteAsync(
             new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
@@ -380,7 +380,7 @@ internal sealed class BasicCliTests
         var completed = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
-        _ = await Assert.That(output.ToString()).Contains("draft\n↻ Context reminder injected");
+        _ = await Assert.That(output.ToString()).Contains("draft\n↻ Context reminder injected (27% context used)");
         _ = await Assert.That(output.ToString()).DoesNotContain("  ↻ Context reminder injected");
         _ = await Assert.That(error.ToString()).IsEmpty();
     }

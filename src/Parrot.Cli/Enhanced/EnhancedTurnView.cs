@@ -127,7 +127,7 @@ internal sealed class EnhancedTurnView(
                 if (!foreground.IsChild(published.AgentSessionId))
                 {
                     await Commit(
-                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ Context reminder injected{Reset}"]),
+                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ Context reminder injected ({published.ContextReminderInjected.UsagePercent}% context used){Reset}"]),
                         cancellationToken).ConfigureAwait(false);
                 }
 

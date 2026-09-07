@@ -1537,13 +1537,14 @@ internal sealed class EventRepository
     public bool AppendContextReminder(
         Event published,
         ContextReminderCheckpoint checkpoint,
+        int usagePercent,
         string content)
     {
         ArgumentNullException.ThrowIfNull(published);
         ArgumentNullException.ThrowIfNull(checkpoint);
         ArgumentNullException.ThrowIfNull(content);
 
-        published.ContextReminderInjected = new ContextReminderInjected();
+        published.ContextReminderInjected = new ContextReminderInjected { UsagePercent = usagePercent };
         lock (_database.Gate)
         {
             using var transaction = _database.Begin();

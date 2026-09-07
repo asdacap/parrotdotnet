@@ -264,7 +264,7 @@ internal sealed partial class AgentSession
 
         var checkpoint = new ContextReminderCheckpoint(selectedModel.Selector, context.ContextLimit, percentage);
         var published = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
-        if (!eventRepository.AppendContextReminder(published, checkpoint, reminder))
+        if (!eventRepository.AppendContextReminder(published, checkpoint, context.UsagePercent.GetValueOrDefault(), reminder))
         {
             contextCadence.Acknowledge(insertedContext, selectedModel.Selector, _history.Count);
             return instructions;

@@ -110,7 +110,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
               - process: agent/process (shell, running, name: process)
               - agent: worker (child)
 
-            Context: unavailable ({estimatedTokens} estimated tokens / 0 limit); reminders every 5%; automatic compaction at 90%.
+            Context: unavailable ({estimatedTokens} estimated tokens / 0 limit); reminders every 10%; automatic compaction at 90%.
             """);
     }
 
