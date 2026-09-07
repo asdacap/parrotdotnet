@@ -183,6 +183,87 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     }
 
     [Test]
+    public async Task Send_and_wait_serializes_full_executions_and_returns_each_result(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed("stop", 1, 0, 1, "first", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "second", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "third", []));
+        await using var registry = TestModels.Registry(
+            new TestAgentSessions(Router(provider)),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            TestModels.PromptTemplates,
+            cancellationToken);
+        await using var session = Session(provider, 0, "serialized", registry, cancellationToken);
+
+        var first = session.SendAndWaitForResult("first prompt", cancellationToken);
+        await provider.Arrived(cancellationToken);
+        var second = session.SendAndWaitForResult("second prompt", cancellationToken);
+        var third = session.SendAndWaitForResult("third prompt", cancellationToken);
+
+        provider.Release();
+        _ = await Assert.That(await first).IsEqualTo("first");
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(2);
+        _ = await Assert.That(provider.Requests[1].Messages.Last(message => message.Role == LLMRole.User).Content)
+            .IsEqualTo("second prompt");
+        _ = await Assert.That(second.IsCompleted).IsFalse();
+        _ = await Assert.That(third.IsCompleted).IsFalse();
+
+        provider.Release();
+        _ = await Assert.That(await second).IsEqualTo("second");
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(3);
+        _ = await Assert.That(provider.Requests[2].Messages.Last(message => message.Role == LLMRole.User).Content)
+            .IsEqualTo("third prompt");
+        _ = await Assert.That(third.IsCompleted).IsFalse();
+
+        provider.Release();
+        _ = await Assert.That(await third).IsEqualTo("third");
+        var events = _repository.Replay()
+            .Where(published => published.AgentSessionId == session.SessionId)
+            .ToArray();
+        _ = await Assert.That(events.Count(published => published.PayloadCase == Event.PayloadOneofCase.TurnStarted))
+            .IsEqualTo(3);
+        _ = await Assert.That(events.Count(published => published.PayloadCase == Event.PayloadOneofCase.TurnEnded))
+            .IsEqualTo(3);
+        _ = await Assert.That(events.Count(published => published.PayloadCase == Event.PayloadOneofCase.AgentFinished))
+            .IsEqualTo(3);
+    }
+
+    [Test]
+    public async Task Send_and_wait_continues_after_a_failed_predecessor(CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed("stop", 1, 0, 1, "first", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "second", []));
+        await using var registry = TestModels.Registry(
+            new TestAgentSessions(Router(provider)),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            TestModels.PromptTemplates,
+            cancellationToken);
+        await using var session = Session(provider, 0, "failed-predecessor", registry, cancellationToken);
+
+        var first = session.SendAndWaitForResult("first prompt", cancellationToken);
+        await provider.Arrived(cancellationToken);
+        var second = session.SendAndWaitForResult("second prompt", cancellationToken);
+        await session.Interrupt(CancellationToken.None);
+
+        var interrupted = await Assert.That(first).Throws<AgentExecutionException>();
+        _ = await Assert.That(interrupted?.Status).IsEqualTo(AgentTaskStatus.Canceled);
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests[1].Messages.Last(message => message.Role == LLMRole.User).Content)
+            .IsEqualTo("second prompt");
+        provider.Release();
+        _ = await Assert.That(await second).IsEqualTo("second");
+    }
+
+    [Test]
     public async Task Spawn_full_fork_seeds_child_before_its_first_prompt(CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));

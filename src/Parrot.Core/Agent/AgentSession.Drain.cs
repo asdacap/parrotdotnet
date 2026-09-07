@@ -119,28 +119,14 @@ internal sealed partial class AgentSession
         string message,
         CancellationToken cancellationToken)
     {
-        if (lifetime.IsCancellationRequested)
-        {
-            throw new AgentRegistryException("the user session is shutting down");
-        }
-
-        if (string.IsNullOrWhiteSpace(message))
-        {
-            throw new AgentRegistryException("no message given");
-        }
-
-        if (System.Text.Encoding.UTF8.GetByteCount(message) > MaxAgentMessageBytes)
-        {
-            throw new AgentRegistryException("agent message exceeds 1048576 bytes");
-        }
-
+        EnsureMessageCanBeSent(message);
         var messageId = Identifier.MessageId();
         Task<AgentExecution>? execution = null;
         var followUp = false;
 
         lock (_executionGate)
         {
-            if (!_started || _execution.IsCompleted)
+            if (_sendAndWaitTail.IsCompleted && (!_started || _execution.IsCompleted))
             {
                 followUp = _started;
                 _started = true;
@@ -165,6 +151,97 @@ internal sealed partial class AgentSession
         }
 
         return (new AgentSendResult(SessionId, Name, messageId, followUp), execution);
+    }
+
+    private Task<AgentExecution> EnqueueExecution(string prompt)
+    {
+        EnsureMessageCanBeSent(prompt);
+        var messageId = Identifier.MessageId();
+        Task<AgentExecution> execution;
+
+        lock (_executionGate)
+        {
+            var predecessor = _sendAndWaitTail.IsCompleted ? _execution : _sendAndWaitTail;
+            _started = true;
+            execution = ExecuteAfter(predecessor, prompt, messageId);
+            _sendAndWaitTail = execution;
+        }
+
+        return execution;
+    }
+
+    private async Task<AgentExecution> ExecuteAfter(
+        Task<AgentExecution> predecessor,
+        string prompt,
+        string messageId)
+    {
+        try
+        {
+            _ = await predecessor.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+        }
+
+        while (true)
+        {
+            Task<AgentExecution>? activeExecution = null;
+            Task<AgentExecution>? execution = null;
+            lock (_executionGate)
+            {
+                if (_disposing || lifetime.IsCancellationRequested)
+                {
+                    return AgentExecution.Canceled();
+                }
+
+                if (!_started || _execution.IsCompleted)
+                {
+                    _started = true;
+                    execution = Execute(prompt, messageId, null, CancellationToken.None);
+                    _execution = execution;
+                }
+                else
+                {
+                    activeExecution = _execution;
+                }
+            }
+
+            if (execution is not null)
+            {
+                return await execution.ConfigureAwait(false);
+            }
+
+            if (activeExecution is null)
+            {
+                throw new InvalidOperationException("an active execution was not selected");
+            }
+
+            try
+            {
+                _ = await activeExecution.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+            }
+        }
+    }
+
+    private void EnsureMessageCanBeSent(string message)
+    {
+        if (lifetime.IsCancellationRequested)
+        {
+            throw new AgentRegistryException("the user session is shutting down");
+        }
+
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            throw new AgentRegistryException("no message given");
+        }
+
+        if (System.Text.Encoding.UTF8.GetByteCount(message) > MaxAgentMessageBytes)
+        {
+            throw new AgentRegistryException("agent message exceeds 1048576 bytes");
+        }
     }
 
     private async Task<AgentExecution> Execute(

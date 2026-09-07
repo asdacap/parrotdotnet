@@ -537,6 +537,55 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     }
 
     [Test]
+    public async Task Composite_acceptance_waits_for_an_unrelated_execution(CancellationToken cancellationToken)
+    {
+        using var provider = new AgentTaskCompositeInterleavingProvider();
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"parent","description":"Parent","payload":[{"name":"nested","description":"Nested","payload":"nested work","acceptance_criteria":"Nested proof"}],"acceptance_criteria":"Parent proof"}]}
+            """);
+
+        var running = Runner(runtime, "composite-interleaving")
+            .Run(artifact, cancellationToken);
+        await provider.WaitForRequest(cancellationToken);
+        await provider.WaitForRequest(cancellationToken);
+        var composite = runtime.Sessions.ResolveScope("parent").Session;
+        _ = await composite.SendTextMessage("unrelated message", cancellationToken);
+        await provider.WaitForRequest(cancellationToken);
+
+        provider.FinishNested();
+        _ = await runtime.Sessions.ResolveScope("nested").Session.Wait(0, cancellationToken);
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(3);
+        _ = await Assert.That(running.IsCompleted).IsFalse();
+
+        provider.FinishUnrelated();
+        await provider.WaitForRequest(cancellationToken);
+        var result = await running;
+
+        _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
+        _ = await Assert.That(result.Tasks.Single().Tasks?.Single().Result).IsEqualTo("nested result");
+        _ = await Assert.That(result.Tasks.Single().Verdict?.Evidence).IsEqualTo("parent proof");
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(4);
+        var unrelatedRequest = provider.Requests[2];
+        _ = await Assert.That(unrelatedRequest.Messages.Last(message => message.Role == LLMRole.User).Content)
+            .IsEqualTo("unrelated message");
+        var acceptanceRequest = provider.Requests[3];
+        _ = await Assert.That(acceptanceRequest.Messages.Last(message => message.Role == LLMRole.User).Content)
+            .Contains("AgentTask role: acceptance reviewer");
+        _ = await Assert.That(acceptanceRequest.Messages.Select(message => message.Content))
+            .Contains("unrelated answer");
+        _ = await Assert.That(runtime.Sessions.Identities).Count().IsEqualTo(2);
+        var identities = runtime.Sessions.Identities;
+        _ = await Assert.That(identities.Single(identity => identity.Name == "parent").ParentSessionId)
+            .IsEqualTo(runtime.Parent.SessionId);
+        _ = await Assert.That(identities.Single(identity => identity.Name == "nested").ParentSessionId)
+            .IsEqualTo(composite.SessionId);
+        _ = await Assert.That(string.Join(",", runtime.Sessions.ProfileIds))
+            .IsEqualTo("agent-task-prepare,agent-task-payload");
+    }
+
+    [Test]
     public async Task Recursive_composites_retain_role_history_and_parentage(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([

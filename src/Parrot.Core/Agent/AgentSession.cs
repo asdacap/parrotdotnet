@@ -97,6 +97,7 @@ internal sealed partial class AgentSession(
     private bool _disposing;
     private bool _started;
     private Task<AgentExecution> _execution = Task.FromResult(AgentExecution.Succeeded(string.Empty));
+    private Task<AgentExecution> _sendAndWaitTail = Task.FromResult(AgentExecution.Succeeded(string.Empty));
     private TaskCompletionSource<IncomingActivity>? _incomingInputWait;
 
     internal AgentSession(
@@ -487,7 +488,7 @@ internal sealed partial class AgentSession(
 
     public async Task<string> SendAndWaitForResult(string prompt, CancellationToken cancellationToken)
     {
-        var (_, execution) = await SendAndSelectExecution(prompt, cancellationToken).ConfigureAwait(false);
+        var execution = EnqueueExecution(prompt);
         var result = await execution.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         return result.Status switch
