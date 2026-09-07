@@ -132,6 +132,7 @@ internal sealed partial class AgentSession
                     message,
                     messageId,
                     selectedDrain: null,
+                    ownedExecution: null,
                     followUp ? cancellationToken : CancellationToken.None);
                 _execution = execution;
             }
@@ -151,7 +152,7 @@ internal sealed partial class AgentSession
         return (new AgentSendResult(SessionId, Name, messageId, followUp), execution);
     }
 
-    private Task<AgentExecution> EnqueueExecution(string prompt)
+    private Task<AgentExecution> EnqueueExecution(string prompt, CancellationToken cancellationToken)
     {
         EnsureMessageCanBeSent(prompt);
         var messageId = Identifier.MessageId();
@@ -161,24 +162,28 @@ internal sealed partial class AgentSession
         {
             var predecessor = _sendAndWaitTail.IsCompleted ? _execution : _sendAndWaitTail;
             _started = true;
-            execution = ExecuteAfter(predecessor, prompt, messageId);
-            _sendAndWaitTail = execution;
+            execution = ExecuteAfter(predecessor, prompt, messageId, cancellationToken);
+
+            // A canceled reservation completes early, but its FIFO position still waits for predecessors.
+            _sendAndWaitTail = Task.WhenAll(predecessor, execution);
         }
 
         return execution;
     }
 
     private async Task<AgentExecution> ExecuteAfter(
-        Task<AgentExecution> predecessor,
+        Task predecessor,
         string prompt,
-        string messageId)
+        string messageId,
+        CancellationToken cancellationToken)
     {
         try
         {
-            _ = await predecessor.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            await predecessor.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception)
         {
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
         while (true)
@@ -187,6 +192,7 @@ internal sealed partial class AgentSession
             Task<AgentExecution>? execution = null;
             lock (_executionGate)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (_disposing || lifetime.IsCancellationRequested)
                 {
                     return AgentExecution.Canceled();
@@ -194,9 +200,19 @@ internal sealed partial class AgentSession
 
                 if (!_started || _execution.IsCompleted)
                 {
-                    _started = true;
-                    execution = Execute(prompt, messageId, null, CancellationToken.None);
-                    _execution = execution;
+                    lock (_drainLifecycle.Gate)
+                    {
+                        if (_drainLifecycle.Drain.IsCompleted)
+                        {
+                            _started = true;
+                            execution = ExecuteOwned(prompt, messageId, cancellationToken);
+                            _execution = execution;
+                        }
+                        else
+                        {
+                            activeExecution = _drainLifecycle.Drain;
+                        }
+                    }
                 }
                 else
                 {
@@ -216,12 +232,27 @@ internal sealed partial class AgentSession
 
             try
             {
-                _ = await activeExecution.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+                _ = await activeExecution.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (Exception)
             {
+                cancellationToken.ThrowIfCancellationRequested();
             }
         }
+    }
+
+    private async Task<AgentExecution> ExecuteOwned(
+        string prompt,
+        string messageId,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var ownedExecution = new OwnedExecutionReservation(
+            AdmitParts([ConversationPart.TextPart(prompt)], messageId, Delivery.Steer), cancellationToken);
+        var (_, selectedDrain) = WakeSelected(
+            new IncomingActivity(IncomingActivityKind.Input, string.Empty), ownedExecution, cancellationToken);
+        return await Execute(prompt, messageId, selectedDrain, ownedExecution, CancellationToken.None)
+            .ConfigureAwait(false);
     }
 
     private void EnsureMessageCanBeSent(string message)
@@ -246,6 +277,7 @@ internal sealed partial class AgentSession
         string prompt,
         string messageId,
         Task<AgentExecution>? selectedDrain,
+        OwnedExecutionReservation? ownedExecution,
         CancellationToken cancellationToken)
     {
         var activityExecution = Activity.BeginExecution();
@@ -266,6 +298,17 @@ internal sealed partial class AgentSession
         try
         {
             await EmitEvent(started, null, null, CancellationToken.None).ConfigureAwait(false);
+            if (ownedExecution is not null)
+            {
+                if (ownedExecution.Admission.Published is not null)
+                {
+                    await eventBroker.Publish(ownedExecution.Admission.Published, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+
+                ownedExecution.ReleaseStartup(true);
+            }
+
             if (selectedDrain is null)
             {
                 _ = await Send(
@@ -277,9 +320,22 @@ internal sealed partial class AgentSession
                 completed = BoundResult(await selectedDrain.WaitAsync(CancellationToken.None).ConfigureAwait(false));
             }
         }
+        catch (OperationCanceledException)
+        {
+            completed = AgentExecution.Canceled();
+        }
         catch (Exception failure)
         {
             completed = AgentExecution.Failed(BoundResult(failure.Message));
+        }
+
+        if (ownedExecution is not null)
+        {
+            ownedExecution.ReleaseStartup(false);
+            if (selectedDrain is not null)
+            {
+                _ = await selectedDrain.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            }
         }
 
         ChildQuestionCompletionAttempt terminalCompletionAttempt;
@@ -357,7 +413,23 @@ internal sealed partial class AgentSession
         IncomingActivity activity,
         CancellationToken cancellationToken)
     {
-        var admission = eventRepository.Admit(
+        var admission = AdmitParts(parts, messageId, delivery);
+
+        // Only a real admission has an event; a re-send of one already taken
+        // has nothing new to publish, but still wakes, because the sender
+        // re-sent precisely because they were not sure it had been.
+        if (admission.Published is not null)
+        {
+            await eventBroker.Publish(admission.Published, cancellationToken).ConfigureAwait(false);
+        }
+
+        var incoming = admission.Created || eventRepository.HasPendingInputs(SessionId) ? activity : null;
+        var (followUp, selectedDrain) = WakeSelected(incoming, null, CancellationToken.None);
+        return (admission, followUp, selectedDrain);
+    }
+
+    private Admission AdmitParts(IReadOnlyList<ConversationPart> parts, string messageId, Delivery delivery) =>
+        eventRepository.Admit(
             SessionId,
             messageId,
             parts,
@@ -380,20 +452,10 @@ internal sealed partial class AgentSession
                 };
             });
 
-        // Only a real admission has an event; a re-send of one already taken
-        // has nothing new to publish, but still wakes, because the sender
-        // re-sent precisely because they were not sure it had been.
-        if (admission.Published is not null)
-        {
-            await eventBroker.Publish(admission.Published, cancellationToken).ConfigureAwait(false);
-        }
-
-        var incoming = admission.Created || eventRepository.HasPendingInputs(SessionId) ? activity : null;
-        var (followUp, selectedDrain) = WakeSelected(incoming);
-        return (admission, followUp, selectedDrain);
-    }
-
-    private (bool FollowUp, Task<AgentExecution> SelectedDrain) WakeSelected(IncomingActivity? activity)
+    private (bool FollowUp, Task<AgentExecution> SelectedDrain) WakeSelected(
+        IncomingActivity? activity,
+        OwnedExecutionReservation? ownedExecution,
+        CancellationToken executionCancellation)
     {
         lock (_drainLifecycle.Gate)
         {
@@ -416,28 +478,77 @@ internal sealed partial class AgentSession
             // Linked to the session's lifetime, never to the request that woke
             // it: a unary call's token is cancelled when the call returns, and
             // the turn outlives the call that admitted its prompt.
-            var cancellation = new DrainLifecycle.DrainCancellation(lifetime);
+            var cancellation = new DrainLifecycle.DrainCancellation(lifetime, executionCancellation);
             _drainLifecycle.Cancellation = cancellation;
             _drainLifecycle.State = DrainState.Running;
             Activity.ChangeState(DrainState.Running);
-            _drainLifecycle.Drain = Drain(cancellation.Token);
+            _drainLifecycle.Drain = Drain(ownedExecution, cancellation.Token);
             return (true, _drainLifecycle.Drain);
         }
     }
 
-    private async Task<AgentExecution> Drain(CancellationToken cancellationToken)
+    private async Task<AgentExecution> Drain(
+        OwnedExecutionReservation? ownedExecution,
+        CancellationToken cancellationToken)
     {
         // The drain belongs to the session, not to whoever admitted the prompt:
         // yielding here returns Wake to its caller instead of running the first
         // turn on the admitting thread.
         await Task.Yield();
 
+        var started = ownedExecution is null || await ownedExecution.WaitForStartup().ConfigureAwait(false);
         var completed = AgentExecution.Succeeded(string.Empty);
 
         while (true)
         {
-            await RunForcedCompactions(cancellationToken).ConfigureAwait(false);
-            var pass = await Pass(turnOpen: false, null, cancellationToken).ConfigureAwait(false);
+            AgentExecution pass;
+            try
+            {
+                if (started)
+                {
+                    ownedExecution?.CancellationToken.ThrowIfCancellationRequested();
+                    await RunForcedCompactions(cancellationToken).ConfigureAwait(false);
+                }
+
+                pass = started
+                    ? await Pass(turnOpen: false, null, cancellationToken).ConfigureAwait(false)
+                    : AgentExecution.Canceled();
+            }
+            catch (OperationCanceledException) when (ownedExecution is not null)
+            {
+                pass = AgentExecution.Canceled();
+            }
+            catch (Exception failure) when (ownedExecution is not null)
+            {
+                pass = AgentExecution.Failed(BoundResult(failure.Message));
+            }
+
+            if (ownedExecution is not null
+                && (!started || ownedExecution.CancellationToken.IsCancellationRequested))
+            {
+                var inputId = ownedExecution.Admission.Input.Id;
+                var canceled = eventRepository.CancelPendingInput(
+                    SessionId,
+                    inputId,
+                    () => new Event
+                    {
+                        Id = Identifier.EventId(),
+                        AgentSessionId = SessionId,
+                        InputCanceled = new InputCanceled { InputId = inputId },
+                    });
+                if (canceled is not null)
+                {
+                    try
+                    {
+                        await eventBroker.Publish(canceled, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch (Exception failure)
+                    {
+                        pass = AgentExecution.Failed(BoundResult(failure.Message));
+                    }
+                }
+            }
+
             if (pass.Status != AgentExecutionStatus.Succeeded || pass.Output.Length > 0)
             {
                 completed = pass;

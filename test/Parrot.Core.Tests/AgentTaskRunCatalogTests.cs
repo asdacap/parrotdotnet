@@ -140,7 +140,11 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
         await settlement;
 
         _ = await Assert.That(owner.Snapshot()).IsEmpty();
-        _ = await Assert.That(runtime.ParentScope.ChildRegistry.SnapshotDescendants()).IsEmpty();
+        var retained = runtime.ParentScope.ChildRegistry.SnapshotDescendants();
+        _ = await Assert.That(retained).Count().IsEqualTo(2);
+        _ = await Assert.That(retained.Any(session => session.IsActive())).IsFalse();
+        _ = await Assert.That(string.Join(',', retained.Select(session => session.Name).Order(StringComparer.Ordinal)))
+            .IsEqualTo("first,second");
         _ = await Assert.That((await firstCompletion.Delivered).Status).IsEqualTo(AgentTaskExecutionStatus.Canceled);
         _ = await Assert.That((await secondCompletion.Delivered).Status).IsEqualTo(AgentTaskExecutionStatus.Canceled);
     }

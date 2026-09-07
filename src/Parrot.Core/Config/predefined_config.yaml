@@ -1360,7 +1360,7 @@ tools:
       type: object
       additionalProperties: false
   run_agent_tasks:
-    description: Start an approved AgentTask v1 artifact with a nonempty list of top-level sibling tasks in the background through fresh retained-only children; instruction leaves use agent-task-payload for implementation and verification with strict result JSON, while composites use distinct preparation and validation turns on one retained composite agent that owns nested child agents, then deliver hierarchical JSON evidence automatically on completion.
+    description: Start an approved AgentTask v1 artifact with a nonempty list of top-level sibling tasks in the background, reusing same-name direct child agents with their existing settings and history or creating retained-only children when absent; agents remain available after graph completion, and SendAndWaitForResult waits for prior work before each task turn. New instruction leaf agents use agent-task-payload for implementation and verification with strict result JSON, while composites use distinct preparation and validation turns on one retained composite agent that owns nested child agents, then deliver hierarchical JSON evidence automatically on completion.
     parameters:
       type: object
       properties:

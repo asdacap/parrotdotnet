@@ -183,6 +183,71 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     }
 
     [Test]
+    public async Task Canceling_owned_startup_removes_only_its_pending_input_before_reuse(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "survived", []));
+        await using var registry = TestModels.Registry(
+            new TestAgentSessions(new RouterFixture(provider, []).Router),
+            _broker,
+            _repository,
+            new TestProfileFixture().Registry,
+            TestModels.PromptTemplates,
+            cancellationToken);
+        await using var session = Session(provider, 0, "startup-cancellation", registry, cancellationToken);
+        using var ownerCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var releaseCancellation = new ManualResetEventSlim();
+        Task<string> canceledExecution;
+        Task cancelOwner;
+        CancellationTokenRegistration delayedCancellation;
+        lock (_database.Gate)
+        {
+            canceledExecution = session.SendAndWaitForResult("canceled prompt", ownerCancellation.Token);
+            _ = _repository.Admit(
+                session.SessionId,
+                "unrelated-pending",
+                "unrelated prompt",
+                Delivery.Steer,
+                static _ => new Event { Id = Identifier.EventId(), AgentSessionId = "startup-cancellation" });
+            delayedCancellation = ownerCancellation.Token.Register(() => releaseCancellation.Wait(cancellationToken));
+            cancelOwner = ownerCancellation.CancelAsync();
+        }
+
+        using var arrivalCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        try
+        {
+            _ = await Task.WhenAny(canceledExecution, provider.Arrived(arrivalCancellation.Token));
+            _ = await Assert.That(provider.Requests).IsEmpty();
+            var canceled = await Assert.That(canceledExecution).Throws<OperationCanceledException>();
+            _ = await Assert.That(canceled?.CancellationToken).IsEqualTo(ownerCancellation.Token);
+        }
+        finally
+        {
+            releaseCancellation.Set();
+            await arrivalCancellation.CancelAsync();
+            await cancelOwner;
+            await delayedCancellation.DisposeAsync();
+        }
+
+        _ = await Assert.That(provider.Requests).IsEmpty();
+        _ = await Assert.That(string.Join(" | ", _repository.InputsForNextPromotion(session.SessionId)
+            .Select(input => input.Content))).IsEqualTo("unrelated prompt");
+        var admitted = _repository.Replay().Single(published => published.InputAdmitted?.Content == "canceled prompt");
+        _ = await Assert.That(_repository.Replay().Single(published => published.InputCanceled is not null)
+            .InputCanceled.InputId).IsEqualTo(admitted.InputAdmitted.InputId);
+
+        var survivor = session.SendAndWaitForResult("live prompt", cancellationToken);
+        await provider.Arrived(cancellationToken);
+        var lifecycle = _repository.Replay().Where(published => published.AgentSessionId == session.SessionId).ToArray();
+        _ = await Assert.That(Array.FindLastIndex(lifecycle, published => published.AgentStarted is not null)
+            < Array.FindIndex(lifecycle, published => published.TurnStarted is not null)).IsTrue();
+        _ = await Assert.That(string.Join(" | ", provider.Requests[0].Messages.Where(message => message.Role == LLMRole.User)
+            .Select(message => message.Content))).IsEqualTo("unrelated prompt | live prompt");
+        provider.Release();
+        _ = await Assert.That(await survivor).IsEqualTo("survived");
+    }
+
+    [Test]
     public async Task Send_and_wait_serializes_full_executions_and_returns_each_result(
         CancellationToken cancellationToken)
     {

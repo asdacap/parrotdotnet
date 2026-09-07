@@ -1,4 +1,3 @@
-using System.Runtime.ExceptionServices;
 using System.Text;
 using Parrot.Agent;
 using Parrot.Config;
@@ -20,8 +19,7 @@ internal sealed class AgentTaskGraphRunner(
     private const int MaxPromptCharacters = 256 * 1024;
 
     private readonly Lock _gate = new();
-    private readonly HashSet<IAgentSession> _activeChildren = [];
-    private readonly Dictionary<IAgentSessionScope, IAgentSessionScope> _ownedScopes = [];
+    private readonly Dictionary<CancellationTokenSource, TaskCompletionSource> _activeRoles = [];
     private bool _stopping;
 
     internal static string ResolveRoleProfile(string role) => role switch
@@ -59,20 +57,16 @@ internal sealed class AgentTaskGraphRunner(
         catch (OperationCanceledException)
         {
             BeginStopping();
-            await StopChildren().ConfigureAwait(false);
+            await StopRoles().ConfigureAwait(false);
             progress.MarkRemainingCanceled(CancellationToken.None);
             throw;
         }
         catch
         {
             BeginStopping();
-            await StopChildren().ConfigureAwait(false);
+            await StopRoles().ConfigureAwait(false);
             progress.MarkRemainingFailed(CancellationToken.None);
             throw;
-        }
-        finally
-        {
-            await RetireOwnedScopes().ConfigureAwait(false);
         }
     }
 
@@ -312,7 +306,7 @@ internal sealed class AgentTaskGraphRunner(
             if (cancellationToken.IsCancellationRequested && running.Count > 0)
             {
                 BeginStopping();
-                await StopChildren().ConfigureAwait(false);
+                await StopRoles().ConfigureAwait(false);
                 try
                 {
                     _ = await Task.WhenAll(running.Values).ConfigureAwait(false);
@@ -389,7 +383,7 @@ internal sealed class AgentTaskGraphRunner(
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 BeginStopping();
-                await StopChildren().ConfigureAwait(false);
+                await StopRoles().ConfigureAwait(false);
                 try
                 {
                     _ = await Task.WhenAll(running.Values).ConfigureAwait(false);
@@ -470,11 +464,6 @@ internal sealed class AgentTaskGraphRunner(
             {
                 var patched = effective.Apply(preparation.TaskPatch);
                 AgentTaskParser.ValidateEffective(patched);
-                if (patched.Model is not null)
-                {
-                    _ = router.Resolve(patched.Model);
-                }
-
                 effective = patched;
                 childHandles = progress.UpdatePreparedTask(
                     handle,
@@ -701,11 +690,6 @@ internal sealed class AgentTaskGraphRunner(
                 {
                     var patched = effective.Apply(preparation.TaskPatch);
                     AgentTaskParser.ValidateEffective(patched);
-                    if (patched.Model is not null)
-                    {
-                        _ = router.Resolve(patched.Model);
-                    }
-
                     effective = patched;
                     childHandles = progress.UpdatePreparedTask(
                         handle,
@@ -981,9 +965,8 @@ internal sealed class AgentTaskGraphRunner(
         string prompt,
         CancellationToken cancellationToken)
     {
-        var model = requestedModel is null
-            ? selection.RequestedModel
-            : router.Resolve(requestedModel).RequestedSelector;
+        using var roleCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         IAgentSessionScope childScope;
         lock (_gate)
         {
@@ -999,29 +982,28 @@ internal sealed class AgentTaskGraphRunner(
                 var historyBoundary = ReferenceEquals(owningAgentScope, ownerScope)
                     ? rootHistoryBoundary
                     : new HistoryForkBoundary.AfterCompletedHistory();
-                childScope = owningAgentScope.AgentSpawner.SpawnScope(new AgentLaunchRequest(
+                childScope = owningAgentScope.AgentSpawner.GetOrSpawnScope(requestedName, () => new AgentLaunchRequest(
                     owningAgentScope.Session,
                     selection,
                     ResolveRoleProfile(role),
-                    model,
+                    requestedModel is null ? selection.RequestedModel : router.Resolve(requestedModel).RequestedSelector,
                     requestedName,
                     Render("agent-task.child-scope", ("role", role), ("task_name", taskName)),
                     HistoryForkSelection.Parse(configuration.ForkParentHistory ? "full" : string.Empty),
                     historyBoundary,
                     AgentCompletionDeliveryPolicy.RetainedOnly));
-                _ownedScopes.Add(childScope, owningAgentScope);
             }
             else
             {
                 childScope = retainedAgentScope;
             }
 
-            _ = _activeChildren.Add(childScope.Session);
+            _activeRoles.Add(roleCancellation, completion);
         }
 
         try
         {
-            var output = await childScope.Session.SendAndWaitForResult(prompt, cancellationToken).ConfigureAwait(false);
+            var output = await childScope.Session.SendAndWaitForResult(prompt, roleCancellation.Token).ConfigureAwait(false);
             return new AgentRoleRun(childScope, AgentExecution.Succeeded(output));
         }
         catch (AgentExecutionException exception)
@@ -1034,79 +1016,25 @@ internal sealed class AgentTaskGraphRunner(
             };
             return new AgentRoleRun(childScope, execution);
         }
-        catch (OperationCanceledException)
-        {
-            await childScope.Session.Interrupt(CancellationToken.None).ConfigureAwait(false);
-            _ = await childScope.Session.Wait(0, CancellationToken.None).ConfigureAwait(false);
-            throw;
-        }
         finally
         {
-            Untrack(childScope.Session);
+            lock (_gate)
+            {
+                _ = _activeRoles.Remove(roleCancellation);
+                completion.SetResult();
+            }
         }
     }
 
-    private async Task StopChildren()
+    private async Task StopRoles()
     {
-        IAgentSession[] active;
+        Task[] pending;
         lock (_gate)
         {
-            active = [.. _activeChildren];
+            pending = [.. _activeRoles.SelectMany(role => new[] { role.Key.CancelAsync(), role.Value.Task })];
         }
 
-        await Task.WhenAll(active.Select(async child =>
-        {
-            await child.Interrupt(CancellationToken.None).ConfigureAwait(false);
-            _ = await child.Wait(0, CancellationToken.None).ConfigureAwait(false);
-        })).ConfigureAwait(false);
-    }
-
-    private async Task RetireOwnedScopes()
-    {
-        KeyValuePair<IAgentSessionScope, IAgentSessionScope>[] owned;
-        lock (_gate)
-        {
-            owned = [.. _ownedScopes];
-            _ownedScopes.Clear();
-        }
-
-        Exception? failure = null;
-        foreach (var entry in owned.Reverse())
-        {
-            if (owned.Any(candidate => ReferenceEquals(candidate.Key, entry.Value)))
-            {
-                continue;
-            }
-
-            var detachedScope = entry.Value.ChildRegistry.DetachDirectChildScope(entry.Key);
-            if (detachedScope is null)
-            {
-                continue;
-            }
-
-            try
-            {
-                await detachedScope.DisposeAsync().ConfigureAwait(false);
-            }
-            catch (Exception exception)
-            {
-                failure ??= exception;
-            }
-
-            try
-            {
-                entry.Value.AgentSpawner.ReleaseRetainedAgent(detachedScope.Session.SessionId);
-            }
-            catch (Exception exception)
-            {
-                failure ??= exception;
-            }
-        }
-
-        if (failure is not null)
-        {
-            ExceptionDispatchInfo.Capture(failure).Throw();
-        }
+        await Task.WhenAll(pending).ConfigureAwait(false);
     }
 
     private void BeginStopping()
@@ -1114,14 +1042,6 @@ internal sealed class AgentTaskGraphRunner(
         lock (_gate)
         {
             _stopping = true;
-        }
-    }
-
-    private void Untrack(IAgentSession child)
-    {
-        lock (_gate)
-        {
-            _ = _activeChildren.Remove(child);
         }
     }
 

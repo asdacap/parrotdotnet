@@ -26,6 +26,9 @@ internal interface IChildRegistry
     /// <summary>Returns a parent-before-descendants snapshot, excluding registries already shutting down.</summary>
     IReadOnlyList<IAgentSession> SnapshotDescendants();
 
+    /// <summary>Returns a direct child by name, or null when absent or shutting down.</summary>
+    IAgentSessionScope? FindNamedChildScope(string name);
+
     /// <summary>Resolves a direct child's name only; throws when absent or shutting down.</summary>
     IAgentSessionScope ResolveNamedChildScope(string name);
 

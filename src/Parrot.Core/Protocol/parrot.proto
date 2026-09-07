@@ -511,6 +511,7 @@ message Event {
     ExitReminderInjected exit_reminder_injected = 38;
     ContextReminderInjected context_reminder_injected = 39;
     SkillLoadedEvent skill_loaded = 40;
+    InputCanceled input_canceled = 41;
   }
 }
 
@@ -694,6 +695,10 @@ message InputAdmitted {
 message InputPromoted {
   string input_id   = 1;
   string message_id = 2;
+}
+
+message InputCanceled {
+  string input_id = 1;
 }
 
 message TurnStarted {

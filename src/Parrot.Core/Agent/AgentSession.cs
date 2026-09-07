@@ -97,7 +97,7 @@ internal sealed partial class AgentSession(
     private bool _disposing;
     private bool _started;
     private Task<AgentExecution> _execution = Task.FromResult(AgentExecution.Succeeded(string.Empty));
-    private Task<AgentExecution> _sendAndWaitTail = Task.FromResult(AgentExecution.Succeeded(string.Empty));
+    private Task _sendAndWaitTail = Task.CompletedTask;
     private TaskCompletionSource<IncomingActivity>? _incomingInputWait;
 
     internal AgentSession(
@@ -208,7 +208,7 @@ internal sealed partial class AgentSession(
 
     public void Recover() => _ = Wake(null);
 
-    public bool Wake(IncomingActivity? activity) => WakeSelected(activity).FollowUp;
+    public bool Wake(IncomingActivity? activity) => WakeSelected(activity, null, CancellationToken.None).FollowUp;
 
     // Stops the turn in flight and returns once the drain has unwound, so a
     // caller that sends again cannot race the turn it just stopped.
@@ -306,11 +306,11 @@ internal sealed partial class AgentSession(
             }
             else
             {
-                var cancellation = new DrainLifecycle.DrainCancellation(lifetime);
+                var cancellation = new DrainLifecycle.DrainCancellation(lifetime, CancellationToken.None);
                 _drainLifecycle.Cancellation = cancellation;
                 _drainLifecycle.State = DrainState.Running;
                 Activity.ChangeState(DrainState.Running);
-                _drainLifecycle.Drain = Drain(cancellation.Token);
+                _drainLifecycle.Drain = Drain(null, cancellation.Token);
             }
         }
 
@@ -488,8 +488,9 @@ internal sealed partial class AgentSession(
 
     public async Task<string> SendAndWaitForResult(string prompt, CancellationToken cancellationToken)
     {
-        var execution = EnqueueExecution(prompt);
-        var result = await execution.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var execution = EnqueueExecution(prompt, cancellationToken);
+        var result = await execution.ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
 
         return result.Status switch
         {
@@ -525,7 +526,7 @@ internal sealed partial class AgentSession(
         lock (_executionGate)
         {
             _started = true;
-            _execution = Execute(message, messageId, admitted.SelectedDrain, cancellationToken);
+            _execution = Execute(message, messageId, admitted.SelectedDrain, null, cancellationToken);
         }
     }
 
@@ -553,7 +554,7 @@ internal sealed partial class AgentSession(
         lock (_executionGate)
         {
             _started = true;
-            _execution = Execute(message, messageId, admitted.SelectedDrain, cancellationToken);
+            _execution = Execute(message, messageId, admitted.SelectedDrain, null, cancellationToken);
         }
     }
 
@@ -807,10 +808,10 @@ internal sealed partial class AgentSession(
         // two overlap.
         internal bool Stopping { get; set; }
 
-        internal sealed class DrainCancellation(CancellationToken lifetime)
+        internal sealed class DrainCancellation(CancellationToken lifetime, CancellationToken executionCancellation)
         {
             private readonly CancellationTokenSource _source =
-                CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+                CancellationTokenSource.CreateLinkedTokenSource(lifetime, executionCancellation);
 
             internal CancellationToken Token => _source.Token;
 
@@ -832,6 +833,20 @@ internal sealed partial class AgentSession(
         internal bool InitialStatusPending { get; set; } = initialStatusPending;
 
         internal ToolSnapshot? Tools { get; set; }
+    }
+
+    private sealed class OwnedExecutionReservation(Admission admission, CancellationToken cancellationToken)
+    {
+        private readonly TaskCompletionSource<bool> _startup =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal Admission Admission { get; } = admission;
+
+        internal CancellationToken CancellationToken { get; } = cancellationToken;
+
+        internal void ReleaseStartup(bool started) => _startup.TrySetResult(started);
+
+        internal Task<bool> WaitForStartup() => _startup.Task.WaitAsync(CancellationToken.None);
     }
 
     private sealed class ForcedCompactionRequest(CancellationToken cancellationToken)

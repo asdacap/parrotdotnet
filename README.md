@@ -380,11 +380,24 @@ Copying history also consumes context-window capacity and duplicates persisted
 conversation storage for every fresh child; deep or broad graphs can therefore
 multiply context and storage cost.
 
+AgentTask agents remain registered after graph success, failure, or cancellation;
+normal parent/user-session shutdown disposes them and releases their retained-agent
+reservations. Each task reuses an existing same-name direct child of its owning
+agent, including manually spawned children, before creating a new agent. Lookup
+uses the existing friendly-name normalization (lowercase letters, numbers, and
+hyphens), and concurrent requests for the same normalized name reuse one session.
+Identical names under different parents remain separate. Punctuation-only names
+retain the existing random-name fallback and cannot reuse an agent through the
+nonempty normalized-name lookup. Ordinary `agent_spawn` still creates a new agent
+with a suffixed name on collision.
+
 Composite tasks use one retained composite agent for distinct preparation and
 validation turns, and that agent owns the recursively executed nested child
-agents. A fresh instruction leaf uses one fresh `agent-task-payload` child: that
-child implements and verifies the instruction and is retained for the whole leaf
-invocation. On each retry the same retained session receives a new user prompt
+agents. An instruction leaf creates an `agent-task-payload` child only when no
+same-name child exists; that child implements and verifies the instruction.
+Reused agents keep their identity, history, model, profile, and completion-delivery
+policy; they do not receive another history fork or consume another retained-agent
+reservation. On each retry the same retained session receives a new user prompt
 while its previous exchange remains retained; no new fork occurs, and its
 non-system message count grows from its inherited baseline by 1, 3, 5, ... across
 attempts. The leaf response is parsed directly, rather than producing a separate
@@ -394,10 +407,22 @@ order: a later prompt is not admitted until its predecessor has completed its
 turn-completion callbacks and retries, terminal bookkeeping, and parent-completion
 delivery, and each call receives its own execution result. Thus validation on a
 retained composite agent starts as a distinct turn after any unrelated execution
-already running on that agent. Internal role-agent completions do not steer the
-invoking agent; only the owning graph's terminal completion does. A task's `model`,
-when present, is routed through normal model resolution; otherwise the selected
-child inherits the invoking turn's requested model.
+already running on that agent. Newly created task agents use retained-only
+completion delivery, so their role completions do not steer the invoking agent;
+the owning graph's terminal completion does. Reused manually spawned agents retain
+their existing completion-delivery policy and may also send ordinary completion
+notifications. A task's `model` is resolved only when creating a new agent;
+otherwise the existing agent's model and profile are preserved, including when a
+preparation patch changes the requested model. A new child without a task model
+inherits the invoking turn's requested model.
+
+Canceling a task waiting behind unrelated work cancels only its queued prompt,
+not the running turn. Once that task's own execution has started, cancellation
+stops and joins its owned work rather than interrupting the entire shared agent.
+If its input was admitted but is still pending, cancellation removes only that
+input from pending work and records an `InputCanceled` audit event; unrelated
+pending messages and already-promoted conversation history remain intact.
+Ordinary agent interruption retains its existing pending-input behavior.
 
 Composite tasks begin with a mandatory preparation phase. It returns strict JSON
 with nonblank `context` and may omit `task_patch`; when supplied, the patch is

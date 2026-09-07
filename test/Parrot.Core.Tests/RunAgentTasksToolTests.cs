@@ -289,16 +289,18 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         _ = await Assert.That(task.GetProperty("evidence").GetString()).IsEqualTo("parent done");
         _ = await Assert.That(task.GetProperty("tasks")[0].GetProperty("evidence").GetString()).IsEqualTo("child done");
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(4);
-        _ = await Assert.That(runtime.Sessions.ProfileIds.Count(profile => profile == "agent-task-prepare")).IsEqualTo(2);
+        _ = await Assert.That(runtime.Sessions.ProfileIds.Count(profile => profile == "agent-task-prepare")).IsEqualTo(0);
+        _ = await Assert.That(runtime.Sessions.ProfileIds.Count(profile => profile == "agent-task-payload")).IsEqualTo(2);
         _ = await Assert.That(runtime.Sessions.ProfileIds.Count(profile => profile == "agent-task-validation")).IsEqualTo(0);
         var identities = runtime.Sessions.Identities;
-        _ = await Assert.That(identities).Count().IsEqualTo(4);
-        var composite = identities.Zip(runtime.Sessions.ProfileIds)
-            .Last(agent => agent.Second == "agent-task-prepare").First;
+        _ = await Assert.That(identities).Count().IsEqualTo(2);
+        var composite = identities.Single(identity => identity.Name == "leaf");
         var child = identities.Single(identity => identity.Name == "child");
         _ = await Assert.That(composite.ParentSessionId).IsEqualTo(runtime.Parent.SessionId);
         _ = await Assert.That(child.ParentSessionId).IsEqualTo(composite.SessionId);
-        _ = await Assert.That(provider.Requests[3].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(3);
+        _ = await Assert.That(provider.Requests[3].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(5);
+        _ = await Assert.That(provider.Requests[3].Messages.Select(message => message.Content)
+            .Any(content => content.Contains("split it", StringComparison.Ordinal))).IsTrue();
         _ = await Assert.That(provider.Requests[3].Messages.Select(message => message.Content)
             .Any(content => content.Contains("composite context", StringComparison.Ordinal))).IsTrue();
         var childPrompt = provider.Requests[2].Messages.Last(message => message.Role == LLMRole.User).Content;
