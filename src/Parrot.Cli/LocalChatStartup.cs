@@ -35,16 +35,7 @@ internal sealed class LocalChatStartup(
                 localClient = await openLocalClient(cancellationToken).ConfigureAwait(false);
                 try
                 {
-                    var loaded = await localClient.ResumeSessionAsync(
-                        new ResumeSessionRequest
-                        {
-                            UserSessionId = sessionId.Value,
-                            WorkingDirectory = workingDirectory,
-                            InteractivePermissions = interactivePermissions,
-                        },
-                        cancellationToken: cancellationToken).ConfigureAwait(false);
-                    await error.WriteLineAsync(
-                        $"parrot: loaded existing user session {loaded.Id}".AsMemory(), cancellationToken)
+                    var loaded = await Resume(localClient, sessionId, interactivePermissions, cancellationToken)
                         .ConfigureAwait(false);
                     return (localClient, loaded);
                 }
@@ -72,6 +63,18 @@ internal sealed class LocalChatStartup(
                 cancellationToken.ThrowIfCancellationRequested();
                 _connection?.Dispose();
                 _connection = null;
+                localClient ??= await openLocalClient(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    var loaded = await Resume(localClient, sessionId, interactivePermissions, cancellationToken)
+                        .ConfigureAwait(false);
+                    return (localClient, loaded);
+                }
+                catch (RpcException resumeFailure) when (resumeFailure.StatusCode == StatusCode.AlreadyExists)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+
                 await error.WriteLineAsync(
                     $"parrot: unable to connect to existing user session {sessionId}: {failure.Message}; creating a new user session".AsMemory(),
                     cancellationToken).ConfigureAwait(false);
@@ -95,4 +98,23 @@ internal sealed class LocalChatStartup(
     }
 
     public void Dispose() => _connection?.Dispose();
+
+    private async Task<UserSession> Resume(
+        GeneratedParrot.ParrotClient localClient,
+        UserSessionId sessionId,
+        bool interactivePermissions,
+        CancellationToken cancellationToken)
+    {
+        var loaded = await localClient.ResumeSessionAsync(
+            new ResumeSessionRequest
+            {
+                UserSessionId = sessionId.Value,
+                WorkingDirectory = workingDirectory,
+                InteractivePermissions = interactivePermissions,
+            },
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        await error.WriteLineAsync(
+            $"parrot: loaded existing user session {loaded.Id}".AsMemory(), cancellationToken).ConfigureAwait(false);
+        return loaded;
+    }
 }
