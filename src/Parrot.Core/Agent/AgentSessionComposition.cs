@@ -204,6 +204,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind<AnswerToolFactory>().As(Lifetime.Scoped).To<AnswerToolFactory>()
             .Bind<ReadToolFactory>().As(Lifetime.Scoped).To<ReadToolFactory>()
             .Bind<ReadImageToolFactory>().As(Lifetime.Scoped).To<ReadImageToolFactory>()
+            .Bind<ImageGenerationToolFactory>().As(Lifetime.Scoped).To<ImageGenerationToolFactory>()
             .Bind<GlobToolFactory>().As(Lifetime.Scoped).To<GlobToolFactory>()
             .Bind<WriteToolFactory>().As(Lifetime.Scoped).To<WriteToolFactory>()
             .Bind<EditToolFactory>().As(Lifetime.Scoped).To<EditToolFactory>()
@@ -265,6 +266,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<AnswerToolFactory>(out var answer);
                 ctx.Inject<ReadToolFactory>(out var read);
                 ctx.Inject<ReadImageToolFactory>(out var readImage);
+                ctx.Inject<ImageGenerationToolFactory>(out var imageGeneration);
                 ctx.Inject<GlobToolFactory>(out var glob);
                 ctx.Inject<WriteToolFactory>(out var write);
                 ctx.Inject<EditToolFactory>(out var edit);
@@ -293,6 +295,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                     answer,
                     read,
                     readImage,
+                    imageGeneration,
                     glob,
                     write,
                     edit,

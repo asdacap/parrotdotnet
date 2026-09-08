@@ -8,6 +8,10 @@ internal interface ILLMProvider
     // Null means the provider does not support account usage reporting.
     IUsageReporter? UsageReporter => null;
 
+    // Generates one PNG or edits supplied image bytes; unsupported providers throw without a request.
+    Task<ImageGenerationResult> GenerateImage(ImageGenerationRequest request, CancellationToken cancellationToken) =>
+        throw new LLMProviderException("provider: image generation is not supported");
+
     // Returns locally available model metadata without fetching the remote catalogue.
     IReadOnlyList<LLMModel> SeedModels();
 

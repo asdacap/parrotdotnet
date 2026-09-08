@@ -552,6 +552,45 @@ images reject the submission rather than being silently sent as text. Tool-produ
 images enter later context as synthetic user image parts, never as a private path or
 provider-specific text.
 
+## Native image generation
+
+The `imagegen` agent tool generates one PNG or edits local reference images using
+`gpt-image-2` with automatic quality, size, and background settings:
+
+```json
+{"prompt":"A watercolor mountain landscape","output_path":"output/landscape.png"}
+```
+
+For editing, add `"referenced_image_paths":["input/photo.png"]`. Both `prompt` and
+`output_path` are required and nonblank; the output must end in `.png`. Omitted or
+empty references generate a new image. References are ordered local PNG, JPEG,
+or WebP files, not URLs or conversation-image selectors. Masks and batch controls
+are not supported by this tool.
+
+Each invocation uses the **current turn's provider**, not a separately selected
+image provider: ChatGPT uses its existing OAuth login, and OpenAI-compatible
+providers use their configured environment/stored API key and Images API endpoints.
+API-key calls may incur charges. Provider/account access to `gpt-image-2` is required;
+not every compatible provider implements the Images API. Unsupported endpoints or
+models fail without automatic retries, provider/model switching, or CLI fallback.
+
+Paths resolve relative to the invoking agent's workspace. References require read
+permission and output paths (including missing parents) require write permission
+under the active security profile. Symlinks and nonregular files are rejected.
+Missing output directories are created, and existing regular files **can be
+overwritten**; editing to the same path is supported. Choose a versioned filename
+when replacement is not intended. Provider or image-validation failure leaves old
+output unchanged, but a failure during the final write can leave a partial file.
+
+The result is the absolute saved path, with no automatic image attachment or inline
+preview. Use `read_image` separately to inspect it when that tool's limits permit.
+Transparency is not guaranteed by automatic background settings. Native limits are
+five references, 10 MiB per reference and 50 MiB total; 80 MiB serialized request,
+64 MiB response, 32 MiB decoded output, and a ten-minute invocation timeout.
+Inputs and output must be single-frame images, at most 8,192 pixels per dimension
+and 40,000,000 pixels total. Provider limits may be lower. These limits do not
+increase the separate 5 MiB conversation-image attachment limit.
+
 ## Write permission requests
 
 `request_write_permission` is the only way an agent can ask the user to extend

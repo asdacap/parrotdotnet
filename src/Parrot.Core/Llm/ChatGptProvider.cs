@@ -18,6 +18,7 @@ internal sealed class ChatGptProvider : ILLMProvider
     private const string ModelsClientVersion = "0.144.5";
     private static readonly TimeSpan HeaderTimeout = TimeSpan.FromSeconds(10);
 
+    private readonly ImageGenerationClient _images;
     private readonly IOAuthTokenSource _tokens;
     private readonly HttpClient _client;
     private readonly IReadOnlyList<LLMModel> _declared;
@@ -40,6 +41,11 @@ internal sealed class ChatGptProvider : ILLMProvider
         ArgumentNullException.ThrowIfNull(tokens);
         ArgumentNullException.ThrowIfNull(websocketConnector);
         _tokens = tokens;
+        _images = new ImageGenerationClient(
+            client,
+            new Uri("https://chatgpt.com/backend-api/codex/images/generations"),
+            new Uri("https://chatgpt.com/backend-api/codex/images/edits"),
+            ImageHeaders);
         UsageReporter = new ChatGptUsageReporter(tokens, client);
         _client = client;
         _declared = declared;
@@ -52,6 +58,9 @@ internal sealed class ChatGptProvider : ILLMProvider
     public IUsageReporter? UsageReporter { get; }
 
     public string Id => ProviderId;
+
+    public Task<ImageGenerationResult> GenerateImage(ImageGenerationRequest request, CancellationToken cancellationToken) =>
+        _images.GenerateImage(request, cancellationToken);
 
     public IReadOnlyList<LLMModel> SeedModels() =>
         ChatGptModelCatalogue.ApplyLimits(ModelCatalogue.Merge(null, _declared, _defaults, _external));
@@ -187,6 +196,13 @@ internal sealed class ChatGptProvider : ILLMProvider
         }
 
         return headers;
+    }
+
+    private async Task<IReadOnlyDictionary<string, string>> ImageHeaders(CancellationToken cancellationToken)
+    {
+        var access = await _tokens.Token(cancellationToken).ConfigureAwait(false);
+        RequireToken(access);
+        return Headers(access);
     }
 
     private async IAsyncEnumerable<LLMEvent> CallHttp(

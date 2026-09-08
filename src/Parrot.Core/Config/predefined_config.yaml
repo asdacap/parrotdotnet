@@ -1298,6 +1298,41 @@ tools:
       required:
       - path
       additionalProperties: false
+  imagegen:
+    description: >-
+      Generate or edit one PNG image using gpt-image-2 through the current turn's provider and credentials.
+      Requires a prompt and output_path ending in .png. Saves the image and returns its absolute path, without attaching
+      or displaying it. Existing regular files may be overwritten under the active write-security profile.
+      Relative paths resolve within the workspace; absolute paths require permission. Missing authorized parents are created.
+      Omit referenced_image_paths to generate; provide up to five local PNG, JPEG, or WebP files to edit, in reference order.
+      Inspect unfamiliar local images with read_image first. References must be single-frame images, at most 10 MiB each
+      and 50 MiB total, at most 8192 pixels per dimension and 40000000 pixels. Output is limited to 32 MiB with the same
+      dimension and frame limits. Generation may take several minutes, with a ten-minute operation timeout.
+      ChatGPT uses existing OAuth login; OpenAI-compatible providers use their configured credentials and Images endpoints
+      and may charge for generation. Unsupported providers or endpoints fail without fallback. No URL, conversation-history,
+      mask, or batch input is supported. Request each asset separately; transparency is not guaranteed.
+    parameters:
+      type: object
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          description: Image generation or editing instructions, sent verbatim to the image model.
+        output_path:
+          type: string
+          minLength: 1
+          description: Workspace-relative or authorized absolute .png destination; existing regular files may be overwritten.
+        referenced_image_paths:
+          type: array
+          maxItems: 5
+          items:
+            type: string
+            minLength: 1
+          description: Ordered local image paths to edit or use as references. Omit or leave empty to generate without references.
+      required:
+      - prompt
+      - output_path
+      additionalProperties: false
   read_image:
     description: Read a PNG, JPEG, GIF, or WebP image file. Relative paths resolve within the workspace; absolute paths require
       read permission.

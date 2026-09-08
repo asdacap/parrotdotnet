@@ -18,6 +18,9 @@ internal sealed class KimiProvider : ILLMProvider
 
     public string Id => _inner.Id;
 
+    public Task<ImageGenerationResult> GenerateImage(ImageGenerationRequest request, CancellationToken cancellationToken) =>
+        _inner.GenerateImage(request, cancellationToken);
+
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) =>
         _inner.HasCredential(cancellationToken);
 

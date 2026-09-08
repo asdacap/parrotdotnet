@@ -1,6 +1,6 @@
 ---
 name: "imagegen"
-description: "Generate or edit raster images when the task benefits from AI-created bitmap visuals such as photos, illustrations, textures, sprites, mockups, or transparent-background cutouts. Use when Codex should create a brand-new image, transform an existing image, or derive visual variants from references, and the output should be a bitmap asset rather than repo-native code or vector. Do not use when the task is better handled by editing existing SVG/vector/code-native assets, extending an established icon or logo system, or building the visual directly in HTML/CSS/canvas."
+description: "Generate or edit raster images when the task benefits from AI-created bitmap visuals such as photos, illustrations, textures, sprites, mockups, or transparent-background cutouts. Use when Parrot should create a brand-new image, transform an existing image, or derive visual variants from references, and the output should be a bitmap asset rather than repo-native code or vector. Do not use when the task is better handled by editing existing SVG/vector/code-native assets, extending an established icon or logo system, or building the visual directly in HTML/CSS/canvas."
 ---
 
 # Image Generation Skill
@@ -11,7 +11,7 @@ Generates or edits images for the current project (for example website assets, g
 
 This skill has exactly two top-level modes:
 
-- **Default built-in tool mode (preferred):** built-in `image_gen` tool for image generation, editing, and transparent-image requests. Does not require `OPENAI_API_KEY`.
+- **Default built-in tool mode (preferred):** built-in `imagegen` tool for image generation and local-file editing. Uses the current turn’s provider: ChatGPT OAuth or the configured OpenAI-compatible provider’s API key.
 - **Fallback CLI mode:** `scripts/image_gen.py` CLI. Use when the user explicitly asks for or confirms the CLI/API/model path. Requires `OPENAI_API_KEY`.
 
 Within CLI fallback, the CLI exposes three subcommands:
@@ -21,25 +21,26 @@ Within CLI fallback, the CLI exposes three subcommands:
 - `generate-batch`
 
 Rules:
-- Use the built-in `image_gen` tool by default for normal image generation and editing requests.
+- Use the built-in `imagegen` tool by default for normal image generation and editing requests.
 - Do not switch to CLI fallback for ordinary quality, size, or file-path control.
-- For transparent images, ask built-in `image_gen` for a transparent background and preserve the generated alpha.
-- Never silently switch from built-in `image_gen` or CLI `gpt-image-2` to CLI `gpt-image-1.5`; ask the user first unless they explicitly requested `gpt-image-1.5`.
+- Transparency may be requested in the prompt, but the native tool uses automatic background settings and does not guarantee alpha output.
+- Never silently switch from built-in `imagegen` or CLI `gpt-image-2` to CLI `gpt-image-1.5`; ask the user first unless they explicitly requested `gpt-image-1.5`.
 - The word `batch` by itself does not mean CLI fallback. If the user asks for many assets or says to batch-generate assets without explicitly asking for CLI/API/model controls, stay on the built-in path and issue one built-in call per requested asset or variant.
 - If the built-in tool fails or is unavailable, tell the user the CLI fallback exists and that it requires `OPENAI_API_KEY`. Proceed only if the user explicitly asks for that fallback.
 - If the user explicitly asks for CLI mode, use the bundled `scripts/image_gen.py` workflow. Do not create one-off SDK runners.
 - Never modify `scripts/image_gen.py`. If something is missing, ask the user before doing anything else.
 
-Built-in save-path policy:
-- In built-in tool mode, Codex saves generated images under `$CODEX_HOME/*` by default.
-- Do not describe or rely on OS temp as the default built-in destination.
-- Do not describe or rely on a destination-path argument (if any) on the built-in `image_gen` tool. If a specific location is needed, generate first and then move or copy the selected output from `$CODEX_HOME/generated_images/...`.
-- Save-path precedence in built-in mode:
-  1. If the user names a destination, move or copy the selected output there.
-  2. If the image is meant for the current project, move or copy the final selected image into the workspace before finishing.
-  3. If the image is only for preview or brainstorming, render it inline; the underlying file can remain at the default `$CODEX_HOME/*` path.
-- Never leave a project-referenced asset only at the default `$CODEX_HOME/*` path.
-- Do not overwrite an existing asset unless the user explicitly asked for replacement; otherwise create a sibling versioned filename such as `hero-v2.png` or `item-icon-edited.png`.
+Built-in arguments and save-path policy:
+- Required: nonblank `prompt` and `output_path` ending in `.png`.
+- Optional: `referenced_image_paths`, up to five local PNG, JPEG, or WebP paths. Omit it or use an empty array for a new image; supply references for editing or reference-guided generation.
+- Relative paths resolve in the invoking agent’s workspace. Inputs require read permission; the destination and any missing parents require write permission under the active security profile. Symlinks and nonregular files are rejected.
+- The tool creates missing output directories and can overwrite an existing regular file. Choose a new/versioned path when replacement is not intended. Editing to the same path is supported because references are read before writing the result.
+- The tool returns the absolute saved path, not an inline image or conversation attachment. Use `read_image` separately to inspect a saved result when its attachment limits permit.
+- There is no automatic Codex-home or temporary output location. Always supply the intended destination, including for previews.
+- Native generation uses `gpt-image-2` on the current provider, independently of the text model. Compatible providers are tried at their configured Images API endpoints; unsupported endpoints/models fail without switching providers or models.
+- ChatGPT uses the existing OAuth login; API-key providers use their configured environment/stored key and may incur API charges. Do not request credentials in chat or assume account access is available.
+- Limits: five references, 10 MiB each and 50 MiB total; 80 MiB serialized request, 64 MiB response, 32 MiB decoded PNG output; ten-minute invocation timeout. Inputs and output must be single-frame images, at most 8192 pixels per dimension and 40000000 pixels total. Provider limits may be lower. The separate `read_image` tool has a 5 MiB attachment limit.
+- Generation/authentication/validation failure does not overwrite the destination. Final write failures follow ordinary file-write semantics and can leave a partial file; replacement is not transactional.
 
 Shared prompt guidance for both modes lives in `references/prompting.md` and `references/sample-prompts.md`.
 
@@ -74,14 +75,14 @@ Intent:
 - If the user provides no images, treat the request as **generate**.
 
 Built-in edit semantics:
-- Built-in edit mode is for images already visible in the conversation context, such as attached images or images generated earlier in the thread.
-- If the user wants to edit a local image file with the built-in tool, first load it with built-in `view_image` tool so the image is visible in the conversation context, then proceed with the built-in edit flow.
-- Do not promise arbitrary filesystem-path editing through the built-in tool.
-- If a local file still needs direct file-path control, masks, or other explicit CLI-only parameters, use the explicit CLI fallback only when the user asks for it.
-- For edits, preserve invariants aggressively and save non-destructively by default.
+- Supply local edit targets and supporting references through `referenced_image_paths` in the desired order. Conversation-only images, last-N selection, URLs, and masks are not native tool arguments.
+- Inspect a local target with `read_image` when possible before editing, then pass its path explicitly; viewing does not implicitly select it as an edit input.
+- If an image exists only as an attachment without an accessible local path, ask for an accessible local file rather than claiming the native tool can select it from history.
+- Preserve the user’s requested invariants. Use a versioned output unless the task calls for replacing the existing asset.
+- Masks and other CLI-only controls require the explicit CLI fallback, only when the user asks for or confirms it.
 
 Execution strategy:
-- In the built-in default path, produce many assets or variants by issuing one `image_gen` call per requested asset or variant.
+- In the built-in default path, produce many assets or variants by issuing one `imagegen` call per requested asset or variant.
 - In the CLI fallback path, use the CLI `generate-batch` subcommand only when the user explicitly chose CLI mode and needs many prompts/assets.
 - For many distinct assets, do not use `n` as a substitute for separate prompts. `n` is for variants of one prompt; distinct assets need distinct built-in calls or distinct CLI `generate-batch` jobs.
 
@@ -97,24 +98,24 @@ Assume the user wants a new image unless they clearly ask to change an existing 
    - reference image
    - edit target
    - supporting insert/style/compositing input
-7. If the edit target is only on the local filesystem and you are staying on the built-in path, inspect it with `view_image` first so the image is available in conversation context.
-8. If the user asked for a photo, illustration, sprite, product image, banner, or other explicitly raster-style asset, use `image_gen` rather than substituting SVG/HTML/CSS placeholders. If the request is for an icon, logo, or UI graphic that should match existing repo-native SVG/vector/code assets, prefer editing those directly instead.
+7. Inspect local edit targets with `read_image` when possible and supply their paths explicitly in `referenced_image_paths`.
+8. If the user asked for a photo, illustration, sprite, product image, banner, or other explicitly raster-style asset, use `imagegen` rather than substituting SVG/HTML/CSS placeholders. If the request is for an icon, logo, or UI graphic that should match existing repo-native SVG/vector/code assets, prefer editing those directly instead.
 9. Augment the prompt based on specificity:
    - If the user's prompt is already specific and detailed, normalize it into a clear spec without adding creative requirements.
    - If the user's prompt is generic, add tasteful augmentation only when it materially improves output quality.
-10. Use the built-in `image_gen` tool by default.
-11. For transparent-output requests, ask built-in `image_gen` for a transparent background and preserve the generated alpha channel.
+10. Use the built-in `imagegen` tool by default.
+11. For transparent-output requests, describe the intent in the prompt, inspect the result, and do not promise transparency from automatic background settings.
 12. Inspect outputs and validate: subject, style, composition, text accuracy, and invariants/avoid items.
 13. Iterate with a single targeted change, then re-check.
-14. For preview-only work, render the image inline; the underlying file may remain at the default `$CODEX_HOME/generated_images/...` path.
-15. For project-bound work, move or copy the selected artifact into the workspace and update any consuming code or references. Never leave a project-referenced asset only at the default `$CODEX_HOME/generated_images/...` path.
+14. For preview-only work, choose an authorized `.png` output path and report it; the native result does not render inline automatically.
+15. For project-bound work, set `output_path` to the intended workspace asset location and update consuming code or references only as requested.
 16. For batches or multi-asset requests, persist every requested deliverable final in the workspace unless the user explicitly asked to keep outputs preview-only. Discarded variants do not need to be kept unless requested.
 17. If the user explicitly chooses or confirms the CLI fallback, then use the fallback-only docs for model, quality, size, `input_fidelity`, masks, output format, output paths, and network setup.
 18. Always report the final saved path(s) for any workspace-bound asset(s), plus the final prompt or prompt set and whether the built-in tool or fallback CLI mode was used.
 
 ## Transparent image requests
 
-Ask built-in `image_gen` for a genuinely transparent background and preserve its alpha.
+The native tool uses automatic background settings. Request transparency in the prompt if desired, but verify the saved PNG rather than guaranteeing alpha. Do not silently switch models or use a CLI workaround.
 
 ## Prompt augmentation
 
@@ -162,7 +163,7 @@ Edit:
 - identity-preserve — try-on, person-in-scene; lock face/body/pose.
 - precise-object-edit — remove/replace a specific element (including interior swaps).
 - lighting-weather — time-of-day/season/atmosphere changes only.
-- background-extraction — transparent background / clean cutout. Ask built-in `image_gen` for actual transparency.
+- background-extraction — transparent background / clean cutout. Request transparency in the prompt and verify it; native automatic settings do not guarantee alpha.
 - style-transfer — apply reference style while changing subject/scene.
 - compositing — multi-image insert/merge with matched lighting/perspective.
 - sketch-to-render — drawing/line art to photoreal render.
@@ -191,7 +192,7 @@ Avoid: <negative constraints>
 Notes:
 - `Asset type` and `Input images` are prompt scaffolding, not dedicated CLI flags.
 - `Scene/backdrop` refers to the visual setting. It is not the same as the fallback CLI `background` parameter, which controls output transparency behavior.
-- Fallback-only execution notes such as `Quality:`, `Input fidelity:`, masks, output format, and output paths belong in the CLI path only. Do not treat them as built-in `image_gen` tool arguments.
+- Fallback-only execution notes such as `Quality:`, `Input fidelity:`, masks, and output format belong in the CLI path only. Native `imagegen` accepts only `prompt`, `output_path`, and optional `referenced_image_paths`; output paths belong in `output_path`, not the image prompt.
 
 Augmentation rules:
 - Keep it short.
@@ -233,7 +234,7 @@ Constraints: change only the background; keep the product and its edges unchange
 - If the prompt is generic, add only the extra detail that will materially help.
 - If the prompt is already detailed, normalize it instead of expanding it.
 - For CLI fallback only, see `references/cli.md` and `references/image-api.md` for model, `quality`, `input_fidelity`, masks, output format, and output-path guidance.
-- For transparent images, ask built-in `image_gen` for actual transparency and preserve its alpha.
+- For transparent images, verify actual alpha in the result; do not infer it from the prompt alone.
 
 More principles shared by both modes: `references/prompting.md`.
 Copy/paste specs shared by both modes: `references/sample-prompts.md`.
@@ -267,7 +268,7 @@ Popular `gpt-image-2` sizes:
 ## Fallback CLI mode only
 
 ### Temp and output conventions
-These conventions apply only to the CLI fallback. They do not describe built-in `image_gen` output behavior.
+These conventions apply only to the CLI fallback. They do not describe built-in `imagegen` output behavior.
 - Use `tmp/imagegen/` for intermediate files (for example JSONL batches); delete them when done.
 - Write final artifacts under `output/imagegen/`.
 - Use `--out` or `--out-dir` to control output paths; keep filenames stable and descriptive.
@@ -291,7 +292,7 @@ Portability note:
 
 ### Environment
 - `OPENAI_API_KEY` must be set for live API calls.
-- Do not ask the user for `OPENAI_API_KEY` when using the built-in `image_gen` tool.
+- Native `imagegen` uses the current provider’s configured credentials: ChatGPT OAuth or an API key. `OPENAI_API_KEY` is required by the CLI fallback, not universally by the native tool.
 - Never ask the user to paste the full key in chat. Ask them to set it locally and confirm when ready.
 
 If the key is missing, give the user these steps:

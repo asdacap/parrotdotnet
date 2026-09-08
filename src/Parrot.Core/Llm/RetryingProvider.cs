@@ -21,6 +21,9 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
 
     public IUsageReporter? UsageReporter => inner.UsageReporter;
 
+    public Task<ImageGenerationResult> GenerateImage(ImageGenerationRequest request, CancellationToken cancellationToken) =>
+        inner.GenerateImage(request, cancellationToken);
+
     public IReadOnlyList<LLMModel> SeedModels() => inner.SeedModels();
 
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) =>

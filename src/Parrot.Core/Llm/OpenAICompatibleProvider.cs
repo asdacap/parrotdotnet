@@ -8,6 +8,7 @@ namespace Parrot.Llm;
 // calls. Port of Go's OpenAICompatible.
 internal sealed class OpenAICompatibleProvider : ILLMProvider
 {
+    private readonly ImageGenerationClient _images;
     private readonly Uri _endpoint;
     private readonly Uri _modelsEndpoint;
     private readonly Uri _modelInfoEndpoint;
@@ -71,6 +72,11 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
         _external = options.ExternalModels;
         _decoder = options.Decoder;
         _client = client;
+        _images = new ImageGenerationClient(
+            client,
+            HttpStreaming.EndpointUrl(options.BaseUrl, "images/generations", options.AllowInsecureLocalhost, options.AllowInsecureRemote),
+            HttpStreaming.EndpointUrl(options.BaseUrl, "images/edits", options.AllowInsecureLocalhost, options.AllowInsecureRemote),
+            AuthHeadersForSession);
         _headerTimeout = options.HeaderTimeout;
         _providerPreferences = options.ProviderPreferences;
         _websocketConnector = websocketConnector;
@@ -78,6 +84,9 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     }
 
     public string Id { get; }
+
+    public Task<ImageGenerationResult> GenerateImage(ImageGenerationRequest request, CancellationToken cancellationToken) =>
+        _images.GenerateImage(request, cancellationToken);
 
     // The offline catalogue: what is selectable before the endpoint is reached.
     public IReadOnlyList<LLMModel> SeedModels() => ModelCatalogue.Merge(null, _declared, _defaults, _external);
