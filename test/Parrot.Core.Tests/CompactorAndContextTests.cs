@@ -1893,12 +1893,14 @@ internal sealed class CompactorAndContextTests : IDisposable
             .ToList();
 
         var result = await compactor.Compact(
-            CompactionModel(provider, 1_000),
+            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 }),
             "instructions",
             [],
             history,
             LLMMessage.User("fixed"),
             _compactionGroupBlobs,
+            TestDiagnosticLog.Instance,
+            "agent-test",
             cancellationToken)
             ?? throw new InvalidOperationException("Expected compaction.");
 
@@ -2138,6 +2140,8 @@ internal sealed class CompactorAndContextTests : IDisposable
         public int Calls { get; private set; }
 
         public string Id => "first-empty";
+
+        public IReadOnlyList<LLMModel> SeedModels() => [];
 
         public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 

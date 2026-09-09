@@ -168,6 +168,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
         _ = await Assert.That(provider.Requests[0].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(1);
         var prompt = provider.Requests[0].Messages.Last(message => message.Role == LLMRole.User).Content;
+        _ = await Assert.That(prompt).DoesNotContain("Sibling tasks (out of scope):");
         _ = await Assert.That(prompt).Contains("AgentTask role: payload executor");
         _ = await Assert.That(prompt).Contains("Inspect, implement, and verify this instruction:");
         _ = await Assert.That(prompt).Contains("Return only one strict JSON object with no prose or code fence:");
@@ -268,6 +269,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             .Run(artifact, cancellationToken);
 
         var prompt = provider.Requests[0].Messages.Last(message => message.Role == LLMRole.User).Content;
+        _ = await Assert.That(prompt).DoesNotContain("Sibling tasks (out of scope):");
         _ = await Assert.That(prompt).Contains("AgentTask role: payload executor");
         _ = await Assert.That(prompt).Contains("Inspect, implement, and verify this instruction:");
         _ = await Assert.That(prompt).Contains("Return only one strict JSON object with no prose or code fence:");
@@ -1183,6 +1185,158 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             .IsEqualTo(retainedScope.Session.SessionId);
         _ = await Assert.That(retainedScope.Session.IsActive()).IsFalse();
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(2);
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Sibling_scope_follows_effective_graphs_and_all_retry_roles(bool startsAsLeaf, CancellationToken cancellationToken)
+    {
+        const string replacementChildren = """
+            [{"name":"new-first","description":"First replacement description","payload":"first secret payload","acceptance_criteria":"first secret criteria"},{"name":"new-second","dependencies":["new-first"],"description":"Second replacement description","payload":"second secret payload","acceptance_criteria":"second secret criteria"}]
+            """;
+        var answers = new List<string>
+        {
+            "{\"result\":\"outer dependency result\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
+        };
+        if (startsAsLeaf)
+        {
+            answers.Add("{\"result\":\"first result\",\"verdict\":\"reject_and_retry\",\"feedback\":\"retry instruction\",\"payload\":\"retry work\"}");
+            answers.Add($"{{\"result\":\"split result\",\"verdict\":\"reject_and_retry\",\"feedback\":\"split task\",\"payload\":{replacementChildren}}}");
+            answers.Add("{\"context\":\"prepared replacement\"}");
+        }
+        else
+        {
+            answers.Add($"{{\"context\":\"prepared replacement\",\"task_patch\":{{\"payload\":{replacementChildren}}}}}");
+        }
+
+        answers.Add("{\"result\":\"first dependency result\",\"verdict\":\"accept\",\"evidence\":\"done\"}");
+        answers.Add("{\"result\":\"second result\",\"verdict\":\"accept\",\"evidence\":\"done\"}");
+        answers.Add("{\"verdict\":\"reject_and_retry\",\"feedback\":\"replace children\",\"payload\":[{\"name\":\"only-child\",\"description\":\"Singleton replacement\",\"payload\":\"only work\",\"acceptance_criteria\":\"only proof\"}]}");
+        answers.Add("{\"result\":\"only result\",\"verdict\":\"accept\",\"evidence\":\"done\"}");
+        answers.Add("{\"verdict\":\"reject_and_retry\",\"feedback\":\"finish directly\",\"payload\":\"direct finish\"}");
+        answers.Add("direct execution result");
+        answers.Add("{\"verdict\":\"accept\",\"evidence\":\"done\"}");
+        answers.Add("{\"result\":\"last result\",\"verdict\":\"accept\",\"evidence\":\"done\"}");
+        var provider = new AgentTaskQueueProvider(answers);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var initialPayload = startsAsLeaf
+            ? "\"initial work\""
+            : "[{\"name\":\"old-child\",\"description\":\"Stale child description\",\"payload\":\"old work\",\"acceptance_criteria\":\"old proof\"}]";
+        var artifact = AgentTaskParser.ParseArtifact($$"""
+            {"schema_version":1,"tasks":[
+              {"name":"outer","description":"Outer sibling description","payload":"outer secret payload","acceptance_criteria":"outer secret criteria"},
+              {"name":"target","dependencies":["outer"],"description":"Target description","payload":{{initialPayload}},"acceptance_criteria":"target proof"},
+              {"name":"last","dependencies":["target"],"description":"Last sibling description","payload":"last secret payload","acceptance_criteria":"last secret criteria"}
+            ]}
+            """);
+
+        var result = await new RunnerFixture(runtime, "sibling-transitions", 5, _broker, _repository).Runner
+            .Run(artifact, cancellationToken);
+
+        _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(answers.Count);
+        foreach (var request in provider.Requests)
+        {
+            var prompt = request.Messages.Last(message => message.Role == LLMRole.User).Content;
+            var taskStart = prompt.IndexOf("Task: ", StringComparison.Ordinal);
+            var scope = prompt[..taskStart];
+            var taskName = prompt[(taskStart + "Task: ".Length)..].Split('\n')[0];
+            if (taskName == "only-child")
+            {
+                _ = await Assert.That(scope).IsEmpty();
+                continue;
+            }
+
+            _ = await Assert.That(scope).Contains("Sibling tasks (out of scope):")
+                .And.Contains("Do not implement or duplicate their work.")
+                .And.Contains("You may consume dependency results")
+                .And.DoesNotContain($"[{taskName}]")
+                .And.DoesNotContain("secret payload")
+                .And.DoesNotContain("secret criteria")
+                .And.DoesNotContain("Stale child description");
+            switch (taskName)
+            {
+                case "target":
+                    _ = await Assert.That(scope).Contains("[outer] Outer sibling description\n[last] Last sibling description")
+                        .And.DoesNotContain("replacement description");
+                    _ = await Assert.That(prompt).Contains("[outer] outer dependency result");
+                    break;
+                case "new-first":
+                case "new-second":
+                    var sibling = taskName == "new-first" ? "[new-second] Second replacement description" : "[new-first] First replacement description";
+                    _ = await Assert.That(scope).Contains(sibling)
+                        .And.DoesNotContain("Outer sibling description")
+                        .And.DoesNotContain("Target description")
+                        .And.DoesNotContain("Last sibling description");
+                    if (taskName == "new-second")
+                    {
+                        _ = await Assert.That(prompt).Contains("[new-first] first dependency result");
+                    }
+
+                    break;
+                case "outer":
+                    _ = await Assert.That(scope).Contains("[target] Target description\n[last] Last sibling description");
+                    break;
+                case "last":
+                    _ = await Assert.That(scope).Contains("[outer] Outer sibling description\n[target] Target description");
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unexpected task: {taskName}");
+            }
+        }
+    }
+
+    [Test]
+    public async Task Sibling_scope_renders_custom_templates_and_bounds_descriptions(CancellationToken cancellationToken)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-sibling-templates", Guid.NewGuid().ToString("N"));
+        _ = Directory.CreateDirectory(directory);
+        try
+        {
+            var configurationPath = Path.Combine(directory, "config.yaml");
+            const string configurationYaml = """
+                prompt_templates:
+                  agent-task.sibling-scope:
+                    template: 'CUSTOM OUT OF SCOPE{items}\n'
+                  agent-task.sibling-item:
+                    template: '\n{name}: {description}'
+                """;
+            await File.WriteAllTextAsync(configurationPath, configurationYaml, cancellationToken);
+            var templates = Configuration.Load(configurationPath, Path.Combine(directory, "predefined_config.yaml")).PromptTemplates;
+            var provider = new AgentTaskQueueProvider([
+                "{\"result\":\"first result\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
+                "{\"result\":\"second result\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
+            ]);
+            var runtime = Runtime(provider, cancellationToken);
+            await using var registry = runtime.Registry;
+            var artifact = AgentTaskParser.ParseArtifact($$"""
+                {"schema_version":1,"tasks":[{"name":"first","description":"First description","payload":"work","acceptance_criteria":"proof"},{"name":"second","dependencies":["first"],"description":"{{new string('x', (16 * 1024) + 1)}}","payload":"work","acceptance_criteria":"proof"}]}
+                """);
+            var runner = new AgentTaskGraphRunner(
+                runtime.Router,
+                runtime.ParentScope,
+                runtime.Selection,
+                new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "custom-siblings", TestDiagnosticLog.Instance),
+                new AgentTaskConfig(5, true, templates),
+                new HistoryForkBoundary.AfterCompletedHistory());
+
+            var result = await runner.Run(artifact, cancellationToken);
+
+            _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
+            var prompt = provider.Requests[0].Messages.Last(message => message.Role == LLMRole.User).Content;
+            var scope = prompt[..prompt.IndexOf("Task: ", StringComparison.Ordinal)];
+            _ = await Assert.That(scope).StartsWith("CUSTOM OUT OF SCOPE")
+                .And.Contains($"second: {new string('x', 16 * 1024)}")
+                .And.Contains("[truncated]")
+                .And.DoesNotContain(new string('x', (16 * 1024) + 1))
+                .And.DoesNotContain("Sibling tasks (out of scope):");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     private AgentTaskProgressSnapshot[] ProgressEvents(string originToolCallId) =>

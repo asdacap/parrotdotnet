@@ -89,12 +89,13 @@ internal sealed class AgentTaskGraphRunner(
 
     private string BuildPreparePrompt(
         EffectiveAgentTask task,
+        IReadOnlyList<AgentTask> siblings,
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskPrepareContext> contexts,
         IReadOnlyList<AgentTaskResult> dependencies,
         string path)
     {
-        var header = Header(task, ancestors, contexts, dependencies);
+        var header = Header(task, siblings, ancestors, contexts, dependencies);
         return ComposePrompt(new StringBuilder(header), Render(
             "agent-task.prepare",
             ("header", string.Empty),
@@ -104,13 +105,14 @@ internal sealed class AgentTaskGraphRunner(
 
     private string BuildPreparePromptWithResult(
         EffectiveAgentTask task,
+        IReadOnlyList<AgentTask> siblings,
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskPrepareContext> contexts,
         IReadOnlyList<AgentTaskResult> dependencies,
         string path,
         string result)
     {
-        var prompt = new StringBuilder(Header(task, ancestors, contexts, dependencies));
+        var prompt = new StringBuilder(Header(task, siblings, ancestors, contexts, dependencies));
         AppendResult(prompt, result);
         return ComposePrompt(prompt, Render(
             "agent-task.prepare",
@@ -121,12 +123,13 @@ internal sealed class AgentTaskGraphRunner(
 
     private string BuildExecutionPrompt(
         EffectiveAgentTask task,
+        IReadOnlyList<AgentTask> siblings,
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskPrepareContext> contexts,
         IReadOnlyList<AgentTaskResult> dependencies,
         IReadOnlyList<string> feedback)
     {
-        var prompt = new StringBuilder(Header(task, ancestors, contexts, dependencies));
+        var prompt = new StringBuilder(Header(task, siblings, ancestors, contexts, dependencies));
         AppendFeedback(prompt, feedback);
         return ComposePrompt(prompt, Render(
             "agent-task.execution",
@@ -137,13 +140,14 @@ internal sealed class AgentTaskGraphRunner(
 
     private string BuildLeafPrompt(
         EffectiveAgentTask task,
+        IReadOnlyList<AgentTask> siblings,
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskPrepareContext> contexts,
         IReadOnlyList<AgentTaskResult> dependencies,
         IReadOnlyList<string> feedback,
         string? result)
     {
-        var prompt = new StringBuilder(Header(task, ancestors, contexts, dependencies));
+        var prompt = new StringBuilder(Header(task, siblings, ancestors, contexts, dependencies));
         AppendResult(prompt, result);
         AppendFeedback(prompt, feedback);
         return ComposePrompt(prompt, Render(
@@ -155,6 +159,7 @@ internal sealed class AgentTaskGraphRunner(
 
     private string BuildAcceptancePrompt(
         EffectiveAgentTask task,
+        IReadOnlyList<AgentTask> siblings,
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskPrepareContext> contexts,
         IReadOnlyList<AgentTaskResult> dependencies,
@@ -163,7 +168,7 @@ internal sealed class AgentTaskGraphRunner(
         IReadOnlyList<AgentTaskResult>? nested,
         string? carriedResult)
     {
-        var prompt = new StringBuilder(Header(task, ancestors, contexts, dependencies));
+        var prompt = new StringBuilder(Header(task, siblings, ancestors, contexts, dependencies));
         AppendResult(prompt, carriedResult);
         AppendFeedback(prompt, feedback);
         var nestedText = nested is null
@@ -186,6 +191,7 @@ internal sealed class AgentTaskGraphRunner(
 
     private string Header(
         EffectiveAgentTask task,
+        IReadOnlyList<AgentTask> siblings,
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskPrepareContext> contexts,
         IReadOnlyList<AgentTaskResult> dependencies)
@@ -229,7 +235,19 @@ internal sealed class AgentTaskGraphRunner(
             }
         }
 
-        return Render(
+        var siblingText = new StringBuilder();
+        foreach (var sibling in siblings)
+        {
+            _ = siblingText.Append(Render(
+                "agent-task.sibling-item",
+                ("name", sibling.Name),
+                ("description", Bound(sibling.Description, MaxSummaryCharacters))));
+        }
+
+        var siblingScope = siblings.Count == 0
+            ? string.Empty
+            : Render("agent-task.sibling-scope", ("items", siblingText.ToString()));
+        return siblingScope + Render(
             "agent-task.header",
             ("task_name", task.Name),
             ("description", task.Description),
@@ -353,6 +371,7 @@ internal sealed class AgentTaskGraphRunner(
                 running.Add(index, RunTask(
                     task,
                     handles[index],
+                    [.. tasks.Where((_, siblingIndex) => siblingIndex != index)],
                     ancestors,
                     contexts,
                     dependencies,
@@ -418,6 +437,7 @@ internal sealed class AgentTaskGraphRunner(
     private async Task<AgentTaskResult> RunTask(
         AgentTask approved,
         AgentTaskProgress.NodeHandle handle,
+        IReadOnlyList<AgentTask> siblings,
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskPrepareContext> inheritedContexts,
         IReadOnlyList<AgentTaskResult> dependencies,
@@ -432,6 +452,7 @@ internal sealed class AgentTaskGraphRunner(
                 approved,
                 effective,
                 handle,
+                siblings,
                 ancestors,
                 inheritedContexts,
                 dependencies,
@@ -447,7 +468,7 @@ internal sealed class AgentTaskGraphRunner(
             approved.Name,
             owningAgentScope,
             null,
-            BuildPreparePrompt(effective, ancestors, inheritedContexts, dependencies, path),
+            BuildPreparePrompt(effective, siblings, ancestors, inheritedContexts, dependencies, path),
             cancellationToken).ConfigureAwait(false);
         var prepare = prepareRun.Execution;
         if (prepare.Status != AgentExecutionStatus.Succeeded)
@@ -488,6 +509,7 @@ internal sealed class AgentTaskGraphRunner(
             effective,
             handle,
             childHandles,
+            siblings,
             ancestors,
             currentAncestors,
             currentContexts,
@@ -505,6 +527,7 @@ internal sealed class AgentTaskGraphRunner(
         AgentTask approved,
         EffectiveAgentTask effective,
         AgentTaskProgress.NodeHandle handle,
+        IReadOnlyList<AgentTask> siblings,
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskPrepareContext> inheritedContexts,
         IReadOnlyList<AgentTaskResult> dependencies,
@@ -527,7 +550,7 @@ internal sealed class AgentTaskGraphRunner(
                 approved.Name,
                 owningAgentScope,
                 payloadAgentScope,
-                BuildLeafPrompt(effective, ancestors, promptContexts, dependencies, feedback, currentResult),
+                BuildLeafPrompt(effective, siblings, ancestors, promptContexts, dependencies, feedback, currentResult),
                 cancellationToken).ConfigureAwait(false);
             payloadAgentScope = payloadRun.Scope;
             var executed = payloadRun.Execution;
@@ -663,7 +686,7 @@ internal sealed class AgentTaskGraphRunner(
                 approved.Name,
                 owningAgentScope,
                 null,
-                BuildPreparePromptWithResult(effective, ancestors, retryContexts, dependencies, path, currentResult ?? throw new InvalidOperationException("A leaf retry requires a result.")),
+                BuildPreparePromptWithResult(effective, siblings, ancestors, retryContexts, dependencies, path, currentResult ?? throw new InvalidOperationException("A leaf retry requires a result.")),
                 cancellationToken).ConfigureAwait(false);
             var prepare = prepareRun.Execution;
             if (prepare.Status != AgentExecutionStatus.Succeeded)
@@ -724,6 +747,7 @@ internal sealed class AgentTaskGraphRunner(
                 effective,
                 handle,
                 childHandles,
+                siblings,
                 ancestors,
                 currentAncestors,
                 currentContexts,
@@ -745,6 +769,7 @@ internal sealed class AgentTaskGraphRunner(
         EffectiveAgentTask effective,
         AgentTaskProgress.NodeHandle handle,
         IReadOnlyList<AgentTaskProgress.NodeHandle> childHandles,
+        IReadOnlyList<AgentTask> siblings,
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskAncestor> currentAncestors,
         AgentTaskPrepareContext[] currentContexts,
@@ -777,7 +802,7 @@ internal sealed class AgentTaskGraphRunner(
                     approved.Name,
                     compositeAgentScope,
                     executionAgentScope,
-                    BuildExecutionPrompt(effective, ancestors, currentContexts, dependencies, feedback),
+                    BuildExecutionPrompt(effective, siblings, ancestors, currentContexts, dependencies, feedback),
                     cancellationToken).ConfigureAwait(false);
                 executionAgentScope = executionRun.Scope;
                 var executed = executionRun.Execution;
@@ -826,7 +851,7 @@ internal sealed class AgentTaskGraphRunner(
                 approved.Name,
                 compositeAgentScope,
                 compositeAgentScope,
-                BuildAcceptancePrompt(effective, ancestors, currentContexts, dependencies, feedback, execution, nested, acceptanceResult),
+                BuildAcceptancePrompt(effective, siblings, ancestors, currentContexts, dependencies, feedback, execution, nested, acceptanceResult),
                 cancellationToken).ConfigureAwait(false);
             carriedResult = null;
             var reviewed = acceptanceRun.Execution;

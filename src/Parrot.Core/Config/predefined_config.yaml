@@ -391,6 +391,16 @@ prompt_templates:
     template: '\nDirect dependency summaries:'
     allowed_arguments: []
     required_arguments: []
+  agent-task.sibling-scope:
+    template: |
+      Sibling tasks (out of scope):
+      These tasks belong to other agents. Do not implement or duplicate their work. You may consume dependency results for your assigned task.{items}
+    allowed_arguments: [items]
+    required_arguments: [items]
+  agent-task.sibling-item:
+    template: "\n[{name}] {description}"
+    allowed_arguments: [name, description]
+    required_arguments: [name, description]
   agent-task.header:
     template: |-
       Task: {task_name}
