@@ -9,11 +9,13 @@ namespace Parrot.Cli.Tests;
 internal sealed class LocalChatStartupTests
 {
     [Test]
+    [Timeout(15_000)]
     [Arguments("fresh", true, 1, 1)]
     [Arguments("load", false, 1, 0)]
     [Arguments("connect", true, 0, 0)]
     [Arguments("missing", false, 1, 1)]
     [Arguments("rejected", true, 1, 1)]
+    [Arguments("inactive-connect", true, 0, 0)]
     [Arguments("race", true, 1, 0)]
     [Arguments("recover", false, 1, 0)]
     [Arguments("recover-race", true, 1, 0)]
@@ -30,7 +32,7 @@ internal sealed class LocalChatStartupTests
         await using var localServer = await GrpcServer.StartLocal(service, workspace.LocalSocket, diagnostics.Log, cancellationToken);
         using var localClient = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{workspace.LocalSocket}"), null, diagnostics.Log);
         await using var activation = scenario == "fresh" ? null : workspace.Admit();
-        if (scenario is "load" or "race" or "recover-race")
+        if (scenario is "load" or "inactive-connect" or "recover-race")
         {
             if (activation is not null)
             {
@@ -39,7 +41,7 @@ internal sealed class LocalChatStartupTests
         }
 
         service.OwnerActivation = activation;
-        await using var ownerServer = scenario is "connect" or "rejected" or "race" or "recover" or "recover-race"
+        await using var ownerServer = scenario is "connect" or "inactive-connect" or "rejected" or "race" or "recover" or "recover-race"
             ? await GrpcServer.StartLocal(service, workspace.Resources.SocketPath, diagnostics.Log, cancellationToken)
             : null;
         using var error = new StringWriter();
@@ -71,12 +73,11 @@ internal sealed class LocalChatStartupTests
         _ = await Assert.That(service.CreateCount).IsEqualTo(expectedConfigurations);
         var expectedResumes = scenario switch
         {
-            "fresh" or "connect" => 0,
-            "recover-race" => 2,
+            "fresh" or "connect" or "inactive-connect" => 0,
             _ => 1,
         };
         _ = await Assert.That(service.ResumeCount).IsEqualTo(expectedResumes);
-        if (expectedLocalOpens == 1 && scenario != "race")
+        if (expectedLocalOpens == 1 && scenario is not "race" and not "recover-race")
         {
             _ = await Assert.That(ReferenceEquals(openedClient, localClient.Client)).IsTrue();
         }
@@ -96,11 +97,19 @@ internal sealed class LocalChatStartupTests
             _ = await Assert.That(service.Resumed?.InteractivePermissions).IsEqualTo(interactivePermissions);
         }
 
-        if (scenario is "connect" or "race" or "rejected" or "recover" or "recover-race")
+        if (scenario is "connect" or "inactive-connect" or "race" or "rejected" or "recover" or "recover-race")
         {
             _ = await Assert.That(service.Attached?.UserSessionId).IsEqualTo("existing");
             _ = await Assert.That(service.Attached?.WorkingDirectory).IsEqualTo(workspace.Root);
         }
+
+        var expectedAttachments = scenario switch
+        {
+            "fresh" or "load" or "missing" => 0,
+            "race" or "recover-race" or "rejected" => 2,
+            _ => 1,
+        };
+        _ = await Assert.That(service.AttachCount).IsEqualTo(expectedAttachments);
 
         var log = diagnostics.Read();
         _ = await Assert.That(log).Contains("event=\"local.open.start\"");
@@ -117,8 +126,8 @@ internal sealed class LocalChatStartupTests
         {
             _ = await Assert.That(diagnostic).Contains(scenario switch
             {
-                "load" or "recover" or "recover-race" => "loaded existing user session existing",
-                "connect" or "race" => "connected to existing user session existing",
+                "load" or "recover" => "loaded existing user session existing",
+                "connect" or "inactive-connect" or "race" or "recover-race" => "connected to existing user session existing",
                 _ => "unable to connect to existing user session existing",
             });
             _ = await Assert.That(diagnostic.Contains("creating a new user session", StringComparison.Ordinal))
@@ -181,15 +190,16 @@ internal sealed class LocalChatStartupTests
     }
 
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
+    [Arguments("fail-recovery")]
+    [Arguments("cancel-recovery")]
+    [Arguments("cancel-retry")]
     public async Task Recovery_failure_or_cancellation_does_not_create_a_fallback(
-        bool cancelRecovery, CancellationToken cancellationToken)
+        string scenario, CancellationToken cancellationToken)
     {
         using var diagnostics = new TransportDiagnosticsFixture();
         using var workspace = new TestWorkspace();
         await using var activation = workspace.Admit();
-        var service = new TestService(cancelRecovery ? "cancel-recovery" : "fail-recovery", workspace);
+        var service = new TestService(scenario, workspace);
         await using var localServer = await GrpcServer.StartLocal(service, workspace.LocalSocket, diagnostics.Log, cancellationToken);
         await using var ownerServer = await GrpcServer.StartLocal(service, workspace.Resources.SocketPath, diagnostics.Log, cancellationToken);
         using var localClient = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{workspace.LocalSocket}"), null, diagnostics.Log);
@@ -216,13 +226,27 @@ internal sealed class LocalChatStartupTests
             });
         var opening = startup.Open(true, stopping.Token);
         await service.ResumeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
-        if (cancelRecovery)
+        if (scenario == "cancel-retry")
+        {
+            await service.RetryStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        }
+
+        if (scenario != "fail-recovery")
         {
             await stopping.CancelAsync();
         }
 
-        var failure = await Assert.That(async () => await opening.WaitAsync(cancellationToken)).Throws<RpcException>();
-        _ = await Assert.That(failure?.StatusCode).IsEqualTo(cancelRecovery ? StatusCode.Cancelled : StatusCode.FailedPrecondition);
+        if (scenario == "cancel-retry")
+        {
+            _ = await Assert.That(async () => await opening.WaitAsync(cancellationToken)).Throws<OperationCanceledException>();
+            _ = await Assert.That(service.AttachCount).IsEqualTo(2);
+        }
+        else
+        {
+            var failure = await Assert.That(async () => await opening.WaitAsync(cancellationToken)).Throws<RpcException>();
+            _ = await Assert.That(failure?.StatusCode).IsEqualTo(scenario == "cancel-recovery" ? StatusCode.Cancelled : StatusCode.FailedPrecondition);
+        }
+
         _ = await Assert.That(localOpens).IsEqualTo(1);
         _ = await Assert.That(configurations).IsEqualTo(0);
         _ = await Assert.That(service.CreateCount).IsEqualTo(0);
@@ -275,7 +299,11 @@ internal sealed class LocalChatStartupTests
     {
         public SessionActivationLease? OwnerActivation { get; set; }
 
+        public TaskCompletionSource RetryStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public TaskCompletionSource ResumeStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int AttachCount { get; private set; }
 
         public int CreateCount { get; private set; }
 
@@ -311,16 +339,9 @@ internal sealed class LocalChatStartupTests
                 throw new RpcException(new Status(StatusCode.FailedPrecondition, "Stored settings are unavailable."));
             }
 
-            if (scenario == "recover-race" && ResumeCount == 1)
+            if (scenario is "race" or "recover-race" or "cancel-retry")
             {
-                OwnerActivation = new WorkingDirectoryClaim(workspace.Paths.State, "host")
-                    .Resume(workspace.Root, workspace.Resources.Id).ActivationLease
-                    ?? throw new InvalidOperationException("The racing owner could not acquire the session.");
-            }
-
-            if (scenario == "race")
-            {
-                throw new RpcException(new Status(StatusCode.AlreadyExists, "Another runtime acquired the session."));
+                throw new RpcException(new Status(StatusCode.AlreadyExists, "Another runtime owns the session."));
             }
 
             var admission = new WorkingDirectoryClaim(workspace.Paths.State, "host")
@@ -333,16 +354,28 @@ internal sealed class LocalChatStartupTests
 
         public override async Task<UserSession> AttachSession(AttachSessionRequest request, ServerCallContext context)
         {
+            AttachCount++;
             Attached = request;
             _ = AttachStarted.TrySetResult();
-            if (scenario is "recover" or "recover-race")
+            if (scenario == "recover")
             {
                 if (OwnerActivation is { } ownerActivation)
                 {
                     await ownerActivation.DisposeAsync();
                 }
 
-                throw new RpcException(new Status(StatusCode.Unavailable, "The owner stopped."));
+                throw new RpcException(new Status(StatusCode.PermissionDenied, "The owner stopped."));
+            }
+
+            if (scenario is "race" or "recover-race" or "cancel-retry" && AttachCount == 1)
+            {
+                throw new RpcException(new Status(StatusCode.PermissionDenied, "Attachment is not admitted yet."));
+            }
+
+            if (scenario == "cancel-retry")
+            {
+                _ = RetryStarted.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, context.CancellationToken);
             }
 
             if (scenario == "cancel")

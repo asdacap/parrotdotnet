@@ -517,9 +517,17 @@ internal sealed class UserSession : IAsyncDisposable
             failure ??= exception;
         }
 
+        try
+        {
+            await registryShutdown.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure ??= exception;
+        }
+
         if (_main is not null)
         {
-            Registry.UnregisterRootScope(_main);
             try
             {
                 await _main.DisposeAsync().ConfigureAwait(false);
@@ -532,7 +540,6 @@ internal sealed class UserSession : IAsyncDisposable
 
         foreach (var agent in _agents.Where(agent => !ReferenceEquals(agent, _main)))
         {
-            Registry.UnregisterRootScope(agent);
             try
             {
                 await agent.DisposeAsync().ConfigureAwait(false);
@@ -541,15 +548,6 @@ internal sealed class UserSession : IAsyncDisposable
             {
                 failure ??= exception;
             }
-        }
-
-        try
-        {
-            await registryShutdown.ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            failure ??= exception;
         }
 
         // Ends every subscription on this session's stream. A listener blocked

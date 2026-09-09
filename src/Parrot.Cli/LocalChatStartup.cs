@@ -71,40 +71,16 @@ internal sealed class LocalChatStartup(
 
         if (candidate.SessionId is { } sessionId)
         {
-            if (candidate.Disposition == ClaimDisposition.Resumed)
-            {
-                localClient = await openLocalClient(cancellationToken).ConfigureAwait(false);
-                try
-                {
-                    var loaded = await Resume(localClient, sessionId, interactivePermissions, cancellationToken)
-                        .ConfigureAwait(false);
-                    return (localClient, loaded);
-                }
-                catch (RpcException failure) when (failure.StatusCode == StatusCode.AlreadyExists)
-                {
-                }
-            }
-
-            var resources = new UserSessionResources(paths, sessionId, ProjectWorkspace.FromLaunchDirectory(workingDirectory));
             UserSession? attached = null;
             try
             {
-                _connection = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{resources.SocketPath}"), null, diagnostics);
-                attached = await _connection.Attach(
-                    new AttachSessionRequest
-                    {
-                        UserSessionId = sessionId.Value,
-                        WorkingDirectory = workingDirectory,
-                    },
-                    cancellationToken).ConfigureAwait(false);
+                attached = await Attach(sessionId, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception failure) when (failure is RpcException or TimeoutException or InvalidOperationException
                 or IOException or System.Net.Sockets.SocketException)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                _connection?.Dispose();
-                _connection = null;
-                localClient ??= await openLocalClient(cancellationToken).ConfigureAwait(false);
+                localClient = await openLocalClient(cancellationToken).ConfigureAwait(false);
                 try
                 {
                     var loaded = await Resume(localClient, sessionId, interactivePermissions, cancellationToken)
@@ -116,9 +92,18 @@ internal sealed class LocalChatStartup(
                     cancellationToken.ThrowIfCancellationRequested();
                 }
 
-                await error.WriteLineAsync(
-                    $"parrot: unable to connect to existing user session {sessionId}: {failure.Message}; creating a new user session".AsMemory(),
-                    cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    attached = await Attach(sessionId, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception retryFailure) when (retryFailure is RpcException or TimeoutException or InvalidOperationException
+                    or IOException or System.Net.Sockets.SocketException)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    await error.WriteLineAsync(
+                        $"parrot: unable to connect to existing user session {sessionId}: {retryFailure.Message}; creating a new user session".AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
+                }
             }
 
             if (attached is not null)
@@ -136,6 +121,29 @@ internal sealed class LocalChatStartup(
         request.InteractivePermissions = interactivePermissions;
         var created = await localClient.CreateSessionAsync(request, cancellationToken: cancellationToken).ConfigureAwait(false);
         return (localClient, created);
+    }
+
+    private async Task<UserSession> Attach(UserSessionId sessionId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var resources = new UserSessionResources(paths, sessionId, ProjectWorkspace.FromLaunchDirectory(workingDirectory));
+        try
+        {
+            _connection = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{resources.SocketPath}"), null, diagnostics);
+            return await _connection.Attach(
+                new AttachSessionRequest
+                {
+                    UserSessionId = sessionId.Value,
+                    WorkingDirectory = workingDirectory,
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            _connection?.Dispose();
+            _connection = null;
+            throw;
+        }
     }
 
     private async Task<UserSession> Resume(

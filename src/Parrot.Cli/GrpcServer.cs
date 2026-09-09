@@ -315,7 +315,7 @@ internal sealed class GrpcServer : IAsyncDisposable
             try
             {
                 probe.Connect(endpoint);
-                throw new InvalidOperationException($"transport socket is already active: {socketPath}");
+                throw new TransportSocketActiveException($"transport socket is already active: {socketPath}");
             }
             catch (SocketException failure) when (failure.SocketErrorCode == SocketError.ConnectionRefused)
             {

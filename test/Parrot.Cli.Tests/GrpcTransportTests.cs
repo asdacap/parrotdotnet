@@ -61,7 +61,7 @@ internal sealed class GrpcTransportTests
 
             var failure = await Assert.That(async () => await GrpcServer.Start(
                     new TestService(), TransportAddress.Parse($"unix:{path}"), null, diagnostics.Log, cancellationToken))
-                .Throws<InvalidOperationException>();
+                .Throws<TransportSocketActiveException>();
             _ = await Assert.That(failure).IsNotNull();
             _ = await Assert.That(failure?.Message ?? string.Empty).Contains("active");
 

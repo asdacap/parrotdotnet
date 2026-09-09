@@ -1,3 +1,4 @@
+using Grpc.Core;
 using Parrot.Protocol;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
@@ -11,7 +12,14 @@ internal sealed class LocalUserSessionHost : IUserSessionHost
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(session);
-        return await GrpcServer.StartLocal(service, session.Resources.SocketPath, session.Diagnostics, cancellationToken)
-            .ConfigureAwait(false);
+        try
+        {
+            return await GrpcServer.StartLocal(service, session.Resources.SocketPath, session.Diagnostics, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (TransportSocketActiveException failure)
+        {
+            throw new RpcException(new Status(StatusCode.AlreadyExists, failure.Message));
+        }
     }
 }

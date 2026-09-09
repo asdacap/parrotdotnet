@@ -641,7 +641,10 @@ Session admission has three intentionally different forms:
 - **Default local chat** selects the workspace's most recently successfully
   opened session, including reconnects. It creates when none exists, loads an
   inactive session, or joins its live owner through `parrot.sock` inside that
-  session's state directory. Older metadata falls back to creation time, with
+  session's state directory. Attachment is attempted before local resume, even
+  when ownership metadata describes the selected session as inactive. If resume
+  encounters a competing owner or active transport, attachment is retried once.
+  Older metadata falls back to creation time, with
   session ID breaking ties deterministically.
 
 This default applies to interactive, one-shot, and piped local chat. Successful

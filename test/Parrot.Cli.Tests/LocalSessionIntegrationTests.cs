@@ -1,3 +1,4 @@
+using Grpc.Core;
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Context;
@@ -145,6 +146,108 @@ internal sealed class LocalSessionIntegrationTests
         _ = await Assert.That((await reattached.Attach(
             new AttachSessionRequest { UserSessionId = olderId, WorkingDirectory = workspace.Root }, cancellationToken)).Id)
             .IsEqualTo(olderId);
+    }
+
+    [Test]
+    public async Task Occupied_socket_resume_reports_contention_and_releases_failed_host(
+        CancellationToken cancellationToken)
+    {
+        using var diagnostics = new TransportDiagnosticsFixture();
+        using var workspace = new TestWorkspace();
+        string sessionId;
+        await using (var original = new TestRuntime(workspace, false))
+        {
+            var created = await original.Client.CreateSessionAsync(
+                new CreateSessionRequest { Model = Selection, Mode = "plan" }, cancellationToken: cancellationToken);
+            sessionId = created.Id;
+        }
+
+        var resources = new UserSessionResources(
+            workspace.Paths, UserSessionId.Parse(sessionId), ProjectWorkspace.FromLaunchDirectory(workspace.Root));
+        await using var replacement = new TestRuntime(workspace, true);
+        var request = new ResumeSessionRequest { UserSessionId = sessionId, WorkingDirectory = workspace.Root };
+        await using (var listener = await GrpcServer.StartLocal(
+            new OccupyingService(sessionId), resources.SocketPath, diagnostics.Log, cancellationToken))
+        {
+            var failure = await Assert.That(async () => await replacement.Client.ResumeSessionAsync(
+                request, cancellationToken: cancellationToken)).Throws<RpcException>();
+            _ = await Assert.That(failure?.StatusCode).IsEqualTo(StatusCode.AlreadyExists);
+            _ = await Assert.That(replacement.Store.DiscoverLatest().Disposition).IsEqualTo(ClaimDisposition.Resumed);
+            using var survivingClient = GrpcTransportClient.Connect(
+                TransportAddress.Parse($"unix:{resources.SocketPath}"), null, diagnostics.Log);
+            _ = await survivingClient.Client.ListModesAsync(new ListModesRequest(), cancellationToken: cancellationToken);
+            using var diagnostic = new StringWriter();
+            var localOpens = 0;
+            using var startup = new LocalChatStartup(
+                workspace.Paths,
+                workspace.Root,
+                "host",
+                diagnostic,
+                diagnostics.Log,
+                token =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    localOpens++;
+                    return Task.FromResult(replacement.Client);
+                },
+                (client, token) => throw new InvalidOperationException("The retry must attach, not create."));
+            var (_, connected) = await startup.Open(false, cancellationToken);
+            _ = await Assert.That(connected.Id).IsEqualTo(sessionId);
+            _ = await Assert.That(localOpens).IsEqualTo(1);
+            _ = await Assert.That(diagnostic.ToString()).Contains($"connected to existing user session {sessionId}");
+            _ = await Assert.That(replacement.Store.DiscoverLatest().Disposition).IsEqualTo(ClaimDisposition.Resumed);
+        }
+
+        var resumed = await replacement.Client.ResumeSessionAsync(request, cancellationToken: cancellationToken);
+        _ = await Assert.That(resumed.Id).IsEqualTo(sessionId);
+        _ = await Assert.That(resumed.Mode).IsEqualTo("plan");
+        using var attachedClient = GrpcTransportClient.Connect(
+            TransportAddress.Parse($"unix:{resources.SocketPath}"), null, diagnostics.Log);
+        var attached = await attachedClient.Attach(
+            new AttachSessionRequest { UserSessionId = sessionId, WorkingDirectory = workspace.Root }, cancellationToken);
+        _ = await Assert.That(attached.Id).IsEqualTo(sessionId);
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Closing_an_unused_root_releases_its_session_for_resume(
+        bool reachable, CancellationToken cancellationToken)
+    {
+        using var workspace = new TestWorkspace();
+        string sessionId;
+        await using (var original = new TestRuntime(workspace, reachable))
+        {
+            var created = await original.Client.CreateSessionAsync(
+                new CreateSessionRequest { Model = Selection, Mode = "plan" }, cancellationToken: cancellationToken);
+            sessionId = created.Id;
+        }
+
+        await using var replacement = new TestRuntime(workspace, reachable);
+        _ = await Assert.That(replacement.Store.DiscoverLatest().Disposition).IsEqualTo(ClaimDisposition.Resumed);
+        var resumed = await replacement.Client.ResumeSessionAsync(
+            new ResumeSessionRequest { UserSessionId = sessionId, WorkingDirectory = workspace.Root },
+            cancellationToken: cancellationToken);
+        _ = await Assert.That(resumed.Id).IsEqualTo(sessionId);
+        _ = await Assert.That(resumed.Model).IsEqualTo(Selection);
+    }
+
+    private sealed class OccupyingService(string sessionId) : GeneratedParrot.ParrotBase
+    {
+        private int _attachments;
+
+        public override Task<Parrot.Protocol.UserSession> AttachSession(AttachSessionRequest request, ServerCallContext context)
+        {
+            if (Interlocked.Increment(ref _attachments) == 1)
+            {
+                throw new RpcException(new Status(StatusCode.PermissionDenied, "Attachment is not admitted yet."));
+            }
+
+            return Task.FromResult(new Parrot.Protocol.UserSession { Id = sessionId, Model = Selection, Mode = "plan" });
+        }
+
+        public override Task<ListModesResponse> ListModes(ListModesRequest request, ServerCallContext context) =>
+            Task.FromResult(new ListModesResponse());
     }
 
     private sealed class TestWorkspace : IDisposable
