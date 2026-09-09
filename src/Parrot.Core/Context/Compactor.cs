@@ -12,6 +12,8 @@ internal sealed class Compactor(
     int summaryOutputTokens,
     PromptTemplateCatalog promptTemplates)
 {
+    // Image token usage depends on provider-side vision processing, not encoded file size.
+    private const long EstimatedImageTokens = 4096;
     private const string SummaryInstructionsTemplate = "compaction.summary-instructions";
     private const string SummaryPrefixTemplate = "compaction.summary-prefix";
     private const string OversizedToolGroupNoticeTemplate = "compaction.oversized-tool-group-notice";
@@ -190,7 +192,7 @@ internal sealed class Compactor(
         message.Contents.Sum(content => content.Kind switch
         {
             LLMContentKind.Text => EstimateStringTokens(content.Text),
-            LLMContentKind.Image => EstimateImageTokens(content.Image.Length),
+            LLMContentKind.Image => EstimatedImageTokens,
             _ => throw new InvalidOperationException($"unsupported LLM content kind {content.Kind}"),
         })
         + message.ToolCalls.Sum(call => EstimateStringTokens(call.Id) + EstimateStringTokens(call.Name)
@@ -230,9 +232,6 @@ internal sealed class Compactor(
     }
 
     private static long EstimateStringTokens(string value) => (value.Length + 3L) / 4L;
-
-    private static long EstimateImageTokens(int byteLength) =>
-        Math.Max(1024L, (byteLength + 2L) / 3L);
 
     private static long PercentageBudget(int contextWindow, int percentage)
     {

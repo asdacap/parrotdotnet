@@ -1572,6 +1572,27 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    [Arguments(4096)]
+    [Arguments(3 * 1024 * 1024)]
+    [Arguments(5 * 1024 * 1024)]
+    public async Task Image_file_size_does_not_trigger_compaction(int byteLength)
+    {
+        var image = LLMContent.ImagePart(new byte[byteLength], "image/png");
+        var referenceImage = LLMContent.ImagePart(new byte[4096], "image/png");
+        var imageMessage = LLMMessage.User([image]);
+        var imageTokens = Compactor.EstimateTokens([imageMessage]);
+        var provider = new ScriptedProvider("SUMMARY");
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_050_000 });
+        var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var history = Enumerable.Range(0, 4).Select(_ => imageMessage).ToArray();
+
+        _ = await Assert.That(imageTokens).IsEqualTo(Compactor.EstimateTokens([LLMMessage.User([referenceImage])]));
+        _ = await Assert.That(imageTokens).IsGreaterThan(1000);
+        _ = await Assert.That(Compactor.EstimateTokens(history)).IsEqualTo(4 * imageTokens);
+        _ = await Assert.That(compactor.ShouldCompact(model, string.Empty, [], history)).IsFalse();
+    }
+
+    [Test]
     public async Task Compaction_counts_and_preserves_image_content(CancellationToken cancellationToken)
     {
         var image = LLMContent.ImagePart(new byte[4096], "image/png");
