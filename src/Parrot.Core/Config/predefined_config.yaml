@@ -333,7 +333,7 @@ prompt_templates:
     allowed_arguments: [path]
     required_arguments: [path]
   tool-result.question-answer:
-    template: 'Question: {question}\nAnswer: {answer}'
+    template: "Question: {question}\nAnswer: {answer}"
     allowed_arguments: [question, answer]
     required_arguments: [question, answer]
   tool-result.question-replied:
@@ -380,15 +380,15 @@ prompt_templates:
     allowed_arguments: [role, header, feedback, execution, nested, instruction, declaration, path, response]
     required_arguments: [role, header, feedback, execution, nested, instruction, declaration, path, response]
   agent-task.ancestor-header:
-    template: '\nAncestor tasks (root to parent):'
+    template: "\nAncestor tasks (root to parent):"
     allowed_arguments: []
     required_arguments: []
   agent-task.context-header:
-    template: '\nPreparation context (root to current):'
+    template: "\nPreparation context (root to current):"
     allowed_arguments: []
     required_arguments: []
   agent-task.dependency-header:
-    template: '\nDirect dependency summaries:'
+    template: "\nDirect dependency summaries:"
     allowed_arguments: []
     required_arguments: []
   agent-task.sibling-scope:

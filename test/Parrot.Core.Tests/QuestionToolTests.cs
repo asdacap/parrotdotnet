@@ -18,7 +18,7 @@ internal sealed class QuestionToolTests
             {"questions":[{"header":"Palette","prompt":"Pick a colour","options":["Blue"],"multiple":true,"custom":true}]}
             """;
         var executing = tool.Execute(
-            new ToolInvocation("test-call", argumentsJson),
+            new ToolInvocation("test-call", argumentsJson) { PromptTemplates = TestModels.PromptTemplates },
             new SelectionFixture().Selection,
             cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
@@ -45,7 +45,7 @@ internal sealed class QuestionToolTests
             """;
         ITool tool = new QuestionTool(new UserQuestionRequester(broker));
         var executing = tool.Execute(
-            new ToolInvocation("test-call", argumentsJson),
+            new ToolInvocation("test-call", argumentsJson) { PromptTemplates = TestModels.PromptTemplates },
             new SelectionFixture().Selection,
             cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
