@@ -11,7 +11,7 @@ namespace Parrot.Llm.Wire;
 // the secret-redaction layer (deliberately omitted for this port).
 internal static class HttpStreaming
 {
-    public const int MaxRequestBytes = 4 << 20;
+    public const int MaxRequestBytes = 32 << 20;
     public const int MaxErrorBytes = 64 << 10;
     public const int MaxEventBytes = 4 << 20;
     public const long MaxStreamBytes = 64L << 20;
