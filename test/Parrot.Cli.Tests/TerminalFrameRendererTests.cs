@@ -191,7 +191,12 @@ internal sealed class TerminalFrameRendererTests
     }
 
     [Test]
-    public async Task Completed_block_commits_its_trailing_gap_before_following_scrollback(
+    [Arguments(ScrollbackLayout.Block, "shell output")]
+    [Arguments(ScrollbackLayout.User, "◆ shell output")]
+    [Arguments(ScrollbackLayout.Assistant, "● shell output")]
+    public async Task Completed_layout_commits_its_trailing_gap_before_following_scrollback(
+        ScrollbackLayout layout,
+        string expectedMessage,
         CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
@@ -204,13 +209,19 @@ internal sealed class TerminalFrameRendererTests
 
         await renderer.Draw(frame, cancellationToken);
         var boundary = output.GetStringBuilder().Length;
-        await renderer.Commit(BlockScrollbackValue.Text("shell output"), frame, cancellationToken);
-        var block = output.ToString()[boundary..];
+        var message = layout switch
+        {
+            ScrollbackLayout.User => ImmediateScrollbackValue.User("shell output"),
+            ScrollbackLayout.Assistant => ImmediateScrollbackValue.Assistant("shell output"),
+            _ => BlockScrollbackValue.Text("shell output"),
+        };
+        await renderer.Commit(message, frame, cancellationToken);
+        var committed = output.ToString()[boundary..];
         boundary = output.GetStringBuilder().Length;
         await renderer.Commit(ImmediateScrollbackValue.Muted(["after output"]), frame, cancellationToken);
         var following = output.ToString()[boundary..];
 
-        _ = await Assert.That(block).Contains("shell output\r\n\r\n");
+        _ = await Assert.That(committed).Contains(expectedMessage + "\r\n\r\n");
         _ = await Assert.That(following).Contains("after output\r\n");
         _ = await Assert.That(following).DoesNotContain("\r\n\r\nafter output\r\n");
     }

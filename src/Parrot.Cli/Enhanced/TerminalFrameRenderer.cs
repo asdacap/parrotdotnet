@@ -204,7 +204,7 @@ internal sealed class TerminalFrameRenderer(
             }
 
             if (item.EndsLayout
-                && item.Layout is ScrollbackLayout.Assistant or ScrollbackLayout.Block
+                && item.Layout is ScrollbackLayout.User or ScrollbackLayout.Assistant or ScrollbackLayout.Block
                 && !_committedGap)
             {
                 output.Add(string.Empty);
