@@ -59,7 +59,7 @@ internal sealed class UserSessionDiagnosticsTests : IDisposable
 
         if (factories.Processes is not null)
         {
-            _ = await Assert.That(() => factories.Processes.Prepare("probe")).Throws<InvalidOperationException>();
+            _ = await Assert.That(() => factories.Processes.Prepare("probe", new AgentPathEnvironment(resources, resources.AgentScratch("probe")))).Throws<InvalidOperationException>();
         }
 
         var log = await File.ReadAllTextAsync(resources.LogPath);

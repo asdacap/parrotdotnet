@@ -1,3 +1,4 @@
+using Parrot.Agent;
 using Parrot.Process;
 using Parrot.Security;
 using Parrot.State;
@@ -604,6 +605,84 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
         _ = await Assert.That(FindMounts(arguments, mandatoryRoot)[^1]).IsEqualTo("--tmpfs");
+    }
+
+    [Test]
+    [Arguments("WORKDIR")]
+    [Arguments("SCRATCH_DIR")]
+    [Arguments("AGENT_SCRATCH_DIR")]
+    [Arguments("AGENT_HISTORY_DIR")]
+    public async Task Real_sandbox_path_environment_obeys_literal_path_permissions(
+        string variableName,
+        CancellationToken cancellationToken)
+    {
+        var runner = ProcessRunner.Locate();
+        if (!runner.SandboxAvailable)
+        {
+            return;
+        }
+
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
+        var scratch = Scratch(resources);
+        var paths = new AgentPathEnvironment(resources, scratch);
+        var defaultDirectory = variableName switch
+        {
+            "WORKDIR" => resources.Workspace.LaunchDirectory,
+            "SCRATCH_DIR" => resources.ScratchRootDirectory,
+            "AGENT_SCRATCH_DIR" => scratch.Root,
+            "AGENT_HISTORY_DIR" => Path.GetDirectoryName(scratch.HistoryPath)
+                ?? throw new InvalidOperationException("The history path has no directory."),
+            _ => throw new ArgumentOutOfRangeException(nameof(variableName)),
+        };
+        var deniedDirectory = Directory.CreateDirectory(
+            Path.Combine(_workspace, "denied fixture $literal; value")).FullName;
+        var profile = AgentProfile(
+            resources,
+            SecurityProfile.Compose(
+                false,
+                [new SandboxRule(deniedDirectory, SandboxRuleAction.DenyWrite)],
+                [],
+                []),
+            []);
+
+        foreach (var allowed in new[] { true, false })
+        {
+            var directory = allowed ? defaultDirectory : deniedDirectory;
+            var environment = paths.Merge(allowed
+                ? ProcessEnvironmentOverrides.Empty
+                : new ProcessEnvironmentOverrides([new KeyValuePair<string, string>(variableName, directory)]));
+            var variableFile = Path.Combine(directory, "variable.txt");
+            var literalFile = Path.Combine(directory, "literal.txt");
+            await File.WriteAllTextAsync(variableFile, "old", cancellationToken);
+            await File.WriteAllTextAsync(literalFile, "old", cancellationToken);
+
+            var result = await runner.Run(
+                $"printf '%s\\n' \"${{{variableName}}}\"; "
+                + $"if (printf updated > \"${{{variableName}}}/variable.txt\") 2>/dev/null; "
+                + "then echo variable-allowed; else echo variable-denied; fi; "
+                + $"if (printf updated > '{literalFile}') 2>/dev/null; "
+                + "then echo literal-allowed; else echo literal-denied; fi",
+                environment,
+                resources,
+                scratch,
+                profile,
+                cancellationToken);
+
+            var outcome = allowed ? "allowed" : "denied";
+            _ = await Assert.That(result.ExitCode).IsEqualTo(0);
+            _ = await Assert.That(result.Stdout)
+                .IsEqualTo($"{directory}\nvariable-{outcome}\nliteral-{outcome}\n");
+            _ = await Assert.That(await File.ReadAllTextAsync(variableFile, cancellationToken))
+                .IsEqualTo(allowed ? "updated" : "old");
+            _ = await Assert.That(await File.ReadAllTextAsync(literalFile, cancellationToken))
+                .IsEqualTo(allowed ? "updated" : "old");
+        }
     }
 
     [Test]

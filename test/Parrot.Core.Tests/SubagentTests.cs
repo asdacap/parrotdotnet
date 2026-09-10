@@ -2449,7 +2449,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
                 ProjectWorkspace.FromLaunchDirectory(root));
             var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime);
             var queueCatalog = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
-            var processOwner = processes.Prepare(identity.SessionId);
+            var processOwner = processes.Prepare(identity.SessionId, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)));
             processes.Register(processOwner);
             if (identity.ParentSessionId.Length > 0)
             {

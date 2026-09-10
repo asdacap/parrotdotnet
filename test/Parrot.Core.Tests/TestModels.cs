@@ -241,7 +241,7 @@ internal static class TestModels
         }
 
         var queues = catalog.Register(identity);
-        var owner = processes.Prepare(identity.SessionId);
+        var owner = processes.Prepare(identity.SessionId, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)));
         processes.Register(owner);
         ProcessOwners.Add(processes);
         QueueCatalogs.Add(catalog);

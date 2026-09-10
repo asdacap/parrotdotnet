@@ -68,7 +68,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             ProjectWorkspace.FromLaunchDirectory(root));
         var owners = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime);
         ProcessOwners.Add(owners);
-        var processes = owners.Prepare(identity.SessionId);
+        var processes = owners.Prepare(identity.SessionId, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)));
         owners.Register(processes);
         var queues = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
         QueueCatalogs.Add(queues);

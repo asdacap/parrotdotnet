@@ -11,6 +11,7 @@ internal sealed class ShellProcessOwner(
     string sessionId,
     UserSessionResources resources,
     AgentScratchDirectory scratch,
+    AgentPathEnvironment pathEnvironment,
     ProcessRunner runner,
     ShellProcessInventory inventory,
     IDiagnosticLog diagnostics,
@@ -91,7 +92,7 @@ internal sealed class ShellProcessOwner(
             {
                 execution = runner.Start(
                     command,
-                    environment,
+                    pathEnvironment.Merge(environment),
                     resources,
                     scratch,
                     securityProfile,

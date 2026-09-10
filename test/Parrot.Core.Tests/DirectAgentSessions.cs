@@ -69,7 +69,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
             CancellationToken lifetime)
         {
             source._identities.Add(identity);
-            var processes = owner.ShellProcesses.Prepare(identity.SessionId);
+            var processes = owner.ShellProcesses.Prepare(identity.SessionId, new AgentPathEnvironment(owner.Resources, owner.Resources.AgentScratch(identity.SessionId)));
             owner.ShellProcesses.Register(processes);
             var router = source._router ?? throw new InvalidOperationException("model router is not configured");
             var queues = owner.QueueCatalog.Register(identity);

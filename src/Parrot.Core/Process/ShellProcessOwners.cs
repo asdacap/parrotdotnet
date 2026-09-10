@@ -1,3 +1,4 @@
+using Parrot.Agent;
 using Parrot.Diagnostics;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -16,7 +17,7 @@ internal sealed class ShellProcessOwners(
     private bool _settling;
     private Task? _settlement;
 
-    public ShellProcessOwner Prepare(string sessionId)
+    public ShellProcessOwner Prepare(string sessionId, AgentPathEnvironment pathEnvironment)
     {
         lock (_gate)
         {
@@ -25,6 +26,7 @@ internal sealed class ShellProcessOwners(
                 sessionId,
                 resources,
                 resources.AgentScratch(sessionId),
+                pathEnvironment,
                 runner,
                 _inventory,
                 diagnostics,

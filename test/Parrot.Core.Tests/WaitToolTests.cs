@@ -652,7 +652,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         UserSessionId.Parse(identity.SessionId),
         ProjectWorkspace.FromLaunchDirectory(_root));
         var processes = PrepareProcesses(resources);
-        var processOwner = processes.Prepare(identity.SessionId);
+        var processOwner = processes.Prepare(identity.SessionId, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)));
         processes.Register(processOwner);
         var registry = PrepareRegistry(repository);
         var status = new RuntimeStatus(queueCatalog, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System);
@@ -857,7 +857,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
                 IAgentRegistry registry,
                 CancellationToken lifetime)
             {
-                var processes = owner.ShellProcesses.Prepare(identity.SessionId);
+                var processes = owner.ShellProcesses.Prepare(identity.SessionId, new AgentPathEnvironment(owner.Resources, owner.Resources.AgentScratch(identity.SessionId)));
                 owner.ShellProcesses.Register(processes);
                 var queues = owner.QueueCatalog.Register(identity);
                 return TestAgentSessionScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, owningScope, children, childQuestions) =>

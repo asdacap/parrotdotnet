@@ -34,7 +34,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.ShellProcesses.Prepare(arguments.Identity.SessionId);
+                return arguments.ShellProcesses.Prepare(arguments.Identity.SessionId, arguments.PathEnvironment);
             })
             .Bind<AgentIdentity>().To(ctx =>
             {

@@ -268,7 +268,7 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
             TestDiagnosticLog.Instance,
             cancellationToken);
         _processOwners.Add(processOwners);
-        var processOwner = processOwners.Prepare("agent-task-catalog-parent");
+        var processOwner = processOwners.Prepare("agent-task-catalog-parent", new AgentPathEnvironment(processResources, processResources.AgentScratch("agent-task-catalog-parent")));
         processOwners.Register(processOwner);
         var model = new LLMModel("model", provider.Id);
         var providers = new ProviderRegistry(

@@ -44,6 +44,7 @@ internal sealed class AgentSessionFactory(
             var scratch = owner.Resources.AgentScratch(identity.SessionId);
             _ = eventRepository.PrepareAgentHistory(identity.SessionId);
             var workspace = new ToolWorkspace(workingDirectory);
+            var pathEnvironment = new AgentPathEnvironment(owner.Resources, scratch);
             var security = new AgentSessionSecurity(
                 securityProfile,
                 owner.Resources.Workspace,
@@ -53,6 +54,7 @@ internal sealed class AgentSessionFactory(
                 "runtime:agent-session-system-prompt",
                 [
                     systemPromptProvider,
+                    new AgentPathEnvironmentProvider(pathEnvironment, promptTemplates),
                     new ScratchDirectoryProvider(scratch, promptTemplates),
                     new AgentSkillPromptProvider(agentSkills),
                 ]);
@@ -73,6 +75,7 @@ internal sealed class AgentSessionFactory(
                 owner.ShellProcesses,
                 prompts,
                 scratch,
+                pathEnvironment,
                 compactor,
                 promptTemplates,
                 mode,

@@ -49,6 +49,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             agent.SessionId,
             resources,
             resources.AgentScratch(agent.SessionId),
+            new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)),
             new ProcessRunner(CreateSandboxPassThrough()),
             inventory,
             TestDiagnosticLog.Instance,
@@ -84,6 +85,91 @@ internal sealed class ShellProcessInteractionTests : IDisposable
     }
 
     [Test]
+    [Arguments(ShellProcessTerminalMode.Pipe)]
+    [Arguments(ShellProcessTerminalMode.PseudoTerminal)]
+    public async Task Session_paths_use_native_shell_expansion_and_survive_yield(
+        ShellProcessTerminalMode terminalMode,
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var workspace = Path.Combine(_workspace, "space ' quote $dollar; $(printf injected) `literal` [glob]");
+        _ = Directory.CreateDirectory(workspace);
+        using var lifetime = new CancellationTokenSource();
+        using var events = new EventBroker();
+        using var database = SessionDatabase.Open(":memory:");
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(workspace, ".state"),
+                Path.Combine(workspace, ".config"),
+                Path.Combine(workspace, ".data")),
+            UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
+            ProjectWorkspace.FromLaunchDirectory(workspace));
+        await using var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
+        var scratch = resources.AgentScratch(agent.SessionId);
+        using var inventory = new ShellProcessInventory();
+        var owner = new ShellProcessOwner(
+            agent.SessionId,
+            resources,
+            scratch,
+            new AgentPathEnvironment(resources, scratch),
+            new ProcessRunner(CreateSandboxPassThrough()),
+            inventory,
+            TestDiagnosticLog.Instance,
+            lifetime.Token);
+        var securityProfile = SecurityProfile.Compose(readOnly: false, [], [], []);
+        const string command = """
+            while [ ! -f "$WORKDIR/release" ]; do sleep 0.02; done
+            printf '<%s>' "$PWD" "$WORKDIR" "${SCRATCH_DIR}" "$AGENT_SCRATCH_DIR" "${AGENT_HISTORY_DIR}"
+            printf '<%s>' '$SCRATCH_DIR' '${AGENT_HISTORY_DIR}'
+            printf work > "$WORKDIR/work file.txt"
+            printf shared > "${SCRATCH_DIR}/shared file.txt"
+            printf agent > "$AGENT_SCRATCH_DIR/agent file.txt"
+            printf history > "${AGENT_HISTORY_DIR}/history file.txt"
+            cd "$SCRATCH_DIR" || exit
+            printf '<%s>' "$WORKDIR"
+            """;
+        var process = owner.Start(
+            "paths",
+            command,
+            ProcessEnvironmentOverrides.Empty,
+            agent,
+            securityProfile,
+            terminalMode);
+        var yielded = await process.Wait(TimeSpan.Zero, cancellationToken);
+        _ = await Assert.That(yielded.Running).IsTrue();
+
+        var overridden = owner.Start(
+            "override",
+            "printf '<%s>' \"$WORKDIR\" \"$SCRATCH_DIR\" \"$AGENT_SCRATCH_DIR\" \"$AGENT_HISTORY_DIR\"",
+            new ProcessEnvironmentOverrides(new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["AGENT_SCRATCH_DIR"] = "literal ${WORKDIR} $(printf injected)",
+            }),
+            agent,
+            securityProfile,
+            terminalMode);
+        var overrideResult = await overridden.Wait(null, cancellationToken);
+        _ = await Assert.That(overrideResult.Result?.ExitCode).IsEqualTo(0);
+        _ = await Assert.That(overrideResult.Result?.Stdout)
+            .IsEqualTo($"<{workspace}><{resources.ScratchRootDirectory}><literal ${{WORKDIR}} $(printf injected)><{Path.GetDirectoryName(scratch.HistoryPath)}>");
+
+        await File.WriteAllTextAsync(Path.Combine(workspace, "release"), string.Empty, cancellationToken);
+        var completed = await owner.Claim("paths").Wait(null, cancellationToken);
+        _ = await Assert.That(completed.Result?.ExitCode).IsEqualTo(0);
+        _ = await Assert.That(completed.Result?.Stdout)
+            .IsEqualTo($"<{workspace}><{workspace}><{resources.ScratchRootDirectory}><{scratch.Root}><{Path.GetDirectoryName(scratch.HistoryPath)}><$SCRATCH_DIR><${{AGENT_HISTORY_DIR}}><{workspace}>");
+        _ = await Assert.That(await File.ReadAllTextAsync(Path.Combine(workspace, "work file.txt"), cancellationToken)).IsEqualTo("work");
+        _ = await Assert.That(await File.ReadAllTextAsync(Path.Combine(resources.ScratchRootDirectory, "shared file.txt"), cancellationToken)).IsEqualTo("shared");
+        _ = await Assert.That(await File.ReadAllTextAsync(Path.Combine(scratch.Root, "agent file.txt"), cancellationToken)).IsEqualTo("agent");
+        _ = await Assert.That(await File.ReadAllTextAsync(Path.Combine(scratch.Root, "history file.txt"), cancellationToken)).IsEqualTo("history");
+        await owner.Settle();
+    }
+
+    [Test]
     public async Task Completed_spilled_suffix_survives_prompt_transcript_cleanup(
         CancellationToken cancellationToken)
     {
@@ -108,6 +194,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             agent.SessionId,
             resources,
             resources.AgentScratch(agent.SessionId),
+            new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)),
             new ProcessRunner(CreateSandboxPassThrough()),
             inventory,
             TestDiagnosticLog.Instance,
@@ -163,6 +250,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             agent.SessionId,
             resources,
             resources.AgentScratch(agent.SessionId),
+            new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)),
             new ProcessRunner(CreateSandboxPassThrough()),
             inventory,
             TestDiagnosticLog.Instance,
@@ -214,6 +302,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             agent.SessionId,
             resources,
             resources.AgentScratch(agent.SessionId),
+            new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)),
             new ProcessRunner(CreateSandboxPassThrough()),
             inventory,
             TestDiagnosticLog.Instance,
@@ -281,6 +370,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             agent.SessionId,
             resources,
             resources.AgentScratch(agent.SessionId),
+            new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)),
             new ProcessRunner(CreateSandboxPassThrough()),
             inventory,
             TestDiagnosticLog.Instance,

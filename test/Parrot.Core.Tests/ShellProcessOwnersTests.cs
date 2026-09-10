@@ -53,8 +53,8 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             lifetime.Token);
         await using var firstAgent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
         await using var secondAgent = CreateAgent("agent-2", model, events, repository, resources.AgentScratch("agent-2").BlobDirectory, lifetime.Token);
-        var first = coordinator.Prepare(firstAgent.SessionId);
-        var second = coordinator.Prepare(secondAgent.SessionId);
+        var first = coordinator.Prepare(firstAgent.SessionId, new AgentPathEnvironment(resources, resources.AgentScratch(firstAgent.SessionId)));
+        var second = coordinator.Prepare(secondAgent.SessionId, new AgentPathEnvironment(resources, resources.AgentScratch(secondAgent.SessionId)));
         coordinator.Register(first);
         coordinator.Register(second);
         var security = SecurityProfile.Compose(readOnly: false, [], [], []);
@@ -97,7 +97,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
 
         await lifetime.CancelAsync();
         await coordinator.Settle();
-        _ = await Assert.That(() => coordinator.Prepare("agent-3"))
+        _ = await Assert.That(() => coordinator.Prepare("agent-3", new AgentPathEnvironment(resources, resources.AgentScratch("agent-3"))))
             .Throws<InvalidOperationException>();
     }
 
@@ -128,7 +128,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             TestDiagnosticLog.Instance,
             lifetime.Token);
         await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
-        var owner = coordinator.Prepare(agent.SessionId);
+        var owner = coordinator.Prepare(agent.SessionId, new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)));
         coordinator.Register(owner);
         var process = owner.Start(
             "completed-but-uncommitted",
@@ -178,7 +178,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             TestDiagnosticLog.Instance,
             lifetime.Token);
         await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
-        var owner = coordinator.Prepare(agent.SessionId);
+        var owner = coordinator.Prepare(agent.SessionId, new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)));
         coordinator.Register(owner);
         var completionMarker = Path.Combine(_workspace, "complete");
         var process = owner.Start(
@@ -260,7 +260,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             TestDiagnosticLog.Instance,
             lifetime.Token);
         await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
-        var owner = coordinator.Prepare(agent.SessionId);
+        var owner = coordinator.Prepare(agent.SessionId, new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)));
         coordinator.Register(owner);
         var completionMarker = Path.Combine(_workspace, "fault");
         var command = $"while [ ! -f '{completionMarker}' ]; do sleep 0.01; done; "
@@ -349,21 +349,22 @@ internal sealed class ShellProcessOwnersTests : IDisposable
     public async Task Settling_atomically_rejects_new_owners()
     {
         using var lifetime = new CancellationTokenSource();
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".state"),
+                Path.Combine(_workspace, ".config"),
+                Path.Combine(_workspace, ".data")),
+            UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         using var coordinator = new ShellProcessOwners(
-            new UserSessionResources(
-                new StatePaths(
-                    Path.Combine(_workspace, ".state"),
-                    Path.Combine(_workspace, ".config"),
-                    Path.Combine(_workspace, ".data")),
-                UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
-                ProjectWorkspace.FromLaunchDirectory(_workspace)),
+            resources,
             new ProcessRunner(string.Empty),
             TestDiagnosticLog.Instance,
             lifetime.Token);
 
         var settlement = coordinator.Settle();
 
-        _ = await Assert.That(() => coordinator.Prepare("late"))
+        _ = await Assert.That(() => coordinator.Prepare("late", new AgentPathEnvironment(resources, resources.AgentScratch("late"))))
             .Throws<InvalidOperationException>();
         await settlement;
     }
@@ -395,7 +396,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         using var diagnostics = FileDiagnosticLog.OpenSession(resources, "test", TextWriter.Null, TimeProvider.System);
         using var coordinator = new ShellProcessOwners(resources, new ProcessRunner(exitCode == -3 ? string.Empty : CreateSandboxPassThrough()), diagnostics, lifetime.Token);
         await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
-        var owner = coordinator.Prepare(agent.SessionId);
+        var owner = coordinator.Prepare(agent.SessionId, new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)));
         coordinator.Register(owner);
         if (exitCode == -3)
         {

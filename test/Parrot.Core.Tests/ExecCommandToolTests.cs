@@ -53,6 +53,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             session.SessionId,
             resources,
             scratch,
+            new AgentPathEnvironment(resources, scratch),
             new ProcessRunner(CreateSandboxPassThrough(_workspace)),
             inventory,
             TestDiagnosticLog.Instance,
@@ -77,6 +78,10 @@ internal sealed class ExecCommandToolTests : IDisposable
         var environment = await Execute(tool, """{"command":"printf '%s' \"$COMMAND_VALUE\"","env":{"COMMAND_VALUE":"available"}}""", selection, cancellationToken);
         var emptyEnvironment = await Execute(tool, """{"command":"printf '<%s>' \"$COMMAND_VALUE\"","env":{"COMMAND_VALUE":""}}""", selection, cancellationToken);
         var inheritedPath = await Execute(tool, """{"command":"printf '%s' \"$PATH\""}""", selection, cancellationToken);
+        var pathEnvironment = await Execute(tool, """{"command":"printf '<%s>' \"$WORKDIR\" \"${SCRATCH_DIR}\" \"$AGENT_SCRATCH_DIR\" \"${AGENT_HISTORY_DIR}\""}""", selection, cancellationToken);
+        var emptyPathEnvironment = await Execute(tool, """{"command":"printf '<%s>' \"$WORKDIR\" \"$SCRATCH_DIR\" \"$AGENT_SCRATCH_DIR\" \"$AGENT_HISTORY_DIR\"","env":{"WORKDIR":"","SCRATCH_DIR":"","AGENT_SCRATCH_DIR":"","AGENT_HISTORY_DIR":""}}""", selection, cancellationToken);
+        var literalPathEnvironment = await Execute(tool, """{"command":"printf '<%s>' \"$WORKDIR\" \"$SCRATCH_DIR\" \"$AGENT_SCRATCH_DIR\" \"$AGENT_HISTORY_DIR\"","env":{"WORKDIR":"$SCRATCH_DIR","SCRATCH_DIR":"${WORKDIR}/literal path","AGENT_SCRATCH_DIR":"$(printf injected); * ' quoted","AGENT_HISTORY_DIR":"`printf injected`"}}""", selection, cancellationToken);
+        var resetPathEnvironment = await Execute(tool, """{"command":"printf '<%s>' \"$WORKDIR\" \"$SCRATCH_DIR\" \"$AGENT_SCRATCH_DIR\" \"$AGENT_HISTORY_DIR\""}""", selection, cancellationToken);
         var emptyEnvironmentName = await Execute(tool, """{"command":"true","env":{"":"value"}}""", selection, cancellationToken);
         var invalidEnvironmentName = await Execute(tool, """{"command":"true","env":{"INVALID=NAME":"value"}}""", selection, cancellationToken);
         var invalidEnvironmentValue = await Execute(tool, """{"command":"true","env":{"VALUE":"\u0000"}}""", selection, cancellationToken);
@@ -96,6 +101,13 @@ internal sealed class ExecCommandToolTests : IDisposable
         _ = await Assert.That(inheritedPath.Text).StartsWith("Process exited with code 0 after ");
         _ = await Assert.That(inheritedPath.Text)
             .EndsWith($"s\n[stdout]\n{Environment.GetEnvironmentVariable("PATH")}");
+        var expectedPathEnvironment = $"s\n[stdout]\n<{_workspace}><{resources.ScratchRootDirectory}><{scratch.Root}><{Path.GetDirectoryName(scratch.HistoryPath)}>";
+        _ = await Assert.That(pathEnvironment.Text).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(pathEnvironment.Text).EndsWith(expectedPathEnvironment);
+        _ = await Assert.That(emptyPathEnvironment.Text).EndsWith("s\n[stdout]\n<><><><>");
+        _ = await Assert.That(literalPathEnvironment.Text)
+            .EndsWith("s\n[stdout]\n<$SCRATCH_DIR><${WORKDIR}/literal path><$(printf injected); * ' quoted><`printf injected`>");
+        _ = await Assert.That(resetPathEnvironment.Text).EndsWith(expectedPathEnvironment);
         _ = await Assert.That(emptyEnvironmentName.Text)
             .IsEqualTo("error: Tool argument 'env' contains an invalid environment value.");
         _ = await Assert.That(invalidEnvironmentName.Text)
@@ -196,7 +208,9 @@ internal sealed class ExecCommandToolTests : IDisposable
         }
 
         var path = Path.Combine(workspace, $"sandbox-{Guid.NewGuid():n}");
-        var script = "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do\n"
+        var script = "#!/bin/sh\nexport WORKDIR=inherited-work SCRATCH_DIR=inherited-scratch "
+            + "AGENT_SCRATCH_DIR=inherited-agent AGENT_HISTORY_DIR=inherited-history\n"
+            + "while [ \"$1\" != \"--\" ]; do\n"
             + "  if [ \"$1\" = \"--chdir\" ]; then shift; cd \"$1\" || exit; "
             + "elif [ \"$1\" = \"--setenv\" ]; then export \"$2=$3\"; shift 2; fi\n"
             + "  shift\ndone\nshift\nexec \"$@\"\n";

@@ -46,7 +46,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         prompt.RenewEpoch();
         var built = prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value);
 
-        _ = await Assert.That(built).Contains($"Persistent writable scratch directory for this agent: {directory.Root}");
+        _ = await Assert.That(built).Contains("Persistent writable scratch directory for this agent: $AGENT_SCRATCH_DIR");
         _ = await Assert.That(built).Contains("durable artifacts");
     }
 
@@ -63,7 +63,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(built).StartsWith("Configured base prompt.");
         _ = await Assert.That(built).DoesNotContain("Date:");
         _ = await Assert.That(built).Contains("\n\nPlatform:");
-        _ = await Assert.That(built).Contains($"\n\nWorking directory: {_workspace}");
+        _ = await Assert.That(built).Contains("\n\nWorking directory: $WORKDIR");
         _ = await Assert.That(built).Contains("Git repository: false");
         _ = await Assert.That(built).Contains("GLOBAL RULE: be concise.");
         _ = await Assert.That(built).Contains("PROJECT RULE: be terse.");

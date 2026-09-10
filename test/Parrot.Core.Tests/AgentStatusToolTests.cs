@@ -47,7 +47,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             ProjectWorkspace.FromLaunchDirectory(_root));
         var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, cancellationToken);
         using var queues = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
-        var factory = new StatusAgentSessions(router, processes, queues, time);
+        var factory = new StatusAgentSessions(router, processes, resources, queues, time);
         await using IAgentRegistry registry = new AgentRegistry(
             factory,
             _broker,
@@ -136,7 +136,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             ProjectWorkspace.FromLaunchDirectory(_root));
         var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, cancellationToken);
         using var queues = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
-        var factory = new StatusAgentSessions(router, processes, queues, TimeProvider.System);
+        var factory = new StatusAgentSessions(router, processes, resources, queues, TimeProvider.System);
         await using IAgentRegistry registry = new AgentRegistry(
             factory,
             _broker,
@@ -196,6 +196,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
     private sealed class StatusAgentSessions(
         ModelRouter router,
         ShellProcessOwners processes,
+        UserSessionResources resources,
         AgentQueueCatalog queueCatalog,
         TimeProvider timeProvider) : IAgentSessionFactory
     {
@@ -208,7 +209,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             EventBroker broker,
             CancellationToken lifetime)
         {
-            var processOwner = processes.Prepare(identity.SessionId);
+            var processOwner = processes.Prepare(identity.SessionId, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)));
             processes.Register(processOwner);
             var queues = queueCatalog.Register(identity);
             var scope = TestAgentSessionScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
