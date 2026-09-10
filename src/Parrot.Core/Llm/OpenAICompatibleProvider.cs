@@ -24,6 +24,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     private readonly string _providerPreferences;
     private readonly IResponsesWebSocketConnector _websocketConnector;
     private readonly bool _disableWebSocket;
+    private readonly int _maximumRequestBytes;
 
     public OpenAICompatibleProvider(OpenAICompatibleOptions options, HttpClient client)
         : this(options, client, new ResponsesWebSocketConnector(options))
@@ -81,6 +82,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
         _providerPreferences = options.ProviderPreferences;
         _websocketConnector = websocketConnector;
         _disableWebSocket = options.DisableWebSocket;
+        _maximumRequestBytes = options.MaximumRequestBytes;
     }
 
     public string Id { get; }
@@ -102,7 +104,8 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
                     _websocketConnector,
                     _endpoint,
                     _headerTimeout,
-                    ResponsesWebSocket.DefaultIdleTimeout))
+                    ResponsesWebSocket.DefaultIdleTimeout,
+                    _maximumRequestBytes))
             : new StatelessProviderSession(this);
 
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) =>
@@ -189,7 +192,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
         }
 
         var response = await HttpStreaming
-            .OpenStream(_client, _endpoint, body, headers, _headerTimeout, cancellationToken)
+            .OpenStream(_client, _endpoint, body, headers, _headerTimeout, _maximumRequestBytes, cancellationToken)
             .ConfigureAwait(false);
         CaptureTurnState(response.Headers, captureTurnState);
 

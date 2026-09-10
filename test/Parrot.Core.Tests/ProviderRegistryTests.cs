@@ -11,7 +11,9 @@ namespace Parrot.Core.Tests;
 internal sealed class ProviderRegistryTests
 {
     [Test]
-    public async Task Openrouter_predefined_preferences_reach_the_request_body(CancellationToken cancellationToken)
+    [Arguments(1)]
+    [Arguments(67108864)]
+    public async Task Openrouter_predefined_preferences_reach_the_request_body(int maximumRequestBytes, CancellationToken cancellationToken)
     {
         var directory = Path.Combine(Path.GetTempPath(), "parrot-openrouter-preferences", Guid.NewGuid().ToString("n"));
         var store = new InMemoryCredentialStore();
@@ -23,7 +25,9 @@ internal sealed class ProviderRegistryTests
         {
             var configurationPath = Path.Combine(directory, "config.yaml");
             _ = Directory.CreateDirectory(directory);
-            const string userConfiguration = """
+            var userConfiguration = $$"""
+                request_limits:
+                  provider_request_bytes: {{maximumRequestBytes}}
                 providers:
                   kimi-api:
                     api_key_env: ''
@@ -49,6 +53,21 @@ internal sealed class ProviderRegistryTests
                 Model = "vendor/model",
                 Messages = [LLMMessage.User("hello")],
             };
+
+            if (maximumRequestBytes == 1)
+            {
+                async Task Consume()
+                {
+                    await foreach (var item in provider.Call(request, cancellationToken))
+                    {
+                        _ = item;
+                    }
+                }
+
+                _ = await Assert.That(Consume).Throws<ProviderHttpException>().WithMessageContaining("exceeds 1 bytes");
+                _ = await Assert.That(handler.RequestBody).IsEqualTo(string.Empty);
+                return;
+            }
 
             await foreach (var item in provider.Call(request, cancellationToken))
             {

@@ -55,6 +55,8 @@ internal sealed class ChatGptProvider : ILLMProvider
         _websocketConnector = websocketConnector;
     }
 
+    public int MaximumRequestBytes { get; init; } = new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes;
+
     public IUsageReporter? UsageReporter { get; }
 
     public string Id => ProviderId;
@@ -78,7 +80,8 @@ internal sealed class ChatGptProvider : ILLMProvider
                 _websocketConnector,
                 _endpoint,
                 HeaderTimeout,
-                ResponsesWebSocket.DefaultIdleTimeout));
+                ResponsesWebSocket.DefaultIdleTimeout,
+                MaximumRequestBytes));
     }
 
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) =>
@@ -225,7 +228,7 @@ internal sealed class ChatGptProvider : ILLMProvider
         }
 
         var response = await HttpStreaming
-            .OpenStream(_client, _endpoint, body, headers, HeaderTimeout, cancellationToken)
+            .OpenStream(_client, _endpoint, body, headers, HeaderTimeout, MaximumRequestBytes, cancellationToken)
             .ConfigureAwait(false);
         foreach (var header in response.Headers)
         {

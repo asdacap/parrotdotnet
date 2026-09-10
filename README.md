@@ -111,6 +111,30 @@ for a bare model selection.
 
 ## Configuration
 
+### Request size limits
+
+```yaml
+request_limits:
+  image_bytes_per_tool_cycle: 16777216
+  provider_request_bytes: 67108864
+```
+
+Both settings are positive integer byte counts, up to 2147483647. The defaults
+are 16 MiB of original image-file bytes per assistant tool-request batch and
+64 MiB of serialized model-provider request bytes, respectively. User configuration
+can override either setting independently.
+
+`read_image` counts each accepted attachment, including repeated reads of the same
+file, before Base64 encoding. The read that would exceed the batch budget fails,
+and all later image reads in that batch also fail, even if smaller. Non-image tools
+continue; the agent must retry image reads in a new tool-call cycle, which has a
+fresh budget. Existing per-image size, format, and permission checks still apply.
+
+The provider limit includes Base64, JSON, text, and historical attachments, and
+applies to ordinary model requests over HTTP and WebSocket. It does not change
+image-generation API limits or response limits. A fresh image budget does not
+guarantee that accumulated conversation history fits the provider request limit.
+
 ### Prompt templates
 
 `prompt_templates` is a typed catalogue of stable, named model-facing templates. User configuration recursively overrides individual fields, so replacing only `prompt_templates.<id>.template` preserves its predefined argument declarations. Placeholders are named (`{argument}`), must be declared in `allowed_arguments`, and every name in `required_arguments` must be supplied when rendering. `{{` and `}}` produce literal braces. Substituted runtime values are inserted in one pass, so braces within those values remain literal.

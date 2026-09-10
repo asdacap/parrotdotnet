@@ -2046,6 +2046,7 @@ internal sealed class EventRepository
         ToolExecutionStatus.Finished => "finished",
         ToolExecutionStatus.Cancelled => "cancelled",
         ToolExecutionStatus.Error => "error",
+        ToolExecutionStatus.ImageBudgetExceeded => "image_budget_exceeded",
         _ => throw new ArgumentOutOfRangeException(nameof(status)),
     };
 
@@ -2054,6 +2055,7 @@ internal sealed class EventRepository
         "finished" => ToolExecutionStatus.Finished,
         "cancelled" => ToolExecutionStatus.Cancelled,
         "error" => ToolExecutionStatus.Error,
+        "image_budget_exceeded" => ToolExecutionStatus.ImageBudgetExceeded,
         _ => throw new InvalidOperationException($"unknown tool execution status {status}"),
     };
 

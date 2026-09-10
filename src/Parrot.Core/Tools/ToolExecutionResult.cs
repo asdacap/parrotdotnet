@@ -18,5 +18,7 @@ internal sealed record ToolExecutionResult(
     {
     }
 
+    public ToolExecutionOutcome Outcome { get; init; }
+
     public static implicit operator ToolExecutionResult(string text) => new(text);
 }

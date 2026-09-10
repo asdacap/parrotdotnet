@@ -45,7 +45,10 @@ internal sealed class ProviderRegistryBuilder(
                 externalModels = externalCatalogues.TryGetValue(id, out var models) ? models : [];
             }
 
-            var built = implementation.Build(new(id, config, store, httpClient, browser, externalModels));
+            var built = implementation.Build(new(id, config, store, httpClient, browser, externalModels)
+            {
+                RequestLimits = configuration.RequestLimits,
+            });
             providers.Add(new RetryingProvider(built.Provider));
             catalogues[id] = built.Seed;
         }

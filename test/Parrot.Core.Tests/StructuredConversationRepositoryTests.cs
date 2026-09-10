@@ -162,17 +162,22 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
     }
 
     [Test]
-    public async Task Tool_terminal_is_idempotent_and_recovers_structured_parts()
+    [Arguments(ToolExecutionStatus.Finished)]
+    [Arguments(ToolExecutionStatus.ImageBudgetExceeded)]
+    public async Task Tool_terminal_is_idempotent_and_recovers_structured_parts(ToolExecutionStatus status)
     {
         var resources = Resources("terminals");
         using (var database = SessionDatabase.Open(resources.DatabasePath))
         {
             var repository = new EventRepository(database);
+            ConversationPart[] parts = status == ToolExecutionStatus.Finished
+                ? [ConversationPart.TextPart("done"), ConversationPart.ImageArtifact(new ImageArtifactMetadata(new string('a', 64), new string('a', 64), "image/png", 1, 1, 1, 1, 1, "pixel.png", "test"))]
+                : [ConversationPart.TextPart("budget exceeded")];
             var terminal = new ToolExecutionTerminal(
                 "call-1",
                 "read_image",
-                ToolExecutionStatus.Finished,
-                [ConversationPart.TextPart("done"), ConversationPart.ImageArtifact(new ImageArtifactMetadata(new string('a', 64), new string('a', 64), "image/png", 1, 1, 1, 1, 1, "pixel.png", "test"))],
+                status,
+                parts,
                 string.Empty);
             _ = await Assert.That(repository.AppendToolTerminal(new Event { Id = "first", AgentSessionId = "agent" }, terminal)).IsTrue();
             _ = await Assert.That(repository.AppendToolTerminal(new Event { Id = "replay", AgentSessionId = "agent" }, terminal)).IsFalse();
@@ -182,9 +187,9 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         using var reopened = SessionDatabase.Open(resources.DatabasePath);
         var restored = new EventRepository(reopened).ToolTerminals("agent").Single();
         _ = await Assert.That(restored.ToolCallId).IsEqualTo("call-1");
-        _ = await Assert.That(restored.Status).IsEqualTo(ToolExecutionStatus.Finished);
+        _ = await Assert.That(restored.Status).IsEqualTo(status);
         _ = await Assert.That(string.Join(',', restored.ResultParts.Select(part => part.Kind)))
-            .IsEqualTo("Text,ImageArtifact");
+            .IsEqualTo(status == ToolExecutionStatus.Finished ? "Text,ImageArtifact" : "Text");
     }
 
     [Test]

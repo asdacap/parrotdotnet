@@ -111,6 +111,11 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.WebFetcher;
             })
+            .Bind<RequestLimitsConfig>().To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return arguments.RequestLimits;
+            })
             .Bind<AgentTaskConfig>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);

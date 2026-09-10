@@ -344,6 +344,10 @@ prompt_templates:
     template: 'error: {message}'
     allowed_arguments: [message]
     required_arguments: [message]
+  tool-result.image-budget-exceeded:
+    template: 'The image upload budget of {limit_bytes} original bytes for this tool-call cycle has been exceeded. This and all later image reads in this cycle are rejected. Retry in a new tool-call cycle.'
+    allowed_arguments: [limit_bytes]
+    required_arguments: [limit_bytes]
   mode.plan-workflow:
     template: >-
       {profile_prompt} Write the canonical Markdown plan to this exact file: {plan_artifact}. Write the required AgentTask v1 JSON artifact to this exact file: {task_artifact}. The JSON must be a strict object with schema_version equal to 1 and a nonempty tasks array of top-level sibling tasks; each task requires nonblank name, description, payload, and acceptance_criteria. Optional dependencies must be an array of distinct nonblank, case-sensitive names in the same sibling list; an optional model must be a nonblank string. Payload is either a nonblank string or a nonempty recursive task array. You may write optional supporting artifacts under this plan directory and reference them from the canonical plan: {plan_directory}. Do not include the plan in your assistant response. Finish only after writing both canonical files.
@@ -1799,6 +1803,10 @@ sandbox_rules:
 # Add broader rules before narrower overrides.
 #   - path: /absolute/path/to/dir
 #     rule: deny_read
+
+request_limits:
+  image_bytes_per_tool_cycle: 16777216
+  provider_request_bytes: 67108864
 
 # Web fetch restrictions.
 web_fetch:

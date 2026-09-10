@@ -20,6 +20,52 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    [Arguments("image_bytes_per_tool_cycle", 1)]
+    [Arguments("provider_request_bytes", int.MaxValue)]
+    public async Task Request_limits_layer_independent_overrides(string key, int value)
+    {
+        var defaults = Load(Write(string.Empty)).RequestLimits;
+        var configured = Load(Write($"request_limits:\n  {key}: {value.ToString(CultureInfo.InvariantCulture)}\n")).RequestLimits;
+        var expected = key == "image_bytes_per_tool_cycle"
+            ? defaults with { ImageBytesPerToolCycle = value }
+            : defaults with { ProviderRequestBytes = value };
+
+        _ = await Assert.That(defaults).IsEqualTo(new RequestLimitsConfig());
+        _ = await Assert.That(configured).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments("image_bytes_per_tool_cycle", "0")]
+    [Arguments("image_bytes_per_tool_cycle", "-1")]
+    [Arguments("image_bytes_per_tool_cycle", "1.5")]
+    [Arguments("image_bytes_per_tool_cycle", "2147483648")]
+    [Arguments("image_bytes_per_tool_cycle", "null")]
+    [Arguments("image_bytes_per_tool_cycle", "[1]")]
+    [Arguments("provider_request_bytes", "0")]
+    [Arguments("provider_request_bytes", "-1")]
+    [Arguments("provider_request_bytes", "1.5")]
+    [Arguments("provider_request_bytes", "2147483648")]
+    [Arguments("provider_request_bytes", "null")]
+    [Arguments("provider_request_bytes", "[1]")]
+    public async Task Invalid_request_limit_values_are_rejected(string key, string value)
+    {
+        var exception = Assert.Throws<InvalidDataException>(
+            () => Load(Write($"request_limits:\n  {key}: {value}\n")));
+
+        _ = await Assert.That(exception.Message).IsEqualTo($"request_limits.{key} must be a positive integer");
+    }
+
+    [Test]
+    [Arguments("null")]
+    [Arguments("[1]")]
+    public async Task Invalid_request_limit_sections_are_rejected(string value)
+    {
+        var exception = Assert.Throws<InvalidDataException>(() => Load(Write($"request_limits: {value}\n")));
+
+        _ = await Assert.That(exception.Message).IsEqualTo("request_limits must be a mapping");
+    }
+
+    [Test]
     [Arguments("read_only_exec_command_prefixes: null", "read_only_exec_command_prefixes must be a string sequence")]
     [Arguments("read_only_exec_command_prefixes:\n  - ''", "read_only_exec_command_prefixes[19] must be a unique nonblank string without leading or trailing whitespace")]
     [Arguments("read_only_exec_command_prefixes:\n  - '  rg'", "read_only_exec_command_prefixes[19] must be a unique nonblank string without leading or trailing whitespace")]

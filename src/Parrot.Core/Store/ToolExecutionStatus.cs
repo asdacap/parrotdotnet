@@ -5,4 +5,5 @@ internal enum ToolExecutionStatus
     Finished,
     Cancelled,
     Error,
+    ImageBudgetExceeded,
 }

@@ -43,6 +43,7 @@ internal sealed class SessionRoutingDiagnosticsTests
                 web,
                 configuration.ToolDefinitions,
                 configuration.AgentTasks,
+                configuration.RequestLimits,
                 configuration.ReadOnlyExecCommandPrefixes,
                 router,
                 new CompositeSystemPromptProvider("test:routing", []),

@@ -10,4 +10,6 @@ internal sealed record ToolInvocation(string CallId, string ArgumentsJson, long 
     }
 
     public PromptTemplateCatalog? PromptTemplates { get; init; }
+
+    public ToolCycleImageBudget? ImageBudget { get; init; }
 }

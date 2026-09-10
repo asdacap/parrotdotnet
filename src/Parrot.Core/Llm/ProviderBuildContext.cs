@@ -9,4 +9,7 @@ internal sealed record ProviderBuildContext(
     ICredentialStore CredentialStore,
     HttpClient HttpClient,
     IBrowserOpener BrowserOpener,
-    IReadOnlyList<LLMModel> ExternalModels);
+    IReadOnlyList<LLMModel> ExternalModels)
+{
+    public RequestLimitsConfig RequestLimits { get; init; } = new();
+}

@@ -52,7 +52,10 @@ internal static class ProviderImplementations
                 ProviderModels.ReadDefaults(context.Id, context.Config.ModelDefaults),
                 context.ExternalModels,
                 context.Config.DisableWebSocket,
-                new ResponsesWebSocketConnector()));
+                new ResponsesWebSocketConnector())
+            {
+                MaximumRequestBytes = context.RequestLimits.ProviderRequestBytes,
+            });
         }
     }
 
@@ -76,6 +79,7 @@ internal static class ProviderImplementations
             var options = new OpenAICompatibleOptions
             {
                 Id = context.Id,
+                MaximumRequestBytes = context.RequestLimits.ProviderRequestBytes,
                 BaseUrl = config.BaseUrl,
                 Protocol = config.Protocol switch
                 {
