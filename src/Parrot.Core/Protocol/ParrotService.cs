@@ -362,6 +362,7 @@ internal sealed class ParrotService(
         var started = Stopwatch.GetTimestamp();
         var correlationId = Guid.NewGuid().ToString("N");
         var operationDiagnostics = diagnostics;
+        string? userSessionId = null;
         var outcome = "succeeded";
         operationDiagnostics.Write(new DiagnosticEvent("protocol", "create_session_start", DiagnosticSeverity.Information)
         {
@@ -389,14 +390,18 @@ internal sealed class ParrotService(
                 _ = modes.Resolve(request.Mode);
                 created = await _userSessions.Host(
                     () => store.CreateFresh(model, request.Mode, request.InteractivePermissions),
-                    session => sessionHost.Host(session, this, context.CancellationToken)).ConfigureAwait(false);
+                    session =>
+                    {
+                        userSessionId = session.Id;
+                        return HostSession(session, correlationId, context.CancellationToken);
+                    }).ConfigureAwait(false);
             }
             catch (Exception failure) when (failure is ModeRegistryException or LLMProviderException)
             {
                 throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
             }
 
-            operationDiagnostics = created.Diagnostics;
+            userSessionId = created.Id;
             return UserSession.From(created, false);
         }
         catch (Exception failure)
@@ -406,6 +411,7 @@ internal sealed class ParrotService(
                 "protocol", "create_session_failure", failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
             {
                 CorrelationId = correlationId,
+                UserSessionId = userSessionId,
                 ErrorCode = failure is RpcException rpcFailure
                     ? rpcFailure.StatusCode.ToString() : DiagnosticEvent.ClassifyFailure(failure),
                 Outcome = outcome,
@@ -417,6 +423,7 @@ internal sealed class ParrotService(
             operationDiagnostics.Write(new DiagnosticEvent("protocol", "create_session_complete", DiagnosticSeverity.Information)
             {
                 CorrelationId = correlationId,
+                UserSessionId = userSessionId,
                 Outcome = outcome,
                 DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
             });
@@ -428,6 +435,7 @@ internal sealed class ParrotService(
         var started = Stopwatch.GetTimestamp();
         var correlationId = Guid.NewGuid().ToString("N");
         var operationDiagnostics = diagnostics;
+        string? userSessionId = null;
         var outcome = "succeeded";
         operationDiagnostics.Write(new DiagnosticEvent("protocol", "resume_session_start", DiagnosticSeverity.Information)
         {
@@ -439,6 +447,7 @@ internal sealed class ParrotService(
             ArgumentNullException.ThrowIfNull(context);
             context.CancellationToken.ThrowIfCancellationRequested();
             var id = ParseSessionId(request.UserSessionId);
+            userSessionId = id.Value;
             var metadata = sessionCatalog.Find(id)
                 ?? throw new RpcException(new Status(StatusCode.NotFound, $"no user session {id}"));
             if (metadata.State == SessionCatalogState.Corrupt)
@@ -451,8 +460,12 @@ internal sealed class ParrotService(
             {
                 var resumed = await _userSessions.Host(
                     async () => (await store.Resume(id, request.InteractivePermissions).ConfigureAwait(false)).Session,
-                    session => sessionHost.Host(session, this, context.CancellationToken)).ConfigureAwait(false);
-                operationDiagnostics = resumed.Diagnostics;
+                    session =>
+                    {
+                        userSessionId = session.Id;
+                        return HostSession(session, correlationId, context.CancellationToken);
+                    }).ConfigureAwait(false);
+                userSessionId = resumed.Id;
                 return UserSession.From(resumed, true);
             }
             catch (SessionAdmissionException failure)
@@ -474,6 +487,7 @@ internal sealed class ParrotService(
                 "protocol", "resume_session_failure", failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
             {
                 CorrelationId = correlationId,
+                UserSessionId = userSessionId,
                 ErrorCode = failure is RpcException rpcFailure
                     ? rpcFailure.StatusCode.ToString() : DiagnosticEvent.ClassifyFailure(failure),
                 Outcome = outcome,
@@ -485,6 +499,7 @@ internal sealed class ParrotService(
             operationDiagnostics.Write(new DiagnosticEvent("protocol", "resume_session_complete", DiagnosticSeverity.Information)
             {
                 CorrelationId = correlationId,
+                UserSessionId = userSessionId,
                 Outcome = outcome,
                 DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
             });
@@ -1097,6 +1112,40 @@ internal sealed class ParrotService(
     }
 
     private static string Limit(string value) => value.Length <= 4096 ? value : value[..4096];
+
+    private async Task<IAsyncDisposable> HostSession(Agent.UserSession session, string correlationId, CancellationToken cancellationToken)
+    {
+        var started = Stopwatch.GetTimestamp();
+        var operation = new DiagnosticEvent("session", "host_start", DiagnosticSeverity.Information)
+        {
+            UserSessionId = session.Id,
+            CorrelationId = correlationId,
+        };
+        diagnostics.Write(operation);
+        try
+        {
+            var hosted = await sessionHost.Host(session, this, cancellationToken).ConfigureAwait(false);
+            diagnostics.Write(operation with
+            {
+                Operation = "host_complete",
+                Outcome = "success",
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            });
+            return hosted;
+        }
+        catch (Exception failure)
+        {
+            diagnostics.Write(operation with
+            {
+                Operation = "host_failure",
+                Severity = failure is OperationCanceledException ? DiagnosticSeverity.Information : DiagnosticSeverity.Error,
+                Outcome = failure is OperationCanceledException ? "cancelled" : "failed",
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            });
+            throw;
+        }
+    }
 
     private Agent.UserSession Find(string userSessionId) => _userSessions.Find(userSessionId);
 }

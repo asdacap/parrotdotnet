@@ -30,6 +30,66 @@ internal sealed class SessionStoreTests : IDisposable
     }
 
     [Test]
+    [Arguments(false, false)]
+    [Arguments(false, true)]
+    [Arguments(true, false)]
+    [Arguments(true, true)]
+    public async Task Startup_stages_are_visible_globally_before_initialization_returns(bool resume, bool fail)
+    {
+        var workingDirectory = Directory.CreateDirectory(Path.Combine(_root, "startup-work")).FullName;
+        var paths = new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data"));
+        string? resumedId = null;
+        if (resume)
+        {
+            await using var existing = await Open(workingDirectory);
+            resumedId = existing.Id;
+        }
+
+        using var diagnostics = new DiagnosticLogs(paths, "startup", TextWriter.Null, TimeProvider.System);
+        var logPath = Path.Combine(paths.LogDirectory, "parrot-startup.log");
+        var sessions = new DirectAgentSessions();
+        ILLMProvider provider = new UnusedProvider();
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        var router = TestModels.Route(model);
+        sessions.Use(router);
+        var factory = new ObservingUserSessions(
+            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, new TestProfileFixture().Registry, SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System),
+            logPath,
+            fail);
+        var store = new SessionStore(paths, workingDirectory, "host", factory, router, Modes(), diagnostics);
+        if (fail)
+        {
+            _ = await Assert.That(async () => { _ = await OpenSession(); }).Throws<InvalidOperationException>();
+        }
+        else
+        {
+            await using var opened = await OpenSession();
+            _ = await Assert.That(opened.Id).IsEqualTo(factory.SessionId);
+        }
+
+        var pending = factory.PendingLog;
+        _ = await Assert.That(pending).Contains("event=\"workspace_complete\"").And.Contains("event=\"acquire_complete\"")
+            .And.Contains("event=\"resources_complete\"").And.Contains("event=\"database_complete\"")
+            .And.Contains("event=\"initialize_start\"").And.DoesNotContain("event=\"initialize_complete\"")
+            .And.DoesNotContain("event=\"initialize_failure\"");
+        var log = await File.ReadAllTextAsync(logPath);
+        var initialization = log.Split('\n').Where(line => line.Contains("event=\"initialize_", StringComparison.Ordinal)).ToArray();
+        _ = await Assert.That(initialization.Length).IsEqualTo(2);
+        foreach (var line in initialization)
+        {
+            _ = await Assert.That(line).Contains($"session=\"{factory.SessionId}\"").And.Contains("correlation=\"");
+        }
+
+        _ = await Assert.That(initialization[1]).Contains(fail ? "event=\"initialize_failure\"" : "event=\"initialize_complete\"")
+            .And.Contains("duration_ms=").And.Contains(fail ? "outcome=\"failed\"" : "outcome=\"success\"");
+        _ = await Assert.That(log).DoesNotContain("private-construction-failure").And.DoesNotContain(workingDirectory);
+
+        async Task<UserSession> OpenSession() => resumedId is null
+            ? await store.CreateFresh(router.Resolve(model.Selector), Modes().Default, false)
+            : (await store.Resume(UserSessionId.Parse(resumedId), false)).Session;
+    }
+
+    [Test]
     public async Task Automatic_session_logs_append_on_resume_and_remain_isolated()
     {
         var workingDirectory = Directory.CreateDirectory(Path.Combine(_root, "logs-work")).FullName;
@@ -456,6 +516,31 @@ internal sealed class SessionStoreTests : IDisposable
             Lifetime = Session.Lifetime;
             _ = Directory.CreateDirectory(resources.Resources.MetadataPath);
             return Session;
+        }
+    }
+
+    private sealed class ObservingUserSessions(IUserSessionFactory factory, string logPath, bool fail) : IUserSessionFactory
+    {
+        public string PendingLog { get; private set; } = string.Empty;
+
+        public string SessionId { get; private set; } = string.Empty;
+
+        public async Task<UserSession> Create(
+            SessionResourceLease resources,
+            string id,
+            string rootAgentName,
+            ResolvedModelSelection model,
+            string mode,
+            bool interactivePermissions)
+        {
+            SessionId = id;
+            PendingLog = await File.ReadAllTextAsync(logPath);
+            if (fail)
+            {
+                throw new InvalidOperationException("private-construction-failure");
+            }
+
+            return await factory.Create(resources, id, rootAgentName, model, mode, interactivePermissions);
         }
     }
 

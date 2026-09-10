@@ -431,7 +431,7 @@ internal sealed class ParrotServiceTests : IDisposable
         var sessionLog = await File.ReadAllTextAsync(Path.Combine(_root, "sessions", sessionId, "session.log"), cancellationToken);
         var globalLog = await File.ReadAllTextAsync(Directory.GetFiles(Path.Combine(_root, "logs")).Single(), cancellationToken);
         _ = await Assert.That(sessionLog).Contains("attach_session_complete");
-        _ = await Assert.That(sessionLog).Contains("resume_session_complete");
+        _ = await Assert.That(globalLog).Contains("resume_session_complete");
         _ = await Assert.That(globalLog).Contains("resume_session_failure");
         _ = await Assert.That(globalLog).DoesNotContain("attach_session_complete");
         _ = await Assert.That(sessionLog).DoesNotContain(workspace);
@@ -488,6 +488,40 @@ internal sealed class ParrotServiceTests : IDisposable
             cancellationToken: cancellationToken)).Throws<RpcException>();
         _ = await Assert.That(unhosted?.StatusCode).IsEqualTo(StatusCode.NotFound);
         _ = await Assert.That(Directory.GetDirectories(Path.Combine(_root, "sessions")).Length).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Startup_completion_and_host_stages_remain_in_global_log(bool resume, CancellationToken cancellationToken)
+    {
+        var context = new InProcessServerCallContext(cancellationToken);
+        string sessionId;
+        await using (var initial = Service(Store()))
+        {
+            sessionId = (await initial.CreateSession(new CreateSessionRequest { Model = Selection }, context)).Id;
+        }
+
+        if (resume)
+        {
+            await using var resumed = Service(Store());
+            _ = await resumed.ResumeSession(new ResumeSessionRequest { UserSessionId = sessionId, WorkingDirectory = Path.Combine(_root, "work") }, context);
+        }
+
+        var log = await File.ReadAllTextAsync(Path.Combine(new StatePaths(_root, _root, _root).LogDirectory, "parrot-test.log"), cancellationToken);
+        var operation = resume ? "resume_session" : "create_session";
+        var lines = log.Split('\n');
+        var completion = lines.Single(line => line.Contains($"event=\"{operation}_complete\"", StringComparison.Ordinal));
+        _ = await Assert.That(completion).Contains($"session=\"{sessionId}\"").And.Contains("duration_ms=").And.Contains("outcome=\"succeeded\"");
+        var start = lines.Single(line => line.Contains($"event=\"{operation}_start\"", StringComparison.Ordinal));
+        var correlation = start.Split(' ').Single(field => field.StartsWith("correlation=", StringComparison.Ordinal));
+        _ = await Assert.That(completion).Contains(correlation);
+        foreach (var phase in new[] { "start", "complete" })
+        {
+            var host = lines.Single(line => line.Contains($"event=\"host_{phase}\"", StringComparison.Ordinal)
+                && line.Contains(correlation, StringComparison.Ordinal));
+            _ = await Assert.That(host).Contains($"session=\"{sessionId}\"");
+        }
     }
 
     [Test]
