@@ -63,7 +63,7 @@ internal sealed class ChatGptProvider : ILLMProvider
         _images.GenerateImage(request, cancellationToken);
 
     public IReadOnlyList<LLMModel> SeedModels() =>
-        ChatGptModelCatalogue.ApplyLimits(ModelCatalogue.Merge(null, _declared, _defaults, _external));
+        ModelCatalogue.Merge(null, _declared, _defaults, _external);
 
     public ILLMProviderSession OpenSession()
     {
@@ -94,8 +94,7 @@ internal sealed class ChatGptProvider : ILLMProvider
             .Get(_client, uri, Headers(access), HttpStreaming.ModelsRefreshTimeout, 16 << 20, cancellationToken)
             .ConfigureAwait(false);
 
-        return ChatGptModelCatalogue.ApplyLimits(
-            ModelCatalogue.Merge(DecodeModels(body), _declared, _defaults, _external));
+        return ModelCatalogue.Merge(DecodeModels(body), _declared, _defaults, _external);
     }
 
     public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>

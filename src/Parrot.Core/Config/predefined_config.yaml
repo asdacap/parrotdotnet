@@ -1567,96 +1567,13 @@ subagents:
 providers:
   chatgpt:
     model_defaults:
-      gpt-5.4:
-        name: GPT-5.4
-        context: 400000
-        max_tokens: 128000
-        input_price: 0.0000025
-        cached_input_price: 0.00000025
-        output_price: 0.000015
-        tools: true
-        reasoning: true
-        output: [text]
-        variants:
-          low: { reasoning_effort: low }
-          medium: { reasoning_effort: medium }
-          high: { reasoning_effort: high }
-          xhigh: { reasoning_effort: xhigh }
+      gpt-5.4: {}
       gpt-5.4-mini:
         name: GPT-5.4 Mini
-        context: 400000
-        max_tokens: 128000
-        input_price: 0.00000075
-        cached_input_price: 0.000000075
-        output_price: 0.0000045
-        tools: true
-        reasoning: true
-        output: [text]
-        variants:
-          low: { reasoning_effort: low }
-          medium: { reasoning_effort: medium }
-          high: { reasoning_effort: high }
-          xhigh: { reasoning_effort: xhigh }
-      gpt-5.5:
-        name: GPT-5.5
-        context: 400000
-        max_tokens: 128000
-        input_price: 0.000005
-        cached_input_price: 0.0000005
-        output_price: 0.00003
-        tools: true
-        reasoning: true
-        output: [text]
-        variants:
-          low: { reasoning_effort: low }
-          medium: { reasoning_effort: medium }
-          high: { reasoning_effort: high }
-          xhigh: { reasoning_effort: xhigh }
-      gpt-5.6-luna:
-        name: GPT-5.6 Luna
-        context: 500000
-        max_tokens: 128000
-        input_price: 0.0000002
-        cached_input_price: 0.00000002
-        output_price: 0.0000012
-        tools: true
-        reasoning: true
-        output: [text]
-        variants:
-          low: { reasoning_effort: low }
-          medium: { reasoning_effort: medium }
-          high: { reasoning_effort: high }
-          xhigh: { reasoning_effort: xhigh }
-      gpt-5.6-terra:
-        name: GPT-5.6 Terra
-        context: 500000
-        max_tokens: 128000
-        input_price: 0.000002
-        cached_input_price: 0.0000002
-        output_price: 0.000012
-        tools: true
-        reasoning: true
-        output: [text]
-        variants:
-          low: { reasoning_effort: low }
-          medium: { reasoning_effort: medium }
-          high: { reasoning_effort: high }
-          xhigh: { reasoning_effort: xhigh }
-      gpt-5.6-sol:
-        name: GPT-5.6 Sol
-        context: 500000
-        max_tokens: 128000
-        input_price: 0.000005
-        cached_input_price: 0.0000005
-        output_price: 0.00003
-        tools: true
-        reasoning: true
-        output: [text]
-        variants:
-          low: { reasoning_effort: low }
-          medium: { reasoning_effort: medium }
-          high: { reasoning_effort: high }
-          xhigh: { reasoning_effort: xhigh }
+      gpt-5.5: {}
+      gpt-5.6-luna: {}
+      gpt-5.6-terra: {}
+      gpt-5.6-sol: {}
   openai:
     type: openai-compatible
     protocol: responses
@@ -1664,96 +1581,13 @@ providers:
     api_key_env: OPENAI_API_KEY
     header_timeout_ms: 10000
     model_defaults:
-      gpt-5.4:
-        name: GPT-5.4
-        context: 400000
-        max_tokens: 128000
-        input_price: 0.0000025
-        cached_input_price: 0.00000025
-        output_price: 0.000015
-        tools: true
-        reasoning: true
-        output: [text]
-        variants:
-          low: { reasoning_effort: low }
-          medium: { reasoning_effort: medium }
-          high: { reasoning_effort: high }
-          xhigh: { reasoning_effort: xhigh }
+      gpt-5.4: {}
       gpt-5.4-mini:
         name: GPT-5.4 Mini
-        context: 400000
-        max_tokens: 128000
-        input_price: 0.00000075
-        cached_input_price: 0.000000075
-        output_price: 0.0000045
-        tools: true
-        reasoning: true
-        output: [text]
-        variants:
-          low: { reasoning_effort: low }
-          medium: { reasoning_effort: medium }
-          high: { reasoning_effort: high }
-          xhigh: { reasoning_effort: xhigh }
-      gpt-5.5:
-        name: GPT-5.5
-        context: 400000
-        max_tokens: 128000
-        input_price: 0.000005
-        cached_input_price: 0.0000005
-        output_price: 0.00003
-        tools: true
-        reasoning: true
-        output: [text]
-        variants:
-          low: { reasoning_effort: low }
-          medium: { reasoning_effort: medium }
-          high: { reasoning_effort: high }
-          xhigh: { reasoning_effort: xhigh }
-      gpt-5.6-luna:
-        name: GPT-5.6 Luna
-        context: 500000
-        max_tokens: 128000
-        input_price: 0.0000002
-        cached_input_price: 0.00000002
-        output_price: 0.0000012
-        tools: true
-        reasoning: true
-        output: [text]
-        variants:
-          low: { reasoning_effort: low }
-          medium: { reasoning_effort: medium }
-          high: { reasoning_effort: high }
-          xhigh: { reasoning_effort: xhigh }
-      gpt-5.6-terra:
-        name: GPT-5.6 Terra
-        context: 500000
-        max_tokens: 128000
-        input_price: 0.000002
-        cached_input_price: 0.0000002
-        output_price: 0.000012
-        tools: true
-        reasoning: true
-        output: [text]
-        variants:
-          low: { reasoning_effort: low }
-          medium: { reasoning_effort: medium }
-          high: { reasoning_effort: high }
-          xhigh: { reasoning_effort: xhigh }
-      gpt-5.6-sol:
-        name: GPT-5.6 Sol
-        context: 500000
-        max_tokens: 128000
-        input_price: 0.000005
-        cached_input_price: 0.0000005
-        output_price: 0.00003
-        tools: true
-        reasoning: true
-        output: [text]
-        variants:
-          low: { reasoning_effort: low }
-          medium: { reasoning_effort: medium }
-          high: { reasoning_effort: high }
-          xhigh: { reasoning_effort: xhigh }
+      gpt-5.5: {}
+      gpt-5.6-luna: {}
+      gpt-5.6-terra: {}
+      gpt-5.6-sol: {}
   openrouter:
     protocol: chat-completions
     base_url: https://openrouter.ai/api/v1
@@ -1770,63 +1604,28 @@ providers:
     api_key_env: OPENCODE_GO_API_KEY
     header_timeout_ms: 10000
     model_defaults:
-      minimax-m3: { name: MiniMax M3, context: 1048576, max_tokens: 512000, tools: true, reasoning: false, output: [text] }
-      minimax-m2.7: { name: MiniMax M2.7, context: 204800, max_tokens: 131072, tools: true, reasoning: false, output: [text] }
-      minimax-m2.5: { name: MiniMax M2.5, context: 204800, max_tokens: 196608, tools: true, reasoning: false, output: [text] }
-      kimi-k3:
-        name: Kimi K3
-        context: 1048576
-        max_tokens: 0
-        tools: true
-        reasoning: true
-        output: [text]
-        variants:
-          max: { reasoning_effort: max }
-          high: { reasoning_effort: high }
-          low: { reasoning_effort: low }
-      kimi-k2.7-code: { name: Kimi K2.7 Code, context: 262144, max_tokens: 262144, tools: true, reasoning: false, output: [text] }
-      kimi-k2.6: { name: Kimi K2.6, context: 262144, max_tokens: 262144, tools: true, reasoning: false, output: [text] }
-      kimi-k2.5: { name: Kimi K2.5, context: 262144, max_tokens: 262144, tools: true, reasoning: false, output: [text] }
+      minimax-m3: { name: MiniMax M3, reasoning: false }
+      minimax-m2.7: { name: MiniMax M2.7, reasoning: false }
+      minimax-m2.5: { name: MiniMax M2.5, reasoning: false }
+      kimi-k3: {}
+      kimi-k2.7-code: { reasoning: false }
+      kimi-k2.6: { reasoning: false }
+      kimi-k2.5: { reasoning: false }
       glm-5.2:
         name: GLM 5.2
-        context: 1048576
-        max_tokens: 131072
-        tools: true
-        reasoning: true
-        output: [text]
-        variants:
-          xhigh: { reasoning_effort: xhigh }
-          high: { reasoning_effort: high }
-      glm-5.1: { name: GLM 5.1, context: 202752, max_tokens: 128000, tools: true, reasoning: false, output: [text] }
-      glm-5: { name: GLM 5, context: 204800, max_tokens: 131072, tools: true, reasoning: false, output: [text] }
+      glm-5.1: { name: GLM 5.1, reasoning: false }
+      glm-5: { name: GLM 5, reasoning: false }
       deepseek-v4-pro:
         name: DeepSeek V4 Pro
-        context: 1048576
-        max_tokens: 384000
-        tools: true
-        reasoning: true
-        output: [text]
-        variants:
-          xhigh: { reasoning_effort: xhigh }
-          high: { reasoning_effort: high }
-      deepseek-v4-flash:
-        name: DeepSeek V4 Flash
-        context: 1048576
-        max_tokens: 0
-        tools: true
-        reasoning: true
-        output: [text]
-        variants:
-          xhigh: { reasoning_effort: xhigh }
-          high: { reasoning_effort: high }
-      qwen3.7-max: { name: Qwen3.7 Max, context: 1000000, max_tokens: 65536, tools: true, reasoning: false, output: [text] }
-      qwen3.7-plus: { name: Qwen3.7 Plus, context: 1000000, max_tokens: 65536, tools: true, reasoning: false, output: [text] }
-      qwen3.6-plus: { name: Qwen3.6 Plus, context: 1000000, max_tokens: 65536, tools: true, reasoning: false, output: [text] }
-      qwen3.5-plus: { name: Qwen3.5 Plus, context: 1000000, max_tokens: 65536, tools: true, reasoning: false, output: [text] }
-      mimo-v2.5-pro: { name: MiMo V2.5 Pro, context: 1048576, max_tokens: 131072, tools: true, reasoning: false, output: [text] }
-      mimo-v2.5: { name: MiMo V2.5, context: 1048576, max_tokens: 131072, tools: true, reasoning: false, output: [text] }
-      mimo-v2-pro: { name: MiMo V2 Pro, context: 0, max_tokens: 0, tools: true, reasoning: false, output: [text] }
-      mimo-v2-omni: { name: MiMo V2 Omni, context: 0, max_tokens: 0, tools: true, reasoning: false, output: [text] }
+      deepseek-v4-flash: {}
+      qwen3.7-max: { reasoning: false }
+      qwen3.7-plus: { reasoning: false }
+      qwen3.6-plus: { reasoning: false }
+      qwen3.5-plus: { reasoning: false }
+      mimo-v2.5-pro: { reasoning: false }
+      mimo-v2.5: { reasoning: false }
+      mimo-v2-pro: { reasoning: false }
+      mimo-v2-omni: { reasoning: false }
       hy3-preview:
         name: Hy3 Preview
         context: 262144
@@ -1838,17 +1637,7 @@ providers:
           high: { reasoning_effort: high }
           low: { reasoning_effort: low }
           none: { reasoning_effort: none }
-      grok-4.5:
-        name: Grok 4.5
-        context: 500000
-        max_tokens: 0
-        tools: true
-        reasoning: true
-        output: [text]
-        variants:
-          high: { reasoning_effort: high }
-          medium: { reasoning_effort: medium }
-          low: { reasoning_effort: low }
+      grok-4.5: {}
   kimi-code:
     protocol: chat-completions
     base_url: https://api.kimi.com/coding/v1
