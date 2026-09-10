@@ -36,6 +36,7 @@ internal sealed class AgentScopeDiagnosticsTests
                 web,
                 configuration.ToolDefinitions,
                 configuration.AgentTasks,
+                configuration.RequestLimits,
                 configuration.ReadOnlyExecCommandPrefixes,
                 router,
                 new CompositeSystemPromptProvider("test:diagnostics", []),

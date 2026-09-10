@@ -6,7 +6,8 @@ internal sealed class ResponsesWebSocketClient(
     IResponsesWebSocketConnector connector,
     Uri endpoint,
     TimeSpan connectTimeout,
-    TimeSpan idleTimeout)
+    TimeSpan idleTimeout,
+    int maximumRequestBytes)
 {
     private const string BetaHeaderValue = "responses_websockets=2026-02-06";
 
@@ -35,7 +36,7 @@ internal sealed class ResponsesWebSocketClient(
         {
             var (socket, responseHeaders) = await connector.Connect(
                 Endpoint(endpoint), websocketHeaders, connectTimeout, cancellationToken).ConfigureAwait(false);
-            return new ResponsesWebSocket(socket, responseHeaders, idleTimeout);
+            return new ResponsesWebSocket(socket, responseHeaders, idleTimeout, maximumRequestBytes);
         }
         catch (WebSocketException failure) when (failure.WebSocketErrorCode == WebSocketError.NotAWebSocket)
         {

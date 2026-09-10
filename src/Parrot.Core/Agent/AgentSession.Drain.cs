@@ -1112,6 +1112,28 @@ internal sealed partial class AgentSession
 
         foreach (var batch in conversation.Where(item => item.Role == LLMRole.Assistant && item.ToolCalls.Count > 0))
         {
+            var imageBudget = new ToolCycleImageBudget(requestLimits.ImageBytesPerToolCycle, promptTemplates);
+            var hasPendingCalls = batch.ToolCalls.Any(call => !terminals.ContainsKey(call.Id));
+            foreach (var settledCall in batch.ToolCalls)
+            {
+                if (!hasPendingCalls || !terminals.TryGetValue(settledCall.Id, out var settledTerminal))
+                {
+                    continue;
+                }
+
+                if (settledTerminal.Status == ToolExecutionStatus.ImageBudgetExceeded)
+                {
+                    imageBudget.RestoreExceeded();
+                }
+
+                foreach (var part in settledTerminal.ResultParts.Where(part => part.Kind == ConversationPartKind.ImageArtifact))
+                {
+                    var artifact = eventRepository.ResolveImageArtifact(part.ArtifactId)
+                        ?? throw new InvalidDataException("A settled tool image artifact is missing.");
+                    imageBudget.RestoreAccepted(artifact.ByteLength);
+                }
+            }
+
             var stopped = false;
             var callIndex = 0;
             while (callIndex < batch.ToolCalls.Count)
@@ -1140,7 +1162,7 @@ internal sealed partial class AgentSession
 
                 if (!IsParallelSafe(snapshot, batch.Sequence, call))
                 {
-                    var settlement = await Invoke(selection, snapshot, batch.Sequence, call, cancellationToken)
+                    var settlement = await Invoke(selection, snapshot, batch.Sequence, call, imageBudget, cancellationToken)
                         .ConfigureAwait(false);
                     await SettleTool(batch.Sequence, settlement, terminals).ConfigureAwait(false);
                     changed = true;
@@ -1178,7 +1200,7 @@ internal sealed partial class AgentSession
 
                     executions.Add(
                         candidate.Id,
-                        Invoke(selection, snapshot, batch.Sequence, candidate, cancellationToken));
+                        Invoke(selection, snapshot, batch.Sequence, candidate, imageBudget, cancellationToken));
                     runEnd++;
                 }
 
@@ -1324,6 +1346,7 @@ internal sealed partial class AgentSession
         ToolSnapshot snapshot,
         long assistantSequence,
         LLMToolCall call,
+        ToolCycleImageBudget imageBudget,
         CancellationToken cancellationToken)
     {
         var started = new Event
@@ -1361,6 +1384,7 @@ internal sealed partial class AgentSession
             var invocation = new ToolInvocation(call.Id, call.ArgumentsJson, assistantSequence)
             {
                 PromptTemplates = promptTemplates,
+                ImageBudget = imageBudget,
             };
             ToolExecutionResult result;
             var execution = Activity.BeginTool(tool.Name);
@@ -1371,6 +1395,12 @@ internal sealed partial class AgentSession
             finally
             {
                 Activity.FinishTool(execution);
+            }
+
+            if (result.Outcome == ToolExecutionOutcome.ImageBudgetExceeded)
+            {
+                var failure = FailTool(call, result.Text);
+                return (failure.Published, failure.Terminal with { Status = ToolExecutionStatus.ImageBudgetExceeded });
             }
 
             var text = promptTemplates.Render(

@@ -8,6 +8,7 @@ using Parrot.Llm.Wire;
 using Parrot.Protocol;
 using Parrot.Security;
 using Parrot.Skills;
+using Parrot.State;
 using Parrot.Store;
 using Parrot.Tools;
 
@@ -1431,6 +1432,137 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    [Arguments(0)]
+    [Arguments(1)]
+    public async Task Image_budget_rejects_the_rest_of_a_batch_but_resets_for_the_next_cycle(
+        int spareBytes,
+        CancellationToken cancellationToken)
+    {
+        var imageBytes = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==");
+        _ = Directory.CreateDirectory(_blobDirectory);
+        await File.WriteAllBytesAsync(Path.Combine(_blobDirectory, "pixel.png"), imageBytes, cancellationToken);
+        var resources = new UserSessionResources(
+            new StatePaths(_blobDirectory, _blobDirectory, _blobDirectory),
+            UserSessionId.Parse("images"),
+            ProjectWorkspace.FromLaunchDirectory(_blobDirectory));
+        var imageStore = new ImageArtifactStore(resources);
+        var repository = new EventRepository(_database, imageStore);
+        var images = new ImageArtifactRepository(imageStore, repository);
+        using var provider = new SteppedProvider(
+            Answer(
+                string.Empty,
+                new LLMToolCall("accepted", "read_image", "{\"path\":\"pixel.png\"}"),
+                new LLMToolCall("overflow", "read_image", "{\"path\":\"pixel.png\"}"),
+                new LLMToolCall("latched", "read_image", "{\"path\":\"missing.png\"}"),
+                new LLMToolCall("text", "settled", "{}")),
+            Answer(string.Empty, new LLMToolCall("retry", "read_image", "{\"path\":\"pixel.png\"}")),
+            Answer("done"));
+        await using var session = SessionWithImageLimit(
+            provider,
+            repository,
+            [new TestTool(new ReadImageTool(new ToolWorkspace(_blobDirectory), images)), new TestTool(new SettledTool("continued"))],
+            imageBytes.Length + spareBytes,
+            cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests[1].Messages.SelectMany(message => message.Contents)
+            .Count(content => content.Kind == LLMContentKind.Image)).IsEqualTo(1);
+        foreach (var rejectedCallId in new[] { "overflow", "latched" })
+        {
+            var feedback = provider.Requests[1].Messages.Single(message => message.ToolCallId == rejectedCallId);
+            _ = await Assert.That(feedback.Content).Contains("Retry in a new tool-call cycle.");
+        }
+
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests[2].Messages.SelectMany(message => message.Contents)
+            .Count(content => content.Kind == LLMContentKind.Image)).IsEqualTo(2);
+        _ = await Assert.That(provider.Requests[2].Messages.Single(message => message.ToolCallId == "retry").Content)
+            .IsEqualTo("image read");
+        provider.Release();
+        await session.Settled();
+
+        var terminals = repository.ToolTerminals("agent");
+        _ = await Assert.That(string.Join(" | ", terminals.Select(terminal => $"{terminal.ToolCallId}:{terminal.Status}")))
+            .IsEqualTo("accepted:Finished | overflow:ImageBudgetExceeded | latched:ImageBudgetExceeded | text:Finished | retry:Finished");
+        _ = await Assert.That(terminals.Where(terminal => terminal.Status == ToolExecutionStatus.ImageBudgetExceeded)
+            .SelectMany(terminal => terminal.ResultParts)).DoesNotContain(part => part.Kind == ConversationPartKind.ImageArtifact);
+        _ = await Assert.That(repository.Replay().Count(published => published.PayloadCase == Event.PayloadOneofCase.ToolError))
+            .IsEqualTo(2);
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Restored_image_batches_reconstruct_accepted_bytes_and_the_overflow_latch(
+        bool overflowSettled,
+        CancellationToken cancellationToken)
+    {
+        var imageBytes = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==");
+        _ = Directory.CreateDirectory(_blobDirectory);
+        await File.WriteAllBytesAsync(Path.Combine(_blobDirectory, "pixel.png"), imageBytes, cancellationToken);
+        var resources = new UserSessionResources(
+            new StatePaths(_blobDirectory, _blobDirectory, _blobDirectory),
+            UserSessionId.Parse("images"),
+            ProjectWorkspace.FromLaunchDirectory(_blobDirectory));
+        var imageStore = new ImageArtifactStore(resources);
+        var repository = new EventRepository(_database, imageStore);
+        var images = new ImageArtifactRepository(imageStore, repository);
+        using var source = new MemoryStream(imageBytes);
+        var artifact = await images.Persist(source, "upload", "pixel.png", "read_image", cancellationToken);
+        repository.AppendConversation(
+            new Event { Id = "assistant", AgentSessionId = "agent" },
+            ConversationOrigin.Model,
+            LLMRole.Assistant,
+            [ConversationPart.TextPart(string.Empty)],
+            [new LLMToolCall("accepted", "read_image", "{\"path\":\"pixel.png\"}"),
+                new LLMToolCall("overflow", "read_image", "{\"path\":\"pixel.png\"}"),
+                new LLMToolCall("remaining", "read_image", "{\"path\":\"pixel.png\"}"),
+                new LLMToolCall("text", "settled", "{}")],
+            string.Empty);
+        var sequence = repository.Conversation("agent").Single().Sequence;
+        _ = repository.AppendToolSettlement(
+            new Event { Id = "accepted-result", AgentSessionId = "agent" },
+            sequence,
+            new ToolExecutionTerminal("accepted", "read_image", ToolExecutionStatus.Finished, [ConversationPart.TextPart("image read"), ConversationPart.ImageArtifact(artifact)], "image read"));
+        if (overflowSettled)
+        {
+            _ = repository.AppendToolSettlement(
+                new Event { Id = "overflow-result", AgentSessionId = "agent" },
+                sequence,
+                new ToolExecutionTerminal("overflow", "read_image", ToolExecutionStatus.ImageBudgetExceeded, [ConversationPart.TextPart("opaque persisted failure")], "opaque persisted failure"));
+        }
+
+        using var provider = new SteppedProvider(Answer("done"));
+        await using var session = SessionWithImageLimit(
+            provider,
+            repository,
+            [new TestTool(new ReadImageTool(new ToolWorkspace(_blobDirectory), images)), new TestTool(new SettledTool("continued"))],
+            imageBytes.Length * (overflowSettled ? 3 : 1),
+            cancellationToken);
+        _ = await session.Send([ConversationPart.TextPart("resume")], "message", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests.Single().Messages.SelectMany(message => message.Contents)
+            .Count(content => content.Kind == LLMContentKind.Image)).IsEqualTo(1);
+        provider.Release();
+        await session.Settled();
+
+        var terminals = repository.ToolTerminals("agent");
+        _ = await Assert.That(string.Join(" | ", terminals.Select(terminal => $"{terminal.ToolCallId}:{terminal.Status}")))
+            .IsEqualTo("accepted:Finished | overflow:ImageBudgetExceeded | remaining:ImageBudgetExceeded | text:Finished");
+        _ = await Assert.That(terminals.Where(terminal => terminal.Status == ToolExecutionStatus.ImageBudgetExceeded)
+            .SelectMany(terminal => terminal.ResultParts)).DoesNotContain(part => part.Kind == ConversationPartKind.ImageArtifact);
+        _ = await Assert.That(repository.Replay().Where(published => published.PayloadCase == Event.PayloadOneofCase.ToolStarted))
+            .DoesNotContain(published => published.ToolStarted.ToolCallId == "accepted"
+                || (overflowSettled && published.ToolStarted.ToolCallId == "overflow"));
+    }
+
+    [Test]
     public async Task Restored_batches_skip_settled_calls_and_reconcile_remaining_safe_calls(
         CancellationToken cancellationToken)
     {
@@ -1745,6 +1877,53 @@ internal sealed class DrainTests : IDisposable
             new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks,
             security,
             skills,
+            new RequestLimitsConfig(),
+            dependencies.Status,
+            dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
+            TestDiagnosticLog.Instance,
+            lifetime);
+    }
+
+    private IAgentSession SessionWithImageLimit(
+        ILLMProvider provider,
+        EventRepository repository,
+        IReadOnlyList<TestTool> toolFactories,
+        int imageByteLimit,
+        CancellationToken lifetime)
+    {
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
+        _dependencies.Add(dependencies);
+        var skills = new AgentSkills(new SkillCatalog([], () => (SkillConfiguration.Default, 0L)), TestModels.PromptTemplates);
+        var security = new AgentSessionSecurity(
+            SecurityProfile.Compose(readOnly: false, [], [], []),
+            ProjectWorkspace.FromLaunchDirectory(Directory.GetCurrentDirectory()),
+            Directory.GetCurrentDirectory());
+        return new AgentSession(
+            identity,
+            AgentSessionParentScope.Root(),
+            new ModelSelector(model.Selector),
+            TestModels.Route(model),
+            _broker,
+            repository,
+            [.. toolFactories.Select(tool => tool.Factory)],
+            new TestToolDefinitionsFixture([.. toolFactories.Select(factory => factory.Tool.Name)]).Definitions,
+            TestModels.MaterializePrompt(identity, ".", "."),
+            new ToolOutputBlobStore(_blobDirectory),
+            TestModels.CompactionGroupBlobs(),
+            new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates),
+            new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"),
+            new ContextCadence(),
+            TestModels.PromptTemplates,
+            dependencies.ChildQuestions,
+            dependencies.ExitReminder,
+            dependencies.Profile,
+            new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks,
+            security,
+            skills,
+            new RequestLimitsConfig { ImageBytesPerToolCycle = imageByteLimit },
             dependencies.Status,
             dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),

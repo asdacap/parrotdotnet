@@ -8,7 +8,8 @@ namespace Parrot.Llm.Wire;
 internal sealed class ResponsesWebSocket(
     WebSocket socket,
     IReadOnlyDictionary<string, string> responseHeaders,
-    TimeSpan idleTimeout) : IAsyncDisposable
+    TimeSpan idleTimeout,
+    int maximumRequestBytes) : IAsyncDisposable
 {
     public static readonly TimeSpan DefaultIdleTimeout = TimeSpan.FromMinutes(5);
 
@@ -23,9 +24,9 @@ internal sealed class ResponsesWebSocket(
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(response);
-        if (request.Length > HttpStreaming.MaxRequestBytes)
+        if (request.Length > maximumRequestBytes)
         {
-            throw new ProviderHttpException($"provider: request exceeds {HttpStreaming.MaxRequestBytes} bytes");
+            throw new ProviderHttpException($"provider: request exceeds {maximumRequestBytes} bytes");
         }
 
         try

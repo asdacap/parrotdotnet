@@ -32,6 +32,7 @@ internal sealed partial class Configuration(string path)
     private const string LiveBufferRowsKey = "live_buffer_rows";
     private const string CompactionKey = "compaction";
     private const string AgentTasksKey = "agent_tasks";
+    private const string RequestLimitsKey = "request_limits";
     private const string ToolsKey = "tools";
     private const string SkillsKey = "skills";
     private static readonly TagName ReplaceTag = new("!replace");
@@ -74,6 +75,8 @@ internal sealed partial class Configuration(string path)
         new SortedDictionary<string, string>(StringComparer.Ordinal);
 
     public WebFetchConfig WebFetch { get; private set; } = new();
+
+    public RequestLimitsConfig RequestLimits { get; private set; } = new();
 
     public IReadOnlyList<SandboxRule> SandboxRules { get; private set; } = [];
 
@@ -240,6 +243,7 @@ internal sealed partial class Configuration(string path)
             ModelAugmentSystemPrompts = ReadModelAugmentSystemPrompts(root),
             Providers = ReadProviders(root),
             WebFetch = ReadWebFetch(root),
+            RequestLimits = ReadRequestLimits(root),
             SandboxRules = ReadSandboxRules(root, "sandbox_rules", environmentTemplates, directories),
             DisabledTools = ReadDisabledTools(root),
             Profiles = profiles,
@@ -1691,6 +1695,23 @@ internal sealed partial class Configuration(string path)
         YamlScalarNode { Value: "false" } => false,
         _ => throw new InvalidDataException($"{path} must be true or false"),
     };
+
+    private static RequestLimitsConfig ReadRequestLimits(YamlMappingNode root)
+    {
+        if (!Child(root, RequestLimitsKey, out var node) || node is not YamlMappingNode requestLimits)
+        {
+            throw new InvalidDataException($"{RequestLimitsKey} must be a mapping");
+        }
+
+        ValidateKeys(requestLimits, RequestLimitsKey, "image_bytes_per_tool_cycle", "provider_request_bytes");
+        return new RequestLimitsConfig
+        {
+            ImageBytesPerToolCycle = PositiveInteger(
+                requestLimits, "image_bytes_per_tool_cycle", $"{RequestLimitsKey}.image_bytes_per_tool_cycle"),
+            ProviderRequestBytes = PositiveInteger(
+                requestLimits, "provider_request_bytes", $"{RequestLimitsKey}.provider_request_bytes"),
+        };
+    }
 
     private static WebFetchConfig ReadWebFetch(YamlMappingNode root) =>
         Child(root, "web_fetch", out var node) && node is YamlMappingNode webFetch

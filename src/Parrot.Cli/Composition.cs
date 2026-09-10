@@ -199,6 +199,7 @@ internal partial class Composition
                     webFetcher,
                     configuration.ToolDefinitions,
                     configuration.AgentTasks,
+                    configuration.RequestLimits,
                     configuration.ReadOnlyExecCommandPrefixes,
                     router,
                     systemPromptProvider,

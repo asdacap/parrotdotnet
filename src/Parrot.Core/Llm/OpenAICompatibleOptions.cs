@@ -1,8 +1,12 @@
+using Parrot.Config;
+
 namespace Parrot.Llm;
 
 // Configures an API-key authenticated OpenAI-compatible provider.
 internal sealed record OpenAICompatibleOptions
 {
+    public int MaximumRequestBytes { get; init; } = new RequestLimitsConfig().ProviderRequestBytes;
+
     public required string Id { get; init; }
 
     public required string BaseUrl { get; init; }

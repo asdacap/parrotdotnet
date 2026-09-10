@@ -14,6 +14,14 @@ internal sealed class ReadImageTool(ToolWorkspace workspace, ImageArtifactReposi
         AgentTurnSelection selection,
         CancellationToken cancellationToken)
     {
+        if (invocation.ImageBudget is { IsExceeded: true } exhaustedBudget)
+        {
+            return new ToolExecutionResult(exhaustedBudget.DescribeFailure())
+            {
+                Outcome = ToolExecutionOutcome.ImageBudgetExceeded,
+            };
+        }
+
         string path;
 
         try
@@ -56,6 +64,14 @@ internal sealed class ReadImageTool(ToolWorkspace workspace, ImageArtifactReposi
                 Path.GetFileName(resolved.Physical),
                 "read_image",
                 cancellationToken).ConfigureAwait(false);
+            if (invocation.ImageBudget is { } budget && !budget.TryAccept(artifact.ByteLength))
+            {
+                return new ToolExecutionResult(budget.DescribeFailure())
+                {
+                    Outcome = ToolExecutionOutcome.ImageBudgetExceeded,
+                };
+            }
+
             return new ToolExecutionResult("image read", null, [artifact]);
         }
         catch (Exception failure) when (failure is InvalidDataException or IOException or UnauthorizedAccessException)

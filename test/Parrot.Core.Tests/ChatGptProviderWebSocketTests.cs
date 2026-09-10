@@ -14,6 +14,43 @@ internal sealed class ChatGptProviderWebSocketTests
         "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"answer\"}]}]}}";
 
     [Test]
+    [Arguments(true, false)]
+    [Arguments(false, false)]
+    [Arguments(false, true)]
+    public async Task Configured_request_limit_applies_to_http_websocket_and_fallback(
+        bool disableWebSocket,
+        bool fallback,
+        CancellationToken cancellationToken)
+    {
+        using var socket = new ScriptedWebSocket([]);
+        var connector = new RecordingConnector(fallback
+            ? [new ResponsesWebSocketUpgradeException(404, "missing", new IOException())]
+            : [socket]);
+        using var handler = new ResponsesHandler();
+        using var client = new HttpClient(handler, disposeHandler: false);
+        ILLMProvider provider = new ChatGptProvider(new FixedOAuthTokenSource(), client, [], [], [], disableWebSocket, connector) { MaximumRequestBytes = 1 };
+        await using var session = provider.OpenSession();
+
+        async Task Consume() => _ = await Drain(session.Call(
+            new LLMRequest { Model = "model", Messages = [LLMMessage.User("hello")] }, cancellationToken));
+
+        if (!disableWebSocket && !fallback)
+        {
+            var failure = await Assert.That(Consume).Throws<ResponsesWebSocketTransportException>();
+            var requestFailure = failure?.InnerException;
+            _ = await Assert.That(requestFailure).IsTypeOf<ProviderHttpException>();
+            _ = await Assert.That(requestFailure?.Message).Contains("exceeds 1 bytes");
+        }
+        else
+        {
+            _ = await Assert.That(Consume).Throws<ProviderHttpException>().WithMessageContaining("exceeds 1 bytes");
+        }
+
+        _ = await Assert.That(handler.Calls).IsEqualTo(0);
+        _ = await Assert.That(socket.Sent.Count).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task Session_uses_chatgpt_websocket_headers_and_reuses_incremental_connection(
         CancellationToken cancellationToken)
     {

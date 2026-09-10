@@ -17,7 +17,8 @@ internal sealed class ResponsesWebSocketTests
             connector,
             new Uri("https://api.example.test/v1/responses"),
             TimeSpan.FromSeconds(10),
-            ResponsesWebSocket.DefaultIdleTimeout);
+            ResponsesWebSocket.DefaultIdleTimeout,
+            new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes);
 
         await using var connection = await client.Connect(
             new Dictionary<string, string>(StringComparer.Ordinal) { ["Authorization"] = "Bearer key" },
@@ -59,7 +60,8 @@ internal sealed class ResponsesWebSocketTests
         await using var connection = new ResponsesWebSocket(
             socket,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
-            TimeSpan.FromSeconds(1));
+            TimeSpan.FromSeconds(1),
+            new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes);
         var request = ResponsesAdapter.Prepare(new LLMRequest
         {
             Model = "model",
@@ -97,7 +99,8 @@ internal sealed class ResponsesWebSocketTests
         await using var connection = new ResponsesWebSocket(
             socket,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
-            TimeSpan.FromSeconds(1));
+            TimeSpan.FromSeconds(1),
+            new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes);
         var state = new ResponsesAdapter.ParseState();
 
         async Task Consume()
@@ -119,7 +122,8 @@ internal sealed class ResponsesWebSocketTests
         await using var connection = new ResponsesWebSocket(
             socket,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
-            TimeSpan.FromMinutes(1));
+            TimeSpan.FromMinutes(1),
+            new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes);
         var state = new ResponsesAdapter.ParseState();
         using var cancelled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cancelled.CancelAfter(TimeSpan.FromMilliseconds(10));
@@ -134,6 +138,95 @@ internal sealed class ResponsesWebSocketTests
 
         _ = await Assert.That(Consume).Throws<OperationCanceledException>();
         _ = await Assert.That(socket.Aborted).IsTrue();
+    }
+
+    [Test]
+    [Arguments(3, false)]
+    [Arguments(4, true)]
+    [Arguments(5, true)]
+    public async Task Request_limit_counts_encoded_bytes_before_sending(
+        int maximumRequestBytes,
+        bool accepted,
+        CancellationToken cancellationToken)
+    {
+        var request = Encoding.UTF8.GetBytes("éé");
+        using var socket = new ScriptedWebSocket([
+            new ScriptedFrame(Encoding.UTF8.GetBytes("{\"type\":\"response.completed\",\"response\":{\"output\":[]}}"), WebSocketMessageType.Text, true),
+        ]);
+        await using var connection = new ResponsesWebSocket(
+            socket,
+            new Dictionary<string, string>(StringComparer.Ordinal),
+            TimeSpan.FromSeconds(1),
+            maximumRequestBytes);
+
+        async Task Consume()
+        {
+            await foreach (var published in connection.Send(request, new ResponsesAdapter.ParseState(), cancellationToken))
+            {
+                _ = published;
+            }
+        }
+
+        if (accepted)
+        {
+            await Consume();
+        }
+        else
+        {
+            _ = await Assert.That(Consume).Throws<ProviderHttpException>().WithMessageContaining("exceeds 3 bytes");
+        }
+
+        _ = await Assert.That(socket.Sent.Length).IsEqualTo(accepted ? request.Length : 0);
+    }
+
+    [Test]
+    [Arguments(3, false)]
+    [Arguments(4, true)]
+    [Arguments(5, true)]
+    public async Task Http_request_limit_counts_encoded_bytes_before_sending(
+        int maximumRequestBytes,
+        bool accepted,
+        CancellationToken cancellationToken)
+    {
+        using var handler = new RecordingHttpHandler();
+        using var client = new HttpClient(handler, disposeHandler: false);
+
+        async Task Send()
+        {
+            await using var response = await HttpStreaming.OpenStream(
+                client,
+                new Uri("https://example.test/responses"),
+                Encoding.UTF8.GetBytes("éé"),
+                new Dictionary<string, string>(StringComparer.Ordinal),
+                TimeSpan.FromSeconds(1),
+                maximumRequestBytes,
+                cancellationToken);
+        }
+
+        if (accepted)
+        {
+            await Send();
+        }
+        else
+        {
+            _ = await Assert.That(Send).Throws<ProviderHttpException>().WithMessageContaining("exceeds 3 bytes");
+        }
+
+        _ = await Assert.That(handler.Calls).IsEqualTo(accepted ? 1 : 0);
+    }
+
+    private sealed class RecordingHttpHandler : HttpMessageHandler
+    {
+        public int Calls { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(string.Empty),
+            });
+        }
     }
 
     private sealed class RecordingConnector(WebSocket socket) : IResponsesWebSocketConnector

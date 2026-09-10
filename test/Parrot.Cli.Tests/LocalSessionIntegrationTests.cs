@@ -294,6 +294,7 @@ internal sealed class LocalSessionIntegrationTests
                 _webFetcher,
                 configuration.ToolDefinitions,
                 configuration.AgentTasks,
+                configuration.RequestLimits,
                 configuration.ReadOnlyExecCommandPrefixes,
                 router,
                 new CompositeSystemPromptProvider("test:integration", []),

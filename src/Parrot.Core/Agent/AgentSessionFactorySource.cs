@@ -13,6 +13,7 @@ internal sealed class AgentSessionFactorySource(
     WebFetcher webFetcher,
     ToolDefinitionCatalog toolDefinitions,
     AgentTaskConfig agentTasks,
+    RequestLimitsConfig requestLimits,
     IReadOnlyList<string> readOnlyExecCommandPrefixes,
     Llm.ModelRouter router,
     ISystemPromptProvider systemPromptProvider,
@@ -26,6 +27,7 @@ internal sealed class AgentSessionFactorySource(
             webFetcher,
             toolDefinitions,
             agentTasks,
+            requestLimits,
             readOnlyExecCommandPrefixes,
             router,
             new CompositeSystemPromptProvider(
