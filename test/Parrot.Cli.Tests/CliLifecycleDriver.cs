@@ -95,6 +95,8 @@ internal sealed class CliLifecycleDriver : IDisposable
 
     public bool InputRedirected { get; init; }
 
+    public TextWriter? OutputWriter { private get; init; }
+
     public void Resize(int columns) =>
         (_terminal ?? throw new InvalidOperationException("the enhanced terminal is not running")).Resize(columns);
 
@@ -185,7 +187,7 @@ internal sealed class CliLifecycleDriver : IDisposable
                 _enhancedRequest.Prompt,
                 InputRedirected,
                 Input,
-                _output,
+                OutputWriter ?? _output,
                 _error,
                 Attachments(_configuration),
                 _diagnostics.Log)
