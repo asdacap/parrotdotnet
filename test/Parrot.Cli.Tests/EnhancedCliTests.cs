@@ -1001,6 +1001,7 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(liveFrame).Contains("model");
         _ = await Assert.That(liveFrame).Contains("❯ x");
 
+        await driver.Sent(2, cancellationToken);
         driver.Input.End();
         _ = await driving;
     }

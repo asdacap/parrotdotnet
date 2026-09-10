@@ -67,6 +67,35 @@ internal sealed class BasicCliTests
     [Test]
     [Arguments(false)]
     [Arguments(true)]
+    public async Task Shutdown_cancels_an_in_progress_summary_without_hiding_output_failures(
+        bool failOutput,
+        CancellationToken cancellationToken)
+    {
+        using var output = new CancelledSummaryWriter(failOutput);
+        using var driver = new CliLifecycleDriver(false) { OutputWriter = output };
+        var running = driver.Drive(cancellationToken);
+        driver.Input.Type("hello");
+        await driver.Sent(1, cancellationToken);
+        await driver.Invoker.Publish(new Event { TurnEnded = new TurnEnded { FinishReason = "stop" } });
+        await output.SummaryStarted.Task.WaitAsync(cancellationToken);
+
+        driver.Input.End();
+
+        if (failOutput)
+        {
+            _ = await Assert.That(async () => await running.WaitAsync(cancellationToken)).Throws<IOException>();
+        }
+        else
+        {
+            _ = await Assert.That(await running.WaitAsync(cancellationToken)).IsEqualTo(CommandDispatcher.ExitSuccess);
+        }
+
+        _ = await Assert.That(output.SummaryCancelled).IsTrue();
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
     public async Task Empty_piped_input_does_not_create_a_session(bool acquired, CancellationToken cancellationToken)
     {
         var request = new Parrot.Cli.Enhanced.EnhancedChatRequest(new CreateSessionRequest(), string.Empty)
@@ -795,6 +824,38 @@ internal sealed class BasicCliTests
         }
 
         public PendingPermission Pending { get; }
+    }
+
+    private sealed class CancelledSummaryWriter(bool failOutput) : StringWriter
+    {
+        public TaskCompletionSource SummaryStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool SummaryCancelled { get; private set; }
+
+        public override async Task WriteLineAsync(ReadOnlyMemory<char> buffer, CancellationToken cancellationToken)
+        {
+            if (!buffer.Span.StartsWith("  turn ended", StringComparison.Ordinal))
+            {
+                await base.WriteLineAsync(buffer, cancellationToken);
+                return;
+            }
+
+            _ = SummaryStarted.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                SummaryCancelled = true;
+                if (failOutput)
+                {
+                    throw new IOException("Summary output failed.");
+                }
+
+                throw;
+            }
+        }
     }
 
     private sealed class FlushTrackingWriter : StringWriter

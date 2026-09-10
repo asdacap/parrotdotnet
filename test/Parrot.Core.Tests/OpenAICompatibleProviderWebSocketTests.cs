@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Parrot.Llm;
 using Parrot.Llm.Wire;
+using TUnit.Core.Enums;
 
 namespace Parrot.Core.Tests;
 
@@ -341,6 +342,7 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
 
     [Test]
     [Timeout(10_000)]
+    [ExecutionPriority(Priority.High)]
     public async Task Exhausted_transport_retries_fall_back_once_and_remain_isolated(
         CancellationToken cancellationToken)
     {
@@ -451,6 +453,7 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
 
     [Test]
     [Timeout(15_000)]
+    [ExecutionPriority(Priority.High)]
     public async Task Http_fallback_receives_a_fresh_transport_retry_budget(CancellationToken cancellationToken)
     {
         var connector = new ScriptedConnector([

@@ -102,7 +102,7 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
     public async Task Runs_are_owner_scoped_isolated_from_the_call_token_and_settle_with_the_catalog(
         CancellationToken cancellationToken)
     {
-        using var provider = new AgentTaskBlockingProvider();
+        using var provider = new SteppedProvider();
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
         await using var catalog = new AgentTaskRunCatalog(TestDiagnosticLog.Instance, cancellationToken);
@@ -128,7 +128,7 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
                 new AgentTaskConfig(1, true, TestModels.PromptTemplates),
                 new HistoryForkBoundary.AfterCompletedHistory(),
                 firstCompletion),
-            cancellationToken);
+            call.Token);
         owner.Start(
             new AgentTaskRunRequest(
                 "second",
@@ -143,18 +143,27 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
                 new AgentTaskConfig(1, true, TestModels.PromptTemplates),
                 new HistoryForkBoundary.AfterCompletedHistory(),
                 secondCompletion),
-            cancellationToken);
+            call.Token);
 
-        var admittedSnapshots = owner.Snapshot();
-        _ = await Assert.That(admittedSnapshots.All(snapshot => snapshot.Progress.Revision == 1UL)).IsTrue();
-        _ = await Assert.That(admittedSnapshots.All(snapshot => snapshot.Progress.RootNodes.Count == 1)).IsTrue();
-        _ = await Assert.That(admittedSnapshots.All(snapshot => snapshot.Progress.RootNodes.Single().Status == AgentTaskProgressStatus.Pending)).IsTrue();
-        await provider.WaitUntilArrived(cancellationToken);
+        var admittedSnapshots = _repository.Replay()
+            .Where(published => published.PayloadCase == Event.PayloadOneofCase.AgentTaskProgressSnapshot)
+            .Select(published => published.AgentTaskProgressSnapshot)
+            .GroupBy(snapshot => snapshot.OriginToolCallId, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .ToArray();
+        _ = await Assert.That(string.Join(',', admittedSnapshots.Select(snapshot => snapshot.OriginToolCallId).Order(StringComparer.Ordinal)))
+            .IsEqualTo("first,second");
+        _ = await Assert.That(admittedSnapshots.All(snapshot => snapshot.Revision == 1UL)).IsTrue();
+        _ = await Assert.That(admittedSnapshots.All(snapshot => snapshot.RootNodes.Count == 1)).IsTrue();
+        _ = await Assert.That(admittedSnapshots.All(snapshot => snapshot.RootNodes.Single().Status == AgentTaskProgressStatus.Pending)).IsTrue();
+        await provider.Arrived(cancellationToken);
+        await provider.Arrived(cancellationToken);
         await call.CancelAsync();
 
         var snapshots = owner.Snapshot();
         _ = await Assert.That(snapshots.All(snapshot => snapshot.Progress.Revision >= 1UL)).IsTrue();
         _ = await Assert.That(snapshots.All(snapshot => snapshot.Progress.RootNodes.Count == 1)).IsTrue();
+        _ = await Assert.That(snapshots.All(snapshot => snapshot.Progress.RootNodes.Single().Status == AgentTaskProgressStatus.Running)).IsTrue();
         _ = await Assert.That(string.Join(',', snapshots.Select(snapshot => snapshot.RunId)))
             .IsEqualTo("first,second");
         _ = await Assert.That(string.Join(',', snapshots.Select(snapshot => snapshot.Progress.OriginToolCallId)))

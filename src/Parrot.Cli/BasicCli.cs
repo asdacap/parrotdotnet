@@ -769,9 +769,18 @@ internal sealed class BasicCli(
         private async Task CloseStream()
         {
             await _stream.Cancellation.CancelAsync().ConfigureAwait(false);
-            await _rendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-            _stream.Cancellation.Dispose();
-            _stream.Call.Dispose();
+            try
+            {
+                await _rendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (_stream.Cancellation.IsCancellationRequested)
+            {
+            }
+            finally
+            {
+                _stream.Cancellation.Dispose();
+                _stream.Call.Dispose();
+            }
         }
     }
 }

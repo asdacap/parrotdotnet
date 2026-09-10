@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using Parrot.Llm;
+using TUnit.Core.Enums;
 
 namespace Parrot.Core.Tests;
 
@@ -77,6 +78,7 @@ internal sealed class ModelsDevInformationProviderTests
 
     [Test]
     [Timeout(10_000)]
+    [ExecutionPriority(Priority.High)]
     public async Task Fetch_times_out_while_reading_the_response_body(CancellationToken cancellationToken)
     {
         using var handler = new RecordingHandler(static (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)

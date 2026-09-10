@@ -1,5 +1,6 @@
 using Parrot.Llm;
 using Parrot.Llm.Wire;
+using TUnit.Core.Enums;
 
 namespace Parrot.Core.Tests;
 
@@ -356,6 +357,7 @@ internal sealed class RetryingProviderTests
 
     [Test]
     [Timeout(15_000)]
+    [ExecutionPriority(Priority.High)]
     public async Task Exhausted_websocket_retries_preserve_the_unsupported_session_fallback_error(
         CancellationToken cancellationToken)
     {

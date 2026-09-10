@@ -309,7 +309,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             lifetime.Token);
         var process = owner.Start(
             "live-pipe",
-            "printf before; printf problem >&2; sleep 2; printf after",
+            """printf before; printf problem >&2; while [ ! -f "$WORKDIR/release" ]; do sleep 0.02; done; printf after""",
             ProcessEnvironmentOverrides.Empty,
             agent,
             SecurityProfile.Compose(readOnly: false, [], [], []),
@@ -335,6 +335,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         _ = await Assert.That(File.Exists(stdoutPath)).IsTrue();
         _ = await Assert.That(File.Exists(stderrPath)).IsTrue();
 
+        await File.WriteAllTextAsync(Path.Combine(_workspace, "release"), string.Empty, cancellationToken);
         var completed = await owner.Claim("live-pipe").Wait(null, cancellationToken);
         _ = await Assert.That(completed.Result?.Stdout).IsEqualTo("beforeafter");
         _ = await Assert.That(completed.Result?.Stderr).IsEqualTo("problem");
