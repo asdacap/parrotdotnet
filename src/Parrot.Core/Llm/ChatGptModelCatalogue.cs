@@ -2,9 +2,6 @@ namespace Parrot.Llm;
 
 internal static class ChatGptModelCatalogue
 {
-    private const int CodexContextWindow = 400_000;
-    private const int CodexMaxInputTokens = 272_000;
-    private const int CodexMaxOutputTokens = 128_000;
     private static readonly HashSet<string> ExplicitlyAllowed = new(StringComparer.Ordinal)
     {
         "gpt-5.5",
@@ -21,24 +18,6 @@ internal static class ChatGptModelCatalogue
 
     public static IReadOnlyList<LLMModel> FilterExternal(IReadOnlyList<LLMModel> models) =>
         [.. models.Where(model => Includes(model.Id)).Select(model => model with { ProviderId = ChatGptProvider.ProviderId })];
-
-    public static IReadOnlyList<LLMModel> ApplyLimits(IReadOnlyList<LLMModel> models) =>
-        [.. models.Select(ApplyLimits)];
-
-    private static LLMModel ApplyLimits(LLMModel model) =>
-        model.Id.Contains("gpt-5.5", StringComparison.Ordinal)
-            || model.Id.Contains("gpt-5.6", StringComparison.Ordinal)
-            ? model with
-            {
-                ContextWindow = CodexContextWindow,
-                MaxInputTokens = CodexMaxInputTokens,
-                MaxOutputTokens = CodexMaxOutputTokens,
-                Fields = model.Fields
-                    | ModelMetadataFields.ContextWindow
-                    | ModelMetadataFields.MaxInputTokens
-                    | ModelMetadataFields.MaxOutputTokens,
-            }
-            : model;
 
     private static bool Includes(string modelId)
     {

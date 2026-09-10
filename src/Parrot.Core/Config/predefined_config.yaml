@@ -1567,18 +1567,13 @@ subagents:
 providers:
   chatgpt:
     model_defaults:
-      gpt-5.4:
-        context: 400000
+      gpt-5.4: {}
       gpt-5.4-mini:
         name: GPT-5.4 Mini
-      gpt-5.5:
-        context: 400000
-      gpt-5.6-luna:
-        context: 500000
-      gpt-5.6-terra:
-        context: 500000
-      gpt-5.6-sol:
-        context: 500000
+      gpt-5.5: {}
+      gpt-5.6-luna: {}
+      gpt-5.6-terra: {}
+      gpt-5.6-sol: {}
   openai:
     type: openai-compatible
     protocol: responses
@@ -1586,18 +1581,13 @@ providers:
     api_key_env: OPENAI_API_KEY
     header_timeout_ms: 10000
     model_defaults:
-      gpt-5.4:
-        context: 400000
+      gpt-5.4: {}
       gpt-5.4-mini:
         name: GPT-5.4 Mini
-      gpt-5.5:
-        context: 400000
-      gpt-5.6-luna:
-        context: 500000
-      gpt-5.6-terra:
-        context: 500000
-      gpt-5.6-sol:
-        context: 500000
+      gpt-5.5: {}
+      gpt-5.6-luna: {}
+      gpt-5.6-terra: {}
+      gpt-5.6-sol: {}
   openrouter:
     protocol: chat-completions
     base_url: https://openrouter.ai/api/v1
@@ -1614,33 +1604,28 @@ providers:
     api_key_env: OPENCODE_GO_API_KEY
     header_timeout_ms: 10000
     model_defaults:
-      minimax-m3: { name: MiniMax M3, context: 1048576, max_tokens: 512000, reasoning: false }
+      minimax-m3: { name: MiniMax M3, reasoning: false }
       minimax-m2.7: { name: MiniMax M2.7, reasoning: false }
-      minimax-m2.5: { name: MiniMax M2.5, max_tokens: 196608, reasoning: false }
-      kimi-k3:
-        max_tokens: 0
+      minimax-m2.5: { name: MiniMax M2.5, reasoning: false }
+      kimi-k3: {}
       kimi-k2.7-code: { reasoning: false }
-      kimi-k2.6: { max_tokens: 262144, reasoning: false }
-      kimi-k2.5: { max_tokens: 262144, reasoning: false }
+      kimi-k2.6: { reasoning: false }
+      kimi-k2.5: { reasoning: false }
       glm-5.2:
         name: GLM 5.2
-        context: 1048576
-      glm-5.1: { name: GLM 5.1, max_tokens: 128000, reasoning: false }
-      glm-5: { name: GLM 5, context: 204800, max_tokens: 131072, reasoning: false }
+      glm-5.1: { name: GLM 5.1, reasoning: false }
+      glm-5: { name: GLM 5, reasoning: false }
       deepseek-v4-pro:
         name: DeepSeek V4 Pro
-        context: 1048576
-      deepseek-v4-flash:
-        context: 1048576
-        max_tokens: 0
+      deepseek-v4-flash: {}
       qwen3.7-max: { reasoning: false }
       qwen3.7-plus: { reasoning: false }
       qwen3.6-plus: { reasoning: false }
-      qwen3.5-plus: { context: 1000000, reasoning: false }
-      mimo-v2.5-pro: { max_tokens: 131072, reasoning: false }
-      mimo-v2.5: { context: 1048576, max_tokens: 131072, reasoning: false }
-      mimo-v2-pro: { context: 0, max_tokens: 0, reasoning: false }
-      mimo-v2-omni: { context: 0, max_tokens: 0, reasoning: false }
+      qwen3.5-plus: { reasoning: false }
+      mimo-v2.5-pro: { reasoning: false }
+      mimo-v2.5: { reasoning: false }
+      mimo-v2-pro: { reasoning: false }
+      mimo-v2-omni: { reasoning: false }
       hy3-preview:
         name: Hy3 Preview
         context: 262144
@@ -1652,8 +1637,7 @@ providers:
           high: { reasoning_effort: high }
           low: { reasoning_effort: low }
           none: { reasoning_effort: none }
-      grok-4.5:
-        max_tokens: 0
+      grok-4.5: {}
   kimi-code:
     protocol: chat-completions
     base_url: https://api.kimi.com/coding/v1

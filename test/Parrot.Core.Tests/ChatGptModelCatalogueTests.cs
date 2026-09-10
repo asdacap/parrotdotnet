@@ -47,7 +47,12 @@ internal sealed class ChatGptModelCatalogueTests
     }
 
     [Test]
-    public async Task Provider_unions_filtered_external_and_live_models_with_precedence_limits_and_prices(
+    [Arguments(false, 1_050_000, "gpt-5.5-astra,gpt-6-astra")]
+    [Arguments(true, 900_000, "gpt-4.1,gpt-5.5-astra,gpt-6-astra")]
+    public async Task Provider_preserves_merged_catalogue_limits_and_prices(
+        bool fetchLiveModels,
+        int expectedContextWindow,
+        string expectedModelIds,
         CancellationToken cancellationToken)
     {
         using var handler = new ModelsHandler();
@@ -58,7 +63,7 @@ internal sealed class ChatGptModelCatalogueTests
             {
                 ContextWindow = 1_050_000,
                 MaxInputTokens = 922_000,
-                MaxOutputTokens = 128_000,
+                MaxOutputTokens = 64_000,
                 InputPrice = 0.000005,
                 CachedInputPrice = 0.0000005,
                 OutputPrice = 0.00003,
@@ -101,16 +106,18 @@ internal sealed class ChatGptModelCatalogueTests
             false,
             new ResponsesWebSocketConnector());
 
-        var models = await provider.ListModels(cancellationToken);
+        var models = fetchLiveModels ? await provider.ListModels(cancellationToken) : provider.SeedModels();
         var codex = models.Single(model => model.Id == "gpt-5.5-astra");
-        var liveOld = models.Single(model => model.Id == "gpt-4.1");
 
-        _ = await Assert.That(string.Join(",", models.Select(model => model.Id)))
-            .IsEqualTo("gpt-4.1,gpt-5.5-astra,gpt-6-astra");
-        _ = await Assert.That(liveOld.Name).IsEqualTo("Live old model");
-        _ = await Assert.That(codex.ContextWindow).IsEqualTo(400_000);
-        _ = await Assert.That(codex.MaxInputTokens).IsEqualTo(272_000);
-        _ = await Assert.That(codex.MaxOutputTokens).IsEqualTo(128_000);
+        _ = await Assert.That(string.Join(",", models.Select(model => model.Id))).IsEqualTo(expectedModelIds);
+        if (fetchLiveModels)
+        {
+            _ = await Assert.That(models.Single(model => model.Id == "gpt-4.1").Name).IsEqualTo("Live old model");
+        }
+
+        _ = await Assert.That(codex.ContextWindow).IsEqualTo(expectedContextWindow);
+        _ = await Assert.That(codex.MaxInputTokens).IsEqualTo(922_000);
+        _ = await Assert.That(codex.MaxOutputTokens).IsEqualTo(64_000);
         _ = await Assert.That(codex.InputPrice).IsEqualTo(0.000007);
         _ = await Assert.That(codex.CachedInputPrice).IsEqualTo(0.0000005);
         _ = await Assert.That(codex.OutputPrice).IsEqualTo(0.00004);
