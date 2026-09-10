@@ -61,7 +61,14 @@ internal sealed class QuestionBroker : IDisposable
         {
             return [.. _pending
                 .OrderBy(item => item.Key, StringComparer.Ordinal)
-                .Select(item => new PendingQuestionRequest(item.Key, QuestionValidation.CopyQuestions(item.Value.Questions)))];
+                .Select(item =>
+                {
+                    var remaining = _timeout - _timeProvider.GetElapsedTime(item.Value.StartedTimestamp);
+                    long? remainingMilliseconds = _timeout == Timeout.InfiniteTimeSpan
+                        ? null : (long)Math.Ceiling(Math.Max(0, remaining.TotalMilliseconds));
+                    return new PendingQuestionRequest(
+                        item.Key, QuestionValidation.CopyQuestions(item.Value.Questions), remainingMilliseconds);
+                })];
         }
     }
 
@@ -140,11 +147,12 @@ internal sealed class QuestionBroker : IDisposable
     {
         var copied = QuestionValidation.CopyQuestions(questions);
         QuestionValidation.ValidateQuestions(copied);
-        var pending = new PendingRequest(copied);
+        PendingRequest pending;
 
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            pending = new PendingRequest(copied, _timeProvider.GetTimestamp());
             _pending.Add(id, pending);
         }
 
@@ -180,12 +188,14 @@ internal sealed class QuestionBroker : IDisposable
         }
     }
 
-    private sealed class PendingRequest(IReadOnlyList<QuestionDefinition> questions)
+    private sealed class PendingRequest(IReadOnlyList<QuestionDefinition> questions, long startedTimestamp)
     {
         private QuestionRejectedException? _failure;
         private QuestionReply? _outcome;
 
         public IReadOnlyList<QuestionDefinition> Questions { get; } = questions;
+
+        public long StartedTimestamp { get; } = startedTimestamp;
 
         public TaskCompletionSource<QuestionReply> Answer { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -1,3 +1,4 @@
 namespace Parrot.Questions;
 
-internal sealed record PendingQuestionRequest(string Id, IReadOnlyList<QuestionDefinition> Questions);
+internal sealed record PendingQuestionRequest(
+    string Id, IReadOnlyList<QuestionDefinition> Questions, long? RemainingTimeoutMilliseconds);

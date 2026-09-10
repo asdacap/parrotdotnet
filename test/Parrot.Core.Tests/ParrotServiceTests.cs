@@ -582,6 +582,41 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    [Arguments(1000, 250, 750L)]
+    [Arguments(1000, 1000, 0L)]
+    [Arguments(-1, 1000, null)]
+    public async Task In_process_questions_preserve_remaining_timeout_presence_and_value(
+        int timeoutMilliseconds, int elapsedMilliseconds, long? expectedRemaining, CancellationToken cancellationToken)
+    {
+        var time = new ControlledTimeProvider();
+        var sessions = new DirectAgentSessions();
+        await using var service = Service(StoreWithQuestionTiming(sessions, TimeSpan.FromMilliseconds(timeoutMilliseconds), time));
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+        var session = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection }, cancellationToken: cancellationToken);
+        var asking = sessions.Owners.Single().Questions.Ask(
+            [new Parrot.Questions.QuestionDefinition("Decision", "Pick a colour", ["Blue"], false, false)],
+            cancellationToken);
+
+        time.AdvanceClock(TimeSpan.FromMilliseconds(elapsedMilliseconds));
+        var listed = await client.ListPendingQuestionsAsync(
+            new ListPendingQuestionsRequest { UserSessionId = session.Id }, cancellationToken: cancellationToken);
+        var pending = listed.Questions.Single();
+        _ = await Assert.That(pending.HasRemainingTimeoutMs).IsEqualTo(expectedRemaining.HasValue);
+        _ = await Assert.That(pending.RemainingTimeoutMs).IsEqualTo(expectedRemaining.GetValueOrDefault());
+
+        _ = await client.ReplyQuestionAsync(
+            new ReplyQuestionRequest
+            {
+                UserSessionId = session.Id,
+                QuestionRequestId = pending.Id,
+                Answers = { new QuestionAnswer { Text = "Blue" } },
+            },
+            cancellationToken: cancellationToken);
+        _ = await Assert.That((await asking).Kind).IsEqualTo(Parrot.Questions.QuestionReplyKind.Answered);
+    }
+
+    [Test]
     public async Task In_process_permission_calls_map_pending_replies_and_errors(
         CancellationToken cancellationToken)
     {
@@ -1206,7 +1241,10 @@ internal sealed class ParrotServiceTests : IDisposable
 
     private SessionStore Store() => Store(new DirectAgentSessions());
 
-    private SessionStore Store(DirectAgentSessions sessions)
+    private SessionStore Store(DirectAgentSessions sessions) =>
+        StoreWithQuestionTiming(sessions, TimeSpan.FromSeconds(30), TimeProvider.System);
+
+    private SessionStore StoreWithQuestionTiming(DirectAgentSessions sessions, TimeSpan timeout, TimeProvider timeProvider)
     {
         sessions.Use(_router);
         return new(
@@ -1225,8 +1263,8 @@ internal sealed class ParrotServiceTests : IDisposable
                 TestModels.PromptTemplates,
                 new TestProfileFixture().Registry,
                 new SkillCatalogFactory(_configuration, _root, Path.Combine(_root, "packaged-skills")),
-                TimeSpan.FromSeconds(30),
-                TimeProvider.System),
+                timeout,
+                timeProvider),
             _router,
             new ModeRegistry(
                 new ProfileRegistry(

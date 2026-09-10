@@ -30,6 +30,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
 
     private IReadOnlyList<ILiveBufferItem> _body = [];
     private IReadOnlyList<ILiveBufferItem> _input;
+    private long? _questionRemainingSeconds;
     private string _mainAgentActivity = string.Empty;
     private string _modelineActivity = string.Empty;
     private RunningDuration? _rootTurnDuration;
@@ -144,6 +145,25 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
         {
             _input = [.. items];
             await DrawFrame(CancellationToken.None).ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = _composing.Release();
+        }
+    }
+
+    internal async Task UpdateQuestionCountdown(long? remainingSeconds, CancellationToken cancellationToken)
+    {
+        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_questionRemainingSeconds == remainingSeconds)
+            {
+                return;
+            }
+
+            _questionRemainingSeconds = remainingSeconds;
+            _ = _updates.Invalidate();
         }
         finally
         {
@@ -289,7 +309,11 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
     }
 
     private IReadOnlyList<ILiveBufferItem> Snapshot() =>
-        [.. _body, CreateModeline(), .. _input];
+        [.. _body, CreateModeline(),
+            .. _questionRemainingSeconds is { } remainingSeconds
+                ? new ILiveBufferItem[] { new QuestionCountdownValue(remainingSeconds) }
+                : [],
+            .. _input];
 
     private ModelineValue CreateModeline()
     {

@@ -168,6 +168,41 @@ internal sealed class QuestionBrokerTests
             .Throws<ObjectDisposedException>();
     }
 
+    [Test]
+    [Arguments(1000, 1, 1000L)]
+    [Arguments(1000, 2500001, 750L)]
+    [Arguments(1000, 10000000, 0L)]
+    [Arguments(1000, 11000000, 0L)]
+    [Arguments(-1, 11000000, null)]
+    public async Task Pending_timing_preserves_the_original_deadline(
+        int timeoutMilliseconds, long elapsedTicks, long? expectedRemaining, CancellationToken cancellationToken)
+    {
+        var time = new ControlledTimeProvider();
+        using var broker = new QuestionBroker(TimeSpan.FromMilliseconds(timeoutMilliseconds), time, TestDiagnosticLog.Instance);
+        var asking = broker.Ask([new QuestionDefinition("colour", "Pick a colour", ["Blue"], false, false)], cancellationToken);
+        var pending = await WaitForPending(broker, cancellationToken);
+        _ = await Assert.That(pending.RemainingTimeoutMilliseconds)
+            .IsEqualTo(timeoutMilliseconds == -1 ? null : (long?)timeoutMilliseconds);
+
+        time.AdvanceClock(TimeSpan.FromTicks(elapsedTicks));
+        _ = await Assert.That(broker.Pending().Single().RemainingTimeoutMilliseconds).IsEqualTo(expectedRemaining);
+        _ = await Assert.That(broker.Pending().Single().RemainingTimeoutMilliseconds).IsEqualTo(expectedRemaining);
+        _ = await Assert.That(asking.IsCompleted).IsFalse();
+
+        if (timeoutMilliseconds == -1)
+        {
+            broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("Blue")]));
+            _ = await Assert.That((await asking).Kind).IsEqualTo(QuestionReplyKind.Answered);
+        }
+        else
+        {
+            time.Advance(TimeSpan.FromTicks(Math.Max(0, (timeoutMilliseconds * TimeSpan.TicksPerMillisecond) - elapsedTicks)));
+            _ = await Assert.That((await asking).Kind).IsEqualTo(QuestionReplyKind.UserAway);
+        }
+
+        _ = await Assert.That(broker.Pending()).IsEmpty();
+    }
+
     private static async Task<PendingQuestionRequest> WaitForPending(
         QuestionBroker broker,
         CancellationToken cancellationToken)

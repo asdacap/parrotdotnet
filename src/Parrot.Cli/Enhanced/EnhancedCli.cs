@@ -517,6 +517,7 @@ internal sealed class EnhancedCli(
                         questionRequest.UserSessionId,
                         questionRequest.Pending,
                         dialog,
+                        renderingSession.UpdateQuestionCountdown,
                         cancellationToken).ConfigureAwait(false);
                     await DrawPrompt(CancellationToken.None).ConfigureAwait(false);
                     continue;
@@ -688,13 +689,16 @@ internal sealed class EnhancedCli(
         string userSessionId,
         PendingQuestion pending,
         ISlashDialog dialog,
+        Func<long?, CancellationToken, Task> updateCountdown,
         CancellationToken cancellationToken)
     {
         using var lifetime = new PendingQuestionLifetime(
             client,
             userSessionId,
             pending.Id,
-            QuestionReconciliationInterval);
+            QuestionReconciliationInterval,
+            timeProvider,
+            updateCountdown);
         using var monitoring = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var interaction = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,
@@ -708,6 +712,8 @@ internal sealed class EnhancedCli(
 
         try
         {
+            await lifetime.WaitUntilReady(interaction.Token).ConfigureAwait(false);
+            interaction.Token.ThrowIfCancellationRequested();
             foreach (var question in pending.Questions)
             {
                 const string customId = "__custom__";
@@ -885,7 +891,14 @@ internal sealed class EnhancedCli(
         async Task StopReconciling()
         {
             await monitoring.CancelAsync().ConfigureAwait(false);
-            await reconciling.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                await reconciling.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                await updateCountdown(null, CancellationToken.None).ConfigureAwait(false);
+            }
         }
     }
 

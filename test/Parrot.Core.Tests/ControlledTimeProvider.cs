@@ -50,6 +50,15 @@ internal sealed class ControlledTimeProvider : TimeProvider
         await signal.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public void AdvanceClock(TimeSpan duration)
+    {
+        lock (_gate)
+        {
+            _utcNow += duration;
+            _timestamp += duration.Ticks;
+        }
+    }
+
     public void Advance(TimeSpan duration)
     {
         ControlledTimer[] due;

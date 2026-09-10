@@ -445,8 +445,10 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
     public async Task Multiple_choice_question_replies_with_selected_labels_in_option_order(
-        CancellationToken cancellationToken)
+        bool timed, CancellationToken cancellationToken)
     {
         using var driver = new CliLifecycleDriver(enhanced: true);
         var running = driver.Drive(cancellationToken);
@@ -463,12 +465,23 @@ internal sealed class EnhancedCliTests
             Options = { "One", "Two", "Three" },
             Multiple = true,
         });
+        if (timed)
+        {
+            pending.RemainingTimeoutMs = 3000;
+        }
+
         driver.Invoker.AddPendingQuestion(pending);
 
         await driver.OutputContains("Pick colours", cancellationToken);
         var beforeSecondPicker = driver.Output.Length;
         driver.Input.Type(string.Empty);
         await driver.OutputContainsAfter(beforeSecondPicker, "Two", cancellationToken);
+        if (timed)
+        {
+            driver.Invoker.UpdateQuestionTimeout(pending.Id, 1000);
+            await driver.OutputContainsAfter(beforeSecondPicker, "Auto-return in 0:01", cancellationToken);
+        }
+
         var beforeDonePicker = driver.Output.Length;
         driver.Input.Type(string.Empty);
         await driver.OutputContainsAfter(beforeDonePicker, "Done", cancellationToken);
@@ -482,6 +495,85 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(reply.QuestionRequestId).IsEqualTo("question-request");
         _ = await Assert.That(reply.Answers.Single().Text).IsEqualTo("One, Two");
 
+        driver.Input.End();
+        _ = await running;
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Question_countdown_updates_while_idle_preserves_answers_and_clears(
+        bool custom, CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var running = driver.Drive(cancellationToken);
+        driver.Input.Type("ask twice");
+        await driver.Sent(1, cancellationToken);
+        await PublishQuestionStart(driver);
+        await WaitForQuestionList(driver, 1, cancellationToken);
+        var pending = new QuestionFixture("question-request", "First choice").Pending;
+        pending.RemainingTimeoutMs = 65000;
+        pending.Questions.Add(new QuestionDefinition
+        {
+            Header = "Question",
+            Prompt = "Second choice",
+            Options = { "Two" },
+            Custom = custom,
+        });
+        driver.Invoker.AddPendingQuestion(pending);
+        await driver.OutputContains("Auto-return in 1:05", cancellationToken);
+        driver.Input.Type(string.Empty);
+        await driver.OutputContains("Second choice", cancellationToken);
+        if (custom)
+        {
+            driver.Input.Type("Custom");
+            await driver.OutputContains("Custom answer", cancellationToken);
+        }
+
+        var beforeUpdate = driver.Output.Length;
+        driver.Invoker.UpdateQuestionTimeout(pending.Id, 0);
+        await driver.OutputContainsAfter(beforeUpdate, "Auto-return in 0:00", cancellationToken);
+        _ = await Assert.That(driver.Invoker.QuestionReplies).IsEmpty();
+        _ = await Assert.That(driver.Invoker.QuestionRejections).IsEmpty();
+        driver.Input.Type(custom ? "typed answer" : string.Empty);
+        while (driver.Invoker.QuestionReplies.Count == 0)
+        {
+            await Task.Delay(1, cancellationToken);
+        }
+
+        var answers = driver.Invoker.QuestionReplies.Single().Answers;
+        _ = await Assert.That(answers.Count).IsEqualTo(2);
+        _ = await Assert.That(answers[0].Text).IsEqualTo("One");
+        _ = await Assert.That(answers[1].Text).IsEqualTo(custom ? "typed answer" : "Two");
+        var afterReply = driver.Output.Length;
+        driver.Input.Type("after question");
+        await driver.Sent(2, cancellationToken);
+        _ = await Assert.That(driver.Output[afterReply..]).DoesNotContain("Auto-return in");
+        driver.Input.End();
+        _ = await running;
+    }
+
+    [Test]
+    public async Task Queued_question_uses_fresh_countdown_instead_of_discovery_snapshot(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        driver.Invoker.AddPendingQuestion(new QuestionFixture("question-a", "Active choice").Pending);
+        var queued = new QuestionFixture("question-b", "Queued choice").Pending;
+        queued.RemainingTimeoutMs = 90000;
+        driver.Invoker.AddPendingQuestion(queued);
+        var running = driver.Drive(cancellationToken);
+        driver.Input.Type("ask twice");
+        await driver.Sent(1, cancellationToken);
+        await PublishQuestionStart(driver);
+        await driver.OutputContains("Active choice", cancellationToken);
+        driver.Invoker.UpdateQuestionTimeout(queued.Id, 4000);
+        driver.Invoker.RemovePendingQuestion("question-a");
+        await driver.OutputContains("Queued choice", cancellationToken);
+        await driver.OutputContains("Auto-return in 0:04", cancellationToken);
+        _ = await Assert.That(driver.Output).DoesNotContain("Auto-return in 1:30");
+        driver.Invoker.RemovePendingQuestion(queued.Id);
+        var afterSettlement = driver.Output.Length;
+        await driver.OutputContainsAfter(afterSettlement, "\u001b[2K❯ ", cancellationToken);
         driver.Input.End();
         _ = await running;
     }

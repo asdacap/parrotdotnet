@@ -987,6 +987,11 @@ internal sealed class ParrotService(
     private static PendingQuestion ToProtocol(PendingQuestionRequest request)
     {
         var pending = new PendingQuestion { Id = request.Id };
+        if (request.RemainingTimeoutMilliseconds is { } remainingTimeoutMilliseconds)
+        {
+            pending.RemainingTimeoutMs = remainingTimeoutMilliseconds;
+        }
+
         pending.Questions.AddRange(request.Questions.Select(question =>
         {
             var converted = new QuestionDefinition

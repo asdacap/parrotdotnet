@@ -361,6 +361,7 @@ message ListPendingQuestionsResponse {
 message PendingQuestion {
   string id = 1;
   repeated QuestionDefinition questions = 2;
+  optional int64 remaining_timeout_ms = 3;
 }
 
 message QuestionDefinition {

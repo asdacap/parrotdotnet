@@ -8,6 +8,45 @@ namespace Parrot.Cli.Tests;
 internal sealed class EnhancedRenderingSessionTests
 {
     [Test]
+    [Arguments(20)]
+    [Arguments(80)]
+    public async Task Question_countdown_preserves_input_and_clears_without_another_key(
+        int columns, CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var terminal = new TestTerminal(driver.Input, output, error, columns);
+        var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
+        var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
+        await using var session = new EnhancedRenderingSession(
+            new EnhancedTurnRenderer(terminal, configuration, presenters),
+            presenters,
+            new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(false), 1, 1, true),
+            new TestSlashSession("provider/model"),
+            [new PromptValue("> ", "typed answer", 4)],
+            static (_, _) => Task.CompletedTask,
+            static _ => Task.CompletedTask,
+            static _ => Task.CompletedTask,
+            static () => false,
+            static (_, _) => Task.CompletedTask,
+            false);
+        await session.UpdateQuestionCountdown(61, cancellationToken);
+        await session.Refresh(cancellationToken);
+        _ = await Assert.That(output.ToString()).Contains("Auto-return in 1:01");
+        _ = await Assert.That(output.ToString()).Contains("typed answer");
+        await session.UpdateQuestionCountdown(60, cancellationToken);
+        await session.Refresh(cancellationToken);
+        _ = await Assert.That(output.ToString()).Contains("Auto-return in 1:00");
+        var beforeClear = output.GetStringBuilder().Length;
+        await session.UpdateQuestionCountdown(null, cancellationToken);
+        await session.Refresh(cancellationToken);
+        var cleared = output.ToString()[beforeClear..];
+        _ = await Assert.That(cleared).DoesNotContain("Auto-return in");
+        _ = await Assert.That(cleared).Contains("typed answer");
+    }
+
+    [Test]
     public async Task Live_usage_is_modeline_only_aggregates_all_agents_and_resets(
         CancellationToken cancellationToken)
     {

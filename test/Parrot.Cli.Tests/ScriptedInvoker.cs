@@ -38,6 +38,8 @@ internal sealed class ScriptedInvoker : CallInvoker
     private int _pendingQuestionLists;
     private int _pendingPermissionLists;
 
+    public bool FailQuestionListing { get; set; }
+
     public IReadOnlyList<string> Sent
     {
         get
@@ -307,6 +309,22 @@ internal sealed class ScriptedInvoker : CallInvoker
         }
     }
 
+    public void UpdateQuestionTimeout(string requestId, long? remainingMilliseconds)
+    {
+        lock (_gate)
+        {
+            var pending = GetPendingQuestions("session-1").Single(question => question.Id == requestId);
+            if (remainingMilliseconds is { } milliseconds)
+            {
+                pending.RemainingTimeoutMs = milliseconds;
+            }
+            else
+            {
+                pending.ClearRemainingTimeoutMs();
+            }
+        }
+    }
+
     public void RemovePendingQuestion(string requestId)
     {
         lock (_gate)
@@ -494,6 +512,11 @@ internal sealed class ScriptedInvoker : CallInvoker
                 lock (_gate)
                 {
                     _pendingQuestionLists++;
+                    if (FailQuestionListing)
+                    {
+                        throw new RpcException(new Status(StatusCode.Unavailable, "Question listing unavailable"));
+                    }
+
                     listedQuestions.Questions.Add(GetPendingQuestions(listQuestions.UserSessionId).Select(question => question.Clone()));
                 }
 
