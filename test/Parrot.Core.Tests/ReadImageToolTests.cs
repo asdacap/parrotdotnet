@@ -58,6 +58,40 @@ internal sealed class ReadImageToolTests : IDisposable
     }
 
     [Test]
+    public async Task Reads_renamed_identical_images_using_the_first_artifact(CancellationToken cancellationToken)
+    {
+        var imageBytes = Png();
+        await File.WriteAllBytesAsync(Path.Combine(_root, "pixel.png"), imageBytes, cancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(_root, "renamed.png"), imageBytes, cancellationToken);
+        ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images);
+        var selection = new SelectionFixture(SecurityProfile.Compose(false, [], [], [])).Selection;
+        var originalResult = await tool.Execute(
+            new ToolInvocation("original-call", "{\"path\":\"pixel.png\"}"),
+            selection,
+            cancellationToken);
+        var renamedResult = await tool.Execute(
+            new ToolInvocation("renamed-call", "{\"path\":\"renamed.png\"}"),
+            selection,
+            cancellationToken);
+
+        _ = await Assert.That(originalResult.Text).IsEqualTo("image read");
+        _ = await Assert.That(renamedResult.Text).IsEqualTo("image read");
+        _ = await Assert.That(originalResult.ImageArtifacts).Count().IsEqualTo(1);
+        _ = await Assert.That(renamedResult.ImageArtifacts).Count().IsEqualTo(1);
+        var originalArtifact = originalResult.ImageArtifacts[0];
+        var renamedArtifact = renamedResult.ImageArtifacts[0];
+        _ = await Assert.That(renamedArtifact.ArtifactId).IsEqualTo(originalArtifact.ArtifactId);
+        _ = await Assert.That(renamedArtifact).IsEqualTo(originalArtifact);
+        _ = await Assert.That(renamedArtifact.DisplayName).IsEqualTo("pixel.png");
+        _ = await Assert.That(renamedArtifact.Origin).IsEqualTo("read_image");
+
+        await using var stored = _resources.Images.Open(renamedArtifact.ArtifactId);
+        using var storedBytes = new MemoryStream();
+        await stored.CopyToAsync(storedBytes, cancellationToken);
+        _ = await Assert.That(Convert.ToHexString(storedBytes.ToArray())).IsEqualTo(Convert.ToHexString(imageBytes));
+    }
+
+    [Test]
     [Arguments(0)]
     [Arguments(1)]
     public async Task Enforces_original_byte_budget_and_latches_until_a_new_cycle(
