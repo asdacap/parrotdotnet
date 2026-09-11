@@ -1,6 +1,7 @@
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Llm;
+using Scriban.Runtime;
 
 namespace Parrot.Context;
 
@@ -16,20 +17,22 @@ internal sealed class ModelPrompt(IReadOnlyDictionary<string, string> augmentati
     {
         ArgumentNullException.ThrowIfNull(selection);
         var sections = new List<string>();
-        var aliases = selection.ResolvedModel.AliasSnapshot.Definitions.Values
-            .Where(alias => alias.ModelString.Length > 0)
-            .Select(alias => templates.Render("context.model-alias", [
-                new PromptTemplateArgument("name", alias.Name),
-                new PromptTemplateArgument("model", alias.ModelString),
-                new PromptTemplateArgument("usage", alias.Usage),
-            ]))
-            .ToArray();
-
-        if (aliases.Length > 0)
+        var aliases = new ScriptArray();
+        foreach (var alias in selection.ResolvedModel.AliasSnapshot.Definitions.Values
+            .Where(alias => alias.ModelString.Length > 0))
         {
-            sections.Add(templates.Render("context.model-aliases", [
-                new PromptTemplateArgument("aliases", string.Join('\n', aliases)),
-            ]));
+            aliases.Add(new ScriptObject
+            {
+                ["name"] = alias.Name,
+                ["model"] = alias.ModelString,
+                ["usage"] = alias.Usage,
+            });
+        }
+
+        if (aliases.Count > 0)
+        {
+            sections.Add(templates.RenderStructured(
+                "context.model-aliases", new ScriptObject { ["aliases"] = aliases }, CancellationToken.None));
         }
 
         var augmentation = Augmentation(selection.ResolvedModel);

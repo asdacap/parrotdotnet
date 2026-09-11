@@ -1,5 +1,5 @@
 using System.Collections.ObjectModel;
-using System.Text;
+using Scriban.Runtime;
 
 namespace Parrot.Config;
 
@@ -43,7 +43,7 @@ internal sealed class PromptTemplateCatalog
             throw new InvalidDataException($"prompt_templates.{id} is not defined");
         }
 
-        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        var values = new ScriptObject();
         foreach (var argument in arguments)
         {
             ArgumentNullException.ThrowIfNull(argument);
@@ -58,20 +58,34 @@ internal sealed class PromptTemplateCatalog
             }
         }
 
+        return RenderStructured(id, values, CancellationToken.None);
+    }
+
+    public string RenderStructured(string id, ScriptObject arguments, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        ArgumentNullException.ThrowIfNull(arguments);
+        if (!_templates.TryGetValue(id, out var template))
+        {
+            throw new InvalidDataException($"prompt_templates.{id} is not defined");
+        }
+
+        foreach (var argument in arguments)
+        {
+            if (!template.Allowed.Contains(argument.Key))
+            {
+                throw new InvalidDataException($"prompt_templates.{id} does not allow argument '{argument.Key}'");
+            }
+        }
+
         foreach (var required in template.Required)
         {
-            if (!values.ContainsKey(required))
+            if (!arguments.ContainsKey(required))
             {
                 throw new InvalidDataException($"prompt_templates.{id} requires argument '{required}'");
             }
         }
 
-        var result = new StringBuilder(template.Text.Length);
-        foreach (var part in template.Parts)
-        {
-            _ = result.Append(part.Placeholder is null ? part.Text : values[part.Placeholder]);
-        }
-
-        return result.ToString();
+        return template.Engine.Render(arguments, cancellationToken);
     }
 }

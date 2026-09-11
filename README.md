@@ -137,9 +137,28 @@ guarantee that accumulated conversation history fits the provider request limit.
 
 ### Prompt templates
 
-`prompt_templates` is a typed catalogue of stable, named model-facing templates. User configuration recursively overrides individual fields, so replacing only `prompt_templates.<id>.template` preserves its predefined argument declarations. Placeholders are named (`{argument}`), must be declared in `allowed_arguments`, and every name in `required_arguments` must be supplied when rendering. `{{` and `}}` produce literal braces. Substituted runtime values are inserted in one pass, so braces within those values remain literal.
+`prompt_templates` is a typed catalogue of stable, named model-facing templates. User configuration recursively overrides individual fields, so replacing only `prompt_templates.<id>.template` preserves its predefined argument declarations and engine. The optional `engine` field defaults to `scalar`: placeholders are named (`{argument}`), must be declared in `allowed_arguments`, and every name in `required_arguments` must be supplied when rendering. `{{` and `}}` produce literal braces. Substituted runtime values are inserted in one pass, so braces within those values remain literal.
 
-Malformed templates, unknown or repeated placeholders, undeclared or duplicate render arguments, and missing required arguments are rejected with the relevant `prompt_templates.<id>` configuration path.
+Malformed scalar templates, unknown or repeated placeholders, undeclared or duplicate render arguments, and missing required arguments are rejected with the relevant `prompt_templates.<id>` configuration path.
+
+`engine: scriban` selects Scriban 7.4.0 text templates, with `{{ value }}`, `{{ for item in items }}...{{ end }}`, and `{{ if condition }}...{{ else }}...{{ end }}`. Its argument declarations apply to top-level model names. Syntax errors include the configuration path; missing variables, members, and indexes fail strictly at render time. Rendering uses a fresh cancellation-aware context, with explicit script objects, arrays, and primitive values rather than reflected domain objects. Values containing braces or Scriban syntax remain literal. Loops are cancellation-aware without a fixed item limit; Scriban's default recursion limit remains in place for custom recursive functions and fails with an error rather than truncating output.
+
+Runtime status now uses one `status.runtime` Scriban template, rendered separately by the runtime-tree and AgentTask status providers (their status keys, availability, and ordering are unchanged). Its model has `section` (`tree` or `agent-tasks`), `agents`, and `runs`; the unused array is empty. Agents are in depth-first traversal order, with `indent`, `name`, `session_id`, ordered `queues` (`name`, culture-formatted `size`, JSON-escaped `description`, or empty), and ordered `processes` (`id`, `state`, `name`). Runs are ordered by ID and contain `run_id`, `display_name`, `owner_session_id`, invariant-formatted `revision`, and depth-first `nodes` (`indent`, `name`, `description`, `status`). Indentation reflects nesting; the template owns the visible labels, separators, and conditional descriptions.
+
+**Migration:** overrides of the retired `status.runtime.agent`, `.queue`, `.queue-description`, `.process`, `.agent-task`, and `.agent-task-node` fragments must move into `prompt_templates.status.runtime.template`. Old fragments are no longer rendered. A previous header-only `status.runtime` override must likewise be replaced with a complete Scriban template. The context and status templates listed below also use Scriban; other predefined templates retain scalar syntax.
+
+The following fragment groups are likewise consolidated. Existing overrides must move to the destination template and use Scriban syntax; retained destination keys now receive structured values instead of pre-rendered fragments.
+
+| Destination template | Retired keys | Model |
+| --- | --- | --- |
+| `context.subagents` | `context.subagents-none`, `context.subagents-header`, `context.subagent` | `subagents`: ordered array of `{id, usage}`; empty selects the no-subagents message. |
+| `context.model-aliases` | `context.model-alias` | `aliases`: ordered array of `{name, model, usage}` with configured model targets; omitted from the prompt when empty. |
+| `context.security-profile` | `context.security-rule` | `rules`: enforcement-ordered array of `{path, action}`; paths retain their existing escaped representation. |
+| `context.agent-path-environment` | `context.agent-path-environment-entry` | `entries`: descending-name-ordered array of `{name, path}`; paths retain their existing environment-variable references. |
+| `status.selection` | `status.selection.parent` | `profile`, `model`, `parent_session_id`, `parent_session_name`, `has_parent`, `has_parent_name`; parent presence uses the existing non-whitespace checks. |
+| `status.context` | `status.context-unavailable` | `available`, invariant-formatted `estimated_tokens`, `context_limit`, `cadence`, `trigger`, and `usage` when available. |
+
+These consolidations preserve the default messages, ordering, and availability. Retired keys are no longer rendered.
 
 Parrot writes an agent-readable `predefined_config.yaml` alongside the
 user-owned `config.yaml`. The user file is recursively layered over the

@@ -1,6 +1,7 @@
 using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Protocol;
+using Scriban.Runtime;
 
 namespace Parrot.Statuses;
 
@@ -21,22 +22,33 @@ internal sealed class AgentTaskStatusProvider(
             return ValueTask.FromResult(StatusObservation.Unavailable);
         }
 
-        var lines = new List<string>();
+        var runModels = new ScriptArray();
         foreach (var snapshot in snapshots.OrderBy(item => item.RunId, StringComparer.Ordinal))
         {
-            lines.Add(templates.Render("status.runtime.agent-task", [
-                new PromptTemplateArgument("run_id", snapshot.RunId),
-                new PromptTemplateArgument("display_name", snapshot.DisplayName),
-                new PromptTemplateArgument("owner_session_id", snapshot.OwnerAgentSessionId),
-                new PromptTemplateArgument("revision", snapshot.Progress.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture)),
-            ]));
+            var nodes = new ScriptArray();
             foreach (var node in snapshot.Progress.RootNodes)
             {
-                AppendNode(lines, node, 0);
+                AppendNode(nodes, node, 0);
             }
+
+            runModels.Add(new ScriptObject
+            {
+                ["run_id"] = snapshot.RunId,
+                ["display_name"] = snapshot.DisplayName,
+                ["owner_session_id"] = snapshot.OwnerAgentSessionId,
+                ["revision"] = snapshot.Progress.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["nodes"] = nodes,
+            });
         }
 
-        return ValueTask.FromResult(StatusObservation.AvailableText(string.Join('\n', lines)));
+        var model = new ScriptObject
+        {
+            ["section"] = "agent-tasks",
+            ["agents"] = new ScriptArray(),
+            ["runs"] = runModels,
+        };
+        return ValueTask.FromResult(StatusObservation.AvailableText(
+            templates.RenderStructured("status.runtime", model, cancellationToken)));
     }
 
     private static string Status(AgentTaskProgressStatus status) => status switch
@@ -50,19 +62,18 @@ internal sealed class AgentTaskStatusProvider(
         _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unknown AgentTask progress status."),
     };
 
-    private void AppendNode(List<string> lines, AgentTaskProgressNode node, int depth)
+    private static void AppendNode(ScriptArray nodes, AgentTaskProgressNode node, int depth)
     {
-        var indent = new string(' ', (depth + 1) * 2);
-        lines.Add(templates.Render("status.runtime.agent-task-node", [
-            new PromptTemplateArgument("indent", indent),
-            new PromptTemplateArgument("name", node.Name),
-            new PromptTemplateArgument("description", node.Description),
-            new PromptTemplateArgument("status", Status(node.Status)),
-        ]));
-
+        nodes.Add(new ScriptObject
+        {
+            ["indent"] = new string(' ', (depth + 1) * 2),
+            ["name"] = node.Name,
+            ["description"] = node.Description,
+            ["status"] = Status(node.Status),
+        });
         foreach (var child in node.Children)
         {
-            AppendNode(lines, child, depth + 1);
+            AppendNode(nodes, child, depth + 1);
         }
     }
 }

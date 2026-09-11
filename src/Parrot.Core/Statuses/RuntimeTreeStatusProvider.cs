@@ -3,6 +3,7 @@ using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Process;
 using Parrot.Queues;
+using Scriban.Runtime;
 
 namespace Parrot.Statuses;
 
@@ -22,9 +23,16 @@ internal sealed class RuntimeTreeStatusProvider(
         var activeAgents = agents.ActiveSnapshot();
         var activeProcesses = scopes.SelectMany(static scope => scope.Processes.Snapshot()).ToArray();
         var nodes = BuildNodes(query.SessionId, queueOwners, activeAgents, activeProcesses);
-        var lines = new List<string> { templates.Render("status.runtime", []) };
-        Append(lines, nodes, query.SessionId, 0, new HashSet<string>(StringComparer.Ordinal));
-        return ValueTask.FromResult(StatusObservation.AvailableText(string.Join('\n', lines)));
+        var agentModels = new ScriptArray();
+        Append(agentModels, nodes, query.SessionId, 0, new HashSet<string>(StringComparer.Ordinal));
+        var model = new ScriptObject
+        {
+            ["section"] = "tree",
+            ["agents"] = agentModels,
+            ["runs"] = new ScriptArray(),
+        };
+        return ValueTask.FromResult(StatusObservation.AvailableText(
+            templates.RenderStructured("status.runtime", model, cancellationToken)));
     }
 
     private static Dictionary<string, Node> BuildNodes(
@@ -98,49 +106,48 @@ internal sealed class RuntimeTreeStatusProvider(
         _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown active work state."),
     };
 
-    private void Append(List<string> lines, Dictionary<string, Node> nodes, string sessionId, int depth, HashSet<string> seen)
+    private static void Append(ScriptArray agentModels, Dictionary<string, Node> nodes, string sessionId, int depth, HashSet<string> seen)
     {
         if (!seen.Add(sessionId) || !nodes.TryGetValue(sessionId, out var node))
         {
             return;
         }
 
-        var indent = new string(' ', depth * 2);
-        lines.Add(templates.Render("status.runtime.agent", [
-            new PromptTemplateArgument("indent", indent),
-            new PromptTemplateArgument("name", node.Name),
-            new PromptTemplateArgument("session_id", node.SessionId),
-        ]));
+        var queues = new ScriptArray();
         foreach (var queue in node.Queues.OrderBy(queue => queue.Name, StringComparer.Ordinal))
         {
-            var description = string.IsNullOrEmpty(queue.Description)
-                ? string.Empty
-                : templates.Render("status.runtime.queue-description", [
-                    new PromptTemplateArgument(
-                        "description",
-                        JsonSerializer.Serialize(queue.Description, StatusJsonContext.Default.String)),
-                ]);
-            lines.Add(templates.Render("status.runtime.queue", [
-                new PromptTemplateArgument("indent", indent),
-                new PromptTemplateArgument("name", queue.Name),
-                new PromptTemplateArgument("size", queue.Size.ToString(System.Globalization.CultureInfo.CurrentCulture)),
-                new PromptTemplateArgument("description", description),
-            ]));
+            queues.Add(new ScriptObject
+            {
+                ["name"] = queue.Name,
+                ["size"] = queue.Size.ToString(System.Globalization.CultureInfo.CurrentCulture),
+                ["description"] = string.IsNullOrEmpty(queue.Description)
+                    ? string.Empty
+                    : JsonSerializer.Serialize(queue.Description, StatusJsonContext.Default.String),
+            });
         }
 
+        var processes = new ScriptArray();
         foreach (var process in node.Processes.OrderBy(process => process.ProcessId, StringComparer.Ordinal))
         {
-            lines.Add(templates.Render("status.runtime.process", [
-                new PromptTemplateArgument("indent", indent),
-                new PromptTemplateArgument("id", process.Id),
-                new PromptTemplateArgument("state", State(process.State)),
-                new PromptTemplateArgument("name", process.Name),
-            ]));
+            processes.Add(new ScriptObject
+            {
+                ["id"] = process.Id,
+                ["state"] = State(process.State),
+                ["name"] = process.Name,
+            });
         }
 
+        agentModels.Add(new ScriptObject
+        {
+            ["indent"] = new string(' ', depth * 2),
+            ["name"] = node.Name,
+            ["session_id"] = node.SessionId,
+            ["queues"] = queues,
+            ["processes"] = processes,
+        });
         foreach (var child in node.Children.OrderBy(child => child.SessionId, StringComparer.Ordinal))
         {
-            Append(lines, nodes, child.SessionId, depth + 1, seen);
+            Append(agentModels, nodes, child.SessionId, depth + 1, seen);
         }
     }
 

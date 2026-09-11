@@ -789,7 +789,7 @@ internal sealed partial class Configuration(string path)
                 throw new InvalidDataException($"{path} must be a mapping");
             }
 
-            ValidateKeys(fields, path, "template", "allowed_arguments", "required_arguments");
+            ValidateKeys(fields, path, "template", "allowed_arguments", "required_arguments", "engine");
             var text = NonEmptyScalar(fields, "template", $"{path}.template");
             var allowed = ReadTemplateArguments(fields, "allowed_arguments", path);
             var required = ReadTemplateArguments(fields, "required_arguments", path);
@@ -798,7 +798,16 @@ internal sealed partial class Configuration(string path)
                 throw new InvalidDataException($"{path}.required_arguments must be included in allowed_arguments");
             }
 
-            templates.Add(id, new PromptTemplate(path, text, allowed, required));
+            var engineName = Child(fields, "engine", out _)
+                ? NonEmptyScalar(fields, "engine", $"{path}.engine")
+                : "scalar";
+            IPromptTemplateEngine engine = engineName switch
+            {
+                "scalar" => new ScalarPromptTemplateEngine(path, text, allowed),
+                "scriban" => new ScribanPromptTemplateEngine(path, text),
+                _ => throw new InvalidDataException($"{path}.engine must be scalar or scriban"),
+            };
+            templates.Add(id, new PromptTemplate(allowed, required, engine));
         }
 
         return new PromptTemplateCatalog(templates);

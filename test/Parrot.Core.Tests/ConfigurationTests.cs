@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using Parrot.Config;
 using Parrot.Security;
+using Scriban.Runtime;
 
 namespace Parrot.Core.Tests;
 
@@ -1833,6 +1834,134 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(missing.Message).Contains("requires argument 'working_directory'");
         _ = await Assert.That(unknown.Message).Contains("does not allow argument 'other'");
         _ = await Assert.That(duplicate.Message).Contains("duplicate argument 'working_directory'");
+    }
+
+    [Test]
+    [Arguments(true, "{{ hostile }} {value}\nnext;{{ hostile }} {value}\nnext;")]
+    [Arguments(false, "hidden")]
+    public async Task Structured_templates_support_custom_loops_conditions_and_literal_values(bool visible, string expected)
+    {
+        var templates = Load(Write("""
+            prompt_templates:
+              custom.structured:
+                engine: scriban
+                template: '{{ if visible }}{{ for item in items }}{{ item.name }};{{ end }}{{ else }}hidden{{ end }}'
+                allowed_arguments: [visible, items]
+                required_arguments: [visible, items]
+            """)).PromptTemplates;
+        var model = new ScriptObject
+        {
+            ["visible"] = visible,
+            ["items"] = new ScriptArray
+            {
+                new ScriptObject { ["name"] = "{{ hostile }} {value}\nnext" },
+                new ScriptObject { ["name"] = "{{ hostile }} {value}\nnext" },
+            },
+        };
+
+        _ = await Assert.That(templates.RenderStructured("custom.structured", model, CancellationToken.None))
+            .IsEqualTo(expected);
+        _ = await Assert.That(templates.RenderStructured("custom.structured", model, CancellationToken.None))
+            .IsEqualTo(expected);
+        var manyItems = new ScriptArray();
+        for (var index = 0; index < 1001; index++)
+        {
+            manyItems.Add(new ScriptObject { ["name"] = "x" });
+        }
+
+        model["items"] = manyItems;
+        model["visible"] = true;
+        _ = await Assert.That(templates.RenderStructured("custom.structured", model, CancellationToken.None))
+            .IsEqualTo(string.Concat(Enumerable.Repeat("x;", 1001)));
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+        _ = Assert.Throws<OperationCanceledException>(() =>
+            templates.RenderStructured("custom.structured", model, cancellation.Token));
+    }
+
+    [Test]
+    public async Task Runtime_template_formats_nested_task_graphs_and_literal_descriptions()
+    {
+        var model = new ScriptObject
+        {
+            ["section"] = "agent-tasks",
+            ["agents"] = new ScriptArray(),
+            ["runs"] = new ScriptArray
+            {
+                new ScriptObject
+                {
+                    ["run_id"] = "first",
+                    ["display_name"] = "graph {{ name }}",
+                    ["owner_session_id"] = "root",
+                    ["revision"] = "1234",
+                    ["nodes"] = new ScriptArray
+                    {
+                        new ScriptObject { ["indent"] = "  ", ["name"] = "parent", ["status"] = "running", ["description"] = "Parent" },
+                        new ScriptObject { ["indent"] = "    ", ["name"] = "child", ["status"] = "pending", ["description"] = "{{ hostile }}\nnext" },
+                    },
+                },
+                new ScriptObject
+                {
+                    ["run_id"] = "second",
+                    ["display_name"] = "second",
+                    ["owner_session_id"] = "root",
+                    ["revision"] = "2",
+                    ["nodes"] = new ScriptArray(),
+                },
+            },
+        };
+
+        _ = await Assert.That(TestModels.PromptTemplates.RenderStructured("status.runtime", model, CancellationToken.None))
+            .IsEqualTo("""
+                - AgentTask graph: first (name: graph {{ name }}, owner: root, revision: 1234)
+                  - task: parent (running, description: Parent)
+                    - task: child (pending, description: {{ hostile }}
+                next)
+                - AgentTask graph: second (name: second, owner: root, revision: 2)
+                """);
+    }
+
+    [Test]
+    [Arguments("{{ missing }}")]
+    [Arguments("{{ items[0].missing }}")]
+    [Arguments("{{ items[1] }}")]
+    public async Task Structured_templates_report_missing_values_with_configuration_path(string text)
+    {
+        var templates = Load(Write($"""
+            prompt_templates:
+              custom.structured:
+                engine: scriban
+                template: '{text}'
+                allowed_arguments: [items]
+                required_arguments: [items]
+            """)).PromptTemplates;
+        var model = new ScriptObject { ["items"] = new ScriptArray { new ScriptObject() } };
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            templates.RenderStructured("custom.structured", model, CancellationToken.None));
+        _ = await Assert.That(exception.Message).StartsWith("prompt_templates.custom.structured.template");
+        var missing = Assert.Throws<InvalidDataException>(() =>
+            templates.RenderStructured("custom.structured", [], CancellationToken.None));
+        _ = await Assert.That(missing.Message).Contains("requires argument 'items'");
+        model["items"] = new ScriptArray { new Version(1, 0) };
+        var unsupported = Assert.Throws<InvalidDataException>(() =>
+            templates.RenderStructured("custom.structured", model, CancellationToken.None));
+        _ = await Assert.That(unsupported.Message).Contains("primitive script values");
+    }
+
+    [Test]
+    [Arguments("scriban", "{{ for item in items }}")]
+    [Arguments("unknown", "text")]
+    public async Task Invalid_template_engines_and_syntax_report_configuration_path(string engine, string text)
+    {
+        var exception = Assert.Throws<InvalidDataException>(() => Load(Write($"""
+            prompt_templates:
+              custom.structured:
+                engine: {engine}
+                template: '{text}'
+                allowed_arguments: []
+                required_arguments: []
+            """)));
+        _ = await Assert.That(exception.Message).StartsWith("prompt_templates.custom.structured.");
     }
 
     private Configuration Load(string path) =>
