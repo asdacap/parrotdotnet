@@ -1,5 +1,4 @@
 using Parrot.Agent;
-using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Llm;
@@ -16,26 +15,13 @@ internal sealed class RuntimeStatus
         IAgentRegistry agents,
         PromptTemplateCatalog templates,
         TimeProvider timeProvider)
-        : this(agents, templates, timeProvider, null)
-    {
-    }
-
-    public RuntimeStatus(
-        IAgentRegistry agents,
-        PromptTemplateCatalog templates,
-        TimeProvider timeProvider,
-        AgentTaskRunCatalog? agentTaskRuns)
     {
         _templates = templates ?? throw new ArgumentNullException(nameof(templates));
         var generatedTime = new GeneratedTimeStatusProvider(timeProvider, templates);
         var runtime = new RuntimeTreeStatusProvider(agents, templates);
-        var agentTasks = agentTaskRuns is null ? null : new AgentTaskStatusProvider(agentTaskRuns, templates);
-        _activity = agentTasks is null
-            ? new StatusRegistry(runtime)
-            : new StatusRegistry(runtime, agentTasks);
-        _full = agentTasks is null
-            ? new StatusRegistry(generatedTime, new SelectionStatusProvider(templates), runtime)
-            : new StatusRegistry(generatedTime, new SelectionStatusProvider(templates), runtime, agentTasks);
+        var agentTasks = new AgentTaskStatusProvider(agents, templates);
+        _activity = new StatusRegistry(runtime, agentTasks);
+        _full = new StatusRegistry(generatedTime, new SelectionStatusProvider(templates), runtime, agentTasks);
     }
 
     public Task<string> ObserveWithTools(

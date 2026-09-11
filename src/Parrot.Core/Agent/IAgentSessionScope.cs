@@ -1,3 +1,4 @@
+using Parrot.AgentTasks;
 using Parrot.Process;
 using Parrot.Questions;
 using Parrot.Queues;
@@ -14,6 +15,8 @@ internal interface IAgentSessionScope : IAsyncDisposable
     AgentQueues Queues { get; }
 
     GoalService Goals { get; }
+
+    AgentTaskRunCatalog AgentTaskRuns { get; }
 
     AgentSpawner AgentSpawner { get; }
 

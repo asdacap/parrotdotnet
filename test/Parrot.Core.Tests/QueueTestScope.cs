@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.AgentTasks;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
@@ -23,6 +24,7 @@ internal sealed class QueueTestScope : IAgentSessionScope
     {
         _parent = parent;
         _children = new ChildRegistry(identity);
+        AgentTaskRuns = new AgentTaskRunCatalog(identity.SessionId, TestDiagnosticLog.Instance, CancellationToken.None);
         var repository = new EventRepository(_database);
         _dependencies = TestModels.Dependencies(identity, _events, repository, CancellationToken.None);
         Processes = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, CancellationToken.None);
@@ -42,6 +44,8 @@ internal sealed class QueueTestScope : IAgentSessionScope
     public ShellProcessOwner Processes { get; }
 
     public AgentQueues Queues { get; }
+
+    public AgentTaskRunCatalog AgentTaskRuns { get; }
 
     public GoalService Goals => throw new NotSupportedException();
 
@@ -70,6 +74,7 @@ internal sealed class QueueTestScope : IAgentSessionScope
             _ = _parent.ChildRegistry.DetachDirectChildScope(this);
         }
 
+        await AgentTaskRuns.DisposeAsync().ConfigureAwait(false);
         await _children.DisposeAsync().ConfigureAwait(false);
         await Session.DisposeAsync().ConfigureAwait(false);
         Queues.Dispose();

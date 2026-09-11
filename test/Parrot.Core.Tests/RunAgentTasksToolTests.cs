@@ -21,17 +21,10 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
     private readonly EventBroker _broker = new();
     private readonly List<IAgentRegistry> _registries = [];
 
-    private readonly List<AgentTaskRunCatalog> _catalogs = [];
-
     public RunAgentTasksToolTests() => Directory.CreateDirectory(_root);
 
     public async ValueTask DisposeAsync()
     {
-        foreach (var catalog in _catalogs)
-        {
-            await catalog.DisposeAsync().ConfigureAwait(false);
-        }
-
         foreach (var registry in _registries)
         {
             await registry.DisposeAsync().ConfigureAwait(false);
@@ -171,7 +164,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         await invocation.CancelAsync();
 
         _ = await Assert.That(result.Text).Contains("background-call started in the background (name: leaf)");
-        var admittedSnapshot = runtime.Runs.Snapshot().Single();
+        var admittedSnapshot = runtime.Catalog.Snapshot().Single();
         _ = await Assert.That(admittedSnapshot.DisplayName).IsEqualTo("leaf");
         _ = await Assert.That(admittedSnapshot.Progress.Revision).IsGreaterThanOrEqualTo(1UL);
         _ = await Assert.That(admittedSnapshot.Progress.RootNodes.Single().Name).IsEqualTo("leaf");
@@ -180,7 +173,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         await runtime.Catalog.Settle();
         var terminal = await runtime.Completion.Wait("background-call", cancellationToken);
         _ = await Assert.That(terminal.Status).IsEqualTo(AgentTaskExecutionStatus.Canceled);
-        _ = await Assert.That(runtime.Runs.Snapshot()).IsEmpty();
+        _ = await Assert.That(runtime.Catalog.Snapshot()).IsEmpty();
     }
 
     [Test]
@@ -575,8 +568,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         registry.RegisterRootScope(parentScope);
         var parent = parentScope.Session;
         var selected = parent.CurrentSelection();
-        var catalog = new AgentTaskRunCatalog(TestDiagnosticLog.Instance, cancellationToken);
-        _catalogs.Add(catalog);
+        var catalog = parentScope.AgentTaskRuns;
         return new RuntimeContext(
             router,
             sessions,
@@ -585,7 +577,6 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             parent,
             repository,
             catalog,
-            new AgentTaskRunOwner(parent.SessionId, catalog),
             new Completion(),
             new AgentTurnSelection(
                 selected.RequestedModel,
@@ -604,7 +595,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             new ToolWorkspace(root),
             runtime.Router,
             runtime.ParentScope,
-            runtime.Runs,
+            runtime.Catalog,
             runtime.Completion,
             broker,
             runtime.Repository,
@@ -622,7 +613,6 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             IAgentSession parent,
             EventRepository repository,
             AgentTaskRunCatalog catalog,
-            AgentTaskRunOwner runs,
             Completion completion,
             AgentTurnSelection selection)
         {
@@ -633,7 +623,6 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             Parent = parent;
             Repository = repository;
             Catalog = catalog;
-            Runs = runs;
             Completion = completion;
             Selection = selection;
         }
@@ -651,8 +640,6 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         internal EventRepository Repository { get; }
 
         internal AgentTaskRunCatalog Catalog { get; }
-
-        internal AgentTaskRunOwner Runs { get; }
 
         internal Completion Completion { get; }
 

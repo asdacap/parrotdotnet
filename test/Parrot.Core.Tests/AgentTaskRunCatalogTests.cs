@@ -63,7 +63,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
                     : "secret-invalid-response"]);
             var runtime = Runtime(selectedProvider, cancellationToken);
             await using var registry = runtime.Registry;
-            await using var catalog = new AgentTaskRunCatalog(diagnostics, cancellationToken);
+            await using var catalog = new AgentTaskRunCatalog(runtime.Parent.SessionId, diagnostics, cancellationToken);
             var completion = new Completion();
             catalog.Start(
                 new AgentTaskRunRequest(
@@ -111,16 +111,15 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
         using var provider = new SteppedProvider();
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        await using var catalog = new AgentTaskRunCatalog(TestDiagnosticLog.Instance, cancellationToken);
-        var owner = new AgentTaskRunOwner(runtime.Parent.SessionId, catalog);
-        var otherOwner = new AgentTaskRunOwner("other-owner", catalog);
+        var catalog = runtime.ParentScope.AgentTaskRuns;
+        await using var otherOwner = new AgentTaskRunCatalog("other-owner", TestDiagnosticLog.Instance, cancellationToken);
         using var call = new CancellationTokenSource();
         var first = new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "first", TestDiagnosticLog.Instance);
         var second = new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "second", TestDiagnosticLog.Instance);
         var firstCompletion = new Completion();
         var secondCompletion = new Completion();
 
-        owner.Start(
+        catalog.Start(
             new AgentTaskRunRequest(
                 "first",
                 "first",
@@ -135,7 +134,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
                 new HistoryForkBoundary.AfterCompletedHistory(),
                 firstCompletion),
             call.Token);
-        owner.Start(
+        catalog.Start(
             new AgentTaskRunRequest(
                 "second",
                 "second",
@@ -166,7 +165,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
         await provider.Arrived(cancellationToken);
         await call.CancelAsync();
 
-        var snapshots = owner.Snapshot();
+        var snapshots = catalog.Snapshot();
         _ = await Assert.That(snapshots.All(snapshot => snapshot.Progress.Revision >= 1UL)).IsTrue();
         _ = await Assert.That(snapshots.All(snapshot => snapshot.Progress.RootNodes.Count == 1)).IsTrue();
         _ = await Assert.That(snapshots.All(snapshot => snapshot.Progress.RootNodes.Single().Status == AgentTaskProgressStatus.Running)).IsTrue();
@@ -177,16 +176,16 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
         _ = await Assert.That(snapshots.Select(snapshot => snapshot.Progress.Revision).Distinct().Count())
             .IsEqualTo(1);
         _ = await Assert.That(otherOwner.Snapshot()).IsEmpty();
-        _ = await Assert.That(owner.Active()).Count().IsEqualTo(2);
+        _ = await Assert.That(catalog.Active()).Count().IsEqualTo(2);
         var reminder = new ActiveWorkCompletionReminder(
             runtime.ParentScope.ChildRegistry,
             runtime.Processes,
             TestModels.PromptTemplates,
-            owner).Build();
+            catalog).Build();
         _ = await Assert.That(reminder).Contains("Running AgentTask graphs:");
         _ = await Assert.That(reminder).Contains($"{runtime.Parent.SessionId}/first (name: first)");
         _ = await Assert.That(reminder).Contains($"{runtime.Parent.SessionId}/second (name: second)");
-        var statusProvider = new AgentTaskStatusProvider(catalog, TestModels.PromptTemplates);
+        var statusProvider = new AgentTaskStatusProvider(registry, TestModels.PromptTemplates);
         var status = await statusProvider.Observe(
             new StatusQuery(runtime.Parent.SessionId, string.Empty, string.Empty, "profile", "model"),
             cancellationToken);
@@ -208,14 +207,14 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
                 new HashSet<string>(["section", "agents", "runs"], StringComparer.Ordinal),
                 new ScribanPromptTemplateEngine("prompt_templates.status.runtime", "{{ section }}:{{ for run in runs }}{{ run.run_id }}={{ for node in run.nodes }}{{ node.name }};{{ end }}{{ end }}")),
         });
-        var customizedStatus = await new AgentTaskStatusProvider(catalog, customTemplates).Observe(
+        var customizedStatus = await new AgentTaskStatusProvider(registry, customTemplates).Observe(
             new StatusQuery(runtime.Parent.SessionId, string.Empty, string.Empty, "profile", "model"),
             cancellationToken);
         _ = await Assert.That(statusProvider.Key).IsEqualTo("runtime:agent-tasks");
         _ = await Assert.That(customizedStatus.Text).IsEqualTo("agent-tasks:first=first;second=second;");
 
         var settlement = catalog.Settle();
-        _ = await Assert.That(() => owner.Start(
+        _ = await Assert.That(() => catalog.Start(
                 new AgentTaskRunRequest(
                     "third",
                     "third",
@@ -233,7 +232,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
             .Throws<InvalidOperationException>();
         await settlement;
 
-        _ = await Assert.That(owner.Snapshot()).IsEmpty();
+        _ = await Assert.That(catalog.Snapshot()).IsEmpty();
         var retained = runtime.ParentScope.ChildRegistry.SnapshotDescendants();
         _ = await Assert.That(retained).Count().IsEqualTo(2);
         _ = await Assert.That(retained.Any(session => session.IsActive())).IsFalse();
@@ -250,8 +249,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
         using var provider = new AgentTaskBlockingProvider();
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        await using var catalog = new AgentTaskRunCatalog(TestDiagnosticLog.Instance, cancellationToken);
-        var owner = new AgentTaskRunOwner(runtime.Parent.SessionId, catalog);
+        var catalog = runtime.ParentScope.AgentTaskRuns;
         var completion = new FailOnceCompletion();
         var progress = new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "retry-delivery", TestDiagnosticLog.Instance);
         var request = new AgentTaskRunRequest(
@@ -269,7 +267,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
             new HistoryForkBoundary.AfterCompletedHistory(),
             completion);
 
-        owner.Start(request, cancellationToken);
+        catalog.Start(request, cancellationToken);
         await provider.WaitUntilArrived(cancellationToken);
         await catalog.Settle();
 
@@ -278,7 +276,45 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
         _ = await Assert.That(delivered.RunId).IsEqualTo("retry-delivery");
         _ = await Assert.That(delivered.CompletionMessageId).IsNotEmpty();
         _ = await Assert.That(delivered.Status).IsEqualTo(AgentTaskExecutionStatus.Canceled);
-        _ = await Assert.That(owner.Active()).IsEmpty();
+        _ = await Assert.That(catalog.Active()).IsEmpty();
+    }
+
+    [Test]
+    public async Task Retired_run_id_can_be_reused_without_settling_the_owner(CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskQueueProvider([
+            "{\"result\":\"done\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
+            "{\"result\":\"done\",\"verdict\":\"accept\",\"evidence\":\"done\"}"]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var catalog = runtime.ParentScope.AgentTaskRuns;
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var completion = new Completion();
+            catalog.Start(
+                new AgentTaskRunRequest(
+                    "reusable",
+                    "reusable",
+                    AgentTaskParser.ParseArtifact("""
+                        {"schema_version":1,"tasks":[{"name":"worker","description":"Run work","payload":"work","acceptance_criteria":"Done"}]}
+                        """),
+                    runtime.Router,
+                    runtime.ParentScope,
+                    runtime.Selection,
+                    new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, $"call-{attempt}", TestDiagnosticLog.Instance),
+                    new AgentTaskConfig(1, true, TestModels.PromptTemplates),
+                    new HistoryForkBoundary.AfterCompletedHistory(),
+                    completion),
+                cancellationToken);
+            _ = await Assert.That((await completion.Delivered.WaitAsync(cancellationToken)).Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
+            while (catalog.Active().Count != 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await Task.Yield();
+            }
+        }
+
+        _ = await Assert.That(catalog.Snapshot()).IsEmpty();
     }
 
     private RuntimeContext Runtime(ILLMProvider provider, CancellationToken cancellationToken)

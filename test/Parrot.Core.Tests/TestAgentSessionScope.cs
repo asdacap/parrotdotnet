@@ -1,5 +1,6 @@
 using System.Runtime.ExceptionServices;
 using Parrot.Agent;
+using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Diagnostics;
 using Parrot.Process;
@@ -28,6 +29,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
     {
         _promptTemplates = promptTemplates;
         ChildRegistry = new ChildRegistry(owner);
+        AgentTaskRuns = new AgentTaskRunCatalog(owner.SessionId, diagnostics, lifetime);
         Processes = new ShellProcessOwner(owner, resources, new AgentPathEnvironment(resources, resources.AgentScratch(owner.SessionId)), runner, diagnostics, lifetime);
         Queues = new AgentQueues(owner, parentLink.Parent?.Queues, resources, ChildRegistry, diagnostics);
         Queues.Initialize();
@@ -50,6 +52,8 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
     public ShellProcessOwner Processes { get; }
 
     public AgentQueues Queues { get; }
+
+    public AgentTaskRunCatalog AgentTaskRuns { get; }
 
     public GoalService? GoalsState { get; private set; }
 
@@ -143,11 +147,20 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         Exception? failure = null;
         try
         {
-            await ChildRegistry.DisposeChildren().ConfigureAwait(false);
+            await AgentTaskRuns.DisposeAsync().ConfigureAwait(false);
         }
         catch (Exception exception)
         {
             failure = exception;
+        }
+
+        try
+        {
+            await ChildRegistry.DisposeChildren().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure ??= exception;
         }
 
         try

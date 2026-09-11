@@ -63,7 +63,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
 
     public AgentQueues Queues { get; }
 
-    internal AgentTaskRunOwner AgentTaskRuns { get; }
+    public AgentTaskRunCatalog AgentTaskRuns { get; }
 
     public ValueTask DisposeAsync()
     {
@@ -99,7 +99,14 @@ internal sealed class AgentSessionScope : IAgentSessionScope
             {
                 try
                 {
-                    await Processes.Settle().ConfigureAwait(false);
+                    try
+                    {
+                        await AgentTaskRuns.Settle().ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        await Processes.Settle().ConfigureAwait(false);
+                    }
                 }
                 finally
                 {

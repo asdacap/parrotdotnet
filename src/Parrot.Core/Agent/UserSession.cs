@@ -1,4 +1,3 @@
-using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Diagnostics;
 using Parrot.Events;
@@ -114,8 +113,6 @@ internal sealed class UserSession : IAsyncDisposable
             Directory.Delete(Resources.AgentQueueRootDirectory, recursive: true);
         }
 
-        AgentTaskRuns = new AgentTaskRunCatalog(Diagnostics, _lifetime.Token);
-        cleanup.Push(AgentTaskRuns.DisposeAsync);
         _agentSessions = agentSessionFactories.Create(this);
         var retainedAgents = new RetainedAgentBudget(1024);
         Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _promptTemplates, retainedAgents, Diagnostics, _lifetime.Token);
@@ -123,8 +120,7 @@ internal sealed class UserSession : IAsyncDisposable
         Status = new RuntimeStatus(
             Registry,
             _promptTemplates,
-            TimeProvider,
-            AgentTaskRuns);
+            TimeProvider);
         Registry.AttachStatus(Status);
     }
 
@@ -155,8 +151,6 @@ internal sealed class UserSession : IAsyncDisposable
     internal IDiagnosticLog Diagnostics => _resources.Diagnostics;
 
     internal ImageArtifactRepository Images => _resources.Images;
-
-    internal AgentTaskRunCatalog AgentTaskRuns { get; }
 
     internal IAgentRegistry Registry { get; }
 
@@ -384,7 +378,7 @@ internal sealed class UserSession : IAsyncDisposable
     }
 
     internal IReadOnlyList<ActiveWorkObservation> ActiveWork() =>
-        [.. Registry.SnapshotScopes().SelectMany(static scope => scope.Processes.Active()), .. Registry.Active(), .. AgentTaskRuns.Active()];
+        [.. Registry.SnapshotScopes().SelectMany(static scope => scope.Processes.Active()), .. Registry.Active(), .. Registry.SnapshotScopes().SelectMany(static scope => scope.AgentTaskRuns.Active())];
 
     internal Task SetGoal(string goal, CancellationToken cancellationToken) =>
         MainScope().Goals.SetGoal(goal, cancellationToken);
@@ -401,15 +395,13 @@ internal sealed class UserSession : IAsyncDisposable
 
         try
         {
-            await AgentTaskRuns.Settle().ConfigureAwait(false);
+            await Task.WhenAll(Registry.SnapshotScopes().Select(static scope => scope.AgentTaskRuns.Settle())).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
             failure = exception;
         }
 
-        Questions.Dispose();
-        Permissions.Dispose();
         ValueTask registryShutdown;
         try
         {
@@ -462,6 +454,9 @@ internal sealed class UserSession : IAsyncDisposable
                 failure ??= exception;
             }
         }
+
+        Questions.Dispose();
+        Permissions.Dispose();
 
         // Ends every subscription on this session's stream. A listener blocked
         // on MoveNext returns false rather than waiting forever.

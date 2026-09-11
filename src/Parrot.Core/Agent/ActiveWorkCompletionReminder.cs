@@ -10,7 +10,7 @@ internal sealed class ActiveWorkCompletionReminder(
     IChildRegistry children,
     ShellProcessOwner processes,
     PromptTemplateCatalog promptTemplates,
-    AgentTaskRunOwner? agentTasks)
+    AgentTaskRunCatalog? agentTasks)
 {
     public string? Build()
     {

@@ -14,7 +14,7 @@ internal sealed class RunAgentTasksTool(
     ToolWorkspace workspace,
     ModelRouter router,
     IAgentSessionScope ownerScope,
-    AgentTaskRunOwner runs,
+    AgentTaskRunCatalog runs,
     IAgentTaskRunCompletion completion,
     EventBroker eventBroker,
     EventRepository eventRepository,

@@ -72,7 +72,6 @@ internal sealed class AgentSessionFactory(
             webFetcher,
             agentTasks,
             requestLimits,
-            owner.AgentTaskRuns,
             toolDefinitions,
             readOnlyExecCommandPrefixes,
             processRunner,
