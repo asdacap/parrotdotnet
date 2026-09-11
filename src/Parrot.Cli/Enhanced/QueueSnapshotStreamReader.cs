@@ -5,15 +5,9 @@ namespace Parrot.Cli.Enhanced;
 
 internal sealed class QueueSnapshotStreamReader(
     IAsyncStreamReader<Event> source,
-    Func<string, IReadOnlyList<QueueState>, CancellationToken, Task> replace) : IAsyncStreamReader<Event>
+    Func<QueueSnapshot, CancellationToken, Task> replace) : IAsyncStreamReader<Event>
 {
-    private readonly List<QueueState> _staged = [];
-    private uint _nextChunk;
-    private ulong _acceptedRevision;
-    private ulong _revision;
-    private bool _accepted;
-    private bool _staging;
-    private string _rootAgentSessionId = string.Empty;
+    private readonly Dictionary<string, OwnerInventory> _owners = new(StringComparer.Ordinal);
 
     public Event Current { get; private set; } = new();
 
@@ -28,42 +22,103 @@ internal sealed class QueueSnapshotStreamReader(
                 return true;
             }
 
-            await Observe(published.QueueSnapshot, cancellationToken).ConfigureAwait(false);
+            var snapshot = published.QueueSnapshot;
+            if (string.IsNullOrEmpty(snapshot.OwnerAgentSessionId) || string.IsNullOrEmpty(snapshot.InventoryInstanceId))
+            {
+                continue;
+            }
+
+            if (!_owners.TryGetValue(snapshot.OwnerAgentSessionId, out var owner))
+            {
+                owner = new OwnerInventory();
+                _owners.Add(snapshot.OwnerAgentSessionId, owner);
+            }
+
+            if (owner.Observe(snapshot) is { } completed)
+            {
+                await replace(completed, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         return false;
     }
 
-    private async Task Observe(QueueSnapshot snapshot, CancellationToken cancellationToken)
+    private sealed class OwnerInventory
     {
-        if (snapshot.ChunkIndex == 0
-            && (!_staging || snapshot.Revision > _revision)
-            && (!_accepted || snapshot.Revision > _acceptedRevision))
+        private readonly HashSet<string> _retiredInstances = new(StringComparer.Ordinal);
+        private readonly List<QueueState> _queues = [];
+        private string? _instance;
+        private QueueSnapshot? _first;
+        private ulong _revision;
+        private uint _nextChunk;
+        private bool _observed;
+        private bool _removed;
+
+        public QueueSnapshot? Observe(QueueSnapshot snapshot)
         {
-            _staged.Clear();
+            if (_retiredInstances.Contains(snapshot.InventoryInstanceId))
+            {
+                return null;
+            }
+
+            if (snapshot.ChunkIndex == 0)
+            {
+                if (string.Equals(_instance, snapshot.InventoryInstanceId, StringComparison.Ordinal))
+                {
+                    if (_removed || (_observed && snapshot.Revision <= _revision))
+                    {
+                        return null;
+                    }
+                }
+                else
+                {
+                    if (_instance is not null)
+                    {
+                        _ = _retiredInstances.Add(_instance);
+                    }
+
+                    _instance = snapshot.InventoryInstanceId;
+                    _removed = false;
+                }
+
+                ResetStaging();
+                _first = snapshot;
+                _revision = snapshot.Revision;
+                _observed = true;
+            }
+
+            if (_first is null
+                || !string.Equals(_instance, snapshot.InventoryInstanceId, StringComparison.Ordinal)
+                || snapshot.Revision != _revision
+                || snapshot.ChunkIndex != _nextChunk
+                || snapshot.Removed != _first.Removed
+                || !string.Equals(snapshot.RootAgentSessionId, _first.RootAgentSessionId, StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            _queues.AddRange(snapshot.Queues.Select(static queue => queue.Clone()));
+            _nextChunk++;
+            if (!snapshot.FinalChunk)
+            {
+                return null;
+            }
+
+            var completed = snapshot.Clone();
+            completed.ChunkIndex = 0;
+            completed.Queues.Clear();
+            completed.Queues.AddRange(_queues);
+            completed.FinalChunk = true;
+            _removed = snapshot.Removed;
+            ResetStaging();
+            return completed;
+        }
+
+        private void ResetStaging()
+        {
+            _queues.Clear();
+            _first = null;
             _nextChunk = 0;
-            _revision = snapshot.Revision;
-            _rootAgentSessionId = snapshot.RootAgentSessionId;
-            _staging = true;
         }
-
-        if (!_staging || snapshot.Revision != _revision || snapshot.ChunkIndex != _nextChunk)
-        {
-            return;
-        }
-
-        _staged.AddRange(snapshot.Queues.Select(static queue => queue.Clone()));
-        _nextChunk++;
-        if (!snapshot.FinalChunk)
-        {
-            return;
-        }
-
-        var completed = _staged.ToArray();
-        _staged.Clear();
-        _staging = false;
-        _accepted = true;
-        _acceptedRevision = snapshot.Revision;
-        await replace(_rootAgentSessionId, completed, cancellationToken).ConfigureAwait(false);
     }
 }

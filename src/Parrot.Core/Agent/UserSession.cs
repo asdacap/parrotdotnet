@@ -109,19 +109,11 @@ internal sealed class UserSession : IAsyncDisposable
             Permissions.Dispose();
             return ValueTask.CompletedTask;
         });
-        QueueCatalog = agentSessionFactories.CreateQueueCatalog(this);
-        cleanup.Push(() =>
+        if (Directory.Exists(Resources.AgentQueueRootDirectory))
         {
-            QueueCatalog.Dispose();
-            return ValueTask.CompletedTask;
-        });
-        ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
-        cleanup.Push(() =>
-        {
-            ShellProcesses.Dispose();
-            return ValueTask.CompletedTask;
-        });
-        cleanup.Push(() => new ValueTask(ShellProcesses.Settle()));
+            Directory.Delete(Resources.AgentQueueRootDirectory, recursive: true);
+        }
+
         AgentTaskRuns = new AgentTaskRunCatalog(Diagnostics, _lifetime.Token);
         cleanup.Push(AgentTaskRuns.DisposeAsync);
         _agentSessions = agentSessionFactories.Create(this);
@@ -129,9 +121,7 @@ internal sealed class UserSession : IAsyncDisposable
         Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _promptTemplates, retainedAgents, Diagnostics, _lifetime.Token);
         cleanup.Push(Registry.BeginShutdown);
         Status = new RuntimeStatus(
-            QueueCatalog,
-            new ShellProcessOwnersStatusSource(ShellProcesses),
-            new AgentRegistryStatusSource(Registry),
+            Registry,
             _promptTemplates,
             TimeProvider,
             AgentTaskRuns);
@@ -165,10 +155,6 @@ internal sealed class UserSession : IAsyncDisposable
     internal IDiagnosticLog Diagnostics => _resources.Diagnostics;
 
     internal ImageArtifactRepository Images => _resources.Images;
-
-    internal AgentQueueCatalog QueueCatalog { get; }
-
-    internal ShellProcessOwners ShellProcesses { get; }
 
     internal AgentTaskRunCatalog AgentTaskRuns { get; }
 
@@ -221,7 +207,7 @@ internal sealed class UserSession : IAsyncDisposable
             session.Diagnostics.Write(new("session", "recovering", DiagnosticSeverity.Information));
             foreach (var agentSessionId in session._eventRepository.AgentHistorySessionIds())
             {
-                _ = session._eventRepository.PrepareAgentHistory(agentSessionId);
+                new AgentHistoryFile(session.Resources, agentSessionId).Refresh(session._eventRepository, agentSessionId);
             }
 
             var main = session.InitializeMain();
@@ -336,87 +322,23 @@ internal sealed class UserSession : IAsyncDisposable
     {
         using var events = _eventBroker.Subscribe();
         _ = Main();
-        using var queues = QueueCatalog.SubscribeInventory();
-        using var processes = ShellProcesses.SubscribeInventory();
-        var initialUsage = _eventRepository.Usage();
-
-        var initialQueues = await queues.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
-        foreach (var published in QueueInventoryProtocol.Convert(initialQueues, _mainSessionId))
+        foreach (var scope in Registry.SnapshotScopes())
         {
-            yield return published;
+            foreach (var published in QueueInventoryProtocol.Convert(scope.Queues.CaptureInventory(), _mainSessionId))
+            {
+                yield return published;
+            }
+
+            foreach (var published in ShellProcessInventoryProtocol.Convert(scope.Processes.CaptureInventory()))
+            {
+                yield return published;
+            }
         }
 
-        var initialProcesses = await processes.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
-        foreach (var published in ShellProcessInventoryProtocol.Convert(initialProcesses))
+        yield return new Event { SessionUsageSnapshot = SessionUsageSnapshot.From(_eventRepository.Usage()) };
+        await foreach (var published in events.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
             yield return published;
-        }
-
-        yield return new Event { SessionUsageSnapshot = SessionUsageSnapshot.From(initialUsage) };
-
-        var eventPending = (Task<bool>?)events.Reader.WaitToReadAsync(cancellationToken).AsTask();
-        var queuePending = (Task<bool>?)queues.Reader.WaitToReadAsync(cancellationToken).AsTask();
-        var processPending = (Task<bool>?)processes.Reader.WaitToReadAsync(cancellationToken).AsTask();
-
-        while (eventPending is not null || queuePending is not null || processPending is not null)
-        {
-            var pending = new[] { eventPending, queuePending, processPending }
-                .Where(task => task is not null)
-                .Select(task => task ?? throw new InvalidOperationException("inventory read is missing"));
-            var completed = await Task.WhenAny(pending).ConfigureAwait(false);
-
-            if (ReferenceEquals(completed, eventPending))
-            {
-                if (!await completed.ConfigureAwait(false))
-                {
-                    eventPending = null;
-                    continue;
-                }
-
-                if (events.Reader.TryRead(out var published))
-                {
-                    yield return published;
-                }
-
-                eventPending = events.Reader.WaitToReadAsync(cancellationToken).AsTask();
-                continue;
-            }
-
-            if (ReferenceEquals(completed, queuePending))
-            {
-                if (!await completed.ConfigureAwait(false))
-                {
-                    queuePending = null;
-                    continue;
-                }
-
-                if (queues.Reader.TryRead(out var snapshot))
-                {
-                    foreach (var published in QueueInventoryProtocol.Convert(snapshot, _mainSessionId))
-                    {
-                        yield return published;
-                    }
-                }
-
-                queuePending = queues.Reader.WaitToReadAsync(cancellationToken).AsTask();
-                continue;
-            }
-
-            if (!await completed.ConfigureAwait(false))
-            {
-                processPending = null;
-                continue;
-            }
-
-            if (processes.Reader.TryRead(out var processSnapshot))
-            {
-                foreach (var published in ShellProcessInventoryProtocol.Convert(processSnapshot))
-                {
-                    yield return published;
-                }
-            }
-
-            processPending = processes.Reader.WaitToReadAsync(cancellationToken).AsTask();
         }
     }
 
@@ -462,7 +384,7 @@ internal sealed class UserSession : IAsyncDisposable
     }
 
     internal IReadOnlyList<ActiveWorkObservation> ActiveWork() =>
-        [.. ShellProcesses.Active(), .. Registry.Active(), .. AgentTaskRuns.Active()];
+        [.. Registry.SnapshotScopes().SelectMany(static scope => scope.Processes.Active()), .. Registry.Active(), .. AgentTaskRuns.Active()];
 
     internal Task SetGoal(string goal, CancellationToken cancellationToken) =>
         MainScope().Goals.SetGoal(goal, cancellationToken);
@@ -510,15 +432,6 @@ internal sealed class UserSession : IAsyncDisposable
 
         try
         {
-            await ShellProcesses.Settle().ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            failure ??= exception;
-        }
-
-        try
-        {
             await registryShutdown.ConfigureAwait(false);
         }
         catch (Exception exception)
@@ -554,8 +467,6 @@ internal sealed class UserSession : IAsyncDisposable
         // on MoveNext returns false rather than waiting forever.
         _lifetime.Dispose();
         _eventBroker.Dispose();
-        ShellProcesses.Dispose();
-        QueueCatalog.Dispose();
         _agents.Clear();
         Diagnostics.Write(new("session", "producers_stopped", failure is null ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
         {
@@ -595,7 +506,7 @@ internal sealed class UserSession : IAsyncDisposable
             AgentSessionParentLink.Root(),
             _model,
             _eventBroker,
-            _eventRepository,
+            _agentSessions.PrepareHistory(_mainSessionId, _eventRepository),
             Mode,
             Mode.Profile.SecurityProfile,
             Status,

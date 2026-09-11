@@ -13,6 +13,7 @@ namespace Parrot.Agent;
 
 internal sealed class AgentSessionFactory(
     UserSession owner,
+    Parrot.Process.ProcessRunner processRunner,
     string workingDirectory,
     Compactor compactor,
     WebFetcher webFetcher,
@@ -25,6 +26,9 @@ internal sealed class AgentSessionFactory(
     PromptTemplateCatalog promptTemplates) : IAgentSessionFactory
 {
     private readonly ImageArtifactRepository _images = owner.Images;
+
+    public EventRepository PrepareHistory(string agentSessionId, EventRepository repository) =>
+        repository.BindAgentHistory(new AgentHistoryFile(owner.Resources, agentSessionId));
 
     public IAgentSessionScope Create(
         AgentIdentity identity,
@@ -39,74 +43,65 @@ internal sealed class AgentSessionFactory(
         CancellationToken lifetime)
     {
         ArgumentNullException.ThrowIfNull(parentLink);
-        var queues = owner.QueueCatalog.Register(identity);
+        var scratch = owner.Resources.AgentScratch(identity.SessionId);
+        eventRepository.RefreshAgentHistory(identity.SessionId);
+        var workspace = new ToolWorkspace(workingDirectory);
+        var pathEnvironment = new AgentPathEnvironment(owner.Resources, scratch);
+        var security = new AgentSessionSecurity(
+            securityProfile,
+            owner.Resources.Workspace,
+            owner.Resources.ScratchRootDirectory);
+        var agentSkills = new AgentSkills(owner.SkillCatalog, promptTemplates);
+        var prompts = new CompositeSystemPromptProvider(
+            "runtime:agent-session-system-prompt",
+            [
+                systemPromptProvider,
+                new AgentPathEnvironmentProvider(pathEnvironment, promptTemplates),
+                new ScratchDirectoryProvider(scratch, promptTemplates),
+                new AgentSkillPromptProvider(agentSkills),
+            ]);
+        var arguments = new AgentSessionScopeArguments(
+            identity,
+            parentLink,
+            model,
+            router,
+            eventBroker,
+            eventRepository,
+            workspace,
+            _images,
+            webFetcher,
+            agentTasks,
+            requestLimits,
+            owner.AgentTaskRuns,
+            toolDefinitions,
+            readOnlyExecCommandPrefixes,
+            processRunner,
+            owner.Resources,
+            prompts,
+            scratch,
+            pathEnvironment,
+            compactor,
+            promptTemplates,
+            mode,
+            security,
+            agentSkills,
+            owner.Permissions,
+            status,
+            registry,
+            owner.Questions,
+            owner.TimeProvider,
+            owner.Diagnostics,
+            lifetime);
+        var scope = new AgentSessionScope(arguments);
         try
         {
-            var scratch = owner.Resources.AgentScratch(identity.SessionId);
-            _ = eventRepository.PrepareAgentHistory(identity.SessionId);
-            var workspace = new ToolWorkspace(workingDirectory);
-            var pathEnvironment = new AgentPathEnvironment(owner.Resources, scratch);
-            var security = new AgentSessionSecurity(
-                securityProfile,
-                owner.Resources.Workspace,
-                owner.Resources.ScratchRootDirectory);
-            var agentSkills = new AgentSkills(owner.SkillCatalog, promptTemplates);
-            var prompts = new CompositeSystemPromptProvider(
-                "runtime:agent-session-system-prompt",
-                [
-                    systemPromptProvider,
-                    new AgentPathEnvironmentProvider(pathEnvironment, promptTemplates),
-                    new ScratchDirectoryProvider(scratch, promptTemplates),
-                    new AgentSkillPromptProvider(agentSkills),
-                ]);
-            var arguments = new AgentSessionScopeArguments(
-                identity,
-                parentLink,
-                model,
-                router,
-                eventBroker,
-                eventRepository,
-                workspace,
-                _images,
-                webFetcher,
-                agentTasks,
-                requestLimits,
-                owner.AgentTaskRuns,
-                toolDefinitions,
-                readOnlyExecCommandPrefixes,
-                owner.ShellProcesses,
-                prompts,
-                scratch,
-                pathEnvironment,
-                compactor,
-                promptTemplates,
-                mode,
-                security,
-                agentSkills,
-                owner.Permissions,
-                status,
-                registry,
-                queues,
-                owner.Questions,
-                owner.TimeProvider,
-                owner.Diagnostics,
-                lifetime);
-            var scope = new AgentSessionScope(arguments);
-            try
-            {
-                queues.Attach(scope.Session);
-                owner.ShellProcesses.Register(scope.Processes);
-                return scope;
-            }
-            catch
-            {
-                scope.DisposeRejectedConstruction();
-                throw;
-            }
+            scope.Queues.Initialize();
+            scope.Queues.Attach(scope.Session);
+            return scope;
         }
         catch
         {
-            queues.Dispose();
+            scope.DisposeRejectedConstruction();
             throw;
         }
     }

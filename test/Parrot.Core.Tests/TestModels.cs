@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using Parrot.Agent;
 using Parrot.Config;
@@ -18,9 +17,6 @@ namespace Parrot.Core.Tests;
 
 internal static class TestModels
 {
-    private static readonly ConcurrentBag<AgentQueueCatalog> QueueCatalogs = [];
-    private static readonly ConcurrentBag<Parrot.Process.ShellProcessOwners> ProcessOwners = [];
-    private static readonly ConcurrentBag<IAgentRegistry> Registries = [];
     private static readonly ConditionalWeakTable<IAgentSession, IAgentSessionScope> Scopes = [];
 
     public static IReadOnlyDictionary<string, ProfileConfig> Profiles { get; } =
@@ -139,22 +135,16 @@ internal static class TestModels
             Guid.NewGuid().ToString("N"),
             "scratch")));
 
-    public static AgentQueues Queues(AgentIdentity identity)
+    public static AgentQueueTestFixture Queues(AgentIdentity identity) => new(identity);
+
+    public static UserSessionResources Resources()
     {
         var root = Directory.CreateDirectory(
             Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("N"))).FullName;
-        var resources = new UserSessionResources(
+        return new UserSessionResources(
             new StatePaths(root, root, root),
             UserSessionId.Parse(Guid.NewGuid().ToString("N")),
             ProjectWorkspace.FromLaunchDirectory(root));
-        var catalog = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
-        QueueCatalogs.Add(catalog);
-        if (identity.ParentSessionId.Length > 0)
-        {
-            _ = catalog.Register(AgentIdentity.Main(identity.ParentSessionId, identity.ParentSessionName, TestModels.PromptTemplates));
-        }
-
-        return catalog.Register(identity);
     }
 
     public static IAgentSessionScope ScopeOf(IAgentSession session) =>
@@ -194,19 +184,8 @@ internal static class TestModels
         RetainedAgentBudget retainedAgents,
         CancellationToken lifetime)
     {
-        var root = Directory.CreateDirectory(
-            Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("N"))).FullName;
-        var resources = new UserSessionResources(
-            new StatePaths(root, root, root),
-            UserSessionId.Parse(Guid.NewGuid().ToString("N")),
-            ProjectWorkspace.FromLaunchDirectory(root));
-        var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime);
-        var catalog = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
         IAgentRegistry registry = new AgentRegistry(agentSessions, eventBroker, eventRepository, profiles, promptTemplates, retainedAgents, TestDiagnosticLog.Instance, lifetime);
-        registry.AttachStatus(new RuntimeStatus(catalog, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System));
-        ProcessOwners.Add(processes);
-        QueueCatalogs.Add(catalog);
-        Registries.Add(registry);
+        registry.AttachStatus(new RuntimeStatus(registry, promptTemplates, TimeProvider.System));
         return registry;
     }
 
@@ -216,14 +195,11 @@ internal static class TestModels
         EventRepository eventRepository,
         CancellationToken lifetime)
     {
-        var root = Directory.CreateDirectory(
-            Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("N"))).FullName;
-        var resources = new UserSessionResources(
-            new StatePaths(root, root, root),
-            UserSessionId.Parse(Guid.NewGuid().ToString("N")),
-            ProjectWorkspace.FromLaunchDirectory(root));
-        var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime);
-        var catalog = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
+        var resources = Resources();
+        var owner = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime);
+        var children = new ChildRegistry(identity);
+        var queues = new AgentQueues(identity, null, resources, children, TestDiagnosticLog.Instance);
+        queues.Initialize();
         IAgentRegistry registry = new AgentRegistry(
             new UnsupportedAgentSessionFactory(),
             eventBroker,
@@ -233,26 +209,16 @@ internal static class TestModels
             new RetainedAgentBudget(1024),
             TestDiagnosticLog.Instance,
             lifetime);
-        var status = new RuntimeStatus(catalog, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System);
+        var status = new RuntimeStatus(registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
-        if (identity.ParentSessionId.Length > 0)
-        {
-            _ = catalog.Register(AgentIdentity.Main(identity.ParentSessionId, identity.ParentSessionName, TestModels.PromptTemplates));
-        }
-
-        var queues = catalog.Register(identity);
-        var owner = processes.Prepare(identity.SessionId, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)));
-        processes.Register(owner);
-        ProcessOwners.Add(processes);
-        QueueCatalogs.Add(catalog);
-        Registries.Add(registry);
         return new AgentSessionDependencies(
             identity,
             owner,
             eventRepository,
             status,
             registry,
-            queues);
+            queues,
+            children);
     }
 
     public static ISystemPrompt MaterializePrompt(
@@ -294,6 +260,9 @@ internal static class TestModels
 
     private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory
     {
+        public EventRepository PrepareHistory(string agentSessionId, EventRepository repository) =>
+            throw new NotSupportedException("This test session does not support spawning subagents.");
+
         public IAgentSessionScope Create(
             AgentIdentity identity,
             AgentSessionParentLink parentLink,

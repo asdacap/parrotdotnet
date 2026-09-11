@@ -21,12 +21,13 @@ internal sealed class RawActivityView(
     private readonly Dictionary<string, AgentSessionState> _agentSessions = new(StringComparer.Ordinal);
     private readonly AgentSessionHierarchy _hierarchy = new();
     private readonly Dictionary<string, ProcessState> _processes = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, CompletedShellProcess> _processCompletions = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string OwnerAgentSessionId, string ProcessId), CompletedShellProcess> _processCompletions = [];
     private readonly Dictionary<(string OwnerAgentSessionId, string Name), ILiveBufferItem> _queues = [];
-    private readonly HashSet<string> _completedProcesses = new(StringComparer.Ordinal);
+    private readonly HashSet<(string OwnerAgentSessionId, string ProcessKey)> _completedProcesses = [];
     private readonly HashSet<(string OwnerAgentSessionId, string ToolCallId)> _omittedProcessTools = [];
     private readonly HashSet<(string OwnerAgentSessionId, string ToolCallId)> _terminalProcessTools = [];
-    private readonly HashSet<string> _retiredInventoryInstances = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, InventoryState> _processInventories = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, InventoryState> _queueInventories = new(StringComparer.Ordinal);
     private readonly Dictionary<(string AgentSessionId, string ToolCallId), PendingProgress> _pendingProgress = [];
     private readonly HashSet<Task> _progressTasks = [];
     private readonly object _progressTasksLock = new();
@@ -43,9 +44,7 @@ internal sealed class RawActivityView(
     private Task? _shutdownTask;
 
     private IReadOnlyList<ILiveBufferItem> _content = [];
-    private string? _inventoryInstanceId;
     private int _frame;
-    private ulong _inventoryRevision;
 
     public RawActivityView(
         Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> replace,
@@ -182,42 +181,24 @@ internal sealed class RawActivityView(
         await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_retiredInventoryInstances.Contains(snapshot.InventoryInstanceId)
-                || (string.Equals(_inventoryInstanceId, snapshot.InventoryInstanceId, StringComparison.Ordinal)
-                    && snapshot.Revision <= _inventoryRevision))
+            var inventory = ObserveInventory(_processInventories, snapshot.OwnerAgentSessionId);
+            if (!inventory.Accept(snapshot.InventoryInstanceId, snapshot.Revision, snapshot.Removed, out var replaced))
             {
                 return;
             }
 
-            if (_inventoryInstanceId is not null
-                && !string.Equals(_inventoryInstanceId, snapshot.InventoryInstanceId, StringComparison.Ordinal))
+            if (replaced)
             {
-                _ = _retiredInventoryInstances.Add(_inventoryInstanceId);
-                _inventoryInstanceId = snapshot.InventoryInstanceId;
-                _inventoryRevision = snapshot.Revision;
-                _processes.Clear();
-                _processCompletions.Clear();
-                _completedProcesses.Clear();
-                _omittedProcessTools.Clear();
-                _terminalProcessTools.Clear();
-                ObserveProcessCompletions(snapshot.CompletedProcesses);
-                foreach (var process in snapshot.Processes)
-                {
-                    ObserveProcessHierarchy(process);
-                    _processes.Add(process.ProcessId, ProcessState.Observe(
-                        process, snapshot.InventoryInstanceId, snapshot.Revision, _timeProvider.GetTimestamp()));
-                }
-
-                await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
-                return;
+                ClearOwnerProcesses(snapshot.OwnerAgentSessionId);
             }
 
             var snapshotProcessIds = snapshot.Processes
                 .Select(static process => process.ProcessId)
                 .ToHashSet(StringComparer.Ordinal);
-            ObserveProcessCompletions(snapshot.CompletedProcesses);
+            ObserveProcessCompletions(snapshot.OwnerAgentSessionId, snapshot.CompletedProcesses);
             var completions = _processes.Values
-                .Where(process => process.Revision < snapshot.Revision
+                .Where(process => string.Equals(process.Process.OwnerAgentSessionId, snapshot.OwnerAgentSessionId, StringComparison.Ordinal)
+                    && (snapshot.Removed || process.Revision < snapshot.Revision)
                     && !snapshotProcessIds.Contains(process.Process.ProcessId))
                 .OrderBy(static process => process.Process.Depth)
                 .ThenBy(static process => process.Process.OwnerAgentName, StringComparer.Ordinal)
@@ -225,15 +206,20 @@ internal sealed class RawActivityView(
                 .ThenBy(static process => process.Process.ProcessId, StringComparer.Ordinal)
                 .ToArray();
             var future = _processes.Values
-                .Where(process => process.Revision >= snapshot.Revision
+                .Where(process => string.Equals(process.Process.OwnerAgentSessionId, snapshot.OwnerAgentSessionId, StringComparison.Ordinal)
+                    && !snapshot.Removed && process.Revision >= snapshot.Revision
                     && !snapshotProcessIds.Contains(process.Process.ProcessId))
                 .ToArray();
             var deferred = _processes.Values
                 .Where(static process => process.IsDeferred)
                 .ToDictionary(static process => process.Process.ProcessId, StringComparer.Ordinal);
-            _inventoryInstanceId = snapshot.InventoryInstanceId;
-            _inventoryRevision = snapshot.Revision;
-            _processes.Clear();
+            foreach (var processId in _processes.Where(process => string.Equals(
+                process.Value.Process.OwnerAgentSessionId, snapshot.OwnerAgentSessionId, StringComparison.Ordinal))
+                .Select(static process => process.Key).ToArray())
+            {
+                _ = _processes.Remove(processId);
+            }
+
             foreach (var process in snapshot.Processes)
             {
                 ObserveProcessHierarchy(process);
@@ -263,13 +249,13 @@ internal sealed class RawActivityView(
                 }
                 else if ((originTool is not { } terminalOrigin || !_terminalProcessTools.Remove(terminalOrigin))
                     && !string.IsNullOrWhiteSpace(completion.Command)
-                    && _completedProcesses.Add(ProcessKey(completion.InventoryInstanceId, completion.Process.ProcessId)))
+                    && _completedProcesses.Add((completion.Process.OwnerAgentSessionId, ProcessKey(completion.InventoryInstanceId, completion.Process.ProcessId))))
                 {
                     committed = true;
                     await commit(
                         WrapProcess(
                             completion.Process,
-                            ProcessCompletion(completion.Command, completion.Process.ProcessId)),
+                            ProcessCompletion(completion.Command, completion.Process.OwnerAgentSessionId, completion.Process.ProcessId)),
                         Snapshot(),
                         cancellationToken).ConfigureAwait(false);
                 }
@@ -287,19 +273,29 @@ internal sealed class RawActivityView(
     }
 
     public async Task ReplaceQueues(
-        string rootAgentSessionId,
-        IReadOnlyList<QueueState> queues,
+        QueueSnapshot snapshot,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(queues);
+        ArgumentNullException.ThrowIfNull(snapshot);
 
         await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _hierarchy.ObserveRoot(rootAgentSessionId);
+            var inventory = ObserveInventory(_queueInventories, snapshot.OwnerAgentSessionId);
+            if (!inventory.Accept(snapshot.InventoryInstanceId, snapshot.Revision, snapshot.Removed, out _))
+            {
+                return;
+            }
+
+            _hierarchy.ObserveRoot(snapshot.RootAgentSessionId);
             RefreshToolPresentations();
-            _queues.Clear();
-            foreach (var queue in queues.Where(static queue => queue.Name.Length > 0 && queue.ItemCount > 0))
+            foreach (var key in _queues.Keys.Where(key => string.Equals(
+                key.OwnerAgentSessionId, snapshot.OwnerAgentSessionId, StringComparison.Ordinal)).ToArray())
+            {
+                _ = _queues.Remove(key);
+            }
+
+            foreach (var queue in snapshot.Queues.Where(static queue => queue.Name.Length > 0 && queue.ItemCount > 0))
             {
                 ObserveQueueHierarchy(queue);
                 var key = (queue.OwnerAgentSessionId, queue.Name);
@@ -503,6 +499,17 @@ internal sealed class RawActivityView(
         _ => string.Empty,
     };
 
+    private static InventoryState ObserveInventory(Dictionary<string, InventoryState> inventories, string ownerAgentSessionId)
+    {
+        if (!inventories.TryGetValue(ownerAgentSessionId, out var inventory))
+        {
+            inventory = new InventoryState();
+            inventories.Add(ownerAgentSessionId, inventory);
+        }
+
+        return inventory;
+    }
+
     private static string ProcessKey(string inventoryInstanceId, string processId) =>
         string.Concat(inventoryInstanceId, "\n", processId);
 
@@ -542,17 +549,17 @@ internal sealed class RawActivityView(
             null);
     }
 
-    private void ObserveProcessCompletions(IEnumerable<CompletedShellProcess> completions)
+    private void ObserveProcessCompletions(string ownerAgentSessionId, IEnumerable<CompletedShellProcess> completions)
     {
         foreach (var completion in completions)
         {
-            _processCompletions[completion.ProcessId] = completion.Clone();
+            _processCompletions[(ownerAgentSessionId, completion.ProcessId)] = completion.Clone();
         }
     }
 
-    private ProcessCompletionScrollbackValue ProcessCompletion(string command, string processId)
+    private ProcessCompletionScrollbackValue ProcessCompletion(string command, string ownerAgentSessionId, string processId)
     {
-        var elapsedMilliseconds = _processCompletions.TryGetValue(processId, out var completion)
+        var elapsedMilliseconds = _processCompletions.TryGetValue((ownerAgentSessionId, processId), out var completion)
             && completion.HasElapsedMs
                 ? completion.ElapsedMs
                 : (long?)null;
@@ -1076,8 +1083,8 @@ internal sealed class RawActivityView(
             var command = ReadCommand(call.ArgumentsJson);
             scrollback = ObserveDeferredProcess(deferred, published, call, command)
                 && !string.IsNullOrWhiteSpace(command)
-                && _completedProcesses.Add(ProcessKey(deferred.InventoryInstanceId, deferred.ProcessId))
-                    ? ProcessCompletion(command, deferred.ProcessId)
+                && _completedProcesses.Add((published.AgentSessionId, ProcessKey(deferred.InventoryInstanceId, deferred.ProcessId)))
+                    ? ProcessCompletion(command, published.AgentSessionId, deferred.ProcessId)
                     : null;
         }
 
@@ -1212,17 +1219,18 @@ internal sealed class RawActivityView(
         ToolCallPresentation call,
         string command)
     {
-        if (_retiredInventoryInstances.Contains(yielded.InventoryInstanceId))
+        var inventory = ObserveInventory(_processInventories, published.AgentSessionId);
+        if (inventory.RetiredInstances.Contains(yielded.InventoryInstanceId))
         {
             return false;
         }
 
-        if (_completedProcesses.Contains(ProcessKey(yielded.InventoryInstanceId, yielded.ProcessId)))
+        if (_completedProcesses.Contains((published.AgentSessionId, ProcessKey(yielded.InventoryInstanceId, yielded.ProcessId))))
         {
             return true;
         }
 
-        if (string.Equals(_inventoryInstanceId, yielded.InventoryInstanceId, StringComparison.Ordinal))
+        if (string.Equals(inventory.InstanceId, yielded.InventoryInstanceId, StringComparison.Ordinal))
         {
             if (_processes.TryGetValue(yielded.ProcessId, out var observed))
             {
@@ -1230,26 +1238,22 @@ internal sealed class RawActivityView(
                 return false;
             }
 
-            if (_processCompletions.ContainsKey(yielded.ProcessId)
-                || _inventoryRevision > yielded.VisibleRevision)
+            if (_processCompletions.ContainsKey((published.AgentSessionId, yielded.ProcessId))
+                || inventory.Revision > yielded.VisibleRevision)
             {
                 return true;
             }
         }
 
-        if (_inventoryInstanceId is not null
-            && !string.Equals(_inventoryInstanceId, yielded.InventoryInstanceId, StringComparison.Ordinal))
+        if (inventory.InstanceId is not null
+            && !string.Equals(inventory.InstanceId, yielded.InventoryInstanceId, StringComparison.Ordinal))
         {
-            _ = _retiredInventoryInstances.Add(_inventoryInstanceId);
-            _processes.Clear();
-            _processCompletions.Clear();
-            _completedProcesses.Clear();
-            _omittedProcessTools.Clear();
-            _terminalProcessTools.Clear();
-            _inventoryRevision = 0;
+            _ = inventory.RetiredInstances.Add(inventory.InstanceId);
+            ClearOwnerProcesses(published.AgentSessionId);
+            inventory.Revision = 0;
         }
 
-        _inventoryInstanceId = yielded.InventoryInstanceId;
+        inventory.InstanceId = yielded.InventoryInstanceId;
         var process = new ActiveShellProcess
         {
             ProcessId = yielded.ProcessId,
@@ -1274,6 +1278,26 @@ internal sealed class RawActivityView(
         return false;
     }
 
+    private void ClearOwnerProcesses(string ownerAgentSessionId)
+    {
+        foreach (var processId in _processes.Where(process => string.Equals(
+            process.Value.Process.OwnerAgentSessionId, ownerAgentSessionId, StringComparison.Ordinal))
+            .Select(static process => process.Key).ToArray())
+        {
+            _ = _processes.Remove(processId);
+        }
+
+        foreach (var key in _processCompletions.Keys.Where(key => string.Equals(
+            key.OwnerAgentSessionId, ownerAgentSessionId, StringComparison.Ordinal)).ToArray())
+        {
+            _ = _processCompletions.Remove(key);
+        }
+
+        _ = _completedProcesses.RemoveWhere(process => string.Equals(process.OwnerAgentSessionId, ownerAgentSessionId, StringComparison.Ordinal));
+        _ = _omittedProcessTools.RemoveWhere(tool => string.Equals(tool.OwnerAgentSessionId, ownerAgentSessionId, StringComparison.Ordinal));
+        _ = _terminalProcessTools.RemoveWhere(tool => string.Equals(tool.OwnerAgentSessionId, ownerAgentSessionId, StringComparison.Ordinal));
+    }
+
     private readonly record struct NeutralAgentLiveBufferItem(string Name) : ILiveBufferItem
     {
         public MultiLine Render(LiveBufferRenderContext context) => new(
@@ -1282,6 +1306,39 @@ internal sealed class RawActivityView(
                 context.Palette.LiveMuted)],
             null,
             LiveBufferRetention.Fixed);
+    }
+
+    private sealed class InventoryState
+    {
+        public string? InstanceId { get; set; }
+
+        public ulong Revision { get; set; }
+
+        public HashSet<string> RetiredInstances { get; } = new(StringComparer.Ordinal);
+
+        public bool Accept(string instanceId, ulong revision, bool removed, out bool replaced)
+        {
+            replaced = InstanceId is not null && !string.Equals(InstanceId, instanceId, StringComparison.Ordinal);
+            if (RetiredInstances.Contains(instanceId)
+                || (!replaced && InstanceId is not null && revision <= Revision))
+            {
+                return false;
+            }
+
+            if (replaced && InstanceId is { } previousInstanceId)
+            {
+                _ = RetiredInstances.Add(previousInstanceId);
+            }
+
+            InstanceId = instanceId;
+            Revision = revision;
+            if (removed)
+            {
+                _ = RetiredInstances.Add(instanceId);
+            }
+
+            return true;
+        }
     }
 
     private sealed record ProcessState(

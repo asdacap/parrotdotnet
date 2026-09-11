@@ -140,9 +140,7 @@ internal sealed class IdentityStorageTests : IDisposable
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
             new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
-        var files = new AgentHistoryFiles(resources);
-
-        var history = files.PathFor("agent-session-child");
+        var history = new AgentHistoryFile(resources, "agent-session-child");
 
         _ = await Assert.That(history.Path)
             .IsEqualTo(Path.Combine(resources.ScratchRootDirectory, "agent-session-child", "history.jsonl"));
@@ -157,11 +155,11 @@ internal sealed class IdentityStorageTests : IDisposable
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
             new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
-        var files = new AgentHistoryFiles(resources);
+        var history = new AgentHistoryFile(resources, "agent-session-child");
 
-        files.Publish("agent-session-child", [new AgentHistoryCompactionEntry(7, "summary", 4)]);
+        history.Replace([new AgentHistoryCompactionEntry(7, "summary", 4)]);
 
-        var text = await File.ReadAllTextAsync(files.PathFor("agent-session-child").Path);
+        var text = await File.ReadAllTextAsync(history.Path);
         _ = await Assert.That(text).IsEqualTo("{\"type\":\"compaction\",\"summary\":\"summary\",\"watermark\":4,\"sequence\":7}\n");
     }
 
@@ -171,7 +169,7 @@ internal sealed class IdentityStorageTests : IDisposable
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
             new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
-        var files = new AgentHistoryFiles(resources);
+        var history = new AgentHistoryFile(resources, "agent-session-child");
         var entry = new AgentHistoryMessageEntry(
             2,
             9,
@@ -181,9 +179,9 @@ internal sealed class IdentityStorageTests : IDisposable
             [new AgentHistoryToolCall("call", "read", "{}")],
             string.Empty);
 
-        files.Publish("agent-session-child", [entry]);
+        history.Replace([entry]);
 
-        var text = await File.ReadAllTextAsync(files.PathFor("agent-session-child").Path);
+        var text = await File.ReadAllTextAsync(history.Path);
         _ = await Assert.That(text).Contains("\"type\":\"message\"");
         _ = await Assert.That(text).Contains("\"conversation_sequence\":9");
         _ = await Assert.That(text).Contains("\"arguments_json\":\"{}\"");
@@ -200,9 +198,7 @@ internal sealed class IdentityStorageTests : IDisposable
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
             new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
-        var files = new AgentHistoryFiles(resources);
-
-        _ = await Assert.That(() => files.PathFor(value)).Throws<ArgumentException>();
+        _ = await Assert.That(() => new AgentHistoryFile(resources, value).Path).Throws<ArgumentException>();
     }
 
     [Test]

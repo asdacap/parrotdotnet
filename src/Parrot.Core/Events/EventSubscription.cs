@@ -10,6 +10,7 @@ internal sealed class EventSubscription : IDisposable
     private readonly EventBroker _owner;
     private readonly Lock _gate = new();
     private readonly LinkedList<BufferedEvent> _events = [];
+    private readonly LinkedList<IReadOnlyList<Event>> _inventories = [];
     private readonly Channel<bool> _ready = Channel.CreateBounded<bool>(
         new BoundedChannelOptions(1)
         {
@@ -18,8 +19,11 @@ internal sealed class EventSubscription : IDisposable
         });
 
     private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private IReadOnlyList<Event> _inventoryChunks = [];
+    private int _inventoryChunkIndex;
     private int _retainedCount;
     private int _transientCount;
+    private bool _preferEvent;
     private bool _completed;
     private bool _disposed;
 
@@ -30,6 +34,8 @@ internal sealed class EventSubscription : IDisposable
     }
 
     public ChannelReader<Event> Reader { get; }
+
+    private bool HasPending => _events.Count > 0 || _inventories.Count > 0 || _inventoryChunkIndex < _inventoryChunks.Count;
 
     public void Dispose()
     {
@@ -75,6 +81,34 @@ internal sealed class EventSubscription : IDisposable
         }
     }
 
+    internal void PublishInventory(IReadOnlyList<Event> chunks)
+    {
+        if (chunks.Count == 0)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            if (_completed)
+            {
+                return;
+            }
+
+            for (var node = _inventories.First; node is not null; node = node.Next)
+            {
+                if (SameInventory(node.Value[0], chunks[0]))
+                {
+                    _inventories.Remove(node);
+                    break;
+                }
+            }
+
+            _ = _inventories.AddLast(chunks);
+            _ = _ready.Writer.TryWrite(true);
+        }
+    }
+
     internal void Complete()
     {
         lock (_gate)
@@ -89,6 +123,16 @@ internal sealed class EventSubscription : IDisposable
             CompleteReadingWhenDrained();
         }
     }
+
+    private static bool SameInventory(Event first, Event second) =>
+        first.PayloadCase == second.PayloadCase && first.PayloadCase switch
+        {
+            Event.PayloadOneofCase.QueueSnapshot => string.Equals(
+                first.QueueSnapshot.OwnerAgentSessionId, second.QueueSnapshot.OwnerAgentSessionId, StringComparison.Ordinal),
+            Event.PayloadOneofCase.ShellProcessSnapshot => string.Equals(
+                first.ShellProcessSnapshot.OwnerAgentSessionId, second.ShellProcessSnapshot.OwnerAgentSessionId, StringComparison.Ordinal),
+            _ => throw new InvalidOperationException("Expected an inventory snapshot."),
+        };
 
     private void RemoveOldest(bool transient)
     {
@@ -117,6 +161,28 @@ internal sealed class EventSubscription : IDisposable
     {
         lock (_gate)
         {
+            if (_inventoryChunkIndex == _inventoryChunks.Count
+                && (!_preferEvent || _events.Count == 0)
+                && _inventories.First is { } inventory)
+            {
+                _inventoryChunks = inventory.Value;
+                _inventoryChunkIndex = 0;
+                _inventories.RemoveFirst();
+            }
+
+            if (_inventoryChunkIndex < _inventoryChunks.Count)
+            {
+                published = _inventoryChunks[_inventoryChunkIndex++];
+                _preferEvent = _inventoryChunkIndex == _inventoryChunks.Count;
+                if (HasPending)
+                {
+                    _ = _ready.Writer.TryWrite(true);
+                }
+
+                CompleteReadingWhenDrained();
+                return true;
+            }
+
             if (_events.First is not { } first)
             {
                 published = new Event();
@@ -125,6 +191,7 @@ internal sealed class EventSubscription : IDisposable
             }
 
             _events.RemoveFirst();
+            _preferEvent = false;
             published = first.Value.Published;
             if (first.Value.Transient)
             {
@@ -135,7 +202,7 @@ internal sealed class EventSubscription : IDisposable
                 _retainedCount--;
             }
 
-            if (_events.Count > 0)
+            if (HasPending)
             {
                 _ = _ready.Writer.TryWrite(true);
             }
@@ -149,7 +216,7 @@ internal sealed class EventSubscription : IDisposable
     {
         lock (_gate)
         {
-            if (_events.Count > 0)
+            if (HasPending)
             {
                 return ValueTask.FromResult(true);
             }
@@ -173,7 +240,7 @@ internal sealed class EventSubscription : IDisposable
 
             lock (_gate)
             {
-                if (_events.Count > 0)
+                if (HasPending)
                 {
                     return true;
                 }
@@ -190,7 +257,7 @@ internal sealed class EventSubscription : IDisposable
 
     private void CompleteReadingWhenDrained()
     {
-        if (_completed && _events.Count == 0)
+        if (_completed && !HasPending)
         {
             _ = _completion.TrySetResult();
         }

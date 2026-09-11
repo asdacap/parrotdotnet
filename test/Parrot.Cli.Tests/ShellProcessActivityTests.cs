@@ -9,6 +9,80 @@ internal sealed class ShellProcessActivityTests
     private static readonly LiveBufferRenderContext Context = new(160, new TerminalPalette(false));
 
     [Test]
+    public async Task Owner_inventory_replacement_and_removal_preserve_sibling_yielded_process(CancellationToken cancellationToken)
+    {
+        await using var activity = new ProcessActivity();
+        await activity.Yield("call", "sleep 20", "root-process", "root-process", "root-inventory", 1, cancellationToken);
+        var childProcess = new ActiveShellProcess
+        {
+            ProcessId = "child-process",
+            Name = "child-process",
+            Command = "child command",
+            OwnerAgentSessionId = "child",
+            OwnerAgentName = "worker",
+            ParentAgentSessionId = "main",
+            Depth = 1,
+        };
+        await activity.Replace(
+            new ShellProcessSnapshot
+            {
+                OwnerAgentSessionId = "child",
+                InventoryInstanceId = "child-inventory",
+                Revision = 8,
+                Processes = { childProcess },
+            },
+            cancellationToken);
+        _ = await Assert.That(activity.Draws[^1]).Contains("root-process running");
+        _ = await Assert.That(activity.Draws[^1]).Contains("child-process running");
+
+        await activity.Yield("second-call", "sleep 30", "root-process", "root-process", "new-root-inventory", 1, cancellationToken);
+        _ = await Assert.That(activity.Draws[^1]).Contains("root-process running");
+        _ = await Assert.That(activity.Draws[^1]).Contains("child-process running");
+
+        await activity.Replace(
+            new ShellProcessSnapshot
+            {
+                OwnerAgentSessionId = "child",
+                InventoryInstanceId = "replacement",
+                Revision = 1,
+                Processes = { childProcess },
+            },
+            cancellationToken);
+        await activity.Replace(
+            new ShellProcessSnapshot
+            {
+                OwnerAgentSessionId = "child",
+                InventoryInstanceId = "replacement",
+                Revision = 2,
+                Removed = true,
+            },
+            cancellationToken);
+        await activity.Replace(
+            new ShellProcessSnapshot
+            {
+                OwnerAgentSessionId = "child",
+                InventoryInstanceId = "child-inventory",
+                Revision = 9,
+                Processes = { childProcess },
+            },
+            cancellationToken);
+        _ = await Assert.That(activity.Draws[^1]).Contains("root-process running");
+        _ = await Assert.That(activity.Draws[^1]).DoesNotContain("child-process running");
+        _ = await Assert.That(activity.Commits).Count().IsEqualTo(1);
+
+        await activity.Replace(
+            new ShellProcessSnapshot
+            {
+                OwnerAgentSessionId = "main",
+                InventoryInstanceId = "new-root-inventory",
+                Revision = 2,
+            },
+            cancellationToken);
+        _ = await Assert.That(activity.Commits).Count().IsEqualTo(2);
+        _ = await Assert.That(activity.Commits[^1]).IsEqualTo("$ sleep 30");
+    }
+
+    [Test]
     public async Task Yielded_exec_remains_live_without_committing(CancellationToken cancellationToken)
     {
         await using var activity = new ProcessActivity();
@@ -26,8 +100,8 @@ internal sealed class ShellProcessActivityTests
         await activity.Start("call", "rg AgentTask", cancellationToken);
         var process = new ActiveShellProcess { ProcessId = "process-1", Name = "build", Command = "rg AgentTask", OwnerAgentSessionId = "main", OwnerAgentName = "main", OriginToolCallId = "call" };
 
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 1, ChunkCount = 1, Processes = { process } }, cancellationToken);
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 1, ChunkCount = 1, Processes = { process } }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
 
         _ = await Assert.That(activity.Commits).IsEmpty();
 
@@ -48,12 +122,12 @@ internal sealed class ShellProcessActivityTests
         await activity.Start("call", "rg AgentTask", cancellationToken);
         var process = new ActiveShellProcess { ProcessId = "process-1", Name = "build", Command = "rg AgentTask", OwnerAgentSessionId = "main", OwnerAgentName = "main", OriginToolCallId = "call" };
 
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 1, ChunkCount = 1, Processes = { process } }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 1, ChunkCount = 1, Processes = { process } }, cancellationToken);
         await activity.FinishSuccessfully(
             "call",
             "Process exited with code 0 after 0.02s\nmatching output",
             cancellationToken);
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
 
         _ = await Assert.That(activity.Commits).Count().IsEqualTo(1);
         _ = await Assert.That(activity.Commits[0]).Contains("matching output");
@@ -65,7 +139,7 @@ internal sealed class ShellProcessActivityTests
         await using var activity = new ProcessActivity();
         await activity.Yield("call", "sleep 20", "build", "process-1", "inventory", 1, cancellationToken);
 
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
 
         _ = await Assert.That(activity.Commits).Count().IsEqualTo(1);
         _ = await Assert.That(activity.Commits[0]).IsEqualTo("$ sleep 20");
@@ -80,7 +154,7 @@ internal sealed class ShellProcessActivityTests
         var command = string.Join("\\n", Enumerable.Range(1, 12).Select(static line => $"echo line-{line}"));
         await activity.Yield("call", command, "build", "process-1", "inventory", 1, cancellationToken);
 
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
 
         _ = await Assert.That(activity.Commits).HasSingleItem();
         _ = await Assert.That(activity.Commits[0]).Contains("$ echo line-1|echo line-2");
@@ -92,7 +166,7 @@ internal sealed class ShellProcessActivityTests
     {
         await using var activity = new ProcessActivity();
         await activity.Start("call", "sleep 20", cancellationToken);
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
 
         await activity.Finish("call", "build", "process-1", "inventory", 1, cancellationToken);
 
@@ -112,7 +186,7 @@ internal sealed class ShellProcessActivityTests
         await activity.Yield("call", "sleep 20", "build", "process-1", "inventory", 1, cancellationToken);
 
         await activity.Replace(
-            new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1, CompletedProcesses = { new CompletionFixture("process-1", 7_123).Completion } },
+            new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1, CompletedProcesses = { new CompletionFixture("process-1", 7_123).Completion } },
             cancellationToken);
 
         _ = await Assert.That(activity.Commits).HasSingleItem();
@@ -126,10 +200,10 @@ internal sealed class ShellProcessActivityTests
         await activity.Yield("call", "sleep 20", "build", "process-1", "inventory", 1, cancellationToken);
 
         await activity.Replace(
-            new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1, CompletedProcesses = { new CompletionFixture("process-1", 7_123).Completion } },
+            new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1, CompletedProcesses = { new CompletionFixture("process-1", 7_123).Completion } },
             cancellationToken);
         await activity.Replace(
-            new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 3, ChunkCount = 1, CompletedProcesses = { new CompletionFixture("process-1", 7_123).Completion } },
+            new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 3, ChunkCount = 1, CompletedProcesses = { new CompletionFixture("process-1", 7_123).Completion } },
             cancellationToken);
 
         _ = await Assert.That(activity.Commits).HasSingleItem();
@@ -152,7 +226,7 @@ internal sealed class ShellProcessActivityTests
         await activity.Yield("call", "sleep 20", "build", "process-1", "inventory", 1, cancellationToken);
 
         await activity.Replace(
-            new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1, CompletedProcesses = { new CompletionFixture("process-1", elapsedMilliseconds).Completion } },
+            new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1, CompletedProcesses = { new CompletionFixture("process-1", elapsedMilliseconds).Completion } },
             cancellationToken);
 
         _ = await Assert.That(activity.Commits).HasSingleItem();
@@ -165,7 +239,7 @@ internal sealed class ShellProcessActivityTests
     {
         await using var activity = new ProcessActivity();
         await activity.Replace(
-            new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1, CompletedProcesses = { new CompletionFixture("process-1", 8_456).Completion, new CompletionFixture("historical", 9_000).Completion } },
+            new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1, CompletedProcesses = { new CompletionFixture("process-1", 8_456).Completion, new CompletionFixture("historical", 9_000).Completion } },
             cancellationToken);
 
         _ = await Assert.That(activity.Commits).IsEmpty();
@@ -183,8 +257,8 @@ internal sealed class ShellProcessActivityTests
         await using var activity = new ProcessActivity();
         await activity.Yield("call", "sleep 20", "build", "process-1", "inventory", 2, cancellationToken);
 
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 1, ChunkCount = 1 }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 1, ChunkCount = 1 }, cancellationToken);
 
         _ = await Assert.That(activity.Commits).IsEmpty();
         _ = await Assert.That(activity.Draws[^1]).Contains("$ sleep 20 (process build running");
@@ -197,7 +271,7 @@ internal sealed class ShellProcessActivityTests
         await activity.Yield("first", "first command", "build", "process-1", "inventory", 1, cancellationToken);
         await activity.Yield("second", "replacement command", "build", "process-1", "inventory", 2, cancellationToken);
 
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 3, ChunkCount = 1 }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 3, ChunkCount = 1 }, cancellationToken);
 
         _ = await Assert.That(activity.Commits).Count().IsEqualTo(1);
         _ = await Assert.That(activity.Commits[0]).Contains("first command");
@@ -210,8 +284,8 @@ internal sealed class ShellProcessActivityTests
         await using var activity = new ProcessActivity();
         await activity.Yield("call", "sleep 20", "build", "process-1", "inventory-a", 1, cancellationToken);
 
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory-b", Revision = 1, ChunkCount = 1, Processes = { new ActiveShellProcess { ProcessId = "process-1", Name = "build", Command = "reported command", OwnerAgentSessionId = "main", OwnerAgentName = "main" } } }, cancellationToken);
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory-b", Revision = 2, ChunkCount = 1 }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory-b", Revision = 1, ChunkCount = 1, Processes = { new ActiveShellProcess { ProcessId = "process-1", Name = "build", Command = "reported command", OwnerAgentSessionId = "main", OwnerAgentName = "main" } } }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory-b", Revision = 2, ChunkCount = 1 }, cancellationToken);
 
         _ = await Assert.That(activity.Commits).Count().IsEqualTo(1);
         _ = await Assert.That(activity.Commits[0]).Contains("reported command");
@@ -223,8 +297,8 @@ internal sealed class ShellProcessActivityTests
     {
         await using var activity = new ProcessActivity();
 
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 1, ChunkCount = 1, Processes = { new ActiveShellProcess { ProcessId = "process-1", Name = "build", Command = "reported command", OwnerAgentSessionId = "opaque-child-id", OwnerAgentName = "worker", ParentAgentSessionId = "opaque-parent-id", ParentAgentName = "parent", Depth = 2 } } }, cancellationToken);
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "opaque-child-id", InventoryInstanceId = "inventory", Revision = 1, ChunkCount = 1, Processes = { new ActiveShellProcess { ProcessId = "process-1", Name = "build", Command = "reported command", OwnerAgentSessionId = "opaque-child-id", OwnerAgentName = "worker", ParentAgentSessionId = "opaque-parent-id", ParentAgentName = "parent", Depth = 2 } } }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "opaque-child-id", InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
 
         _ = await Assert.That(activity.Commits).Count().IsEqualTo(1);
         _ = await Assert.That(activity.Commits[0].StartsWith(
@@ -238,7 +312,7 @@ internal sealed class ShellProcessActivityTests
         await using var activity = new ProcessActivity();
         await activity.Yield("call", "sleep 20", "build", "process-1", "inventory-a", 1, cancellationToken);
 
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory-b", Revision = 1, ChunkCount = 1 }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory-b", Revision = 1, ChunkCount = 1 }, cancellationToken);
 
         _ = await Assert.That(activity.Commits).IsEmpty();
     }
@@ -249,8 +323,8 @@ internal sealed class ShellProcessActivityTests
         await using var activity = new ProcessActivity();
         await activity.Yield("call", "sleep 20", "build", "process-1", "inventory", 1, cancellationToken);
 
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 3, ChunkCount = 1 }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 3, ChunkCount = 1 }, cancellationToken);
 
         _ = await Assert.That(activity.Commits).Count().IsEqualTo(1);
     }
@@ -262,7 +336,7 @@ internal sealed class ShellProcessActivityTests
         await activity.Yield("second", "second command", "second", "process-b", "inventory", 1, cancellationToken);
         await activity.Yield("first", "first command", "first", "process-a", "inventory", 1, cancellationToken);
 
-        await activity.Replace(new ShellProcessSnapshot { InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
 
         _ = await Assert.That(activity.Commits).Count().IsEqualTo(2);
         _ = await Assert.That(activity.Commits[0]).Contains("first command");

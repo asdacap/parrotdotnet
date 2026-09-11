@@ -34,7 +34,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.ShellProcesses.Prepare(arguments.Identity.SessionId, arguments.PathEnvironment);
+                return new ShellProcessOwner(arguments.Identity, arguments.Resources, arguments.PathEnvironment, arguments.ProcessRunner, arguments.Diagnostics, arguments.Lifetime);
             })
             .Bind<AgentIdentity>().To(ctx =>
             {
@@ -131,11 +131,6 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.ReadOnlyExecCommandPrefixes;
             })
-            .Bind<ShellProcessOwners>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.ShellProcesses;
-            })
             .Bind<QuestionBroker>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
@@ -197,10 +192,11 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.Permissions;
             })
-            .Bind<AgentQueues>().To(ctx =>
+            .Bind<AgentQueues>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.Queues;
+                ctx.Inject<IChildRegistry>(out var children);
+                return new AgentQueues(arguments.Identity, arguments.ParentLink.Parent?.Queues, arguments.Resources, children, arguments.Diagnostics);
             })
             .Bind<ExecCommandToolFactory>().As(Lifetime.Scoped).To<ExecCommandToolFactory>()
             .Bind<WriteStdinToolFactory>().As(Lifetime.Scoped).To<WriteStdinToolFactory>()
@@ -360,5 +356,6 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Root<ChildRegistry>("ChildRegistry")
             .Root<AgentSessionParentScope>("ParentScope")
             .Root<ChildQuestionCoordinator>("ChildQuestions")
-            .Root<ShellProcessOwner>("Processes");
+            .Root<ShellProcessOwner>("Processes")
+            .Root<AgentQueues>("Queues");
 }

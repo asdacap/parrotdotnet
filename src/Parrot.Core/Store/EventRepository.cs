@@ -31,7 +31,7 @@ internal sealed class EventRepository
 
     private readonly SessionDatabase _database;
     private readonly ImageArtifactStore? _imageStore;
-    private readonly AgentHistoryFiles? _historyFiles;
+    private readonly AgentHistoryFile? _historyFile;
 
     public EventRepository(SessionDatabase database) => _database = database;
 
@@ -41,50 +41,21 @@ internal sealed class EventRepository
         _imageStore = imageStore;
     }
 
-    public EventRepository(
-        SessionDatabase database,
-        ImageArtifactStore imageStore,
-        AgentHistoryFiles historyFiles)
+    private EventRepository(EventRepository repository, AgentHistoryFile historyFile)
     {
-        _database = database;
-        _imageStore = imageStore;
-        _historyFiles = historyFiles;
+        _database = repository._database;
+        _imageStore = repository._imageStore;
+        _historyFile = historyFile;
     }
 
-    public string PrepareAgentHistory(string agentSessionId)
+    public EventRepository BindAgentHistory(AgentHistoryFile historyFile)
     {
-        if (_historyFiles is null)
-        {
-            return string.Empty;
-        }
-
-        try
-        {
-            var file = _historyFiles.PathFor(agentSessionId);
-            file.Replace(() => AgentHistory(agentSessionId));
-            return file.Path;
-        }
-        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or InvalidOperationException)
-        {
-            return string.Empty;
-        }
+        ArgumentNullException.ThrowIfNull(historyFile);
+        return new EventRepository(this, historyFile);
     }
 
-    public void RefreshAgentHistory(string agentSessionId)
-    {
-        if (_historyFiles is null)
-        {
-            return;
-        }
-
-        try
-        {
-            _historyFiles.PathFor(agentSessionId).Replace(() => AgentHistory(agentSessionId));
-        }
-        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or InvalidOperationException)
-        {
-        }
-    }
+    public void RefreshAgentHistory(string agentSessionId) =>
+        _historyFile?.Refresh(this, agentSessionId);
 
     public SessionUsage? Append(Event published, string? messageRole, string? messageContent) =>
         Append(
@@ -99,6 +70,7 @@ internal sealed class EventRepository
         SessionUsage? usage;
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(published.AgentSessionId);
             using var transaction = _database.Begin();
             if (published.PayloadCase == Event.PayloadOneofCase.AgentStatisticsUpdated)
             {
@@ -143,6 +115,7 @@ internal sealed class EventRepository
         ArgumentNullException.ThrowIfNull(toolCalls);
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(published.AgentSessionId);
             using var transaction = _database.Begin();
             _ = Record(transaction, published);
             _ = Project(transaction, published.AgentSessionId, origin, role, parts, toolCalls, toolCallId);
@@ -161,6 +134,7 @@ internal sealed class EventRepository
         ArgumentNullException.ThrowIfNull(terminal);
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(published.AgentSessionId);
             using var transaction = _database.Begin();
             if (HasToolResult(transaction, published.AgentSessionId, assistantSequence, terminal.ToolCallId))
             {
@@ -202,6 +176,7 @@ internal sealed class EventRepository
 
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(published.AgentSessionId);
             using var transaction = _database.Begin();
             if (HasToolSynthetic(transaction, published.AgentSessionId, assistantSequence))
             {
@@ -529,6 +504,7 @@ internal sealed class EventRepository
 
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(published.AgentSessionId);
             using var transaction = _database.Begin();
             _ = Record(transaction, published);
             _ = Project(
@@ -765,6 +741,7 @@ internal sealed class EventRepository
 
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(destinationAgentSessionId);
             using var transaction = _database.Begin();
             var effective = ReadEffectiveConversationGroups(transaction, sourceAgentSessionId);
             ConversationGroup[] preceding;
@@ -956,6 +933,7 @@ internal sealed class EventRepository
     {
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(agentSessionId);
             using var transaction = _database.Begin();
             using var delete = _database.Connection.CreateCommand();
             delete.Transaction = transaction;
@@ -1025,6 +1003,7 @@ internal sealed class EventRepository
         var changed = false;
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(published.AgentSessionId);
             using var transaction = _database.Begin();
             var existing = ReadToolTerminal(transaction, published.AgentSessionId, terminal.ToolCallId);
             if (existing is not null && !ToolTerminalsEqual(existing, terminal))
@@ -1089,6 +1068,7 @@ internal sealed class EventRepository
         var saved = false;
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(agentSessionId);
             using var transaction = _database.Begin();
             EnsureAgentHistoryProjection(transaction);
             using (var existing = _database.Connection.CreateCommand())
@@ -1155,6 +1135,7 @@ internal sealed class EventRepository
         var appended = false;
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(publishedStatus.AgentSessionId);
             using var transaction = _database.Begin();
             EnsureAgentHistoryProjection(transaction);
             using (var existing = _database.Connection.CreateCommand())
@@ -1394,6 +1375,7 @@ internal sealed class EventRepository
 
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(published.AgentSessionId);
             using var transaction = _database.Begin();
             using var pending = _database.Connection.CreateCommand();
             pending.Transaction = transaction;
@@ -1452,6 +1434,7 @@ internal sealed class EventRepository
 
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(published.AgentSessionId);
             using var transaction = _database.Begin();
             Project(transaction, published.AgentSessionId, "system", content);
             transaction.Commit();
@@ -1465,6 +1448,7 @@ internal sealed class EventRepository
         ArgumentNullException.ThrowIfNull(published);
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(published.AgentSessionId);
             using var transaction = _database.Begin();
             _ = Record(transaction, published);
             _ = Project(
@@ -1499,6 +1483,7 @@ internal sealed class EventRepository
 
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(published.AgentSessionId);
             using var transaction = _database.Begin();
             _ = Record(transaction, published);
             _ = Project(
@@ -1531,6 +1516,7 @@ internal sealed class EventRepository
 
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(published.AgentSessionId);
             using var transaction = _database.Begin();
             Project(transaction, published.AgentSessionId, "system", content);
             transaction.Commit();
@@ -1573,6 +1559,7 @@ internal sealed class EventRepository
         published.ContextReminderInjected = new ContextReminderInjected { UsagePercent = usagePercent };
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(published.AgentSessionId);
             using var transaction = _database.Begin();
             using (var latest = _database.Connection.CreateCommand())
             {
@@ -1625,6 +1612,7 @@ internal sealed class EventRepository
 
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(published.AgentSessionId);
             using var transaction = _database.Begin();
             using (var insert = _database.Connection.CreateCommand())
             {
@@ -1649,6 +1637,7 @@ internal sealed class EventRepository
 
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(published.AgentSessionId);
             using var transaction = _database.Begin();
             using var delete = _database.Connection.CreateCommand();
             delete.Transaction = transaction;
@@ -2120,6 +2109,8 @@ internal sealed class EventRepository
         List<Promotion> promoted;
         lock (_database.Gate)
         {
+            _historyFile?.ValidateSession(agentSessionId);
+
             // Read before the transaction: the drain asks at every turn
             // boundary and almost always finds nothing, and BeginTransaction
             // takes the file's write lock before running a statement -- so

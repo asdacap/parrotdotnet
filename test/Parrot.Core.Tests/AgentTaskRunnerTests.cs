@@ -12,16 +12,22 @@ using Parrot.Store;
 
 namespace Parrot.Core.Tests;
 
-internal sealed class AgentTaskRunnerTests : IDisposable
+internal sealed class AgentTaskRunnerTests : IAsyncDisposable
 {
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
     private readonly EventBroker _broker = new();
+    private readonly List<IAgentRegistry> _registries = [];
     private readonly EventRepository _repository;
 
     public AgentTaskRunnerTests() => _repository = new EventRepository(_database);
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        foreach (var registry in _registries)
+        {
+            await registry.DisposeAsync().ConfigureAwait(false);
+        }
+
         _broker.Dispose();
         _database.Dispose();
     }
@@ -64,6 +70,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
                 dependencies.Profile,
                 dependencies.Profile.Profile.SecurityProfile,
                 dependencies.Status,
+                _repository,
                 cancellationToken);
             if (fail)
             {
@@ -1360,6 +1367,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             new TestProfileFixture().Registry,
             TestModels.PromptTemplates,
             cancellationToken);
+        _registries.Add(registry);
         var identity = AgentIdentity.Main("agent-task-parent", "parent", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
         using var parentScope = TestAgentSessionScope.Build(identity, AgentSessionParentLink.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) => new AgentSession(
@@ -1425,6 +1433,9 @@ internal sealed class AgentTaskRunnerTests : IDisposable
 
     private sealed class DiagnosticChildFactory(IAgentSessionScope scope, bool fail) : IAgentSessionFactory
     {
+        public EventRepository PrepareHistory(string agentSessionId, EventRepository repository) =>
+            repository;
+
         public IAgentSessionScope Create(
             AgentIdentity identity,
             AgentSessionParentLink parentLink,

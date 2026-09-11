@@ -48,14 +48,11 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
         return new OwnerAgentSessions(this, owner);
     }
 
-    public ShellProcessOwners CreateShellProcesses(UserSession owner) =>
-        new(owner.Resources, new ProcessRunner(string.Empty), owner.Diagnostics, owner.Lifetime);
-
-    public AgentQueueCatalog CreateQueueCatalog(UserSession owner) =>
-        new(owner.Resources, owner.Diagnostics);
-
     private sealed class OwnerAgentSessions(DirectAgentSessions source, UserSession owner) : IAgentSessionFactory
     {
+        public EventRepository PrepareHistory(string agentSessionId, EventRepository repository) =>
+            repository.BindAgentHistory(new AgentHistoryFile(owner.Resources, agentSessionId));
+
         public IAgentSessionScope Create(
             AgentIdentity identity,
             AgentSessionParentLink parentLink,
@@ -68,22 +65,30 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
             IAgentRegistry registry,
             CancellationToken lifetime)
         {
+            eventRepository.RefreshAgentHistory(identity.SessionId);
             source._identities.Add(identity);
-            var processes = owner.ShellProcesses.Prepare(identity.SessionId, new AgentPathEnvironment(owner.Resources, owner.Resources.AgentScratch(identity.SessionId)));
-            owner.ShellProcesses.Register(processes);
             var router = source._router ?? throw new InvalidOperationException("model router is not configured");
-            var queues = owner.QueueCatalog.Register(identity);
-            source._queues.Add(queues);
             var security = new SecurityProfileTestFixture(securityProfile).Security;
             source._securities.Add(security);
-            var scope = TestAgentSessionScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, owningScope, children, childQuestions) =>
+            var scope = TestAgentSessionScope.BuildWithResources(
+                identity,
+                parentLink,
+                registry,
+                TestModels.PromptTemplates,
+                owner.Resources,
+                new ProcessRunner(string.Empty),
+                owner.Diagnostics,
+                (sessionParentScope, owningScope, children, childQuestions) =>
             {
+                var processes = owningScope.Processes;
+                var queues = owningScope.Queues;
+                source._queues.Add(queues);
                 var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
                 IAgentSession session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, source._includeStatusTool ? [new StatusToolFactory(owner.Status)] : [], source._includeStatusTool ? new TestToolDefinitionsFixture("status").Definitions : TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(owner.Diagnostics, identity.SessionId), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates, null), exitReminder, eventRepository, eventBroker).Callbacks, security, status, queues, new AgentSessionActivity(source._timeProvider), owner.Diagnostics, lifetime);
-                queues.Attach(session);
                 source._sessions.Add(session);
                 return session;
-            });
+            },
+                lifetime);
             TestModels.RegisterScope(scope);
             return scope;
         }

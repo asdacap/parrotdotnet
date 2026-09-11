@@ -3,8 +3,6 @@ using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Llm;
-using Parrot.Process;
-using Parrot.Queues;
 
 namespace Parrot.Statuses;
 
@@ -15,26 +13,22 @@ internal sealed class RuntimeStatus
     private readonly StatusRegistry _full;
 
     public RuntimeStatus(
-        AgentQueueCatalog queues,
-        IProcessStatusSource processes,
-        IAgentStatusSource subagents,
+        IAgentRegistry agents,
         PromptTemplateCatalog templates,
         TimeProvider timeProvider)
-        : this(queues, processes, subagents, templates, timeProvider, null)
+        : this(agents, templates, timeProvider, null)
     {
     }
 
     public RuntimeStatus(
-        AgentQueueCatalog queues,
-        IProcessStatusSource processes,
-        IAgentStatusSource subagents,
+        IAgentRegistry agents,
         PromptTemplateCatalog templates,
         TimeProvider timeProvider,
         AgentTaskRunCatalog? agentTaskRuns)
     {
         _templates = templates ?? throw new ArgumentNullException(nameof(templates));
         var generatedTime = new GeneratedTimeStatusProvider(timeProvider, templates);
-        var runtime = new RuntimeTreeStatusProvider(queues, processes, subagents, templates);
+        var runtime = new RuntimeTreeStatusProvider(agents, templates);
         var agentTasks = agentTaskRuns is null ? null : new AgentTaskStatusProvider(agentTaskRuns, templates);
         _activity = agentTasks is null
             ? new StatusRegistry(runtime)

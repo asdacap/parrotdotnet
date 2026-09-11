@@ -1,4 +1,6 @@
+using Parrot.Process;
 using Parrot.Questions;
+using Parrot.Queues;
 
 namespace Parrot.Agent;
 
@@ -6,6 +8,10 @@ namespace Parrot.Agent;
 internal interface IAgentSessionScope : IAsyncDisposable
 {
     IAgentSession Session { get; }
+
+    ShellProcessOwner Processes { get; }
+
+    AgentQueues Queues { get; }
 
     GoalService Goals { get; }
 
@@ -16,4 +22,7 @@ internal interface IAgentSessionScope : IAsyncDisposable
     AgentSessionParentScope ParentScope { get; }
 
     ChildQuestionCoordinator ChildQuestions { get; }
+
+    /// <summary>Publishes local inventories after the scope is admitted to its topology.</summary>
+    void PublishInventories();
 }

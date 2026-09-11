@@ -1,5 +1,6 @@
 using System.Runtime.ExceptionServices;
 using System.Text;
+using Parrot.Store;
 
 namespace Parrot.Agent;
 
@@ -205,16 +206,15 @@ internal sealed class AgentSpawner : IAsyncDisposable
             throw;
         }
 
-        var historyInitialized = false;
+        EventRepository? childHistory = null;
         IAgentSessionScope? constructedScope = null;
         try
         {
-            _authority.InitializeChildHistory(
+            childHistory = _authority.InitializeChildHistory(
                 _owner.SessionId,
                 childIdentity.SessionId,
                 request.Boundary,
                 request.Fork);
-            historyInitialized = true;
             var securityProfile = childParentLink.PolicyLineage.Resolve(profile.SecurityProfile);
             constructedScope = _authority.CreateChildScope(
                 childIdentity,
@@ -223,6 +223,7 @@ internal sealed class AgentSpawner : IAsyncDisposable
                 new NoopMode(profile, securityProfile),
                 securityProfile,
                 status,
+                childHistory,
                 _lifetime.Token);
             Retain(childIdentity.SessionId, retainedReservation);
             if (!_children.TryAdd(constructedScope))
@@ -234,7 +235,7 @@ internal sealed class AgentSpawner : IAsyncDisposable
         }
         catch
         {
-            RejectConstruction(childIdentity.SessionId, retainedReservation, constructedScope, historyInitialized);
+            RejectConstruction(childIdentity.SessionId, retainedReservation, constructedScope, childHistory);
             throw;
         }
         finally
@@ -275,7 +276,7 @@ internal sealed class AgentSpawner : IAsyncDisposable
         string sessionId,
         RetainedAgentReservation reservation,
         IAgentSessionScope? constructedScope,
-        bool historyInitialized)
+        EventRepository? childHistory)
     {
         Reject(sessionId, reservation);
         if (constructedScope is not null)
@@ -287,10 +288,7 @@ internal sealed class AgentSpawner : IAsyncDisposable
             }
         }
 
-        if (historyInitialized)
-        {
-            _authority.CleanupChildHistory(sessionId);
-        }
+        childHistory?.CleanupForkedAgentHistory(sessionId);
     }
 
     private void CompleteConstruction()

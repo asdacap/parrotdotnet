@@ -7,15 +7,7 @@ internal sealed class ShellProcessSnapshotStreamReader(
     IAsyncStreamReader<Event> source,
     Func<ShellProcessSnapshot, CancellationToken, Task> replace) : IAsyncStreamReader<Event>
 {
-    private readonly HashSet<string> _retiredInstances = new(StringComparer.Ordinal);
-    private readonly List<ActiveShellProcess> _stagedProcesses = [];
-    private readonly List<CompletedShellProcess> _stagedCompletedProcesses = [];
-    private string? _acceptedInstance;
-    private string? _stagedInstance;
-    private uint _chunkCount;
-    private uint _nextChunk;
-    private ulong _acceptedRevision;
-    private ulong _stagedRevision;
+    private readonly Dictionary<string, OwnerInventory> _owners = new(StringComparer.Ordinal);
 
     public Event Current { get; private set; } = new();
 
@@ -30,84 +22,108 @@ internal sealed class ShellProcessSnapshotStreamReader(
                 return true;
             }
 
-            await Observe(published.ShellProcessSnapshot, cancellationToken).ConfigureAwait(false);
+            var snapshot = published.ShellProcessSnapshot;
+            if (string.IsNullOrEmpty(snapshot.OwnerAgentSessionId) || string.IsNullOrEmpty(snapshot.InventoryInstanceId))
+            {
+                continue;
+            }
+
+            if (!_owners.TryGetValue(snapshot.OwnerAgentSessionId, out var owner))
+            {
+                owner = new OwnerInventory();
+                _owners.Add(snapshot.OwnerAgentSessionId, owner);
+            }
+
+            if (owner.Observe(snapshot) is { } completed)
+            {
+                await replace(completed, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         return false;
     }
 
-    private async Task Observe(ShellProcessSnapshot snapshot, CancellationToken cancellationToken)
+    private sealed class OwnerInventory
     {
-        if (snapshot.ChunkCount == 0 || snapshot.ChunkIndex >= snapshot.ChunkCount)
-        {
-            ResetStaging();
-            return;
-        }
+        private readonly HashSet<string> _retiredInstances = new(StringComparer.Ordinal);
+        private readonly List<ActiveShellProcess> _processes = [];
+        private readonly List<CompletedShellProcess> _completedProcesses = [];
+        private string? _instance;
+        private ShellProcessSnapshot? _first;
+        private ulong _revision;
+        private uint _nextChunk;
+        private bool _observed;
+        private bool _removed;
 
-        if (snapshot.ChunkIndex == 0)
+        public ShellProcessSnapshot? Observe(ShellProcessSnapshot snapshot)
         {
-            if (_retiredInstances.Contains(snapshot.InventoryInstanceId)
-                || (string.Equals(_acceptedInstance, snapshot.InventoryInstanceId, StringComparison.Ordinal)
-                    && snapshot.Revision <= _acceptedRevision))
+            if (snapshot.ChunkCount == 0 || snapshot.ChunkIndex >= snapshot.ChunkCount || _retiredInstances.Contains(snapshot.InventoryInstanceId))
             {
-                ResetStaging();
-                return;
+                return null;
             }
 
-            _stagedProcesses.Clear();
-            _stagedCompletedProcesses.Clear();
-            _stagedInstance = snapshot.InventoryInstanceId;
-            _stagedRevision = snapshot.Revision;
-            _chunkCount = snapshot.ChunkCount;
+            if (snapshot.ChunkIndex == 0)
+            {
+                if (string.Equals(_instance, snapshot.InventoryInstanceId, StringComparison.Ordinal))
+                {
+                    if (_removed || (_observed && snapshot.Revision <= _revision))
+                    {
+                        return null;
+                    }
+                }
+                else
+                {
+                    if (_instance is not null)
+                    {
+                        _ = _retiredInstances.Add(_instance);
+                    }
+
+                    _instance = snapshot.InventoryInstanceId;
+                    _removed = false;
+                }
+
+                ResetStaging();
+                _first = snapshot;
+                _revision = snapshot.Revision;
+                _observed = true;
+            }
+
+            if (_first is null
+                || !string.Equals(_instance, snapshot.InventoryInstanceId, StringComparison.Ordinal)
+                || snapshot.Revision != _revision
+                || snapshot.ChunkIndex != _nextChunk
+                || snapshot.Removed != _first.Removed
+                || snapshot.ChunkCount != _first.ChunkCount)
+            {
+                return null;
+            }
+
+            _processes.AddRange(snapshot.Processes.Select(static process => process.Clone()));
+            _completedProcesses.AddRange(snapshot.CompletedProcesses.Select(static process => process.Clone()));
+            _nextChunk++;
+            if (_nextChunk != snapshot.ChunkCount)
+            {
+                return null;
+            }
+
+            var completed = snapshot.Clone();
+            completed.ChunkIndex = 0;
+            completed.Processes.Clear();
+            completed.CompletedProcesses.Clear();
+            completed.Processes.AddRange(_processes);
+            completed.CompletedProcesses.AddRange(_completedProcesses);
+            completed.ChunkCount = 1;
+            _removed = snapshot.Removed;
+            ResetStaging();
+            return completed;
+        }
+
+        private void ResetStaging()
+        {
+            _processes.Clear();
+            _completedProcesses.Clear();
+            _first = null;
             _nextChunk = 0;
         }
-
-        if (_stagedInstance is null
-            || !string.Equals(_stagedInstance, snapshot.InventoryInstanceId, StringComparison.Ordinal)
-            || snapshot.Revision != _stagedRevision
-            || snapshot.ChunkCount != _chunkCount
-            || snapshot.ChunkIndex != _nextChunk)
-        {
-            ResetStaging();
-            return;
-        }
-
-        _stagedProcesses.AddRange(snapshot.Processes.Select(static process => process.Clone()));
-        _stagedCompletedProcesses.AddRange(snapshot.CompletedProcesses.Select(static process => process.Clone()));
-        _nextChunk++;
-        if (_nextChunk != _chunkCount)
-        {
-            return;
-        }
-
-        var completed = new ShellProcessSnapshot
-        {
-            InventoryInstanceId = _stagedInstance,
-            Revision = _stagedRevision,
-            ChunkIndex = 0,
-            ChunkCount = 1,
-        };
-        completed.Processes.AddRange(_stagedProcesses);
-        completed.CompletedProcesses.AddRange(_stagedCompletedProcesses);
-        if (_acceptedInstance is not null
-            && !string.Equals(_acceptedInstance, completed.InventoryInstanceId, StringComparison.Ordinal))
-        {
-            _ = _retiredInstances.Add(_acceptedInstance);
-        }
-
-        _acceptedInstance = completed.InventoryInstanceId;
-        _acceptedRevision = completed.Revision;
-        ResetStaging();
-        await replace(completed, cancellationToken).ConfigureAwait(false);
-    }
-
-    private void ResetStaging()
-    {
-        _stagedProcesses.Clear();
-        _stagedCompletedProcesses.Clear();
-        _stagedInstance = null;
-        _stagedRevision = 0;
-        _chunkCount = 0;
-        _nextChunk = 0;
     }
 }

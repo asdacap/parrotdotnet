@@ -1,7 +1,10 @@
+using System.Runtime.Versioning;
 using Parrot.Agent;
 using Parrot.Context;
+using Parrot.Events;
+using Parrot.Llm;
 using Parrot.Process;
-using Parrot.Queues;
+using Parrot.Security;
 using Parrot.State;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -72,9 +75,9 @@ internal sealed class StatusRegistryTests
     [Test]
     public async Task Additional_context_provider_preserves_order_and_runtime_exclusions()
     {
-        using var catalog = QueueCatalog("status-order");
-        using var root = catalog.Register(AgentIdentity.Main("session", "main", TestModels.PromptTemplates));
-        IStatusProvider runtime = new RuntimeTreeStatusProvider(catalog, new ProcessStatusSource(), new AgentStatusSource(), TestModels.PromptTemplates);
+        await using var fixture = new RuntimeTreeFixture();
+        _ = fixture.Build(AgentIdentity.Main("session", "main", TestModels.PromptTemplates), AgentSessionParentLink.Root());
+        IStatusProvider runtime = new RuntimeTreeStatusProvider(fixture.Registry, TestModels.PromptTemplates);
         var full = new StatusRegistry(new GeneratedTimeStatusProvider(TimeProvider.System, TestModels.PromptTemplates), new SelectionStatusProvider(TestModels.PromptTemplates), runtime);
         IStatusProvider context = new ContextStatusProvider(new ContextSnapshot(123, 1000, 12, 90), TestModels.PromptTemplates);
         var query = new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model");
@@ -187,18 +190,22 @@ internal sealed class StatusRegistryTests
     [Test]
     public async Task Runtime_tree_nests_queues_processes_and_active_agents(CancellationToken cancellationToken)
     {
-        using var catalog = QueueCatalog("runtime-tree");
-        using var root = catalog.Register(AgentIdentity.Main("root", "main", TestModels.PromptTemplates));
-        using var child = catalog.Register(AgentIdentity.Child("child", "root", "main", "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
-        _ = root.Create("work", "queued work");
-        _ = child.Create("results", string.Empty);
-        IStatusProvider provider = new RuntimeTreeStatusProvider(
-            catalog,
-            new ProcessStatusSource(
-                new ShellProcessStatusSnapshot("child", "fetch", "fetch", ActiveWorkState.Running),
-                new ShellProcessStatusSnapshot("root", "build", "build", ActiveWorkState.Running)),
-            new AgentStatusSource(new ActiveAgentSnapshot("child", "root", "worker")),
-            TestModels.PromptTemplates);
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        await using var fixture = new RuntimeTreeFixture();
+        fixture.EnableProcesses();
+        var root = fixture.Build(AgentIdentity.Main("root", "main", TestModels.PromptTemplates), AgentSessionParentLink.Root());
+        var child = fixture.Build(AgentIdentity.Child("child", "root", "main", "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(root, AgentCompletionDeliveryPolicy.RetainedOnly));
+        _ = await child.Session.SendTextMessage("work", cancellationToken);
+        await fixture.Provider.Arrived(cancellationToken);
+        _ = root.Queues.Create("work", "queued work");
+        _ = child.Queues.Create("results", string.Empty);
+        _ = child.Processes.Start("fetch", "sleep 30", "call", ProcessEnvironmentOverrides.Empty, child.Session, SecurityProfile.Compose(readOnly: false, [], [], []));
+        _ = root.Processes.Start("build", "sleep 30", "call", ProcessEnvironmentOverrides.Empty, root.Session, SecurityProfile.Compose(readOnly: false, [], [], []));
+        IStatusProvider provider = new RuntimeTreeStatusProvider(fixture.Registry, TestModels.PromptTemplates);
 
         var observation = await provider.Observe(
             new StatusQuery("root", string.Empty, string.Empty, "build", "provider/model"),
@@ -219,9 +226,9 @@ internal sealed class StatusRegistryTests
     [Test]
     public async Task Runtime_tree_reports_only_the_root_agent_when_idle(CancellationToken cancellationToken)
     {
-        using var catalog = QueueCatalog("runtime-empty");
-        using var root = catalog.Register(AgentIdentity.Main("root", "main", TestModels.PromptTemplates));
-        IStatusProvider provider = new RuntimeTreeStatusProvider(catalog, new ProcessStatusSource(), new AgentStatusSource(), TestModels.PromptTemplates);
+        await using var fixture = new RuntimeTreeFixture();
+        _ = fixture.Build(AgentIdentity.Main("root", "main", TestModels.PromptTemplates), AgentSessionParentLink.Root());
+        IStatusProvider provider = new RuntimeTreeStatusProvider(fixture.Registry, TestModels.PromptTemplates);
 
         var observation = await provider.Observe(
             new StatusQuery("root", string.Empty, string.Empty, "build", "provider/model"),
@@ -261,25 +268,80 @@ internal sealed class StatusRegistryTests
         _ = await Assert.That(exception?.InnerException).IsTypeOf<InvalidOperationException>();
     }
 
-    private static AgentQueueCatalog QueueCatalog(string name)
+    private sealed class RuntimeTreeFixture : IAsyncDisposable
     {
-        var root = Directory.CreateDirectory(
-            Path.Combine(Path.GetTempPath(), "parrot-tests", name, Guid.NewGuid().ToString("n"))).FullName;
-        var resources = new UserSessionResources(
-            new StatePaths(root, root, root),
-            UserSessionId.Parse(Guid.NewGuid().ToString("n")),
-            ProjectWorkspace.FromLaunchDirectory(root));
-        return new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
-    }
+        private readonly string _root = Directory.CreateDirectory(
+            Path.Combine(Path.GetTempPath(), "parrot-status-tests", Guid.NewGuid().ToString("n"))).FullName;
 
-    private sealed class ProcessStatusSource(params ShellProcessStatusSnapshot[] snapshots) : IProcessStatusSource
-    {
-        public IReadOnlyList<ShellProcessStatusSnapshot> Snapshot() => snapshots;
-    }
+        private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
+        private readonly EventBroker _broker = new();
+        private readonly EventRepository _repository;
+        private readonly ModelRouter _router;
+        private readonly UserSessionResources _resources;
+        private ProcessRunner _runner = new(string.Empty);
 
-    private sealed class AgentStatusSource(params ActiveAgentSnapshot[] snapshots) : IAgentStatusSource
-    {
-        public IReadOnlyList<ActiveAgentSnapshot> ActiveSnapshot() => snapshots;
+        public RuntimeTreeFixture()
+        {
+            _repository = new EventRepository(_database);
+            _router = TestModels.Route(new ProviderModel(Provider, new LLMModel("model", Provider.Id)));
+            _resources = new UserSessionResources(new StatePaths(_root, _root, _root), UserSessionId.Parse(Guid.NewGuid().ToString("n")), ProjectWorkspace.FromLaunchDirectory(_root));
+            Registry = TestModels.Registry(new AgentTaskTestSessionFactory(_router), _broker, _repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, CancellationToken.None);
+        }
+
+        public SteppedProvider Provider { get; } = new(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
+
+        public IAgentRegistry Registry { get; }
+
+        public IAgentSessionScope Build(AgentIdentity identity, AgentSessionParentLink parentLink)
+        {
+            var scope = TestAgentSessionScope.BuildWithResources(
+                identity,
+                parentLink,
+                Registry,
+                TestModels.PromptTemplates,
+                _resources,
+                _runner,
+                TestDiagnosticLog.Instance,
+                (parentScope, owningScope, children, childQuestions) =>
+                {
+                    var exitReminder = new ExitReminder(_repository, TestModels.PromptTemplates, identity.SessionId);
+                    var mode = new TestProfileFixture().Mode;
+                    return new AgentSession(identity, parentScope, _router.Resolve(string.Empty).RequestedSelector, _router, _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(_root), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "status-test"), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, owningScope.Processes, TestModels.PromptTemplates, null), exitReminder, _repository, _broker).Callbacks, new SecurityProfileTestFixture(mode.Profile.SecurityProfile).Security, Registry.RequireStatus(), owningScope.Queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
+                },
+                CancellationToken.None);
+            if (parentLink.Parent is { } parent)
+            {
+                _ = parent.ChildRegistry.TryAdd(scope);
+            }
+            else
+            {
+                Registry.RegisterRootScope(scope);
+            }
+
+            return scope;
+        }
+
+        [SupportedOSPlatform("linux")]
+        public void EnableProcesses()
+        {
+            var path = Path.Combine(_root, "sandbox");
+            var script = "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do\n"
+                + "  if [ \"$1\" = \"--chdir\" ]; then shift; cd \"$1\" || exit; "
+                + "elif [ \"$1\" = \"--setenv\" ]; then export \"$2=$3\"; shift 2; fi\n"
+                + "  shift\ndone\nshift\nexec \"$@\"\n";
+            File.WriteAllText(path, script);
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            _runner = new ProcessRunner(path);
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await Registry.DisposeAsync().ConfigureAwait(false);
+            Provider.Dispose();
+            _broker.Dispose();
+            _database.Dispose();
+            Directory.Delete(_root, recursive: true);
+        }
     }
 
     private sealed class ScriptedStatusProvider(

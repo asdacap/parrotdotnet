@@ -3,15 +3,13 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
-using Parrot.Process;
 using Parrot.Statuses;
 
 namespace Parrot.Tools;
 
 internal sealed class AgentStatusTool(
     AgentResolver resolver,
-    AgentSessionParentScope parentScope,
-    ShellProcessOwners processes) : ITool
+    AgentSessionParentScope parentScope) : ITool
 {
     public string Name => "agent_status";
 
@@ -127,7 +125,7 @@ internal sealed class AgentStatusTool(
         return string.Create(CultureInfo.InvariantCulture, $"{duration.TotalMilliseconds:F0}ms");
     }
 
-    private string Format(IAgentSessionScope childScope, AgentSessionActivitySnapshot activity)
+    private static string Format(IAgentSessionScope childScope, AgentSessionActivitySnapshot activity)
     {
         var report = new StringBuilder("Agent status");
         _ = report.Append("\nSession: ").Append(childScope.Session.SessionId);
@@ -139,7 +137,7 @@ internal sealed class AgentStatusTool(
         return report.ToString();
     }
 
-    private void AppendActive(StringBuilder report, IAgentSessionScope childScope)
+    private static void AppendActive(StringBuilder report, IAgentSessionScope childScope)
     {
         var activeChildren = childScope.ChildRegistry.SnapshotDescendants()
             .Where(session => session.IsActive()
@@ -164,8 +162,7 @@ internal sealed class AgentStatusTool(
             }
         }
 
-        var activeProcesses = processes.Snapshot()
-            .Where(process => string.Equals(process.OwnerSessionId, childScope.Session.SessionId, StringComparison.Ordinal));
+        var activeProcesses = childScope.Processes.Snapshot();
         _ = report.Append("\nActive processes:");
         var count = 0;
         foreach (var process in activeProcesses)

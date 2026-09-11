@@ -7,9 +7,7 @@ using Parrot.Queues;
 namespace Parrot.Statuses;
 
 internal sealed class RuntimeTreeStatusProvider(
-    AgentQueueCatalog queues,
-    IProcessStatusSource processes,
-    IAgentStatusSource agents,
+    IAgentRegistry agents,
     PromptTemplateCatalog templates) : IStatusProvider
 {
     public string Key => "runtime:queues";
@@ -19,9 +17,10 @@ internal sealed class RuntimeTreeStatusProvider(
         ArgumentNullException.ThrowIfNull(query);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var queueOwners = queues.Snapshot();
+        var scopes = agents.SnapshotScopes();
+        var queueOwners = scopes.Select(static scope => scope.Queues.Snapshot()).ToArray();
         var activeAgents = agents.ActiveSnapshot();
-        var activeProcesses = processes.Snapshot();
+        var activeProcesses = scopes.SelectMany(static scope => scope.Processes.Snapshot()).ToArray();
         var nodes = BuildNodes(query.SessionId, queueOwners, activeAgents, activeProcesses);
         var lines = new List<string> { templates.Render("status.runtime", []) };
         Append(lines, nodes, query.SessionId, 0, new HashSet<string>(StringComparer.Ordinal));

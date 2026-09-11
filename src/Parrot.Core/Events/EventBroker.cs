@@ -20,6 +20,23 @@ internal sealed class EventBroker : IDisposable
 
     public void PublishTransient(Event published) => Publish(published, transient: true);
 
+    public void PublishInventory(IReadOnlyList<Event> chunks)
+    {
+        ArgumentNullException.ThrowIfNull(chunks);
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            foreach (var target in _subscribers)
+            {
+                target.PublishInventory(chunks);
+            }
+        }
+    }
+
     public EventSubscription Subscribe()
     {
         var subscription = new EventSubscription(this);

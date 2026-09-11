@@ -12,20 +12,26 @@ using Parrot.Store;
 
 namespace Parrot.Core.Tests;
 
-internal sealed class AgentTaskRunCatalogTests : IDisposable
+internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
 {
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
     private readonly EventBroker _broker = new();
-    private readonly List<ShellProcessOwners> _processOwners = [];
+    private readonly List<IAgentRegistry> _registries = [];
+    private readonly List<ShellProcessOwner> _processOwners = [];
     private readonly EventRepository _repository;
 
     public AgentTaskRunCatalogTests() => _repository = new EventRepository(_database);
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         foreach (var processOwners in _processOwners)
         {
-            processOwners.Dispose();
+            await processOwners.DisposeAsync();
+        }
+
+        foreach (var registry in _registries)
+        {
+            await registry.DisposeAsync().ConfigureAwait(false);
         }
 
         _broker.Dispose();
@@ -271,14 +277,15 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
             new State.StatePaths(processRoot, processRoot, processRoot),
             UserSessionId.Parse(Guid.NewGuid().ToString("N")),
             ProjectWorkspace.FromLaunchDirectory(processRoot));
-        var processOwners = new ShellProcessOwners(
+        var identity = AgentIdentity.Main("agent-task-catalog-parent", "parent", TestModels.PromptTemplates);
+        var processOwner = new ShellProcessOwner(
+            identity,
             processResources,
+            new AgentPathEnvironment(processResources, processResources.AgentScratch(identity.SessionId)),
             new ProcessRunner(string.Empty),
             TestDiagnosticLog.Instance,
             cancellationToken);
-        _processOwners.Add(processOwners);
-        var processOwner = processOwners.Prepare("agent-task-catalog-parent", new AgentPathEnvironment(processResources, processResources.AgentScratch("agent-task-catalog-parent")));
-        processOwners.Register(processOwner);
+        _processOwners.Add(processOwner);
         var model = new LLMModel("model", provider.Id);
         var providers = new ProviderRegistry(
             [provider],
@@ -292,7 +299,7 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
             new TestProfileFixture().Registry,
             TestModels.PromptTemplates,
             cancellationToken);
-        var identity = AgentIdentity.Main("agent-task-catalog-parent", "parent", TestModels.PromptTemplates);
+        _registries.Add(registry);
         using var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
         using var parentScope = TestAgentSessionScope.Build(identity, AgentSessionParentLink.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) => new AgentSession(
             identity,

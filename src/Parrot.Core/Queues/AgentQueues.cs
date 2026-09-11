@@ -1,17 +1,18 @@
 using System.Diagnostics;
 using Parrot.Agent;
 using Parrot.Diagnostics;
+using Parrot.Store;
 
 namespace Parrot.Queues;
 
 internal sealed class AgentQueues(
-    AgentQueueCatalog catalog,
     AgentIdentity identity,
     AgentQueues? parent,
-    string directory,
-    bool deleteDirectory,
+    UserSessionResources resources,
+    IChildRegistry children,
     IDiagnosticLog diagnostics) : IDisposable
 {
+    private readonly QueueInventory _inventory = new(identity);
     private readonly SemaphoreSlim _delivery = new(1, 1);
     private IAgentSession? _session;
     private int _disposed;
@@ -22,7 +23,45 @@ internal sealed class AgentQueues(
 
     internal AgentQueues? Parent { get; } = parent;
 
-    internal QueueStore Local { get; } = new(directory);
+    internal QueueStore Local { get; } = new(identity.Depth == 0
+        ? resources.QueueDirectory
+        : resources.AgentQueueDirectory(identity.SessionId));
+
+    private Lock Gate => children.Gate;
+
+    public void Initialize()
+    {
+        Local.AttachInventory(Identity, _inventory);
+        if (Identity.Depth == 0)
+        {
+            Local.AdoptRootListener(SessionId);
+        }
+    }
+
+    public QueueInventorySnapshot CaptureInventory() => _inventory.Capture();
+
+    public QueueInventorySubscription SubscribeInventory() => _inventory.Subscribe();
+
+    public QueueOwnerSnapshot Snapshot()
+    {
+        lock (Gate)
+        {
+            return new(Identity, Volatile.Read(ref _disposed) == 0 ? Local.List(SessionId) : []);
+        }
+    }
+
+    public void ValidateParent()
+    {
+        if (Parent is null)
+        {
+            return;
+        }
+
+        foreach (var queue in Local.List(SessionId))
+        {
+            Parent.EnsureMissing(queue.Name);
+        }
+    }
 
     public void Attach(IAgentSession session)
     {
@@ -33,7 +72,36 @@ internal sealed class AgentQueues(
             : throw new InvalidOperationException("The queue owner already has an agent session.");
     }
 
-    public QueueInfo Create(string name, string description) => catalog.Create(this, name, description);
+    public QueueInfo Create(string name, string description)
+    {
+        QueueInfo created;
+        lock (Parent?.Gate ?? Gate)
+        {
+            lock (Gate)
+            {
+                ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+                if (Parent is not null)
+                {
+                    ObjectDisposedException.ThrowIf(Volatile.Read(ref Parent._disposed) != 0, Parent);
+                }
+
+                Parent?.EnsureMissing(name);
+                foreach (var child in children.SnapshotChildScopes())
+                {
+                    child.Queues.EnsureMissing(name);
+                }
+
+                created = Local.Create(name, description);
+            }
+        }
+
+        diagnostics.Write(new DiagnosticEvent("queue", "created", DiagnosticSeverity.Information)
+        {
+            AgentSessionId = SessionId,
+            Outcome = "created",
+        });
+        return created;
+    }
 
     public QueueInfo Get(string name)
     {
@@ -94,7 +162,8 @@ internal sealed class AgentQueues(
         {
             try
             {
-                await catalog.Notify(store, cancellationToken).ConfigureAwait(false);
+                await (ReferenceEquals(store, Local) ? this : Parent
+                    ?? throw new InvalidOperationException("Queue store owner is missing.")).Notify(cancellationToken).ConfigureAwait(false);
             }
             catch (Exception)
             {
@@ -137,14 +206,35 @@ internal sealed class AgentQueues(
             return;
         }
 
-        catalog.Unregister(this);
         _delivery.Wait();
         try
         {
-            Parent?.Local.RemoveListener(SessionId);
-            Local.Dispose();
+            lock (Parent?.Gate ?? Gate)
+            {
+                lock (Gate)
+                {
+                    try
+                    {
+                        if (Parent is not null && Volatile.Read(ref Parent._disposed) == 0)
+                        {
+                            Parent.Local.RemoveListener(SessionId);
+                        }
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            Local.Dispose();
+                        }
+                        finally
+                        {
+                            _inventory.Dispose();
+                        }
+                    }
+                }
+            }
 
-            if (deleteDirectory && System.IO.Directory.Exists(Local.Directory))
+            if (Identity.Depth > 0 && System.IO.Directory.Exists(Local.Directory))
             {
                 System.IO.Directory.Delete(Local.Directory, recursive: true);
             }
@@ -154,8 +244,6 @@ internal sealed class AgentQueues(
             _delivery.Dispose();
         }
     }
-
-    internal bool CanAccess(QueueStore store) => ReferenceEquals(Local, store) || ReferenceEquals(Parent?.Local, store);
 
     internal async Task<bool> Deliver(QueueStore store, CancellationToken cancellationToken)
     {
@@ -207,6 +295,44 @@ internal sealed class AgentQueues(
         {
             _ = _delivery.Release();
         }
+    }
+
+    private async Task Notify(CancellationToken cancellationToken)
+    {
+        var candidates = children.SnapshotChildScopes().Select(static child => child.Queues).Prepend(this);
+        foreach (var candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                if (await candidate.Deliver(Local, cancellationToken).ConfigureAwait(false))
+                {
+                    return;
+                }
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+            }
+        }
+    }
+
+    private void EnsureMissing(string name)
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            _ = Local.Get(name, SessionId);
+        }
+        catch (QueueNotFoundException)
+        {
+            return;
+        }
+
+        throw new QueueAlreadyExistsException($"queue: '{name}' already exists");
     }
 
     private QueueInfo WithListeningState(QueueStore store, string name, QueueInfo info) =>

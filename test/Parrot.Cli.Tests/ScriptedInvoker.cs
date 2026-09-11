@@ -765,6 +765,8 @@ internal sealed class ScriptedInvoker : CallInvoker
             ChunkIndex = 0,
             FinalChunk = true,
             RootAgentSessionId = userSessionId,
+            OwnerAgentSessionId = userSessionId,
+            InventoryInstanceId = "inventory",
         };
         if (_initialQueues.TryGetValue(userSessionId, out var queues))
         {

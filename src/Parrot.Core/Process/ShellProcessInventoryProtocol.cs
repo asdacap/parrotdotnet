@@ -35,6 +35,8 @@ internal static class ShellProcessInventoryProtocol
         {
             ShellProcessSnapshot = new ShellProcessSnapshot
             {
+                OwnerAgentSessionId = inventory.OwnerAgentSessionId,
+                Removed = inventory.Removed,
                 InventoryInstanceId = inventory.InventoryInstanceId,
                 Revision = inventory.Revision,
                 ChunkIndex = 0,
@@ -50,6 +52,8 @@ internal static class ShellProcessInventoryProtocol
     {
         var snapshot = new ShellProcessSnapshot
         {
+            OwnerAgentSessionId = inventory.OwnerAgentSessionId,
+            Removed = inventory.Removed,
             InventoryInstanceId = inventory.InventoryInstanceId,
             Revision = inventory.Revision,
             ChunkIndex = chunkIndex,
@@ -85,6 +89,8 @@ internal static class ShellProcessInventoryProtocol
 
         var snapshot = new ShellProcessSnapshot
         {
+            OwnerAgentSessionId = inventory.OwnerAgentSessionId,
+            Removed = inventory.Removed,
             InventoryInstanceId = inventory.InventoryInstanceId,
             Revision = inventory.Revision,
             ChunkIndex = chunkIndex,

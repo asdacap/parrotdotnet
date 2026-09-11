@@ -75,6 +75,15 @@ internal sealed class AgentRegistry(
             }
 
             _roots.Add(sessionId, scope);
+            try
+            {
+                scope.PublishInventories();
+            }
+            catch
+            {
+                _ = _roots.Remove(sessionId);
+                throw;
+            }
         }
     }
 
@@ -94,6 +103,9 @@ internal sealed class AgentRegistry(
             _ = _roots.Remove(scope.Session.SessionId);
         }
     }
+
+    public IReadOnlyList<IAgentSessionScope> SnapshotScopes() =>
+        [.. SnapshotRoots().SelectMany(EnumerateScopes)];
 
     public IReadOnlyList<ActiveWorkObservation> Active()
     {
@@ -198,6 +210,7 @@ internal sealed class AgentRegistry(
         IMode mode,
         Security.SecurityProfile securityProfile,
         RuntimeStatus status,
+        EventRepository childHistory,
         CancellationToken childLifetime)
     {
         var started = Stopwatch.GetTimestamp();
@@ -213,7 +226,7 @@ internal sealed class AgentRegistry(
                 parentLink,
                 model,
                 eventBroker,
-                eventRepository,
+                childHistory,
                 mode,
                 securityProfile,
                 status,
@@ -242,19 +255,19 @@ internal sealed class AgentRegistry(
         }
     }
 
-    public void InitializeChildHistory(
+    public EventRepository InitializeChildHistory(
         string parentSessionId,
         string childSessionId,
         HistoryForkBoundary boundary,
-        HistoryForkSelection fork) =>
-        eventRepository.InitializeForkedAgentHistory(
-            parentSessionId,
-            childSessionId,
-            boundary,
-            fork);
+        HistoryForkSelection fork)
+    {
+        var childHistory = agentSessions.PrepareHistory(childSessionId, eventRepository);
+        childHistory.InitializeForkedAgentHistory(parentSessionId, childSessionId, boundary, fork);
+        return childHistory;
+    }
 
-    public void CleanupChildHistory(string childSessionId) =>
-        eventRepository.CleanupForkedAgentHistory(childSessionId);
+    private static IEnumerable<IAgentSessionScope> EnumerateScopes(IAgentSessionScope scope) =>
+        scope.ChildRegistry.SnapshotChildScopes().SelectMany(EnumerateScopes).Prepend(scope);
 
     private IAgentSessionScope[] SnapshotRoots()
     {

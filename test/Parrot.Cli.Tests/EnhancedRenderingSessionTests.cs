@@ -354,14 +354,17 @@ internal sealed class EnhancedRenderingSessionTests
             {
                 QueueSnapshot = new QueueSnapshot
                 {
+                    OwnerAgentSessionId = "root",
+                    RootAgentSessionId = "root",
+                    InventoryInstanceId = "inventory",
                     Revision = 1,
                     FinalChunk = true,
                     Queues =
                     {
-                        new QueueState { Name = "zeta", Description = "last queue", ItemCount = 1 },
-                        new QueueState { Name = "alpha", Description = "stale queue", ItemCount = 2 },
-                        new QueueState { Name = "alpha", Description = "first queue", ItemCount = 3 },
-                        new QueueState { Name = "empty", Description = "hidden queue", ItemCount = 0 },
+                        new QueueState { OwnerAgentSessionId = "root", Name = "zeta", Description = "last queue", ItemCount = 1 },
+                        new QueueState { OwnerAgentSessionId = "root", Name = "alpha", Description = "stale queue", ItemCount = 2 },
+                        new QueueState { OwnerAgentSessionId = "root", Name = "alpha", Description = "first queue", ItemCount = 3 },
+                        new QueueState { OwnerAgentSessionId = "root", Name = "empty", Description = "hidden queue", ItemCount = 0 },
                     },
                 },
             },

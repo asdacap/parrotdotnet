@@ -30,6 +30,37 @@ internal sealed class SessionStoreTests : IDisposable
     }
 
     [Test]
+    public async Task Resume_rebuilds_inactive_agent_history_before_live_agents_are_constructed()
+    {
+        var workingDirectory = Directory.CreateDirectory(Path.Combine(_root, "history-work")).FullName;
+        UserSessionResources resources;
+        await using (var initial = await Open(workingDirectory))
+        {
+            resources = initial.Resources;
+        }
+
+        using (var database = SessionDatabase.Open(resources.DatabasePath))
+        {
+            var repository = new EventRepository(database);
+            repository.AppendConversation(
+                new Parrot.Protocol.Event { Id = "historical-message", AgentSessionId = "inactive-child" },
+                ConversationOrigin.UserInput,
+                LLMRole.User,
+                [ConversationPart.TextPart("inactive durable history")],
+                [],
+                string.Empty);
+        }
+
+        var history = new AgentHistoryFile(resources, "inactive-child");
+        _ = Directory.CreateDirectory(Path.GetDirectoryName(history.Path) ?? throw new InvalidOperationException());
+        await File.WriteAllTextAsync(history.Path, "stale projection");
+        await using var resumed = await Open(workingDirectory);
+
+        _ = await Assert.That(await File.ReadAllTextAsync(history.Path)).Contains("inactive durable history").And.DoesNotContain("stale projection");
+        _ = await Assert.That(resumed.Registry.FindScope("inactive-child")).IsNull();
+    }
+
+    [Test]
     [Arguments(false, false)]
     [Arguments(false, true)]
     [Arguments(true, false)]

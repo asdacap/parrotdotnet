@@ -1192,8 +1192,7 @@ internal sealed class EnhancedHierarchyTests
             },
             new ToolPresenterRegistry([], new GenericToolPresenter()),
             static (_, _) => Task.CompletedTask);
-        await view.ReplaceQueues(
-            "root",
+        QueueState[] queues =
             [
                 new QueueState
                 {
@@ -1235,8 +1234,20 @@ internal sealed class EnhancedHierarchyTests
                     Description = "a queue",
                     ItemCount = 1,
                 },
-            ],
+            ];
+        foreach (var queue in queues)
+        {
+            await view.ReplaceQueues(
+            new QueueSnapshot
+            {
+                RootAgentSessionId = "root",
+                OwnerAgentSessionId = queue.OwnerAgentSessionId,
+                InventoryInstanceId = queue.OwnerAgentSessionId,
+                Revision = 1,
+                Queues = { queue },
+            },
             cancellationToken);
+        }
 
         var rendered = draws[^1];
         var a = rendered.IndexOf("[a-sibling]", StringComparison.Ordinal);
@@ -1251,6 +1262,54 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(rendered).DoesNotContain("[root]");
         _ = await Assert.That(Count(rendered, "agent child")).IsEqualTo(1);
         _ = await Assert.That(Count(rendered, "agent z-parent")).IsEqualTo(1);
+
+        await view.ReplaceQueues(
+            new QueueSnapshot
+            {
+                RootAgentSessionId = "root",
+                OwnerAgentSessionId = "child",
+                InventoryInstanceId = "child",
+                Revision = 2,
+                Removed = true,
+            },
+            cancellationToken);
+        await view.ReplaceQueues(
+            new QueueSnapshot
+            {
+                RootAgentSessionId = "root",
+                OwnerAgentSessionId = "child",
+                InventoryInstanceId = "child",
+                Revision = 3,
+                Queues = { queues[2] },
+            },
+            cancellationToken);
+        _ = await Assert.That(draws[^1]).DoesNotContain("child queue");
+        _ = await Assert.That(draws[^1]).Contains("root queue");
+        _ = await Assert.That(draws[^1]).Contains("a queue");
+        _ = await Assert.That(draws[^1]).Contains("z queue");
+
+        await view.ReplaceQueues(
+            new QueueSnapshot
+            {
+                RootAgentSessionId = "root",
+                OwnerAgentSessionId = "z",
+                InventoryInstanceId = "replacement",
+                Revision = 1,
+            },
+            cancellationToken);
+        await view.ReplaceQueues(
+            new QueueSnapshot
+            {
+                RootAgentSessionId = "root",
+                OwnerAgentSessionId = "z",
+                InventoryInstanceId = "z",
+                Revision = 2,
+                Queues = { queues[1] },
+            },
+            cancellationToken);
+        _ = await Assert.That(draws[^1]).DoesNotContain("z queue");
+        _ = await Assert.That(draws[^1]).Contains("root queue");
+        _ = await Assert.That(draws[^1]).Contains("a queue");
     }
 
     [Test]
@@ -1270,19 +1329,26 @@ internal sealed class EnhancedHierarchyTests
             static (_, _) => Task.CompletedTask);
 
         await view.ReplaceQueues(
-            "opaque-root",
-            [
-                new QueueState
+            new QueueSnapshot
+            {
+                RootAgentSessionId = "opaque-root",
+                OwnerAgentSessionId = "opaque-root",
+                InventoryInstanceId = "inventory",
+                Revision = 1,
+                Queues =
                 {
-                    OwnerAgentSessionId = "opaque-root",
-                    OwnerAgentName = "main",
-                    ParentAgentSessionId = string.Empty,
-                    ParentAgentName = string.Empty,
-                    Name = "work",
-                    Description = "root queue",
-                    ItemCount = 1,
+                    new QueueState
+                    {
+                        OwnerAgentSessionId = "opaque-root",
+                        OwnerAgentName = "main",
+                        ParentAgentSessionId = string.Empty,
+                        ParentAgentName = string.Empty,
+                        Name = "work",
+                        Description = "root queue",
+                        ItemCount = 1,
+                    },
                 },
-            ],
+            },
             cancellationToken);
 
         _ = await Assert.That(draws[^1]).IsEqualTo("  queue: work · 1 item — root queue");
@@ -1409,7 +1475,9 @@ internal sealed class EnhancedHierarchyTests
 
         _ = await Assert.That(drawn[^1]).Contains("Send to late-root");
 
-        await view.ReplaceQueues("late-root", [], cancellationToken);
+        await view.ReplaceQueues(
+            new QueueSnapshot { RootAgentSessionId = "late-root", OwnerAgentSessionId = "late-root", InventoryInstanceId = "inventory", Revision = 1 },
+            cancellationToken);
 
         _ = await Assert.That(drawn[^1]).Contains("Send to main");
         _ = await Assert.That(drawn[^1]).DoesNotContain("Send to late-root");

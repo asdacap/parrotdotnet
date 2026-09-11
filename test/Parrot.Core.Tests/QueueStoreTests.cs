@@ -113,7 +113,7 @@ internal sealed class QueueStoreTests : IDisposable
             _ = persisted.Create("empty", "hidden");
         }
 
-        using var inventory = new QueueInventory();
+        using var inventory = new QueueInventory(AgentIdentity.Main("agent-owner", "main", TestModels.PromptTemplates));
         using var store = new QueueStore(_directory);
         store.AttachInventory(AgentIdentity.Main("agent-owner", "main", TestModels.PromptTemplates), inventory);
         using var subscription = inventory.Subscribe();
@@ -133,7 +133,7 @@ internal sealed class QueueStoreTests : IDisposable
     [Test]
     public async Task Inventory_coalesces_to_latest_including_empty(CancellationToken cancellationToken)
     {
-        using var inventory = new QueueInventory();
+        using var inventory = new QueueInventory(AgentIdentity.Main("agent-owner", "main", TestModels.PromptTemplates));
         using var store = new QueueStore(_directory);
         _ = store.Create("work", "tasks");
         store.AttachInventory(AgentIdentity.Main("agent-owner", "main", TestModels.PromptTemplates), inventory);

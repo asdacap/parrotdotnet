@@ -1,32 +1,37 @@
+using Parrot.Agent;
+
 namespace Parrot.Queues;
 
-internal sealed class QueueInventory : IDisposable
+internal sealed class QueueInventory(AgentIdentity identity) : IDisposable
 {
     private readonly QueueInventoryFeed _feed = new();
     private readonly Lock _gate = new();
-    private readonly HashSet<string> _owners = new(StringComparer.Ordinal);
-    private readonly Dictionary<QueueKey, QueueState> _queues = [];
+    private readonly Dictionary<string, QueueState> _queues = new(StringComparer.Ordinal);
     private ulong _revision;
+    private bool _registered;
     private bool _disposed;
+
+    public string InstanceId { get; } = $"queue-inventory-{Guid.CreateVersion7():n}";
 
     public void RegisterOwner(string ownerAgentSessionId, IReadOnlyList<QueueState> queues)
     {
-        ArgumentException.ThrowIfNullOrEmpty(ownerAgentSessionId);
+        ValidateOwner(ownerAgentSessionId);
         ArgumentNullException.ThrowIfNull(queues);
 
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (!_owners.Add(ownerAgentSessionId))
+            if (_registered)
             {
                 throw new InvalidOperationException($"Queue owner '{ownerAgentSessionId}' is already registered.");
             }
 
+            _registered = true;
             var changed = false;
             foreach (var queue in queues)
             {
                 var state = queue with { OwnerAgentSessionId = ownerAgentSessionId };
-                _queues.Add(new(ownerAgentSessionId, state.Name), state);
+                _queues.Add(state.Name, state);
                 changed = true;
             }
 
@@ -37,39 +42,45 @@ internal sealed class QueueInventory : IDisposable
     public void Update(QueueState state)
     {
         ArgumentNullException.ThrowIfNull(state);
+        ValidateOwner(state.OwnerAgentSessionId);
 
         lock (_gate)
         {
-            if (_disposed || !_owners.Contains(state.OwnerAgentSessionId))
+            if (_disposed || !_registered)
             {
                 return;
             }
 
-            var key = new QueueKey(state.OwnerAgentSessionId, state.Name);
             var changed = state.ItemCount > 0
-                ? SetLocked(key, state)
-                : _queues.Remove(key);
+                ? SetLocked(state)
+                : _queues.Remove(state.Name);
             PublishLocked(changed);
         }
     }
 
     public void UnregisterOwner(string ownerAgentSessionId)
     {
+        ValidateOwner(ownerAgentSessionId);
+
         lock (_gate)
         {
-            if (_disposed || !_owners.Remove(ownerAgentSessionId))
+            if (_disposed || !_registered)
             {
                 return;
             }
 
-            var changed = false;
-            foreach (var key in _queues.Keys.Where(key =>
-                         string.Equals(key.OwnerAgentSessionId, ownerAgentSessionId, StringComparison.Ordinal)).ToArray())
-            {
-                changed |= _queues.Remove(key);
-            }
-
+            _registered = false;
+            var changed = _queues.Count > 0;
+            _queues.Clear();
             PublishLocked(changed);
+        }
+    }
+
+    public QueueInventorySnapshot Capture()
+    {
+        lock (_gate)
+        {
+            return CaptureLocked();
         }
     }
 
@@ -92,18 +103,20 @@ internal sealed class QueueInventory : IDisposable
             }
 
             _disposed = true;
-            _owners.Clear();
+            _registered = false;
             _queues.Clear();
+            _revision++;
+            _feed.Publish(CaptureLocked());
+            _feed.Dispose();
         }
-
-        _feed.Dispose();
     }
 
     private QueueInventorySnapshot CaptureLocked() => new(
+        identity.SessionId,
+        InstanceId,
         _revision,
-        [.. _queues.Values
-            .OrderBy(state => state.OwnerAgentSessionId, StringComparer.Ordinal)
-            .ThenBy(state => state.Name, StringComparer.Ordinal)]);
+        _disposed,
+        [.. _queues.Values.OrderBy(state => state.Name, StringComparer.Ordinal)]);
 
     private void PublishLocked(bool changed)
     {
@@ -116,16 +129,23 @@ internal sealed class QueueInventory : IDisposable
         _feed.Publish(CaptureLocked());
     }
 
-    private bool SetLocked(QueueKey key, QueueState state)
+    private bool SetLocked(QueueState state)
     {
-        if (_queues.TryGetValue(key, out var current) && current == state)
+        if (_queues.TryGetValue(state.Name, out var current) && current == state)
         {
             return false;
         }
 
-        _queues[key] = state;
+        _queues[state.Name] = state;
         return true;
     }
 
-    private readonly record struct QueueKey(string OwnerAgentSessionId, string Name);
+    private void ValidateOwner(string ownerAgentSessionId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(ownerAgentSessionId);
+        if (!string.Equals(ownerAgentSessionId, identity.SessionId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Queue owner '{ownerAgentSessionId}' does not match inventory owner '{identity.SessionId}'.");
+        }
+    }
 }

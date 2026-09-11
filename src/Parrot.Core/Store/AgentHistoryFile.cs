@@ -2,14 +2,37 @@ using System.Text.Json;
 
 namespace Parrot.Store;
 
-internal sealed class AgentHistoryFile(string path, Lock gate)
+internal sealed class AgentHistoryFile(UserSessionResources resources, string agentSessionId)
 {
     private const UnixFileMode DirectoryMode =
         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
 
     private const UnixFileMode HistoryFileMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
 
-    public string Path { get; } = path;
+    private readonly Lock _gate = new();
+
+    public string Path => resources.AgentHistoryFile(agentSessionId);
+
+    public void Refresh(EventRepository repository, string sessionId)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ValidateSession(sessionId);
+        try
+        {
+            Replace(() => repository.AgentHistory(agentSessionId));
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+        }
+    }
+
+    public void ValidateSession(string sessionId)
+    {
+        if (!string.Equals(agentSessionId, sessionId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("History projection belongs to another agent session.");
+        }
+    }
 
     public void Replace(IReadOnlyList<AgentHistoryEntry> entries)
     {
@@ -20,21 +43,22 @@ internal sealed class AgentHistoryFile(string path, Lock gate)
     public void Replace(Func<IReadOnlyList<AgentHistoryEntry>> readEntries)
     {
         ArgumentNullException.ThrowIfNull(readEntries);
-        lock (gate)
+        lock (_gate)
         {
             var entries = readEntries();
-            var directory = System.IO.Path.GetDirectoryName(Path)
+            var path = Path;
+            var directory = System.IO.Path.GetDirectoryName(path)
                 ?? throw new InvalidOperationException("An agent history file must have a parent directory.");
             ProvisionDirectory(directory);
-            ValidateTarget(Path);
+            ValidateTarget(path);
             var temporary = System.IO.Path.Combine(
                 directory,
-                $".{System.IO.Path.GetFileName(Path)}.{Guid.NewGuid():n}.tmp");
+                $".{System.IO.Path.GetFileName(path)}.{Guid.NewGuid():n}.tmp");
             try
             {
                 WriteTemporary(temporary, entries);
-                File.Move(temporary, Path, overwrite: true);
-                SetFileMode(Path);
+                File.Move(temporary, path, overwrite: true);
+                SetFileMode(path);
             }
             finally
             {

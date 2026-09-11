@@ -1,7 +1,6 @@
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Process;
-using Parrot.Queues;
 using Parrot.Tools;
 using Parrot.Web;
 
@@ -22,6 +21,7 @@ internal sealed class AgentSessionFactorySource(
     public IAgentSessionFactory Create(UserSession owner) =>
         new AgentSessionFactory(
             owner,
+            processes,
             owner.Resources.Workspace.LaunchDirectory,
             compactor,
             webFetcher,
@@ -34,10 +34,4 @@ internal sealed class AgentSessionFactorySource(
                 "runtime:user-session-system-prompt",
                 [systemPromptProvider, new AgentHistoryProvider(owner.Resources, promptTemplates)]),
             promptTemplates);
-
-    public ShellProcessOwners CreateShellProcesses(UserSession owner) =>
-        new(owner.Resources, processes, owner.Diagnostics, owner.Lifetime);
-
-    public AgentQueueCatalog CreateQueueCatalog(UserSession owner) =>
-        new(owner.Resources, owner.Diagnostics);
 }

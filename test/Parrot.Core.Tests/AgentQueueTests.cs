@@ -1,5 +1,8 @@
 using Parrot.Agent;
+using Parrot.Config;
+using Parrot.Llm;
 using Parrot.Queues;
+using Parrot.Skills;
 using Parrot.State;
 using Parrot.Store;
 
@@ -22,9 +25,10 @@ internal sealed class AgentQueueTests : IDisposable
     public async Task An_agent_accesses_its_own_and_direct_parents_queues(CancellationToken cancellationToken)
     {
         var resources = Resources("direct-access");
-        using var catalog = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        using var child = catalog.Register(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
+        await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
+        var root = rootScope.Queues;
+        await using var childScope = new QueueTestScope(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
+        var child = childScope.Queues;
         var parentQueue = root.Create("parent-work", "parent owned");
         var childQueue = child.Create("child-work", "child owned");
 
@@ -51,9 +55,11 @@ internal sealed class AgentQueueTests : IDisposable
     [Test]
     public async Task A_direct_child_can_close_and_drain_its_parents_queue(CancellationToken cancellationToken)
     {
-        using var catalog = new AgentQueueCatalog(Resources("child-close"), TestDiagnosticLog.Instance);
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        using var child = catalog.Register(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
+        var resources = Resources("child-close");
+        await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
+        var root = rootScope.Queues;
+        await using var childScope = new QueueTestScope(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
+        var child = childScope.Queues;
         _ = root.Create("parent-work", "shared");
         _ = await root.Push("parent-work", ["final-item"], QueueDirection.Back, false, cancellationToken);
         _ = await child.Listen("parent-work", true, cancellationToken);
@@ -78,11 +84,15 @@ internal sealed class AgentQueueTests : IDisposable
     [Test]
     public async Task Reverse_child_sibling_and_grandparent_access_is_denied_without_leaking_ownership()
     {
-        using var catalog = new AgentQueueCatalog(Resources("denied-access"), TestDiagnosticLog.Instance);
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        using var left = catalog.Register(AgentIdentity.Child("left-agent", "root-agent", "root", "left", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
-        using var right = catalog.Register(AgentIdentity.Child("right-agent", "root-agent", "root", "right", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
-        using var grandchild = catalog.Register(AgentIdentity.Child("grandchild-agent", "left-agent", "left", "grandchild", 2, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
+        var resources = Resources("denied-access");
+        await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
+        var root = rootScope.Queues;
+        await using var leftScope = new QueueTestScope(AgentIdentity.Child("left-agent", "root-agent", "root", "left", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
+        var left = leftScope.Queues;
+        await using var rightScope = new QueueTestScope(AgentIdentity.Child("right-agent", "root-agent", "root", "right", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
+        var right = rightScope.Queues;
+        await using var grandchildScope = new QueueTestScope(AgentIdentity.Child("grandchild-agent", "left-agent", "left", "grandchild", 2, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), leftScope, resources);
+        var grandchild = grandchildScope.Queues;
         _ = root.Create("root-secret", string.Empty);
         _ = left.Create("left-secret", string.Empty);
         _ = grandchild.Create("grandchild-secret", string.Empty);
@@ -107,9 +117,11 @@ internal sealed class AgentQueueTests : IDisposable
     [Test]
     public async Task Parent_child_name_collisions_are_rejected_in_both_create_orders()
     {
-        using var catalog = new AgentQueueCatalog(Resources("collision-orders"), TestDiagnosticLog.Instance);
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        using var child = catalog.Register(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
+        var resources = Resources("collision-orders");
+        await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
+        var root = rootScope.Queues;
+        await using var childScope = new QueueTestScope(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
+        var child = childScope.Queues;
 
         _ = root.Create("parent-first", string.Empty);
         _ = await Assert.That(() => child.Create("parent-first", string.Empty))
@@ -127,9 +139,10 @@ internal sealed class AgentQueueTests : IDisposable
     public async Task Concurrent_parent_child_creation_publishes_exactly_one_queue()
     {
         var resources = Resources("concurrent-collision");
-        using var catalog = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        using var child = catalog.Register(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
+        await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
+        var root = rootScope.Queues;
+        await using var childScope = new QueueTestScope(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
+        var child = childScope.Queues;
         using var start = new ManualResetEventSlim();
         var parentAttempt = Task.Run(() => TryCreate(root, "same-name", start));
         var childAttempt = Task.Run(() => TryCreate(child, "same-name", start));
@@ -145,12 +158,39 @@ internal sealed class AgentQueueTests : IDisposable
     }
 
     [Test]
+    public async Task Attaching_a_session_preserves_created_queues_and_inventory(CancellationToken cancellationToken)
+    {
+        var resources = Resources("attach-created");
+        await using var scope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
+        var queues = scope.Queues;
+        _ = queues.Create("work", "created before attachment");
+        _ = await queues.Push("work", ["item"], QueueDirection.Back, false, cancellationToken);
+        using var subscription = queues.SubscribeInventory();
+        var before = await subscription.Reader.ReadAsync(cancellationToken);
+
+        queues.Attach(scope.Session);
+
+        _ = await Assert.That(queues.Get("work").Size).IsEqualTo(1);
+        _ = await Assert.That(queues.CaptureInventory().Revision).IsEqualTo(before.Revision);
+        _ = await Assert.That(queues.CaptureInventory().InventoryInstanceId).IsEqualTo(before.InventoryInstanceId);
+        _ = await Assert.That(subscription.Reader.TryRead(out _)).IsFalse();
+        _ = await Assert.That(() => queues.Attach(scope.Session)).Throws<InvalidOperationException>();
+        _ = await Assert.That(queues.Snapshot().Queues).Count().IsEqualTo(1);
+        await scope.DisposeAsync();
+        _ = await Assert.That(() => queues.Attach(scope.Session)).Throws<ObjectDisposedException>();
+        _ = await Assert.That(queues.Snapshot().Queues).IsEmpty();
+    }
+
+    [Test]
     public async Task Siblings_can_use_the_same_name_without_sharing_data(CancellationToken cancellationToken)
     {
-        using var catalog = new AgentQueueCatalog(Resources("sibling-isolation"), TestDiagnosticLog.Instance);
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        using var left = catalog.Register(AgentIdentity.Child("left-agent", "root-agent", "root", "left", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
-        using var right = catalog.Register(AgentIdentity.Child("right-agent", "root-agent", "root", "right", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
+        var resources = Resources("sibling-isolation");
+        await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
+        var root = rootScope.Queues;
+        await using var leftScope = new QueueTestScope(AgentIdentity.Child("left-agent", "root-agent", "root", "left", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
+        var left = leftScope.Queues;
+        await using var rightScope = new QueueTestScope(AgentIdentity.Child("right-agent", "root-agent", "root", "right", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
+        var right = rightScope.Queues;
         var leftInfo = left.Create("shared-name", "left queue");
         var rightInfo = right.Create("shared-name", "right queue");
 
@@ -171,18 +211,20 @@ internal sealed class AgentQueueTests : IDisposable
     public async Task Disposing_a_child_removes_only_its_queue_directory()
     {
         var resources = Resources("child-cleanup");
-        using var catalog = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        var child = catalog.Register(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
+        await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
+        var root = rootScope.Queues;
+        await using var childScope = new QueueTestScope(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
+        var child = childScope.Queues;
         var childDirectory = resources.AgentQueueDirectory("child-agent");
         _ = child.Create("temporary-work", string.Empty);
         _ = root.Create("root-work", string.Empty);
 
-        child.Dispose();
+        await childScope.DisposeAsync();
 
         _ = await Assert.That(Directory.Exists(childDirectory)).IsFalse();
         _ = await Assert.That(File.Exists(root.Get("root-work").Path)).IsTrue();
-        using var replacement = catalog.Register(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
+        await using var replacementScope = new QueueTestScope(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
+        var replacement = replacementScope.Queues;
         _ = await Assert.That(string.Join(',', replacement.List().Select(static queue => queue.Name)))
             .IsEqualTo("root-work");
         _ = replacement.Create("fresh-work", string.Empty);
@@ -190,7 +232,7 @@ internal sealed class AgentQueueTests : IDisposable
     }
 
     [Test]
-    public async Task Catalog_startup_removes_stale_agent_queues_without_removing_root_queues()
+    public async Task Session_startup_removes_stale_agent_queues_without_removing_root_queues()
     {
         var resources = Resources("stale-cleanup");
         _ = Directory.CreateDirectory(resources.QueueDirectory);
@@ -203,26 +245,46 @@ internal sealed class AgentQueueTests : IDisposable
             Path.Combine(resources.AgentQueueRootDirectory, "stale-agent", "nested")).FullName;
         await File.WriteAllTextAsync(Path.Combine(staleDirectory, "orphaned.jsonl"), "orphaned");
 
-        using var catalog = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
+        using var database = SessionDatabase.Open(resources.DatabasePath);
+        using var lease = SessionResourceLease.Own(resources, database, TestDiagnosticLog.Instance);
+        var configuration = Configuration.Load(Path.Combine(_root, "config.yaml"), Path.Combine(_root, "predefined_config.yaml"));
+        var profiles = new ProfileRegistry(configuration.Profiles, configuration.SandboxRules, [], configuration.DisabledTools);
+        var modes = new ModeRegistry(profiles, configuration.DefaultProfile);
+        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
+        var sessions = new DirectAgentSessions();
+        sessions.Use(TestModels.Route(model));
+        await using var session = await UserSession.Create(
+            "stale-cleanup",
+            "root",
+            TestModels.Resolve(model),
+            configuration.DefaultProfile,
+            lease,
+            sessions,
+            new UserSessionModes(modes, configuration.PromptTemplates),
+            configuration.PromptTemplates,
+            profiles,
+            new SkillCatalogFactory(configuration, _root, Path.Combine(_root, "skills")),
+            false,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System);
 
         _ = await Assert.That(Directory.Exists(resources.AgentQueueRootDirectory)).IsFalse();
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        _ = await Assert.That(root.Get("root-work").Description).IsEqualTo("persistent");
+        _ = await Assert.That(sessions.Queues.Single().Get("root-work").Description).IsEqualTo("persistent");
     }
 
     [Test]
-    public async Task Root_queues_persist_across_catalog_lifetimes(CancellationToken cancellationToken)
+    public async Task Root_queues_persist_across_owner_lifetimes(CancellationToken cancellationToken)
     {
         var resources = Resources("root-persistence");
-        using (var firstCatalog = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance))
+        await using (var firstScope = new QueueTestScope(AgentIdentity.Main("first-root", "root", TestModels.PromptTemplates), null, resources))
         {
-            using var firstRoot = firstCatalog.Register(AgentIdentity.Main("first-root", "root", TestModels.PromptTemplates));
+            var firstRoot = firstScope.Queues;
             _ = firstRoot.Create("persistent-work", "survives");
             _ = await firstRoot.Push("persistent-work", ["item"], QueueDirection.Back, false, cancellationToken);
         }
 
-        using var secondCatalog = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
-        using var secondRoot = secondCatalog.Register(AgentIdentity.Main("second-root", "root", TestModels.PromptTemplates));
+        await using var secondScope = new QueueTestScope(AgentIdentity.Main("second-root", "root", TestModels.PromptTemplates), null, resources);
+        var secondRoot = secondScope.Queues;
         var restored = secondRoot.Get("persistent-work");
 
         _ = await Assert.That(restored.Description).IsEqualTo("survives");
@@ -251,9 +313,11 @@ internal sealed class AgentQueueTests : IDisposable
     public async Task Disposing_a_child_releases_its_parent_listener_and_delivery_reservation(
         CancellationToken cancellationToken)
     {
-        using var catalog = new AgentQueueCatalog(Resources("listener-cleanup"), TestDiagnosticLog.Instance);
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        var child = catalog.Register(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
+        var resources = Resources("listener-cleanup");
+        await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
+        var root = rootScope.Queues;
+        await using var childScope = new QueueTestScope(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
+        var child = childScope.Queues;
         _ = root.Create("parent-work", string.Empty);
         _ = root.Local.Monitor("parent-work", child.SessionId, true);
         _ = root.Local.Monitor("parent-work", "other-agent", true);
@@ -263,7 +327,7 @@ internal sealed class AgentQueueTests : IDisposable
             static (_, _) => Task.FromResult(false),
             cancellationToken);
 
-        child.Dispose();
+        await childScope.DisposeAsync();
         var accepted = await root.Local.DeliverMonitored(
             "other-agent",
             static (_, _) => Task.FromResult(true),
@@ -279,8 +343,9 @@ internal sealed class AgentQueueTests : IDisposable
     [Test]
     public async Task Empty_take_preserves_the_invoking_agents_listener_state(CancellationToken cancellationToken)
     {
-        using var catalog = new AgentQueueCatalog(Resources("empty-listener"), TestDiagnosticLog.Instance);
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
+        var resources = Resources("empty-listener");
+        await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
+        var root = rootScope.Queues;
         _ = root.Create("empty-work", string.Empty);
         _ = await root.Listen("empty-work", true, cancellationToken);
 
@@ -301,8 +366,9 @@ internal sealed class AgentQueueTests : IDisposable
     [Test]
     public async Task A_canceled_push_does_not_mutate_the_queue()
     {
-        using var catalog = new AgentQueueCatalog(Resources("canceled-push"), TestDiagnosticLog.Instance);
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
+        var resources = Resources("canceled-push");
+        await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
+        var root = rootScope.Queues;
         _ = root.Create("work", string.Empty);
         using var canceled = new CancellationTokenSource();
         await canceled.CancelAsync();
@@ -313,33 +379,47 @@ internal sealed class AgentQueueTests : IDisposable
     }
 
     [Test]
-    public async Task Inventory_aggregates_all_owners_and_removes_a_disposed_child(CancellationToken cancellationToken)
+    public async Task Inventories_are_isolated_and_disposal_removes_only_the_owner(CancellationToken cancellationToken)
     {
-        using var catalog = new AgentQueueCatalog(Resources("aggregate-inventory"), TestDiagnosticLog.Instance);
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
-        var left = catalog.Register(AgentIdentity.Child("left-agent", "root-agent", "root", "left", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
-        using var right = catalog.Register(AgentIdentity.Child("right-agent", "root-agent", "root", "right", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
+        var resources = Resources("isolated-inventory");
+        await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
+        await using var leftScope = new QueueTestScope(AgentIdentity.Child("left-agent", "root-agent", "root", "left", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
+        await using var rightScope = new QueueTestScope(AgentIdentity.Child("right-agent", "root-agent", "root", "right", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
+        var root = rootScope.Queues;
+        var left = leftScope.Queues;
+        var right = rightScope.Queues;
         _ = root.Create("root-work", "root");
         _ = left.Create("shared-name", "left");
         _ = right.Create("shared-name", "right");
-        using var subscription = catalog.SubscribeInventory();
+        using var subscription = left.SubscribeInventory();
         var initial = await subscription.Reader.ReadAsync(cancellationToken);
 
         _ = await root.Push("root-work", ["root-item"], QueueDirection.Back, false, cancellationToken);
-        _ = await left.Push("shared-name", ["left-item"], QueueDirection.Back, false, cancellationToken);
         _ = await right.Push("shared-name", ["right-item"], QueueDirection.Back, false, cancellationToken);
-        var aggregated = await ReadInventory(subscription, 3, cancellationToken);
+        _ = await Assert.That(subscription.Reader.TryRead(out _)).IsFalse();
+        _ = await left.Push("shared-name", ["left-item"], QueueDirection.Back, false, cancellationToken);
+        var changed = await subscription.Reader.ReadAsync(cancellationToken);
 
-        _ = await Assert.That(aggregated.Queues).Count().IsEqualTo(3);
-        _ = await Assert.That(aggregated.Revision).IsGreaterThan(initial.Revision);
-        _ = await Assert.That(string.Join(',', aggregated.Queues.Select(queue =>
-            $"{queue.OwnerAgentSessionId}/{queue.Name}")))
-            .IsEqualTo("left-agent/shared-name,right-agent/shared-name,root-agent/root-work");
+        _ = await Assert.That(changed.Queues).Count().IsEqualTo(1);
+        _ = await Assert.That(changed.OwnerAgentSessionId).IsEqualTo("left-agent");
+        _ = await Assert.That(changed.Queues[0].OwnerAgentSessionId).IsEqualTo("left-agent");
+        _ = await Assert.That(changed.Queues[0].Name).IsEqualTo("shared-name");
+        _ = await Assert.That(changed.Revision).IsGreaterThan(initial.Revision);
+        _ = await Assert.That(changed.InventoryInstanceId).IsEqualTo(initial.InventoryInstanceId);
+        _ = await Assert.That(changed.InventoryInstanceId).IsNotEqualTo(right.CaptureInventory().InventoryInstanceId);
+        var rootInventory = root.CaptureInventory();
+        var rightInventory = right.CaptureInventory();
 
-        left.Dispose();
-        var removed = await ReadInventory(subscription, 2, cancellationToken);
-        _ = await Assert.That(removed.Revision).IsGreaterThan(aggregated.Revision);
-        _ = await Assert.That(removed.Queues.Any(queue => queue.OwnerAgentSessionId == "left-agent")).IsFalse();
+        await leftScope.DisposeAsync();
+        var removed = await subscription.Reader.ReadAsync(cancellationToken);
+        _ = await Assert.That(removed.Removed).IsTrue();
+        _ = await Assert.That(removed.Queues).IsEmpty();
+        _ = await Assert.That(removed.Revision).IsGreaterThan(changed.Revision);
+        _ = await Assert.That(removed.InventoryInstanceId).IsEqualTo(changed.InventoryInstanceId);
+        _ = await Assert.That(root.CaptureInventory().Revision).IsEqualTo(rootInventory.Revision);
+        _ = await Assert.That(right.CaptureInventory().Revision).IsEqualTo(rightInventory.Revision);
+        _ = await Assert.That(root.Get("root-work").Size).IsEqualTo(1);
+        _ = await Assert.That(right.Get("shared-name").Size).IsEqualTo(1);
     }
 
     [Test]
@@ -353,8 +433,8 @@ internal sealed class AgentQueueTests : IDisposable
             "{\"name\":\"legacy-work\",\"description\":\"legacy\",\"monitored\":true,\"delivery_id\":\"legacy-delivery\"}\n\"item\"\n",
             cancellationToken);
 
-        using var catalog = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
+        await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
+        var root = rootScope.Queues;
         var adopted = root.Get("legacy-work");
         var persisted = await File.ReadAllTextAsync(path, cancellationToken);
 
@@ -365,21 +445,6 @@ internal sealed class AgentQueueTests : IDisposable
         _ = await Assert.That(persisted).Contains("\"listener_session_ids\":[\"root-agent\"]");
         _ = await Assert.That(persisted).Contains("\"delivery_listener_session_id\":\"root-agent\"");
         _ = await Assert.That(persisted).DoesNotContain("\"monitored\":true");
-    }
-
-    private static async Task<QueueInventorySnapshot> ReadInventory(
-        QueueInventorySubscription subscription,
-        int expectedCount,
-        CancellationToken cancellationToken)
-    {
-        while (true)
-        {
-            var snapshot = await subscription.Reader.ReadAsync(cancellationToken);
-            if (snapshot.Queues.Count == expectedCount)
-            {
-                return snapshot;
-            }
-        }
     }
 
     private static QueueNotFoundException CaptureNotFound(Action action)

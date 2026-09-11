@@ -69,6 +69,81 @@ internal sealed class ShellProcessSnapshotStreamReaderTests
         _ = await Assert.That(applied[^1].Processes[0].ProcessId).IsEqualTo("new");
     }
 
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Partitions_interleaved_owners_and_rejects_stale_or_removed_generations(
+        bool removed,
+        CancellationToken cancellationToken)
+    {
+        var source = new ChannelStreamWriter<Event>();
+        var applied = new List<ShellProcessSnapshot>();
+        var reader = new ShellProcessSnapshotStreamReader(source.Reader, (snapshot, _) =>
+        {
+            applied.Add(snapshot.Clone());
+            return Task.CompletedTask;
+        });
+        var root = new ShellProcessSnapshot
+        {
+            OwnerAgentSessionId = "root",
+            InventoryInstanceId = "root-one",
+            Revision = 8,
+            ChunkCount = 2,
+            Processes = { new ActiveShellProcess { ProcessId = "root-process", OwnerAgentSessionId = "root" } },
+        };
+        var child = root.Clone();
+        child.OwnerAgentSessionId = "child";
+        child.InventoryInstanceId = "child-one";
+        child.Revision = 1;
+        child.Processes.Clear();
+        await source.WriteAsync(new Event { ShellProcessSnapshot = root.Clone() }, cancellationToken);
+        await source.WriteAsync(new Event { ShellProcessSnapshot = child.Clone() }, cancellationToken);
+        root.ChunkIndex = 1;
+        await source.WriteAsync(new Event { ShellProcessSnapshot = root.Clone() }, cancellationToken);
+        child.ChunkIndex = 1;
+        await source.WriteAsync(new Event { ShellProcessSnapshot = child.Clone() }, cancellationToken);
+        child.ChunkIndex = 0;
+        child.ChunkCount = 1;
+        child.Revision = 2;
+        child.Removed = removed;
+        await source.WriteAsync(new Event { ShellProcessSnapshot = child.Clone() }, cancellationToken);
+        child.Revision = 1;
+        child.Removed = false;
+        await source.WriteAsync(new Event { ShellProcessSnapshot = child.Clone() }, cancellationToken);
+        root.ChunkIndex = 0;
+        root.InventoryInstanceId = "root-two";
+        root.Revision = 0;
+        await source.WriteAsync(new Event { ShellProcessSnapshot = root.Clone() }, cancellationToken);
+        var stale = root.Clone();
+        stale.InventoryInstanceId = "root-one";
+        stale.Revision = 99;
+        stale.ChunkCount = 1;
+        await source.WriteAsync(new Event { ShellProcessSnapshot = stale }, cancellationToken);
+        root.ChunkIndex = 1;
+        await source.WriteAsync(new Event { ShellProcessSnapshot = root.Clone() }, cancellationToken);
+        await source.WriteAsync(new Event { Id = "visible", TextChunk = new TextChunk() }, cancellationToken);
+
+        _ = await Assert.That(await reader.MoveNext(cancellationToken)).IsTrue();
+        _ = await Assert.That(string.Join(',', applied.Select(static snapshot =>
+            $"{snapshot.OwnerAgentSessionId}:{snapshot.InventoryInstanceId}:{snapshot.Revision}")))
+            .IsEqualTo("root:root-one:8,child:child-one:1,child:child-one:2,root:root-two:0");
+        _ = await Assert.That(applied[2].Removed).IsEqualTo(removed);
+        _ = await Assert.That(applied[0].Processes.Count).IsEqualTo(2);
+
+        var reconnected = new ShellProcessSnapshotStreamReader(source.Reader, (snapshot, _) =>
+        {
+            applied.Add(snapshot.Clone());
+            return Task.CompletedTask;
+        });
+        root.ChunkIndex = 0;
+        root.ChunkCount = 1;
+        await source.WriteAsync(new Event { ShellProcessSnapshot = root.Clone() }, cancellationToken);
+        await source.WriteAsync(new Event { Id = "reconnected", TextChunk = new TextChunk() }, cancellationToken);
+        _ = await Assert.That(await reconnected.MoveNext(cancellationToken)).IsTrue();
+        _ = await Assert.That(applied.Count).IsEqualTo(5);
+        _ = await Assert.That(applied[^1].InventoryInstanceId).IsEqualTo("root-two");
+    }
+
     private sealed class SnapshotFixture
     {
         public SnapshotFixture(
@@ -81,6 +156,7 @@ internal sealed class ShellProcessSnapshotStreamReaderTests
         {
             var snapshot = new ShellProcessSnapshot
             {
+                OwnerAgentSessionId = "root",
                 InventoryInstanceId = instanceId,
                 Revision = revision,
                 ChunkIndex = chunkIndex,

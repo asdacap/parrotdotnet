@@ -1,6 +1,7 @@
 using Parrot.AgentTasks;
 using Parrot.Process;
 using Parrot.Questions;
+using Parrot.Queues;
 
 namespace Parrot.Agent;
 
@@ -9,15 +10,29 @@ internal sealed class AgentSessionScope : IAgentSessionScope
     private readonly AgentSessionComposition _composition;
     private readonly Parrot.Diagnostics.IDiagnosticLog _diagnostics;
     private readonly string _sessionId;
+    private readonly AgentSessionScopeArguments _arguments;
+    private readonly Lock _gate = new();
+    private Task? _publication;
+    private Task? _disposal;
 
     internal AgentSessionScope(AgentSessionScopeArguments arguments)
     {
         ArgumentNullException.ThrowIfNull(arguments);
+        _arguments = arguments;
         _diagnostics = arguments.Diagnostics;
         _sessionId = arguments.Identity.SessionId;
         _composition = new AgentSessionComposition(arguments, this);
         try
         {
+            Session = _composition.Session;
+            Processes = _composition.Processes;
+            Queues = _composition.Queues;
+            ChildRegistry = _composition.ChildRegistry;
+            ParentScope = _composition.ParentScope;
+            ChildQuestions = _composition.ChildQuestions;
+            AgentSpawner = _composition.AgentSpawner;
+            Goals = _composition.Goals;
+            AgentTaskRuns = _composition.AgentTaskRuns;
             ParentScope.Validate(Session.Identity);
             ParentScope.ValidateOwnerScope(this);
             _diagnostics.Write(new("agent", "created", Parrot.Diagnostics.DiagnosticSeverity.Information)
@@ -32,27 +47,93 @@ internal sealed class AgentSessionScope : IAgentSessionScope
         }
     }
 
-    public IAgentSession Session => _composition.Session;
+    public IAgentSession Session { get; }
 
-    public GoalService Goals => _composition.Goals;
+    public GoalService Goals { get; }
 
-    public AgentSpawner AgentSpawner => _composition.AgentSpawner;
+    public AgentSpawner AgentSpawner { get; }
 
-    public IChildRegistry ChildRegistry => _composition.ChildRegistry;
+    public IChildRegistry ChildRegistry { get; }
 
-    public AgentSessionParentScope ParentScope => _composition.ParentScope;
+    public AgentSessionParentScope ParentScope { get; }
 
-    public ChildQuestionCoordinator ChildQuestions => _composition.ChildQuestions;
+    public ChildQuestionCoordinator ChildQuestions { get; }
 
-    internal AgentTaskRunOwner AgentTaskRuns => _composition.AgentTaskRuns;
+    public ShellProcessOwner Processes { get; }
 
-    internal ShellProcessOwner Processes => _composition.Processes;
+    public AgentQueues Queues { get; }
 
-    public async ValueTask DisposeAsync()
+    internal AgentTaskRunOwner AgentTaskRuns { get; }
+
+    public ValueTask DisposeAsync()
+    {
+        lock (_gate)
+        {
+            _disposal ??= DisposeResources();
+            return new ValueTask(_disposal);
+        }
+    }
+
+    public void PublishInventories()
+    {
+        var root = (IAgentSessionScope)this;
+        while (root.ParentScope.Parent is { } parent)
+        {
+            root = parent;
+        }
+
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            _publication ??= new AgentInventoryPublisher(Processes, Queues, _arguments.EventBroker, root.Session.SessionId).Run();
+        }
+    }
+
+    internal void DisposeRejectedConstruction() => _composition.Dispose();
+
+    private async Task DisposeResources()
     {
         try
         {
-            await _composition.DisposeAsync().ConfigureAwait(false);
+            try
+            {
+                try
+                {
+                    await Processes.Settle().ConfigureAwait(false);
+                }
+                finally
+                {
+                    await Session.DisposeAsync().ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                try
+                {
+                    try
+                    {
+                        await AgentSpawner.DisposeAsync().ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        await ChildRegistry.DisposeChildren().ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    try
+                    {
+                        await _composition.DisposeAsync().ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        Queues.Dispose();
+                        await Processes.DisposeAsync().ConfigureAwait(false);
+                        await (_publication ?? Task.CompletedTask).WaitAsync(CancellationToken.None).ConfigureAwait(false);
+                    }
+                }
+            }
+
             _diagnostics.Write(new("agent", "closed", Parrot.Diagnostics.DiagnosticSeverity.Information)
             {
                 AgentSessionId = _sessionId,
@@ -68,6 +149,4 @@ internal sealed class AgentSessionScope : IAgentSessionScope
             throw;
         }
     }
-
-    internal void DisposeRejectedConstruction() => _composition.Dispose();
 }

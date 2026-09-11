@@ -12,6 +12,9 @@ internal interface IAgentRegistry : IAsyncDisposable
 
     bool IsAccepting { get; }
 
+    /// <summary>Captures current scopes by traversing registered roots and their child topology.</summary>
+    IReadOnlyList<IAgentSessionScope> SnapshotScopes();
+
     /// <summary>Attaches the shared runtime observer once.</summary>
     void AttachStatus(RuntimeStatus status);
 
@@ -52,14 +55,13 @@ internal interface IAgentRegistry : IAsyncDisposable
         IMode mode,
         SecurityProfile securityProfile,
         RuntimeStatus status,
+        EventRepository childHistory,
         CancellationToken childLifetime);
 
     /// <summary>Initializes child history at the requested parent fork boundary.</summary>
-    void InitializeChildHistory(
+    EventRepository InitializeChildHistory(
         string parentSessionId,
         string childSessionId,
         HistoryForkBoundary boundary,
         HistoryForkSelection fork);
-
-    void CleanupChildHistory(string childSessionId);
 }

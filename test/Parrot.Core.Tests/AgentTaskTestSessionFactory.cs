@@ -1,9 +1,7 @@
-using System.Collections.Concurrent;
 using Parrot.Agent;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
-using Parrot.Queues;
 using Parrot.Security;
 using Parrot.State;
 using Parrot.Statuses;
@@ -13,8 +11,6 @@ namespace Parrot.Core.Tests;
 
 internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSessionFactory
 {
-    private static readonly ConcurrentBag<ShellProcessOwners> ProcessOwners = [];
-    private static readonly ConcurrentBag<AgentQueueCatalog> QueueCatalogs = [];
     private readonly Lock _gate = new();
     private readonly List<AgentIdentity> _identities = [];
     private readonly List<string> _profileIds = [];
@@ -42,6 +38,8 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
         }
     }
 
+    public EventRepository PrepareHistory(string agentSessionId, EventRepository repository) => repository;
+
     public IAgentSessionScope Create(
         AgentIdentity identity,
         AgentSessionParentLink parentLink,
@@ -66,20 +64,18 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             new StatePaths(root, root, root),
             UserSessionId.Parse(Guid.NewGuid().ToString("N")),
             ProjectWorkspace.FromLaunchDirectory(root));
-        var owners = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime);
-        ProcessOwners.Add(owners);
-        var processes = owners.Prepare(identity.SessionId, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)));
-        owners.Register(processes);
-        var queues = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
-        QueueCatalogs.Add(queues);
-        if (identity.ParentSessionId.Length > 0)
+        var scope = TestAgentSessionScope.BuildWithResources(
+            identity,
+            parentLink,
+            registry,
+            TestModels.PromptTemplates,
+            resources,
+            new ProcessRunner(string.Empty),
+            TestDiagnosticLog.Instance,
+            (sessionParentScope, owningScope, children, childQuestions) =>
         {
-            _ = queues.Register(AgentIdentity.Main(identity.ParentSessionId, identity.ParentSessionName, TestModels.PromptTemplates));
-        }
-
-        var agentQueues = queues.Register(identity);
-        var scope = TestAgentSessionScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, owningScope, children, childQuestions) =>
-        {
+            var processes = owningScope.Processes;
+            var agentQueues = owningScope.Queues;
             var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
             var completionCallbacks = new TestCompletionCallbacksFixture(
                 childQuestions,
@@ -113,9 +109,9 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             new AgentSessionActivity(TimeProvider.System),
             TestDiagnosticLog.Instance,
             lifetime);
-            agentQueues.Attach(session);
             return session;
-        });
+        },
+            lifetime);
         lock (_gate)
         {
             _scopes.Add(scope);

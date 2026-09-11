@@ -566,6 +566,8 @@ message ShellProcessSnapshot {
   uint32 chunk_count                               = 4;
   repeated ActiveShellProcess processes           = 5;
   repeated CompletedShellProcess completed_processes = 6;
+  string owner_agent_session_id                    = 7;
+  bool removed                                     = 8;
 }
 
 message CompletedShellProcess {
@@ -589,6 +591,9 @@ message QueueSnapshot {
   bool final_chunk                   = 3;
   repeated QueueState queues         = 4;
   string root_agent_session_id       = 5;
+  string owner_agent_session_id      = 6;
+  string inventory_instance_id      = 7;
+  bool removed                       = 8;
 }
 
 message AgentStarted {

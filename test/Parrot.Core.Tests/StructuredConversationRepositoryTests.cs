@@ -197,7 +197,10 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
     {
         var resources = Resources("checkpoint-fork");
         using var database = SessionDatabase.Open(resources.DatabasePath);
-        var repository = new EventRepository(database);
+        var history = new AgentHistoryFile(resources, "agent");
+        var childHistory = new AgentHistoryFile(resources, "child");
+        var repository = new EventRepository(database).BindAgentHistory(history);
+        var childRepository = repository.BindAgentHistory(childHistory);
         repository.AppendConversation(
             new Event { Id = "before", AgentSessionId = "agent" },
             ConversationOrigin.UserInput,
@@ -239,11 +242,14 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             string.Empty);
         var spawnAssistant = repository.Conversation("agent")[^1].Sequence;
 
-        repository.InitializeForkedAgentHistory(
+        childRepository.InitializeForkedAgentHistory(
             "agent",
             "child",
             new HistoryForkBoundary.BeforeToolBatch(spawnAssistant, "spawn"),
             HistoryForkSelection.Parse("handoff"));
+
+        _ = await Assert.That(await File.ReadAllTextAsync(history.Path)).Contains("before");
+        _ = await Assert.That(await File.ReadAllTextAsync(childHistory.Path)).Contains("handoff").And.Contains("between").And.DoesNotContain("before");
 
         var child = repository.Conversation("child");
         _ = await Assert.That(string.Join(',', child.Select(item => item.Role)))
@@ -377,12 +383,104 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
     }
 
     [Test]
+    public async Task Agent_bound_history_serializes_concurrent_updates_and_rejects_cross_agent_mutation()
+    {
+        var resources = Resources("concurrent-history");
+        using var database = SessionDatabase.Open(resources.DatabasePath);
+        var repository = new EventRepository(database);
+        var firstHistory = new AgentHistoryFile(resources, "first");
+        var secondHistory = new AgentHistoryFile(resources, "second");
+        var first = repository.BindAgentHistory(firstHistory);
+        var second = repository.BindAgentHistory(secondHistory);
+        await Task.WhenAll(Enumerable.Range(0, 24).Select(index => Task.Run(() =>
+        {
+            var agent = index % 2 == 0 ? first : second;
+            var sessionId = index % 2 == 0 ? "first" : "second";
+            agent.AppendConversation(
+                new Event { Id = $"message-{index}", AgentSessionId = sessionId },
+                ConversationOrigin.UserInput,
+                LLMRole.User,
+                [ConversationPart.TextPart($"{sessionId}-{index}")],
+                [],
+                string.Empty);
+        })));
+
+        foreach (var (history, sessionId) in new[] { (firstHistory, "first"), (secondHistory, "second") })
+        {
+            var expected = string.Concat(repository.AgentHistory(sessionId).Select(entry =>
+                System.Text.Json.JsonSerializer.Serialize(entry, AgentHistoryJsonContext.Default.AgentHistoryEntry) + "\n"));
+            _ = await Assert.That(await File.ReadAllTextAsync(history.Path)).IsEqualTo(expected);
+            _ = await Assert.That(repository.Conversation(sessionId).Count).IsEqualTo(12);
+        }
+
+        _ = await Assert.That(() => first.CleanupForkedAgentHistory("second")).Throws<InvalidOperationException>();
+        _ = await Assert.That(repository.Conversation("second").Count).IsEqualTo(12);
+        first.CleanupForkedAgentHistory("first");
+        _ = await Assert.That(await File.ReadAllTextAsync(firstHistory.Path)).IsEmpty();
+        _ = await Assert.That(await File.ReadAllTextAsync(secondHistory.Path)).Contains("second-");
+    }
+
+    [Test]
+    public async Task Agent_history_failure_recovers_committed_changes_with_the_same_file_owner()
+    {
+        var resources = Resources("failed-history");
+        using var database = SessionDatabase.Open(resources.DatabasePath);
+        var repository = new EventRepository(database);
+        var history = new AgentHistoryFile(resources, "agent");
+        var agent = repository.BindAgentHistory(history);
+        var historyPath = history.Path;
+        var directory = Path.GetDirectoryName(historyPath) ?? throw new InvalidOperationException();
+        Directory.Delete(directory, recursive: true);
+        await File.WriteAllTextAsync(directory, "blocks history directory");
+
+        agent.AppendConversation(
+            new Event { Id = "message", AgentSessionId = "agent" },
+            ConversationOrigin.UserInput,
+            LLMRole.User,
+            [ConversationPart.TextPart("committed despite projection failure")],
+            [],
+            string.Empty);
+
+        _ = await Assert.That(repository.Conversation("agent").Count).IsEqualTo(1);
+        _ = await Assert.That(File.Exists(historyPath)).IsFalse();
+        File.Delete(directory);
+        agent.RefreshAgentHistory("agent");
+        _ = await Assert.That(await File.ReadAllTextAsync(history.Path)).Contains("committed despite projection failure");
+        _ = await Assert.That(Directory.GetFiles(directory, "*.tmp")).IsEmpty();
+    }
+
+    [Test]
+    public async Task Agent_history_tracks_promoted_input_compaction_and_destination_fork()
+    {
+        var resources = Resources("projected-fork");
+        using var database = SessionDatabase.Open(resources.DatabasePath);
+        var repository = new EventRepository(database);
+        var parentHistory = new AgentHistoryFile(resources, "parent");
+        var childHistory = new AgentHistoryFile(resources, "child");
+        var parent = repository.BindAgentHistory(parentHistory);
+        var child = repository.BindAgentHistory(childHistory);
+        _ = parent.Admit("parent", "input", "promoted input", Delivery.Queue, input => new Event { Id = input.Id, AgentSessionId = "parent" });
+        _ = parent.PromoteNextQueue("parent", input => new Event { Id = $"promoted-{input.Id}", AgentSessionId = "parent" });
+        _ = await Assert.That(await File.ReadAllTextAsync(parentHistory.Path)).Contains("promoted input");
+        _ = parent.SaveCompaction("parent", new CompactionSnapshot("saved summary", parent.Conversation("parent")[^1].Sequence));
+        var parentText = await File.ReadAllTextAsync(parentHistory.Path);
+        _ = await Assert.That(parentText).Contains("saved summary");
+
+        child.InitializeForkedAgentHistory("parent", "child", new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("full"));
+
+        _ = await Assert.That(await File.ReadAllTextAsync(childHistory.Path)).Contains("saved summary");
+        child.CleanupForkedAgentHistory("child");
+        _ = await Assert.That(await File.ReadAllTextAsync(childHistory.Path)).IsEmpty();
+        _ = await Assert.That(await File.ReadAllTextAsync(parentHistory.Path)).IsEqualTo(parentText);
+    }
+
+    [Test]
     public async Task Cleanup_forked_history_refreshes_agent_history_JSONL()
     {
         var resources = Resources("cleanup-history");
         using var database = SessionDatabase.Open(resources.DatabasePath);
-        var files = new AgentHistoryFiles(resources);
-        var repository = new EventRepository(database, new ImageArtifactStore(resources), files);
+        var history = new AgentHistoryFile(resources, "agent");
+        var repository = new EventRepository(database, new ImageArtifactStore(resources)).BindAgentHistory(history);
         repository.AppendConversation(
             new Event { Id = "message", AgentSessionId = "agent" },
             ConversationOrigin.UserInput,
@@ -390,7 +488,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             [ConversationPart.TextPart("durable")],
             [],
             string.Empty);
-        var path = files.PathFor("agent").Path;
+        var path = history.Path;
         _ = await Assert.That(await File.ReadAllTextAsync(path)).Contains("durable");
 
         repository.CleanupForkedAgentHistory("agent");

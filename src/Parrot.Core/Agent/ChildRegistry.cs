@@ -4,15 +4,16 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
 {
     private readonly Dictionary<string, IAgentSessionScope> _entries = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _names = new(StringComparer.Ordinal);
-    private readonly Lock _gate = new();
     private bool _accepting = true;
     private Task? _shutdown;
+
+    public Lock Gate { get; } = new();
 
     public bool IsAccepting
     {
         get
         {
-            lock (_gate)
+            lock (Gate)
             {
                 return _accepting;
             }
@@ -22,7 +23,7 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
     public IAgentSessionScope? FindDirectChildScope(string childSessionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(childSessionId);
-        lock (_gate)
+        lock (Gate)
         {
             return _accepting && _entries.TryGetValue(childSessionId, out var child)
                 ? child
@@ -33,7 +34,7 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
     public IAgentSessionScope? DetachDirectChildScope(IAgentSessionScope scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
-        lock (_gate)
+        lock (Gate)
         {
             if (_entries.TryGetValue(scope.Session.SessionId, out var registered)
                 && ReferenceEquals(registered, scope))
@@ -56,12 +57,14 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
         }
     }
 
+    public ValueTask DisposeChildren() => DisposeAsync();
+
     public async ValueTask DisposeAsync()
     {
         IAgentSessionScope[]? children = null;
         TaskCompletionSource? completion = null;
         Task shutdown;
-        lock (_gate)
+        lock (Gate)
         {
             if (_shutdown is null)
             {
@@ -107,7 +110,7 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
 
     public IAgentSessionScope ResolveDirectChildScope(string sessionIdOrName)
     {
-        lock (_gate)
+        lock (Gate)
         {
             if (_accepting && _entries.TryGetValue(sessionIdOrName, out var canonical))
             {
@@ -169,7 +172,7 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
 
     public IAgentSessionScope? FindNamedChildScope(string name)
     {
-        lock (_gate)
+        lock (Gate)
         {
             if (_accepting
                 && _names.TryGetValue(name, out var sessionId)
@@ -186,7 +189,7 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
     {
         ArgumentNullException.ThrowIfNull(scope);
 
-        lock (_gate)
+        lock (Gate)
         {
             if (!_accepting)
             {
@@ -198,6 +201,7 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
                 throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
             }
 
+            scope.Queues.ValidateParent();
             _entries.Add(scope.Session.SessionId, scope);
             try
             {
@@ -206,10 +210,17 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
                     throw new ChildNameConflictException(
                         $"child agent name is already registered: {scope.Session.Name}");
                 }
+
+                scope.PublishInventories();
             }
             catch
             {
                 _ = _entries.Remove(scope.Session.SessionId);
+                if (_names.GetValueOrDefault(scope.Session.Name) == scope.Session.SessionId)
+                {
+                    _ = _names.Remove(scope.Session.Name);
+                }
+
                 throw;
             }
 
@@ -217,9 +228,9 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
         }
     }
 
-    private IAgentSessionScope[] SnapshotChildScopes()
+    public IReadOnlyList<IAgentSessionScope> SnapshotChildScopes()
     {
-        lock (_gate)
+        lock (Gate)
         {
             return _accepting ? [.. _entries.Values] : [];
         }

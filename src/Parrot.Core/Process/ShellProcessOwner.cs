@@ -8,22 +8,28 @@ using Parrot.Store;
 namespace Parrot.Process;
 
 internal sealed class ShellProcessOwner(
-    string sessionId,
+    AgentIdentity identity,
     UserSessionResources resources,
-    AgentScratchDirectory scratch,
     AgentPathEnvironment pathEnvironment,
     ProcessRunner runner,
-    ShellProcessInventory inventory,
     IDiagnosticLog diagnostics,
-    CancellationToken lifetime)
+    CancellationToken lifetime) : IAsyncDisposable
 {
+    private readonly ShellProcessInventory _inventory = new(identity);
+    private readonly AgentScratchDirectory _scratch = resources.AgentScratch(identity.SessionId);
+    private readonly CancellationTokenSource _lifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
     private readonly Dictionary<string, ManagedShellProcess> _processes = new(StringComparer.Ordinal);
     private readonly List<ManagedShellProcess> _ownedProcesses = [];
     private readonly Lock _gate = new();
     private int _generated;
-    private bool _settling;
+    private Task? _settlement;
+    private Task? _disposal;
 
-    public string SessionId => sessionId;
+    public string SessionId => identity.SessionId;
+
+    public ShellProcessInventorySubscription SubscribeInventory() => _inventory.Subscribe();
+
+    public ShellProcessInventorySnapshot CaptureInventory() => _inventory.Capture();
 
     public ManagedShellProcess Start(
         string? requestedName,
@@ -68,7 +74,7 @@ internal sealed class ShellProcessOwner(
     {
         lock (_gate)
         {
-            if (_settling || lifetime.IsCancellationRequested)
+            if (_settlement is not null || _lifetime.IsCancellationRequested)
             {
                 throw new InvalidOperationException("The user session is shutting down.");
             }
@@ -84,7 +90,7 @@ internal sealed class ShellProcessOwner(
             var started = Stopwatch.GetTimestamp();
             diagnostics.Write(new DiagnosticEvent("shell", "start", DiagnosticSeverity.Information)
             {
-                AgentSessionId = sessionId,
+                AgentSessionId = identity.SessionId,
                 CorrelationId = processId,
             });
             ShellProcessExecution execution;
@@ -94,16 +100,16 @@ internal sealed class ShellProcessOwner(
                     command,
                     pathEnvironment.Merge(environment),
                     resources,
-                    scratch,
+                    _scratch,
                     securityProfile,
                     terminalMode,
-                    lifetime);
+                    _lifetime.Token);
             }
             catch (Exception failure)
             {
                 diagnostics.Write(new DiagnosticEvent("shell", "completed", failure is OperationCanceledException ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
                 {
-                    AgentSessionId = sessionId,
+                    AgentSessionId = identity.SessionId,
                     CorrelationId = processId,
                     Outcome = failure is OperationCanceledException ? "cancelled" : "failed",
                     ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
@@ -124,7 +130,7 @@ internal sealed class ShellProcessOwner(
                 agent.Depth,
                 Stopwatch.GetTimestamp());
 
-            var process = new ManagedShellProcess(state, agent, execution, inventory, diagnostics, lifetime);
+            var process = new ManagedShellProcess(state, agent, execution, _inventory, diagnostics, _lifetime.Token);
             _processes[name] = process;
             _ownedProcesses.Add(process);
             return process;
@@ -162,7 +168,7 @@ internal sealed class ShellProcessOwner(
             return [.. _processes.Values
                 .Where(process => !process.Retired)
                 .Select(process => new ActiveWorkObservation(
-                    $"{sessionId}/{process.Name}",
+                    $"{identity.SessionId}/{process.Name}",
                     process.Name,
                     ActiveWorkKind.Shell,
                     ActiveWorkState.Running))
@@ -177,7 +183,7 @@ internal sealed class ShellProcessOwner(
             return Array.AsReadOnly(_processes.Values
                 .Where(process => !process.Retired)
                 .Select(process => new ShellProcessStatusSnapshot(
-                    sessionId,
+                    identity.SessionId,
                     process.State.ProcessId,
                     process.Name,
                     ActiveWorkState.Running))
@@ -186,17 +192,53 @@ internal sealed class ShellProcessOwner(
         }
     }
 
-    public async Task Settle()
+    public Task Settle()
     {
-        ManagedShellProcess[] processes;
-
         lock (_gate)
         {
-            _settling = true;
-            processes = [.. _ownedProcesses];
+            return _settlement ??= SettleProcesses([.. _ownedProcesses]);
         }
+    }
 
-        await Task.WhenAll(processes.Select(process => process.Settle())).ConfigureAwait(false);
+    public ValueTask DisposeAsync()
+    {
+        lock (_gate)
+        {
+            return new ValueTask(_disposal ??= DisposeResources(Settle()));
+        }
+    }
+
+    private async Task SettleProcesses(ManagedShellProcess[] processes)
+    {
+        await Task.Yield();
+        try
+        {
+            await _lifetime.CancelAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            await Task.WhenAll(processes.Select(process => process.Settle())).ConfigureAwait(false);
+        }
+    }
+
+    private async Task DisposeResources(Task settlement)
+    {
+        await Task.Yield();
+        try
+        {
+            await settlement.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        finally
+        {
+            try
+            {
+                _inventory.Dispose();
+            }
+            finally
+            {
+                _lifetime.Dispose();
+            }
+        }
     }
 
     private string GenerateName()

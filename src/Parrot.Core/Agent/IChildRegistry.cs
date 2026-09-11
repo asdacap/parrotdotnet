@@ -5,6 +5,15 @@ internal interface IChildRegistry
 {
     bool IsAccepting { get; }
 
+    /// <summary>Gets the lock serializing direct-child admission with queue edge name checks.</summary>
+    Lock Gate { get; }
+
+    /// <summary>Closes admission and disposes the owned child scopes.</summary>
+    ValueTask DisposeChildren();
+
+    /// <summary>Returns accepting direct child scopes in admission order.</summary>
+    IReadOnlyList<IAgentSessionScope> SnapshotChildScopes();
+
     /// <summary>Returns the direct child with the canonical session id, or null when absent or shutting down.</summary>
     IAgentSessionScope? FindDirectChildScope(string childSessionId);
 

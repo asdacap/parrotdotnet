@@ -8,7 +8,8 @@ namespace Parrot.Core.Tests;
 
 internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
 {
-    private readonly ChildRegistry _children;
+    private readonly IChildRegistry _children;
+    private readonly Process.ShellProcessOwner _processOwner;
 
     internal AgentSessionDependencies(
         AgentIdentity identity,
@@ -16,9 +17,11 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
         EventRepository eventRepository,
         RuntimeStatus status,
         IAgentRegistry registry,
-        AgentQueues queues)
+        AgentQueues queues,
+        IChildRegistry children)
     {
-        _children = new ChildRegistry(identity);
+        _children = children;
+        _processOwner = processOwner;
         ChildQuestions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), TestModels.PromptTemplates);
         ActiveWorkReminder = new ActiveWorkCompletionReminder(_children, processOwner, TestModels.PromptTemplates, null);
         ExitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
@@ -46,7 +49,10 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await _children.DisposeAsync().ConfigureAwait(false);
+        await _children.DisposeChildren().ConfigureAwait(false);
+        await _processOwner.DisposeAsync().ConfigureAwait(false);
+        Queues.Dispose();
+        await Registry.DisposeAsync().ConfigureAwait(false);
         ChildQuestions.Dispose();
     }
 }

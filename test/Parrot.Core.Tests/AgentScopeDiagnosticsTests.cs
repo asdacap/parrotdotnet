@@ -66,6 +66,7 @@ internal sealed class AgentScopeDiagnosticsTests
                     session.Mode,
                     session.Mode.Profile.SecurityProfile,
                     session.Status,
+                    session.Registry.InitializeChildHistory(rootId, identity.SessionId, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty")),
                     session.Lifetime);
                 _ = await Assert.That(child.Session.SessionId).IsEqualTo(identity.SessionId);
                 var text = await File.ReadAllTextAsync(logPath);

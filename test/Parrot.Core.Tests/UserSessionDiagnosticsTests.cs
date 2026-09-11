@@ -2,8 +2,7 @@ using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Diagnostics;
 using Parrot.Llm;
-using Parrot.Process;
-using Parrot.Queues;
+using Parrot.Questions;
 using Parrot.Skills;
 using Parrot.State;
 using Parrot.Store;
@@ -17,10 +16,7 @@ internal sealed class UserSessionDiagnosticsTests : IDisposable
     public void Dispose() => Directory.Delete(_root, recursive: true);
 
     [Test]
-    [Arguments("queues")]
-    [Arguments("processes")]
-    [Arguments("agents")]
-    public async Task Partial_initialization_stops_owned_resources_and_preserves_safe_failure(string stage)
+    public async Task Partial_initialization_stops_owned_resources_and_preserves_safe_failure()
     {
         _ = Directory.CreateDirectory(_root);
         var paths = new StatePaths(_root, _root, _root);
@@ -31,7 +27,7 @@ internal sealed class UserSessionDiagnosticsTests : IDisposable
         var configuration = Configuration.Load(paths.ConfigFile, paths.PredefinedConfigFile);
         var profiles = new ProfileRegistry(configuration.Profiles, configuration.SandboxRules, [], configuration.DisabledTools);
         var modes = new ModeRegistry(profiles, configuration.DefaultProfile);
-        var factories = new FailingAgentSessionFactories(stage);
+        var factories = new FailingAgentSessionFactories();
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
 
         var failure = await Assert.That(async () => await UserSession.Create(
@@ -51,55 +47,29 @@ internal sealed class UserSessionDiagnosticsTests : IDisposable
 
         _ = await Assert.That(failure).IsSameReferenceAs(factories.Failure);
         _ = await Assert.That(factories.Lifetime.IsCancellationRequested).IsTrue();
-        if (factories.Queues is not null)
-        {
-            _ = await Assert.That(() => factories.Queues.Register(
-                AgentIdentity.Main("probe", "main", configuration.PromptTemplates))).Throws<ObjectDisposedException>();
-        }
-
-        if (factories.Processes is not null)
-        {
-            _ = await Assert.That(() => factories.Processes.Prepare("probe", new AgentPathEnvironment(resources, resources.AgentScratch("probe")))).Throws<InvalidOperationException>();
-        }
+        var questions = factories.Questions ?? throw new InvalidOperationException("The factory did not capture the session's question broker.");
+        _ = await Assert.That(async () => await questions.Ask(
+            [new QuestionDefinition("probe", "Continue?", ["Yes", "No"], false, false)], CancellationToken.None))
+            .Throws<ObjectDisposedException>();
 
         var log = await File.ReadAllTextAsync(resources.LogPath);
         _ = await Assert.That(log).Contains("event=\"initialization_failed\"").And.Contains("error=\"invalid_operation\"")
             .And.DoesNotContain(factories.Failure.Message);
     }
 
-    private sealed class FailingAgentSessionFactories(string stage) : IAgentSessionFactorySource
+    private sealed class FailingAgentSessionFactories : IAgentSessionFactorySource
     {
         public InvalidOperationException Failure { get; } = new("private-factory-failure-sentinel");
 
         public CancellationToken Lifetime { get; private set; }
 
-        public AgentQueueCatalog? Queues { get; private set; }
+        public QuestionBroker? Questions { get; private set; }
 
-        public ShellProcessOwners? Processes { get; private set; }
-
-        public AgentQueueCatalog CreateQueueCatalog(UserSession owner)
+        public IAgentSessionFactory Create(UserSession owner)
         {
             Lifetime = owner.Lifetime;
-            if (stage == "queues")
-            {
-                throw Failure;
-            }
-
-            Queues = new AgentQueueCatalog(owner.Resources, TestDiagnosticLog.Instance);
-            return Queues;
+            Questions = owner.Questions;
+            throw Failure;
         }
-
-        public ShellProcessOwners CreateShellProcesses(UserSession owner)
-        {
-            if (stage == "processes")
-            {
-                throw Failure;
-            }
-
-            Processes = new ShellProcessOwners(owner.Resources, ProcessRunner.Locate(ExecutableLocator.Capture()), TestDiagnosticLog.Instance, owner.Lifetime);
-            return Processes;
-        }
-
-        public IAgentSessionFactory Create(UserSession owner) => throw Failure;
     }
 }

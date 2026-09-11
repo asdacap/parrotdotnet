@@ -111,6 +111,99 @@ internal sealed class EventBrokerTests
     }
 
     [Test]
+    public async Task Inventory_revisions_coalesce_by_owner_and_type_without_truncating_chunks_or_evicting_events()
+    {
+        using var broker = new EventBroker();
+        using var subscription = broker.Subscribe();
+        for (var index = 0; index < 1024; index++)
+        {
+            broker.Publish(new Event { Id = $"ordinary-{index}" });
+        }
+
+        var obsolete = new Event { QueueSnapshot = new QueueSnapshot { OwnerAgentSessionId = "first", Revision = 1 } };
+        broker.PublishInventory([obsolete]);
+        var sibling = new Event { QueueSnapshot = new QueueSnapshot { OwnerAgentSessionId = "second", Revision = 1, FinalChunk = true } };
+        broker.PublishInventory([sibling]);
+        var processes = new Event { ShellProcessSnapshot = new ShellProcessSnapshot { OwnerAgentSessionId = "first", Revision = 1, ChunkCount = 1 } };
+        broker.PublishInventory([processes]);
+        var replacement = Enumerable.Range(0, 1100).Select(index => new Event
+        {
+            QueueSnapshot = new QueueSnapshot
+            {
+                OwnerAgentSessionId = "first",
+                InventoryInstanceId = "instance",
+                Revision = 2,
+                ChunkIndex = (uint)index,
+                FinalChunk = index == 1099,
+            },
+        }).ToArray();
+        broker.PublishInventory(replacement);
+
+        var received = new List<Event>();
+        while (subscription.Reader.TryRead(out var published))
+        {
+            received.Add(published);
+        }
+
+        _ = await Assert.That(received).Count().IsEqualTo(2126);
+        _ = await Assert.That(received).DoesNotContain(obsolete);
+        _ = await Assert.That(received).Contains(sibling).And.Contains(processes);
+        _ = await Assert.That(received.Where(item => item.QueueSnapshot?.OwnerAgentSessionId == "first").SequenceEqual(replacement)).IsTrue();
+        _ = await Assert.That(received.Where(item => item.QueueSnapshot?.OwnerAgentSessionId == "first")
+            .Select(item => item.QueueSnapshot.ChunkIndex).SequenceEqual(Enumerable.Range(0, 1100).Select(index => (uint)index))).IsTrue();
+        _ = await Assert.That(received.Where(item => item.PayloadCase == Event.PayloadOneofCase.None).Select(item => item.Id).SequenceEqual(Enumerable.Range(0, 1024).Select(index => $"ordinary-{index}"))).IsTrue();
+    }
+
+    [Test]
+    public async Task Active_inventory_finishes_before_replacement_and_replenishment_does_not_starve_ordinary_events()
+    {
+        using var broker = new EventBroker();
+        using var subscription = broker.Subscribe();
+        var original = Enumerable.Range(0, 3).Select(index => new Event
+        {
+            QueueSnapshot = new QueueSnapshot
+            {
+                OwnerAgentSessionId = "owner",
+                Revision = 1,
+                ChunkIndex = (uint)index,
+                FinalChunk = index == 2,
+            },
+        }).ToArray();
+        broker.PublishInventory(original);
+        _ = await Assert.That(subscription.Reader.TryRead(out var first)).IsTrue();
+        _ = await Assert.That(first).IsEqualTo(original[0]);
+        broker.Publish(new Event { Id = "ordinary-first" });
+        broker.Publish(new Event { Id = "ordinary-second" });
+        for (var index = 1; index < original.Length; index++)
+        {
+            broker.PublishInventory([new Event
+            {
+                QueueSnapshot = new QueueSnapshot { OwnerAgentSessionId = "owner", Revision = (ulong)(index + 1), FinalChunk = true },
+            }
+            ]);
+            _ = await Assert.That(subscription.Reader.TryRead(out var chunk)).IsTrue();
+            _ = await Assert.That(chunk).IsEqualTo(original[index]);
+        }
+
+        var ordinary = new List<string>();
+        for (var index = 0; index < 4; index++)
+        {
+            broker.PublishInventory([new Event
+            {
+                QueueSnapshot = new QueueSnapshot { OwnerAgentSessionId = "owner", Revision = (ulong)(index + 10), FinalChunk = true },
+            }
+            ]);
+            _ = await Assert.That(subscription.Reader.TryRead(out var published)).IsTrue();
+            if (published is { PayloadCase: Event.PayloadOneofCase.None })
+            {
+                ordinary.Add(published.Id);
+            }
+        }
+
+        _ = await Assert.That(ordinary.SequenceEqual(["ordinary-first", "ordinary-second"])).IsTrue();
+    }
+
+    [Test]
     public async Task Two_subscribers_both_receive(CancellationToken cancellationToken)
     {
         using var broker = new EventBroker();

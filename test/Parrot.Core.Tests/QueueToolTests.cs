@@ -11,7 +11,8 @@ internal sealed class QueueToolTests
     [Test]
     public async Task Queue_take_reports_open_empty_timeout_explicitly(CancellationToken cancellationToken)
     {
-        using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-open", "main", TestModels.PromptTemplates));
+        await using var queueFixture = TestModels.Queues(AgentIdentity.Main("queue-tool-open", "main", TestModels.PromptTemplates));
+        var queues = queueFixture.Queues;
         _ = queues.Create("work", string.Empty);
         ITool tool = new QueueTakeTool(queues, TestDiagnosticLog.Instance);
         var result = await tool.Execute(
@@ -27,7 +28,8 @@ internal sealed class QueueToolTests
     [Test]
     public async Task Queue_push_close_allows_prompt_drain_completion(CancellationToken cancellationToken)
     {
-        using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-close", "main", TestModels.PromptTemplates));
+        await using var queueFixture = TestModels.Queues(AgentIdentity.Main("queue-tool-close", "main", TestModels.PromptTemplates));
+        var queues = queueFixture.Queues;
         _ = queues.Create("work", string.Empty);
         ITool takeTool = new QueueTakeTool(queues, TestDiagnosticLog.Instance);
         var waiting = takeTool.Execute(
@@ -53,7 +55,8 @@ internal sealed class QueueToolTests
     public async Task Queue_push_adds_final_items_closes_idempotently_and_rejects_late_items(
         CancellationToken cancellationToken)
     {
-        using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-final", "main", TestModels.PromptTemplates));
+        await using var queueFixture = TestModels.Queues(AgentIdentity.Main("queue-tool-final", "main", TestModels.PromptTemplates));
+        var queues = queueFixture.Queues;
         _ = queues.Create("work", string.Empty);
         ITool tool = new QueuePushTool(queues, new ToolWorkspace(Environment.CurrentDirectory));
 
@@ -83,7 +86,8 @@ internal sealed class QueueToolTests
     [Test]
     public async Task Queue_push_requires_exactly_one_item_source(CancellationToken cancellationToken)
     {
-        using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-sources", "main", TestModels.PromptTemplates));
+        await using var queueFixture = TestModels.Queues(AgentIdentity.Main("queue-tool-sources", "main", TestModels.PromptTemplates));
+        var queues = queueFixture.Queues;
         _ = queues.Create("work", string.Empty);
         ITool tool = new QueuePushTool(queues, new ToolWorkspace(Environment.CurrentDirectory));
 

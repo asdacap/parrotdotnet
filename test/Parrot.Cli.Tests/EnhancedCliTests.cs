@@ -1300,9 +1300,12 @@ internal sealed class EnhancedCliTests
         {
             QueueSnapshot = new QueueSnapshot
             {
+                OwnerAgentSessionId = "agent",
+                RootAgentSessionId = "agent",
+                InventoryInstanceId = "inventory",
                 Revision = 1,
                 FinalChunk = true,
-                Queues = { new QueueState { Name = "work", Description = "pending work", ItemCount = 2 } },
+                Queues = { new QueueState { OwnerAgentSessionId = "agent", Name = "work", Description = "pending work", ItemCount = 2 } },
             },
         });
 
@@ -1310,7 +1313,7 @@ internal sealed class EnhancedCliTests
         await driver.OutputContains("queue: work · 2 items — pending work", cancellationToken);
         await driver.Invoker.Publish(new Event
         {
-            QueueSnapshot = new QueueSnapshot { Revision = 2, FinalChunk = true },
+            QueueSnapshot = new QueueSnapshot { OwnerAgentSessionId = "agent", RootAgentSessionId = "agent", InventoryInstanceId = "inventory", Revision = 2, FinalChunk = true },
         });
         await driver.Invoker.Publish(new Event
         {

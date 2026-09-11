@@ -19,6 +19,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
 
     private readonly EventBroker _broker = new();
+    private readonly List<IAgentRegistry> _registries = [];
 
     private readonly List<AgentTaskRunCatalog> _catalogs = [];
 
@@ -29,6 +30,11 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         foreach (var catalog in _catalogs)
         {
             await catalog.DisposeAsync().ConfigureAwait(false);
+        }
+
+        foreach (var registry in _registries)
+        {
+            await registry.DisposeAsync().ConfigureAwait(false);
         }
 
         _broker.Dispose();
@@ -537,6 +543,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         var repository = new EventRepository(_database);
         var sessions = new AgentTaskTestSessionFactory(router);
         var registry = TestModels.Registry(sessions, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, cancellationToken);
+        _registries.Add(registry);
         var identity = AgentIdentity.Main("tool-parent", "parent", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, repository, cancellationToken);
         using var parentScope = TestAgentSessionScope.Build(identity, AgentSessionParentLink.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) => new AgentSession(

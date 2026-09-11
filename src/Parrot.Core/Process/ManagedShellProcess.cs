@@ -298,7 +298,14 @@ internal sealed class ManagedShellProcess
                 released = _released.Task;
             }
 
-            await released.ConfigureAwait(false);
+            try
+            {
+                await released.WaitAsync(_lifetime).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+            {
+                return;
+            }
         }
 
         CompletedRead? completed = null;

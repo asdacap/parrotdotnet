@@ -34,7 +34,8 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
             "\uFEFFfirst\r\n\r\n  \r\n second \nthird\n",
             new UTF8Encoding(false),
             cancellationToken);
-        using var queues = CreateQueues("line-rules");
+        await using var queueFixture = CreateQueues("line-rules");
+        var queues = queueFixture.Queues;
         _ = queues.Create("work", string.Empty);
 
         ITool tool = new QueuePushTool(queues, new ToolWorkspace(_root));
@@ -56,7 +57,8 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         var source = Path.Combine(external.FullName, "items.txt");
         await File.WriteAllTextAsync(source, "one\ntwo\n", cancellationToken);
         var workspace = Directory.CreateDirectory(Path.Combine(_root, "workspace"));
-        using var queues = CreateQueues("absolute-close");
+        await using var queueFixture = CreateQueues("absolute-close");
+        var queues = queueFixture.Queues;
         _ = queues.Create("work", string.Empty);
 
         ITool tool = new QueuePushTool(queues, new ToolWorkspace(workspace.FullName));
@@ -76,7 +78,8 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
     public async Task Empty_or_whitespace_only_source_matches_an_empty_inline_push(CancellationToken cancellationToken)
     {
         await File.WriteAllTextAsync(Path.Combine(_root, "empty.txt"), " \n\t\r\n", cancellationToken);
-        using var queues = CreateQueues("empty-close");
+        await using var queueFixture = CreateQueues("empty-close");
+        var queues = queueFixture.Queues;
         _ = queues.Create("work", string.Empty);
 
         ITool tool = new QueuePushTool(queues, new ToolWorkspace(_root));
@@ -188,7 +191,8 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
     {
         var source = Path.Combine(_root, "escaped.txt");
         await File.WriteAllTextAsync(source, new string('\\', 9 << 20), cancellationToken);
-        using var queues = CreateQueues("final-limit");
+        await using var queueFixture = CreateQueues("final-limit");
+        var queues = queueFixture.Queues;
         _ = queues.Create("work", string.Empty);
         _ = await queues.Push("work", ["existing"], QueueDirection.Back, false, cancellationToken);
 
@@ -208,7 +212,8 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
     public async Task Cancellation_propagates_without_changing_the_queue(CancellationToken cancellationToken)
     {
         await File.WriteAllTextAsync(Path.Combine(_root, "items.txt"), "item\n", cancellationToken);
-        using var queues = CreateQueues("cancel");
+        await using var queueFixture = CreateQueues("cancel");
+        var queues = queueFixture.Queues;
         _ = queues.Create("work", string.Empty);
         using var canceled = new CancellationTokenSource();
         await canceled.CancelAsync();
@@ -224,7 +229,7 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         _ = await Assert.That(queues.Get("work").Closed).IsFalse();
     }
 
-    private static AgentQueues CreateQueues(string id) =>
+    private static AgentQueueTestFixture CreateQueues(string id) =>
         TestModels.Queues(AgentIdentity.Main($"queue-push-source-{id}", "main", TestModels.PromptTemplates));
 
     private static ToolInvocation Invocation(string name, string sourceFile, string direction, bool close) =>
@@ -248,7 +253,8 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         string expected,
         CancellationToken cancellationToken)
     {
-        using var queues = CreateQueues(Guid.NewGuid().ToString("n"));
+        await using var queueFixture = CreateQueues(Guid.NewGuid().ToString("n"));
+        var queues = queueFixture.Queues;
         _ = queues.Create("work", string.Empty);
         _ = await queues.Push("work", ["existing"], QueueDirection.Back, false, cancellationToken);
 

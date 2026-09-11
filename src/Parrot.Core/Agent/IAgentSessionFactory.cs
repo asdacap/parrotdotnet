@@ -12,6 +12,9 @@ namespace Parrot.Agent;
 // parameters it never uses.
 internal interface IAgentSessionFactory
 {
+    /// <summary>Creates the destination agent's history view for transfer into its scope.</summary>
+    EventRepository PrepareHistory(string agentSessionId, EventRepository repository);
+
     IAgentSessionScope Create(
         AgentIdentity identity,
         AgentSessionParentLink parentLink,

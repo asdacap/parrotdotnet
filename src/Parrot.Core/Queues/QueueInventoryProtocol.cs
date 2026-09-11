@@ -12,14 +12,14 @@ internal static class QueueInventoryProtocol
         ArgumentException.ThrowIfNullOrEmpty(rootAgentSessionId);
         if (inventory.Queues.Count == 0)
         {
-            yield return Build(inventory.Revision, 0, true, rootAgentSessionId, null);
+            yield return Build(inventory, 0, true, rootAgentSessionId, null);
             yield break;
         }
 
         for (var index = 0; index < inventory.Queues.Count; index++)
         {
             yield return Build(
-                inventory.Revision,
+                inventory,
                 checked((uint)index),
                 index == inventory.Queues.Count - 1,
                 rootAgentSessionId,
@@ -28,7 +28,7 @@ internal static class QueueInventoryProtocol
     }
 
     private static Event Build(
-        ulong revision,
+        QueueInventorySnapshot inventory,
         uint chunkIndex,
         bool finalChunk,
         string rootAgentSessionId,
@@ -36,7 +36,10 @@ internal static class QueueInventoryProtocol
     {
         var snapshot = new Protocol.QueueSnapshot
         {
-            Revision = revision,
+            OwnerAgentSessionId = inventory.OwnerAgentSessionId,
+            InventoryInstanceId = inventory.InventoryInstanceId,
+            Removed = inventory.Removed,
+            Revision = inventory.Revision,
             ChunkIndex = chunkIndex,
             FinalChunk = finalChunk,
             RootAgentSessionId = rootAgentSessionId,

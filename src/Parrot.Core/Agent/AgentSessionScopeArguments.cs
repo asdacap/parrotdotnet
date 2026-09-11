@@ -6,7 +6,6 @@ using Parrot.Llm;
 using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Questions;
-using Parrot.Queues;
 using Parrot.Skills;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -30,7 +29,8 @@ internal sealed record AgentSessionScopeArguments(
     AgentTaskRunCatalog AgentTaskRuns,
     ToolDefinitionCatalog ToolDefinitions,
     IReadOnlyList<string> ReadOnlyExecCommandPrefixes,
-    ShellProcessOwners ShellProcesses,
+    ProcessRunner ProcessRunner,
+    UserSessionResources Resources,
     ISystemPromptProvider SystemPromptProvider,
     AgentScratchDirectory Scratch,
     AgentPathEnvironment PathEnvironment,
@@ -42,7 +42,6 @@ internal sealed record AgentSessionScopeArguments(
     PermissionBroker Permissions,
     RuntimeStatus Status,
     IAgentRegistry Registry,
-    AgentQueues Queues,
     QuestionBroker UserQuestions,
     TimeProvider TimeProvider,
     Parrot.Diagnostics.IDiagnosticLog Diagnostics,
