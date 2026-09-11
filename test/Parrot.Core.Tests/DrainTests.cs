@@ -173,25 +173,31 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
-    [Skip("Probable pre-existing lifecycle bug: repeated disposal completes before the blocked drain settles.")]
     public async Task Disposal_waits_for_a_blocked_drain_and_is_safe_when_repeated(
         CancellationToken cancellationToken)
     {
-        using var provider = new SteppedProvider(Answer("done"));
+        var provider = new DisposalBlockedProvider();
         var repository = new EventRepository(_database);
         await using var session = Session(provider, repository, [], cancellationToken);
 
-        _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
-        await provider.Arrived(cancellationToken);
+        try
+        {
+            _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
+            await provider.WaitUntilEntered(cancellationToken);
 
-        var firstDisposal = session.DisposeAsync().AsTask();
-        var secondDisposal = session.DisposeAsync().AsTask();
-        _ = await Assert.That(firstDisposal.IsCompleted).IsFalse();
-        _ = await Assert.That(secondDisposal.IsCompleted).IsFalse();
+            var firstDisposal = session.DisposeAsync().AsTask();
+            var secondDisposal = session.DisposeAsync().AsTask();
+            _ = await Assert.That(firstDisposal.IsCompleted).IsFalse();
+            _ = await Assert.That(secondDisposal.IsCompleted).IsFalse();
 
-        provider.Release();
-        await Task.WhenAll(firstDisposal, secondDisposal);
-        await session.DisposeAsync();
+            provider.Release();
+            await Task.WhenAll(firstDisposal, secondDisposal);
+            await session.DisposeAsync();
+        }
+        finally
+        {
+            provider.Release();
+        }
     }
 
     [Test]
@@ -2290,6 +2296,36 @@ internal sealed class DrainTests : IDisposable
             CreateCount++;
             return Tool;
         }
+    }
+
+    private sealed class DisposalBlockedProvider : ILLMProvider
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public string Id => "disposal-blocked";
+
+        public IReadOnlyList<LLMModel> SeedModels() => [];
+
+        public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+
+        public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<LLMModel>>([]);
+
+        public async IAsyncEnumerable<LLMEvent> Call(
+            LLMRequest request,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            _ = _entered.TrySetResult();
+            await _released.Task.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return Answer("done");
+        }
+
+        internal Task WaitUntilEntered(CancellationToken cancellationToken) =>
+            _entered.Task.WaitAsync(cancellationToken);
+
+        internal void Release() => _ = _released.TrySetResult();
     }
 
     private sealed class RequestPhaseProvider(bool fail) : ILLMProvider, IDisposable

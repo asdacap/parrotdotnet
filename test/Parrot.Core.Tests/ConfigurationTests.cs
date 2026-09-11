@@ -1175,6 +1175,7 @@ internal sealed class ConfigurationTests : IDisposable
     [Test]
     public async Task Provider_model_alias_defaults_are_validated_after_layering()
     {
+        var baselineDefaults = Load(Write(string.Empty)).ProviderModelAliasDefaults;
         var defaults = Load(Write("""
             provider_model_alias_defaults:
               chatgpt:
@@ -1187,7 +1188,8 @@ internal sealed class ConfigurationTests : IDisposable
             """)).ProviderModelAliasDefaults;
 
         _ = await Assert.That(defaults["chatgpt"].LowModelString).IsEqualTo("chatgpt/custom-low");
-        _ = await Assert.That(defaults["chatgpt"].XHighModelString).IsEqualTo("chatgpt/gpt-5.6-sol/xhigh");
+        _ = await Assert.That(defaults["chatgpt"].XHighModelString)
+            .IsEqualTo(baselineDefaults["chatgpt"].XHighModelString);
         _ = await Assert.That(defaults["local"]).IsEqualTo(new ProviderModelAliasDefaults(
             "local", "local/low", "local/medium", "local/high", "local/xhigh"));
     }
@@ -1445,13 +1447,21 @@ internal sealed class ConfigurationTests : IDisposable
         var reloaded = Load(path);
         var rewritten = await File.ReadAllTextAsync(path);
         _ = await Assert.That(configuration.ModelAliases["low_llm"].ModelString)
-            .IsEqualTo("chatgpt/gpt-5.6-luna/medium");
+            .IsEqualTo(defaults.LowModelString);
+        _ = await Assert.That(configuration.ModelAliases["medium_llm"].ModelString)
+            .IsEqualTo(defaults.MediumModelString);
+        _ = await Assert.That(configuration.ModelAliases["high_llm"].ModelString)
+            .IsEqualTo(defaults.HighModelString);
+        _ = await Assert.That(configuration.ModelAliases["xhigh_llm"].ModelString)
+            .IsEqualTo(defaults.XHighModelString);
+        _ = await Assert.That(reloaded.ModelAliases["low_llm"].ModelString)
+            .IsEqualTo(defaults.LowModelString);
         _ = await Assert.That(reloaded.ModelAliases["medium_llm"].ModelString)
-            .IsEqualTo("chatgpt/gpt-5.6-terra/medium");
+            .IsEqualTo(defaults.MediumModelString);
         _ = await Assert.That(reloaded.ModelAliases["high_llm"].ModelString)
-            .IsEqualTo("chatgpt/gpt-5.6-sol/medium");
+            .IsEqualTo(defaults.HighModelString);
         _ = await Assert.That(reloaded.ModelAliases["xhigh_llm"].ModelString)
-            .IsEqualTo("chatgpt/gpt-5.6-sol/xhigh");
+            .IsEqualTo(defaults.XHighModelString);
         _ = await Assert.That(reloaded.ModelAliases["low_llm"].Usage).IsEqualTo("Customized low usage");
         _ = await Assert.That(reloaded.ModelAliases["custom"].ModelString).IsEqualTo("local/custom");
         _ = await Assert.That(rewritten).Contains("theme: dark");

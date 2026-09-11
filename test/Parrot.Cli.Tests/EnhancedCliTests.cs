@@ -727,17 +727,22 @@ internal sealed class EnhancedCliTests
         pending.Questions.Add(new QuestionDefinition { Prompt = "Next answer", Custom = true });
         var beforeQuestion = driver.Output.Length;
         driver.Invoker.AddPendingQuestion(pending);
-        await driver.OutputContains("Explain your choice", cancellationToken);
+        _ = await driver.FlushedOutputContainsAfter(beforeQuestion, "Explain your choice", cancellationToken);
         if (!optionless)
         {
+            var lastConsumedRead = driver.Input.LastConsumedRead;
             driver.Input.Type("Custom");
-            await driver.OutputContainsAfter(beforeQuestion, "> Custom answer", cancellationToken);
+            while (driver.Input.LastConsumedRead == lastConsumedRead
+                || driver.Input.Reads <= driver.Input.LastConsumedRead)
+            {
+                await Task.Delay(5, cancellationToken);
+            }
         }
 
         var beforeRefresh = driver.Output.Length;
         driver.Resize(79);
-        await driver.OutputContainsAfter(beforeRefresh, "Explain your choice", cancellationToken);
-        var activeOutput = driver.Output[beforeRefresh..];
+        var activeOutput = await driver.FlushedOutputContainsAfter(
+            beforeRefresh, "Explain your choice", cancellationToken);
         _ = await Assert.That(activeOutput).Contains("Answer context");
         _ = await Assert.That(activeOutput).DoesNotContain("Answer context Explain your choice");
         _ = await Assert.That(activeOutput).DoesNotContain("Write an answer");
