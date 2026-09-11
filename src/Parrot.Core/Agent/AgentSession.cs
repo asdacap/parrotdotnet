@@ -30,6 +30,7 @@ internal sealed partial class AgentSession(
     ModelRouter router,
     EventBroker eventBroker,
     EventRepository eventRepository,
+    UserSessionStatistics userStatistics,
     [InjectionTag("toolFactories")] IReadOnlyList<IToolFactory> toolFactories,
     ToolDefinitionCatalog toolDefinitions,
     ISystemPrompt systemPrompt,
@@ -92,8 +93,7 @@ internal sealed partial class AgentSession(
     private readonly ProviderSessions _providerSessions = providerSessions;
     private readonly ProviderTokenBudget _providerTokenBudget = new();
 
-    private AgentStatistics _statistics = eventRepository.LatestStatistics(identity.SessionId)
-        ?? new AgentStatistics(0, 0, 0, 0, 0, 0, 0);
+    private readonly AgentSessionStatistics _statistics = userStatistics.GetAgentStatistics(identity.SessionId);
 
     private AgentSelection _selection = new(model, mode, security.Policy());
     private ResolvedModelSelection? _resolvedSelection;
@@ -136,6 +136,7 @@ internal sealed partial class AgentSession(
             router,
             eventBroker,
             eventRepository,
+            eventRepository.GetRuntimeStatistics(),
             toolFactories,
             toolDefinitions,
             systemPrompt,

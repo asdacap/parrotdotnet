@@ -36,6 +36,75 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     }
 
     [Test]
+    public async Task Usage_propagates_through_finished_and_reused_descendants(CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed("stop", 10, 2, 3, "root", []),
+            LLMEvent.Completed("stop", 10, 2, 3, "child", []),
+            LLMEvent.Completed("stop", 10, 2, 3, "grandchild", []),
+            LLMEvent.Completed("stop", 10, 2, 3, "sibling", []),
+            LLMEvent.Completed("stop", 10, 2, 3, "reused", []));
+        var router = new RouterFixture(provider, []).Router;
+        await using var registry = TestModels.Registry(
+            new TestAgentSessions(router),
+            _broker,
+            _repository,
+            new TestProfileFixture().Registry,
+            TestModels.PromptTemplates,
+            cancellationToken);
+        await using var root = Session(provider, 0, "root-id", registry, cancellationToken);
+        var rootScope = TestModels.ScopeOf(root);
+        IAgentSessionScope Spawn(IAgentSessionScope parent, string name) => parent.AgentSpawner.SpawnScope(new AgentLaunchRequest(
+            parent.Session,
+            new TurnFixture(parent.Session, router).Selection,
+            "worker",
+            parent.Session.CurrentSelection().RequestedModel,
+            name,
+            string.Empty,
+            HistoryForkSelection.Parse("full"),
+            new HistoryForkBoundary.AfterCompletedHistory(),
+            AgentCompletionDeliveryPolicy.RetainedOnly));
+        async Task Run(IAgentSession session)
+        {
+            var completion = session.SendAndWaitForResult("work", cancellationToken);
+            await provider.Arrived(cancellationToken);
+            provider.Release();
+            _ = await completion;
+        }
+
+        await Run(root);
+        var child = Spawn(rootScope, "child");
+        _ = await Assert.That(child.Session.CaptureStatistics().Self.Totals.InputTokens).IsEqualTo(0);
+        await Run(child.Session);
+        var grandchild = Spawn(child, "grandchild");
+        var sibling = Spawn(rootScope, "sibling");
+        await Run(grandchild.Session);
+        await Run(sibling.Session);
+        await Run(child.Session);
+        _ = await Assert.That(root.CaptureStatistics().Self.Totals.InputTokens).IsEqualTo(10);
+        _ = await Assert.That(root.CaptureStatistics().Cumulative.Totals.InputTokens).IsEqualTo(50);
+        _ = await Assert.That(child.Session.CaptureStatistics().Self.Totals.InputTokens).IsEqualTo(20);
+        _ = await Assert.That(child.Session.CaptureStatistics().Cumulative.Totals.InputTokens).IsEqualTo(30);
+        var replay = _repository.ReplayStatistics();
+        _ = await Assert.That(replay.Agents[root.SessionId].Cumulative.Totals).IsEqualTo(root.CaptureStatistics().Cumulative.Totals);
+        _ = await Assert.That(replay.Agents[child.Session.SessionId].Cumulative.Totals).IsEqualTo(child.Session.CaptureStatistics().Cumulative.Totals);
+        var usage = _repository.GetRuntimeStatistics().CaptureUsage(root.SessionId);
+        _ = await Assert.That(usage.InputTokens).IsEqualTo(50);
+        _ = await Assert.That(usage.ContextSize).IsEqualTo(root.CaptureStatistics().ContextSize);
+        _ = await Assert.That(usage.InputCost + usage.OutputCost).IsEqualTo(root.CaptureStatistics().Cumulative.Totals.TotalCost);
+        foreach (var session in new[] { root, child.Session, grandchild.Session, sibling.Session })
+        {
+            var snapshot = session.CaptureStatistics();
+            var requests = _repository.AgentHistory(session.SessionId).OfType<AgentHistoryRequestEntry>().ToArray();
+            _ = await Assert.That(requests.Sum(static request => request.InputTokens)).IsEqualTo(snapshot.Self.Totals.InputTokens);
+            _ = await Assert.That(requests.Sum(static request => request.OutputTokens)).IsEqualTo(snapshot.Self.Totals.OutputTokens);
+            _ = await Assert.That(requests.Sum(static request => request.TotalCost)).IsEqualTo(snapshot.Self.Totals.TotalCost);
+            _ = await Assert.That(replay.Agents[session.SessionId].Self.Totals).IsEqualTo(snapshot.Self.Totals);
+            _ = await Assert.That(replay.Agents[session.SessionId].Cumulative.Totals).IsEqualTo(snapshot.Cumulative.Totals);
+        }
+    }
+
+    [Test]
     public async Task Spawn_returns_immediately_and_wait_retains_the_terminal_result(
         CancellationToken cancellationToken)
     {

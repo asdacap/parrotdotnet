@@ -82,6 +82,27 @@ internal sealed class RuntimeStatus
             cancellationToken);
     }
 
+    public async Task<string> ObserveStatistics(
+        IAgentSession session,
+        AgentTurnSelection selection,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(selection);
+        var runtime = await ObserveRuntime(session, selection, cancellationToken).ConfigureAwait(false);
+        var statistics = new StatusRegistry(new StatisticsStatusProvider(session.CaptureStatistics(), _templates));
+        var observation = await statistics.Observe(
+            new StatusQuery(
+                session.SessionId,
+                session.ParentSessionId,
+                session.ParentSessionName,
+                selection.Profile.Id,
+                selection.RequestedModel.Value),
+            null,
+            cancellationToken).ConfigureAwait(false);
+        return string.Join("\n\n", new[] { runtime, observation }.Where(text => !string.IsNullOrWhiteSpace(text)));
+    }
+
     internal Task<string> ObserveWithContext(
         IAgentSession session,
         AgentTurnSelection selection,

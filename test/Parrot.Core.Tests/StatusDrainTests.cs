@@ -279,6 +279,10 @@ internal sealed class StatusDrainTests : IDisposable
         _ = await Assert.That(result).DoesNotContain(session.Mode.Profile.Prompt);
         _ = await Assert.That(result).DoesNotContain("Active profile:");
         _ = await Assert.That(result).DoesNotContain("Model:");
+        _ = await Assert.That(result).Contains("Self: 1 input / 0 cached / 1 output tokens; 1 started tool executions; cost $0");
+        _ = await Assert.That(result).Contains("Cumulative (self + descendants): 1 input / 0 cached / 1 output tokens; 1 started tool executions");
+        _ = await Assert.That(result).Contains($"{provider.Id}/model; effort unspecified/default:");
+        _ = await Assert.That(provider.Requests[0].Messages[0].Content).DoesNotContain("Statistics for agent");
 
         provider.Release();
         await Settled(session);

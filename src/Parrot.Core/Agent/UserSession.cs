@@ -88,6 +88,7 @@ internal sealed class UserSession : IAsyncDisposable
         SkillCatalog = skillCatalogFactory.Create(resources.Resources.Workspace);
         var state = _eventRepository.SessionState(id, modes.Resolve(mode).Profile.Id);
         _mainSessionId = state.AgentSessionId;
+        _ = _eventRepository.GetRuntimeStatistics();
         _modes.Attach(resources.Resources.AgentScratch(_mainSessionId));
         Mode = modes.Resolve(state.Mode);
         TimeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
@@ -335,7 +336,7 @@ internal sealed class UserSession : IAsyncDisposable
             }
         }
 
-        yield return new Event { SessionUsageSnapshot = SessionUsageSnapshot.From(_eventRepository.Usage()) };
+        yield return new Event { SessionUsageSnapshot = _eventRepository.GetRuntimeStatistics().CaptureUsage(_mainSessionId) };
         await foreach (var published in events.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
             yield return published;

@@ -715,6 +715,29 @@ conversation and the history cutoffs that reshape later context. Filesystem read
 follow the host-wide readable baseline and any configured `deny_read` rules;
 agent ownership still governs runtime history APIs and writes.
 
+The timeline also includes `request` accounting records with the resolved provider,
+model, effective reasoning effort, input/cached-input/output tokens, recorded input
+and output costs (and their total), and the number of tool executions that started
+for that request. Tool counts update as execution starts; proposed calls that never
+execute are not counted, while executions that later fail or cancel are counted.
+`event_sequence` identifies the accounting fact; its timeline `sequence` is a
+placement anchor and can equal the preceding message's sequence. Accounting records
+are not added to model-facing prompts or charged again when conversation history
+is forked.
+
+The `status` tool reports lifetime **self** statistics and **cumulative** statistics
+(self plus all descendants, including finished agents), both as totals and grouped
+by canonical provider/model and effective effort. Aliases resolving to the same
+model and effort share a bucket. Cached-input tokens are part of input tokens, not
+an additional amount. Costs are retained at their recorded prices, so resuming a
+session does not reprice earlier requests. Statistics are reconstructed from SQLite
+history on startup rather than persisted as aggregate counters. Legacy usage that
+cannot be attributed precisely appears in an unknown/legacy bucket; a warning
+identifies potentially incomplete legacy tool-execution counts. The enhanced CLI
+is unchanged: individual agent labels show self usage, the modeline shows the
+whole session's usage, and context size/limit remains local to the displayed agent
+(or the main agent in the modeline).
+
 ### Operational logs
 
 Operational diagnostics are written automatically as readable text, separately

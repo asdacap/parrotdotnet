@@ -18,7 +18,7 @@ namespace Parrot.Store;
 // transaction at a time -- so the second writer is not slower, it is a
 // corrupted connection. Admitting happens on whichever thread took the request
 // and the drain writes on its own, so every method here takes the database gate.
-internal sealed class EventRepository
+internal sealed partial class EventRepository
 {
     private const string UsageProjection = "agent-usage";
     private const long UsageProjectionVersion = 1;
@@ -32,6 +32,8 @@ internal sealed class EventRepository
     private readonly SessionDatabase _database;
     private readonly ImageArtifactStore? _imageStore;
     private readonly AgentHistoryFile? _historyFile;
+    private readonly EventRepository? _source;
+    private UserSessionStatistics? _runtimeStatistics;
 
     public EventRepository(SessionDatabase database) => _database = database;
 
@@ -43,9 +45,23 @@ internal sealed class EventRepository
 
     private EventRepository(EventRepository repository, AgentHistoryFile historyFile)
     {
+        _source = repository;
         _database = repository._database;
         _imageStore = repository._imageStore;
         _historyFile = historyFile;
+    }
+
+    public UserSessionStatistics GetRuntimeStatistics()
+    {
+        if (_source is not null)
+        {
+            return _source.GetRuntimeStatistics();
+        }
+
+        lock (_database.Gate)
+        {
+            return _runtimeStatistics ??= new(ReplayStatistics());
+        }
     }
 
     public EventRepository BindAgentHistory(AgentHistoryFile historyFile)
@@ -581,7 +597,7 @@ internal sealed class EventRepository
             var sessionIds = new List<string>();
             using var read = _database.Connection.CreateCommand();
             read.Transaction = transaction;
-            read.CommandText = "SELECT DISTINCT agent_session FROM agent_history ORDER BY agent_session;";
+            read.CommandText = "SELECT agent_session FROM agent_history UNION SELECT agent_session FROM request_history_anchor ORDER BY agent_session;";
             using var reader = read.ExecuteReader();
             while (reader.Read())
             {
@@ -629,8 +645,9 @@ internal sealed class EventRepository
                         ReadConversationItem(transaction, row.ConversationSequence))
                     : (AgentHistoryEntry)new AgentHistoryCompactionEntry(row.Sequence, row.Summary, row.Watermark))
                 .ToArray();
+            var history = IncludeRequestHistory(transaction, agentSessionId, entries);
             transaction.Commit();
-            return entries;
+            return history;
         }
     }
 
