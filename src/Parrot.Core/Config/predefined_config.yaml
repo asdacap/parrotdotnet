@@ -658,9 +658,9 @@ model_aliases:
 provider_model_alias_defaults:
   chatgpt:
     low_llm: chatgpt/gpt-5.6-luna/medium
-    medium_llm: chatgpt/gpt-5.6-terra/medium
-    high_llm: chatgpt/gpt-5.6-sol/medium
-    xhigh_llm: chatgpt/gpt-5.6-sol/xhigh
+    medium_llm: chatgpt/gpt-5.6-luna/xhigh
+    high_llm: chatgpt/gpt-6-astra/low
+    xhigh_llm: chatgpt/gpt-6-astra/high
 
   opencode-go:
     low_llm: opencode-go/deepseek-v4-flash/high
