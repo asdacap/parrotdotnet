@@ -228,6 +228,79 @@ internal sealed class EnhancedTurnRendererTests
     }
 
     [Test]
+    [Arguments("main")]
+    [Arguments("child")]
+    public async Task Session_turn_renders_retry_notices_when_activity_events_are_disabled(
+        string retryAgentSessionId,
+        CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        foreach (var published in new Event[]
+        {
+            new() { AgentSessionId = "main", TurnStarted = new TurnStarted { Model = "model" } },
+            new()
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "main", Name = "worker" },
+            },
+            new()
+            {
+                AgentSessionId = retryAgentSessionId,
+                RetryNotice = new RetryNotice
+                {
+                    Attempt = 2,
+                    RetryAfterMs = 2000,
+                    Reason = "Provider timeout\u001b[2J",
+                },
+            },
+            new()
+            {
+                AgentSessionId = retryAgentSessionId,
+                PlanValidationRepairInjected = new PlanValidationRepairInjected { Diagnostic = "Invalid plan\u001b[2J" },
+            },
+            new()
+            {
+                AgentSessionId = retryAgentSessionId,
+                PendingChildQuestionReminderInjected = new PendingChildQuestionReminderInjected(),
+            },
+            new() { AgentSessionId = "main", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+        })
+        {
+            await stream.WriteAsync(published, cancellationToken);
+        }
+
+        stream.Complete();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var terminal = new TestTerminal(driver.Input, output, error, 80);
+        var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
+        var committed = new List<string>();
+        var context = new ScrollbackRenderContext(80, new TerminalPalette(false), configuration.InlineDiff);
+        var completed = await new EnhancedTurnRenderer(
+            terminal, configuration, new ToolPresenterRegistry([], new GenericToolPresenter())).RenderSessionTurn(
+                stream.Reader,
+                static (_, _) => Task.CompletedTask,
+                static (_, _) => Task.CompletedTask,
+                static (_, _) => Task.CompletedTask,
+                (scrollback, _, _) =>
+                {
+                    committed.AddRange(scrollback.Render(context));
+                    return Task.CompletedTask;
+                },
+                new ForegroundTurn(),
+                cancellationToken);
+
+        _ = await Assert.That(completed).IsTrue();
+        _ = await Assert.That(committed.Count).IsEqualTo(3);
+        _ = await Assert.That(committed[0]).Contains("retry 2 in 2000 ms: Provider timeout[2J");
+        _ = await Assert.That(committed[0]).DoesNotContain("\u001b[2J");
+        _ = await Assert.That(committed[1]).Contains("Retrying after plan validation failure: Invalid plan[2J");
+        _ = await Assert.That(committed[1]).DoesNotContain("\u001b[2J");
+        _ = await Assert.That(committed[2]).Contains("Retrying with pending child question reminder");
+    }
+
+    [Test]
     public async Task Before_render_runs_before_each_event(CancellationToken cancellationToken)
     {
         var stream = new ChannelStreamWriter<Event>();

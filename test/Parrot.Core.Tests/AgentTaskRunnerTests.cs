@@ -448,6 +448,76 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
     }
 
     [Test]
+    [Arguments(false, false, 3)]
+    [Arguments(true, false, 3)]
+    [Arguments(false, false, 1)]
+    [Arguments(true, false, 1)]
+    [Arguments(false, true, 3)]
+    [Arguments(true, true, 3)]
+    public async Task Retry_notices_report_only_actual_owner_session_attempts(
+        bool composite,
+        bool invalidReplacement,
+        int maximumAttempts,
+        CancellationToken cancellationToken)
+    {
+        const string children = """
+            [{"name":"child","description":"Child","payload":"work","acceptance_criteria":"proof"}]
+            """;
+        const string leafAccept = """
+            {"result":"done","verdict":"accept","evidence":"proof"}
+            """;
+        const string compositeAccept = """
+            {"verdict":"accept","evidence":"proof"}
+            """;
+        var payload = composite ? children : "\"work\"";
+        var replacement = invalidReplacement ? "\" \"" : payload;
+        var leafResult = composite ? string.Empty : "\"result\":\"secret result\",";
+        var rejection = $"{{{leafResult}\"verdict\":\"reject_and_retry\",\"feedback\":\"secret feedback\",\"payload\":{replacement}}}";
+        var answers = new List<string>();
+        if (composite)
+        {
+            answers.Add("{\"context\":\"prepared\"}");
+        }
+
+        var willRetry = !invalidReplacement && maximumAttempts > 1;
+        var actualAttempts = willRetry ? maximumAttempts : 1;
+        for (var attempt = 1; attempt <= actualAttempts; attempt++)
+        {
+            if (composite)
+            {
+                answers.Add(leafAccept);
+            }
+
+            answers.Add(willRetry && attempt == maximumAttempts
+                ? composite ? compositeAccept : leafAccept
+                : rejection);
+        }
+
+        var provider = new AgentTaskQueueProvider([.. answers]);
+        var runtime = Runtime(provider, cancellationToken);
+        var artifact = AgentTaskParser.ParseArtifact(
+            $"{{\"schema_version\":1,\"tasks\":[{{\"name\":\"retry\",\"description\":\"Task\",\"payload\":{payload},\"acceptance_criteria\":\"proof\"}}]}}");
+
+        var result = await new RunnerFixture(runtime, "retry-notices", maximumAttempts, _broker, _repository).Runner
+            .Run(artifact, cancellationToken);
+
+        _ = await Assert.That(result.Status).IsEqualTo(willRetry ? AgentTaskExecutionStatus.Succeeded : AgentTaskExecutionStatus.Failed);
+        _ = await Assert.That(result.Tasks.Single().AttemptCount).IsEqualTo(actualAttempts);
+        var notices = _repository.Replay().Where(published => published.PayloadCase == Event.PayloadOneofCase.RetryNotice).ToArray();
+        _ = await Assert.That(notices.Length).IsEqualTo(willRetry ? maximumAttempts - 1 : 0);
+        for (var index = 0; index < notices.Length; index++)
+        {
+            _ = await Assert.That(notices[index].AgentSessionId).IsEqualTo(runtime.Parent.SessionId);
+            _ = await Assert.That(notices[index].RetryNotice.Attempt).IsEqualTo(index + 2);
+            _ = await Assert.That(notices[index].RetryNotice.RetryAfterMs).IsEqualTo(0);
+            _ = await Assert.That(notices[index].RetryNotice.Reason)
+                .Contains("task/retry")
+                .And.Contains($"attempt {index + 2}/{maximumAttempts}")
+                .And.DoesNotContain("secret");
+        }
+    }
+
+    [Test]
     public async Task Retry_result_replaces_later_prompt_and_final_result(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([

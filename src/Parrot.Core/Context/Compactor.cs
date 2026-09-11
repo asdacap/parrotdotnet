@@ -113,6 +113,7 @@ internal sealed class Compactor(
                 fixedMessage,
                 groupBlobs,
                 providerSessions,
+                static (_, _) => ValueTask.CompletedTask,
                 cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -145,6 +146,7 @@ internal sealed class Compactor(
                 fixedMessage,
                 groupBlobs,
                 providerSessions,
+                static (_, _) => ValueTask.CompletedTask,
                 cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -162,6 +164,7 @@ internal sealed class Compactor(
         LLMMessage fixedMessage,
         CompactionGroupBlobStore groupBlobs,
         ProviderSessions providerSessions,
+        Func<LLMEvent, CancellationToken, ValueTask> emitRetry,
         CancellationToken cancellationToken) =>
         CompactCore(
             selectedModel,
@@ -172,6 +175,7 @@ internal sealed class Compactor(
             fixedMessage,
             groupBlobs,
             providerSessions,
+            emitRetry,
             cancellationToken);
 
     private static bool IsComplete(IReadOnlyList<LLMMessage> messages)
@@ -252,6 +256,7 @@ internal sealed class Compactor(
         LLMMessage fixedMessage,
         CompactionGroupBlobStore groupBlobs,
         ProviderSessions providerSessions,
+        Func<LLMEvent, CancellationToken, ValueTask> emitRetry,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(selectedModel);
@@ -382,6 +387,7 @@ internal sealed class Compactor(
                     chunk,
                     summaryTokens,
                     providerSessions,
+                    emitRetry,
                     cancellationToken);
                 chunk = [];
             }
@@ -416,6 +422,7 @@ internal sealed class Compactor(
                 chunk,
                 summaryTokens,
                 providerSessions,
+                emitRetry,
                 cancellationToken);
         }
 
@@ -482,6 +489,7 @@ internal sealed class Compactor(
         List<IReadOnlyList<LLMMessage>> pending,
         int maximumOutputTokens,
         ProviderSessions providerSessions,
+        Func<LLMEvent, CancellationToken, ValueTask> emitRetry,
         CancellationToken cancellationToken)
     {
         if (pending.Count == 1)
@@ -492,6 +500,7 @@ internal sealed class Compactor(
                 pending[0],
                 maximumOutputTokens,
                 providerSessions,
+                emitRetry,
                 cancellationToken).ConfigureAwait(false);
             return single ?? throw new InvalidOperationException(
                 "The compaction provider did not complete with a summary.");
@@ -503,6 +512,7 @@ internal sealed class Compactor(
             MessagesOf(pending),
             maximumOutputTokens,
             providerSessions,
+            emitRetry,
             cancellationToken).ConfigureAwait(false);
         if (whole is not null)
         {
@@ -516,6 +526,7 @@ internal sealed class Compactor(
             [.. pending.Take(half)],
             maximumOutputTokens,
             providerSessions,
+            emitRetry,
             cancellationToken).ConfigureAwait(false);
         return await FoldGroups(
             selectedModel,
@@ -523,6 +534,7 @@ internal sealed class Compactor(
             [.. pending.Skip(half)],
             maximumOutputTokens,
             providerSessions,
+            emitRetry,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -532,6 +544,7 @@ internal sealed class Compactor(
         IReadOnlyList<LLMMessage> chunk,
         int maximumOutputTokens,
         ProviderSessions providerSessions,
+        Func<LLMEvent, CancellationToken, ValueTask> emitRetry,
         CancellationToken cancellationToken)
     {
         var request = new LLMRequest
@@ -551,7 +564,11 @@ internal sealed class Compactor(
                 throw new InvalidOperationException("The compaction provider emitted an event after completion.");
             }
 
-            if (llmEvent.Kind == LLMEventKind.Completed)
+            if (llmEvent.Kind == LLMEventKind.Retry)
+            {
+                await emitRetry(llmEvent, cancellationToken).ConfigureAwait(false);
+            }
+            else if (llmEvent.Kind == LLMEventKind.Completed)
             {
                 summary = string.IsNullOrEmpty(llmEvent.AssistantText) ? null : llmEvent.AssistantText;
             }

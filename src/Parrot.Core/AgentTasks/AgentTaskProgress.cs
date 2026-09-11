@@ -86,6 +86,24 @@ internal sealed class AgentTaskProgress(
         }
     }
 
+    internal void ReportRetry(string path, int nextAttempt, int maximumAttempts, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var safePath = string.Concat(path.Where(character => !char.IsControl(character)).Take(160));
+        var published = new Event
+        {
+            Id = Identifier.EventId(),
+            AgentSessionId = ownerAgentSessionId,
+            RetryNotice = new RetryNotice
+            {
+                Attempt = nextAttempt,
+                Reason = FormattableString.Invariant($"Task {safePath}: acceptance requested retry; attempt {nextAttempt}/{maximumAttempts}."),
+            },
+        };
+        _ = eventRepository.Append(published, null, null);
+        eventBroker.Publish(published);
+    }
+
     internal void MarkTerminal(
         NodeHandle handle,
         AgentTaskExecutionStatus status,

@@ -10,7 +10,7 @@ internal sealed class ProviderDiagnosticsTests
 {
     [Test]
     [Arguments("completed")]
-    [Arguments("silent_retry")]
+    [Arguments("transport_retry")]
     [Arguments("failed")]
     [Arguments("cancelled")]
     [Arguments("disposed")]
@@ -42,7 +42,7 @@ internal sealed class ProviderDiagnosticsTests
             var emitted = new List<LLMEvent>();
             try
             {
-                await foreach (var published in sessions.Get(behavior == "silent_retry" ? new RetryingProvider(provider) : provider).Call(
+                await foreach (var published in sessions.Get(behavior == "transport_retry" ? new RetryingProvider(provider) : provider).Call(
                     new LLMRequest { Model = "model", Messages = [LLMMessage.User("private-sentinel")] },
                     cancellation.Token))
                 {
@@ -62,19 +62,20 @@ internal sealed class ProviderDiagnosticsTests
             var text = string.Join('\n', lines);
             var failed = behavior is "failed" or "cancelled" or "dispose_failed" or "open_failed";
             _ = await Assert.That(received).IsSameReferenceAs(failed ? expected : null);
-            _ = await Assert.That(provider.Session.Disposals).IsEqualTo(behavior == "open_failed" ? 0 : behavior == "silent_retry" ? 2 : 1);
+            _ = await Assert.That(provider.Session.Disposals).IsEqualTo(behavior == "open_failed" ? 0 : behavior == "transport_retry" ? 2 : 1);
             _ = await Assert.That(provider.Session.CancellationToken).IsEqualTo(cancellation.Token);
             _ = await Assert.That(lines.Count(line => line.Contains("event=\"call_started\"", StringComparison.Ordinal))).IsEqualTo(1);
             _ = await Assert.That(lines.Count(line => line.Contains("event=\"call_finished\"", StringComparison.Ordinal))).IsEqualTo(1);
-            var expectedOutcome = behavior == "silent_retry" ? "completed" : behavior is "dispose_failed" or "open_failed" ? "failed" : behavior;
+            var expectedOutcome = behavior == "transport_retry" ? "completed" : behavior is "dispose_failed" or "open_failed" ? "failed" : behavior;
             _ = await Assert.That(lines[^1].Contains($"outcome=\"{expectedOutcome}\"", StringComparison.Ordinal)).IsTrue();
             _ = await Assert.That(text.Contains("private-sentinel", StringComparison.Ordinal)).IsFalse();
             _ = await Assert.That(lines.All(line => line.Contains("agent=\"agent-provider\"", StringComparison.Ordinal))).IsTrue();
             _ = await Assert.That(lines.Select(line => line.Split("correlation=\"", StringSplitOptions.None)[1].Split('"')[0]).Distinct().Count()).IsEqualTo(1);
             _ = await Assert.That(lines[^1].Contains("duration_ms=\"", StringComparison.Ordinal)).IsTrue();
-            if (behavior is "completed" or "silent_retry")
+            if (behavior is "completed" or "transport_retry")
             {
-                _ = await Assert.That(emitted.SequenceEqual(provider.Session.Events)).IsTrue();
+                var providerEvents = behavior == "transport_retry" ? emitted.Skip(1) : emitted;
+                _ = await Assert.That(providerEvents.SequenceEqual(provider.Session.Events)).IsTrue();
                 _ = await Assert.That(text.Contains("event=\"call_retry\"", StringComparison.Ordinal)).IsTrue();
                 _ = await Assert.That(text.Contains("event=\"input_tokens\"", StringComparison.Ordinal)).IsTrue();
                 _ = await Assert.That(text.Contains("count=\"17\"", StringComparison.Ordinal)).IsTrue();
@@ -82,8 +83,10 @@ internal sealed class ProviderDiagnosticsTests
                 _ = await Assert.That(text.Contains("event=\"output_tokens\"", StringComparison.Ordinal)).IsTrue();
             }
 
-            if (behavior == "silent_retry")
+            if (behavior == "transport_retry")
             {
+                _ = await Assert.That(emitted[0]).IsEqualTo(LLMEvent.Retry(
+                    1, TimeSpan.FromMilliseconds(200), "Provider connection or protocol failure. Retrying."));
                 _ = await Assert.That(lines.Count(line => line.Contains("event=\"call_retry\"", StringComparison.Ordinal))).IsEqualTo(2);
             }
 
@@ -221,7 +224,7 @@ internal sealed class ProviderDiagnosticsTests
         {
         }
 
-        public ValueTask<bool> MoveNextAsync() => behavior == "silent_retry" && Disposals == 0
+        public ValueTask<bool> MoveNextAsync() => behavior == "transport_retry" && Disposals == 0
             ? ValueTask.FromException<bool>(new IOException("private-sentinel"))
             : behavior is "failed" or "cancelled"
                 ? ValueTask.FromException<bool>(failure)

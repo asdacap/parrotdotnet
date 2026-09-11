@@ -90,10 +90,7 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
                 throw new InvalidOperationException("A stateless provider cannot select HTTP fallback.");
             }
 
-            if (retry.Reason.Length > 0)
-            {
-                yield return LLMEvent.Retry(retry.Attempt, retry.Delay, retry.Reason);
-            }
+            yield return LLMEvent.Retry(retry.Attempt, retry.Delay, retry.Reason);
 
             await Task.Delay(retry.Delay, cancellationToken).ConfigureAwait(false);
         }
@@ -134,7 +131,7 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
     {
         if (state.TryAdjustContextBudget(failure))
         {
-            return Advance.Retrying(TimeSpan.Zero, 1, string.Empty);
+            return Advance.Retrying(TimeSpan.Zero, 1, "Context limit exceeded. Retrying with a reduced output token budget.");
         }
 
         switch (failure)
@@ -143,8 +140,7 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
                 var headerDelay = HeaderDelay(state.TimeoutAttempt);
                 state.TimeoutAttempt++;
 
-                // No reason: a header retry is silent, per upstream.
-                return Advance.Retrying(headerDelay, state.TimeoutAttempt, string.Empty);
+                return Advance.Retrying(headerDelay, state.TimeoutAttempt, "Provider response headers timed out. Retrying.");
 
             case ProviderHttpException when ProviderErrors.IsEngineOverloaded(failure):
                 if (state.TakeOverload(out var httpOverloadAttempt))
@@ -175,7 +171,7 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
             case ProviderHttpException http:
                 if (RetryableStatus(http.StatusCode) && state.TakeStream(out var httpStreamAttempt))
                 {
-                    return Advance.Retrying(StreamDelay(httpStreamAttempt), httpStreamAttempt, string.Empty);
+                    return Advance.Retrying(StreamDelay(httpStreamAttempt), httpStreamAttempt, $"Provider returned HTTP {http.StatusCode}. Retrying.");
                 }
 
                 throw failure;
@@ -183,7 +179,7 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
             case ResponsesWebSocketUpgradeException upgrade:
                 if (RetryableStatus(upgrade.StatusCode) && state.TakeStream(out var upgradeAttempt))
                 {
-                    return Advance.Retrying(StreamDelay(upgradeAttempt), upgradeAttempt, string.Empty);
+                    return Advance.Retrying(StreamDelay(upgradeAttempt), upgradeAttempt, $"WebSocket upgrade returned HTTP {upgrade.StatusCode}. Retrying.");
                 }
 
                 if (RetryableStatus(upgrade.StatusCode) && state.StreamExhausted)
@@ -202,7 +198,7 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
                 // Network and protocol errors are retryable by default.
                 if (state.TakeStream(out var streamAttempt))
                 {
-                    return Advance.Retrying(StreamDelay(streamAttempt), streamAttempt, string.Empty);
+                    return Advance.Retrying(StreamDelay(streamAttempt), streamAttempt, "Provider connection or protocol failure. Retrying.");
                 }
 
                 if (failure is ResponsesWebSocketTransportException
@@ -248,18 +244,12 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
         public void BeginTurn() => _innerSession.BeginTurn();
 
         public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
-            RetrySession(request, static (_, _) => { }, cancellationToken);
-
-        public IAsyncEnumerable<LLMEvent> CallWithRetryObservation(
-            LLMRequest request,
-            Action<int, TimeSpan> observeRetry,
-            CancellationToken cancellationToken) => RetrySession(request, observeRetry, cancellationToken);
+            RetrySession(request, cancellationToken);
 
         public ValueTask DisposeAsync() => _innerSession.DisposeAsync();
 
         private async IAsyncEnumerable<LLMEvent> RetrySession(
             LLMRequest request,
-            Action<int, TimeSpan> observeRetry,
             [EnumeratorCancellation] CancellationToken cancellationToken)
         {
             var state = new RetryState(request);
@@ -311,21 +301,7 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
                     state.ResetStream();
                 }
 
-                if (retry.Reason.Length > 0)
-                {
-                    yield return LLMEvent.Retry(retry.Attempt, retry.Delay, retry.Reason);
-                }
-                else
-                {
-                    try
-                    {
-                        observeRetry(retry.Attempt, retry.Delay);
-                    }
-                    catch (Exception)
-                    {
-                        // Operational observation must not change retry behavior.
-                    }
-                }
+                yield return LLMEvent.Retry(retry.Attempt, retry.Delay, retry.Reason);
 
                 await Task.Delay(retry.Delay, cancellationToken).ConfigureAwait(false);
             }
@@ -417,6 +393,12 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
         public static Advance Retrying(TimeSpan delay, int attempt, string reason) =>
             new() { Retry = true, Delay = delay, Attempt = attempt, Reason = reason };
 
-        public static Advance FallingBack() => new() { Retry = true, FallBackToHttp = true };
+        public static Advance FallingBack() => new()
+        {
+            Retry = true,
+            FallBackToHttp = true,
+            Attempt = StreamMaxRetries + 1,
+            Reason = "WebSocket retry budget exhausted. Retrying over HTTP.",
+        };
     }
 }

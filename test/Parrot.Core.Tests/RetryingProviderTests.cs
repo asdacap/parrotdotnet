@@ -11,7 +11,7 @@ internal sealed class RetryingProviderTests
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task Silent_retry_observation_preserves_events_and_ignores_observer_failure(
+    public async Task Retry_events_preserve_output_without_duplicate_observation(
         bool observerFails,
         CancellationToken cancellationToken)
     {
@@ -29,8 +29,9 @@ internal sealed class RetryingProviderTests
         }
 
         _ = await Assert.That(scripted.Calls).IsEqualTo(2);
-        _ = await Assert.That(events.SequenceEqual([completed])).IsTrue();
-        _ = await Assert.That(observed.SequenceEqual([(1, TimeSpan.FromMilliseconds(200))])).IsTrue();
+        _ = await Assert.That(events.Skip(1).SequenceEqual([completed])).IsTrue();
+        _ = await Assert.That(observed).IsEmpty();
+        _ = await Assert.That(events[0]).IsEqualTo(LLMEvent.Retry(1, TimeSpan.FromMilliseconds(200), "Provider connection or protocol failure. Retrying."));
 
         void ObserveRetry(int attempt, TimeSpan delay)
         {
@@ -40,6 +41,52 @@ internal sealed class RetryingProviderTests
                 throw new InvalidOperationException("private-sentinel");
             }
         }
+    }
+
+    [Test]
+    [Arguments(false, "headers", 2000)]
+    [Arguments(false, "http429", 200)]
+    [Arguments(false, "http500", 200)]
+    [Arguments(false, "http503", 2000)]
+    [Arguments(false, "upgrade429", 200)]
+    [Arguments(false, "upgrade502", 200)]
+    [Arguments(false, "websocket", 200)]
+    [Arguments(false, "network", 200)]
+    [Arguments(true, "headers", 2000)]
+    [Arguments(true, "http429", 200)]
+    [Arguments(true, "http500", 200)]
+    [Arguments(true, "http503", 2000)]
+    [Arguments(true, "upgrade429", 200)]
+    [Arguments(true, "upgrade502", 200)]
+    [Arguments(true, "websocket", 200)]
+    [Arguments(true, "network", 200)]
+    public async Task Transient_failures_emit_safe_retry_events_before_waiting(
+        bool useSession, string failureKind, int delayMilliseconds, CancellationToken cancellationToken)
+    {
+        Exception failure = failureKind switch
+        {
+            "headers" => new HeaderTimeoutException("private-sentinel"),
+            "http429" => new ProviderHttpException(429, string.Empty, string.Empty, "private-sentinel"),
+            "http500" => new ProviderHttpException(500, string.Empty, string.Empty, "private-sentinel"),
+            "http503" => new ProviderHttpException(503, string.Empty, string.Empty, "private-sentinel"),
+            "upgrade429" => new ResponsesWebSocketUpgradeException(429, "private-sentinel", new IOException()),
+            "upgrade502" => new ResponsesWebSocketUpgradeException(502, "private-sentinel", new IOException()),
+            "websocket" => new ResponsesWebSocketTransportException("private-sentinel"),
+            _ => new IOException("private-sentinel"),
+        };
+        var scripted = new ReplayProvider(() => ThrowImmediately(failure));
+        ILLMProvider provider = new RetryingProvider(scripted);
+        await using var session = provider.OpenSession();
+        var stream = useSession ? session.Call(Request, cancellationToken) : provider.Call(Request, cancellationToken);
+        await using var enumerator = stream.GetAsyncEnumerator(cancellationToken);
+
+        _ = await Assert.That(await enumerator.MoveNextAsync()).IsTrue();
+        _ = await Assert.That(scripted.Calls).IsEqualTo(1);
+        _ = await Assert.That(enumerator.Current.Kind).IsEqualTo(LLMEventKind.Retry);
+        _ = await Assert.That(enumerator.Current.Attempt).IsEqualTo(1);
+        _ = await Assert.That(enumerator.Current.RetryAfter).IsEqualTo(TimeSpan.FromMilliseconds(delayMilliseconds));
+        _ = await Assert.That(string.IsNullOrWhiteSpace(enumerator.Current.Text)).IsFalse();
+        _ = await Assert.That(enumerator.Current.Text.Contains("private-sentinel", StringComparison.Ordinal)).IsFalse();
     }
 
     [Test]
@@ -107,15 +154,16 @@ internal sealed class RetryingProviderTests
                 _ = await Assert.That(Consume).Throws<ProviderHttpException>();
             }
 
-            _ = await Assert.That(events).IsEmpty();
+            _ = await Assert.That(events).HasSingleItem();
         }
         else
         {
             await Consume();
-            _ = await Assert.That(events.Single().Kind).IsEqualTo(LLMEventKind.Completed);
+            _ = await Assert.That(events[^1].Kind).IsEqualTo(LLMEventKind.Completed);
         }
 
         _ = await Assert.That(scripted.Calls).IsEqualTo(2);
+        _ = await Assert.That(events[0]).IsEqualTo(LLMEvent.Retry(1, TimeSpan.Zero, "Context limit exceeded. Retrying with a reduced output token budget."));
         _ = await Assert.That(scripted.Requests[0]).IsEqualTo(request);
         _ = await Assert.That(scripted.Requests[1]).IsEqualTo(request with { MaxTokens = 24866 });
         _ = await Assert.That(request.MaxTokens).IsEqualTo(32768);

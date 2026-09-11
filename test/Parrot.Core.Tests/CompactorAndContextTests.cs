@@ -1325,6 +1325,75 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Compaction_publishes_provider_retries_with_the_owning_session_before_settling(
+        bool completes,
+        CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var broker = new EventBroker();
+        var provider = new RetryingCompactionProvider(completes);
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 100_000 });
+        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var repository = new EventRepository(database);
+        using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
+        await using IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, cancellationToken);
+
+        foreach (var prompt in new[] { "first", "second", "third" })
+        {
+            _ = await session.Send(
+                [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            await session.Settled();
+        }
+
+        using var subscription = broker.Subscribe();
+        var eventsBeforeCompaction = repository.Replay().Count;
+        if (completes)
+        {
+            await session.Compact(cancellationToken);
+        }
+        else
+        {
+            _ = await Assert.That(async () => await session.Compact(cancellationToken))
+                .Throws<InvalidOperationException>();
+        }
+
+        var compactedEvents = repository.Replay().Skip(eventsBeforeCompaction).ToArray();
+        var retries = compactedEvents.Where(published => published.PayloadCase == Event.PayloadOneofCase.RetryNotice)
+            .ToArray();
+        _ = await Assert.That(retries.Length).IsEqualTo(2);
+        for (var index = 0; index < retries.Length; index++)
+        {
+            _ = await Assert.That(retries[index].AgentSessionId).IsEqualTo(identity.SessionId);
+            _ = await Assert.That(retries[index].RetryNotice.Attempt).IsEqualTo(index + 1);
+            _ = await Assert.That(retries[index].RetryNotice.RetryAfterMs).IsEqualTo((index + 1) * 125);
+            _ = await Assert.That(retries[index].RetryNotice.Reason).IsEqualTo("compaction provider busy");
+        }
+
+        _ = await Assert.That(compactedEvents[0].PayloadCase).IsEqualTo(Event.PayloadOneofCase.CompactionStarted);
+        _ = await Assert.That(compactedEvents[1].Id).IsEqualTo(retries[0].Id);
+        _ = await Assert.That(compactedEvents[2].Id).IsEqualTo(retries[1].Id);
+        _ = await Assert.That(compactedEvents[^1].PayloadCase).IsEqualTo(completes
+            ? Event.PayloadOneofCase.CompactionFinished
+            : Event.PayloadOneofCase.CompactionFailed);
+        _ = await Assert.That(compactedEvents.Select(published => published.PayloadCase))
+            .DoesNotContain(Event.PayloadOneofCase.TextChunk);
+        _ = await Assert.That(repository.Compaction(identity.SessionId) is not null).IsEqualTo(completes);
+        var liveRetries = new List<Event>();
+        while (subscription.Reader.TryRead(out var published))
+        {
+            if (published.PayloadCase == Event.PayloadOneofCase.RetryNotice)
+            {
+                liveRetries.Add(published);
+            }
+        }
+
+        _ = await Assert.That(string.Join(',', liveRetries.Select(published => published.Id)))
+            .IsEqualTo(string.Join(',', retries.Select(published => published.Id)));
+    }
+
+    [Test]
     public async Task Forced_agent_session_compaction_reports_failure_once_without_turn_failure(
         CancellationToken cancellationToken)
     {
@@ -2103,6 +2172,45 @@ internal sealed class CompactorAndContextTests : IDisposable
         }
 
         public IMode Mode { get; }
+    }
+
+    private sealed class RetryingCompactionProvider(bool completes) : ILLMProvider
+    {
+        public string Id => "retrying-compaction";
+
+        public IReadOnlyList<LLMModel> SeedModels() => [];
+
+        public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+
+        public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<LLMModel>>([]);
+
+        public async IAsyncEnumerable<LLMEvent> Call(
+            LLMRequest request,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.Yield();
+            if (request.Messages.Any(message => message.Role == LLMRole.System
+                && message.Content.StartsWith("Summarise the following conversation", StringComparison.Ordinal)))
+            {
+                yield return LLMEvent.Retry(1, TimeSpan.FromMilliseconds(125), "compaction provider busy");
+                yield return LLMEvent.Retry(2, TimeSpan.FromMilliseconds(250), "compaction provider busy");
+                yield return LLMEvent.TextDelta("summary delta");
+                if (completes)
+                {
+                    yield return LLMEvent.Completed("stop", 1, 0, 1, "summary", []);
+                }
+                else
+                {
+                    throw new InvalidOperationException("compaction provider unavailable");
+                }
+
+                yield break;
+            }
+
+            yield return LLMEvent.TextDelta("reply");
+            yield return LLMEvent.Completed("stop", 1, 0, 1, "reply", []);
+        }
     }
 
     private sealed class FailingCompactionProvider : ILLMProvider

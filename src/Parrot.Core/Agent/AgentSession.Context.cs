@@ -356,6 +356,7 @@ internal sealed partial class AgentSession
                 fixedStatus,
                 compactionGroupBlobs,
                 _providerSessions,
+                (llmEvent, token) => EmitEvent(TranslateProviderEvent(llmEvent), null, null, token),
                 cancellationToken).ConfigureAwait(false);
             var currentWatermark = effective.Snapshot?.Watermark ?? 0;
             if ((compacted is null || compacted.Watermark <= currentWatermark)

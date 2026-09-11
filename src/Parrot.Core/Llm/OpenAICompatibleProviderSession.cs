@@ -53,7 +53,7 @@ internal sealed class OpenAICompatibleProviderSession(
             var recovered = false;
             while (true)
             {
-                Recovery recovery;
+                AttemptStep recovery;
                 await using (var attempt = new WebSocketAttempt(
                     prepared, incrementalRequest, GetTurnState, GetConnection, CaptureTurnState))
                 {
@@ -76,7 +76,7 @@ internal sealed class OpenAICompatibleProviderSession(
 
                             await attempt.Release().ConfigureAwait(false);
                             releasedForRecovery = true;
-                            recovery = step.Recovery;
+                            recovery = step;
                             break;
                         }
                     }
@@ -91,9 +91,10 @@ internal sealed class OpenAICompatibleProviderSession(
                     }
                 }
 
-                if (recovery == Recovery.Http)
+                if (recovery.Recovery == Recovery.Http)
                 {
                     await SelectHttp().ConfigureAwait(false);
+                    yield return LLMEvent.Retry(1, TimeSpan.Zero, recovery.Reason);
                     await foreach (var httpEvent in callHttp(request, _turnState ?? string.Empty, CaptureTurnState, cancellationToken).ConfigureAwait(false))
                     {
                         yield return httpEvent;
@@ -106,6 +107,7 @@ internal sealed class OpenAICompatibleProviderSession(
                 _completedResponse = null;
                 recovered = true;
                 incrementalRequest = IncrementalRequest.Full(prepared);
+                yield return LLMEvent.Retry(1, TimeSpan.Zero, recovery.Reason);
             }
         }
         finally
@@ -185,11 +187,14 @@ internal sealed class OpenAICompatibleProviderSession(
         catch (ProviderResponseException failure) when (mayRecover && !attempt.Visible
             && failure.ErrorCode is "previous_response_not_found" or "websocket_connection_limit_reached")
         {
-            return AttemptStep.Recovering(Recovery.Full);
+            var reason = failure.ErrorCode == "previous_response_not_found"
+                ? "Previous provider response is unavailable. Retrying the full request on a new WebSocket connection."
+                : "WebSocket connection limit reached. Retrying the full request on a new connection.";
+            return AttemptStep.Recovering(Recovery.Full, reason);
         }
         catch (ResponsesWebSocketUpgradeException failure) when (Unsupported(failure.StatusCode))
         {
-            return AttemptStep.Recovering(Recovery.Http);
+            return AttemptStep.Recovering(Recovery.Http, $"WebSocket upgrade is unsupported (HTTP {failure.StatusCode}). Retrying over HTTP.");
         }
         catch (OperationCanceledException)
         {
@@ -334,9 +339,11 @@ internal sealed class OpenAICompatibleProviderSession(
 
         public Recovery Recovery { get; init; }
 
+        public string Reason { get; init; } = string.Empty;
+
         public static AttemptStep Emitting(LLMEvent published) => new() { Event = published };
 
-        public static AttemptStep Recovering(Recovery recovery) => new() { Recovery = recovery };
+        public static AttemptStep Recovering(Recovery recovery, string reason) => new() { Recovery = recovery, Reason = reason };
     }
 
     private sealed record CompletedResponse(

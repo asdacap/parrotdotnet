@@ -674,6 +674,7 @@ internal sealed class AgentTaskGraphRunner(
 
             effective = replacement;
             var childHandles = progress.ReplaceChildren(handle, effective.Payload, cancellationToken);
+            progress.ReportRetry(path, attempt + 1, maximumAttempts, cancellationToken);
             if (effective.Payload.Tasks is null)
             {
                 continue;
@@ -976,6 +977,7 @@ internal sealed class AgentTaskGraphRunner(
                 handle,
                 effective.Payload,
                 cancellationToken);
+            progress.ReportRetry(path, attempt + 1, maximumAttempts, cancellationToken);
         }
 
         throw new InvalidOperationException("The attempt loop terminated unexpectedly.");

@@ -282,7 +282,7 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         string errorCode,
         CancellationToken cancellationToken)
     {
-        using var failed = new ScriptedWebSocket([$"{{\"type\":\"error\",\"error\":{{\"code\":\"{errorCode}\",\"message\":\"retry\"}}}}"]);
+        using var failed = new ScriptedWebSocket([$"{{\"type\":\"error\",\"error\":{{\"code\":\"{errorCode}\",\"message\":\"private-sentinel\"}}}}"]);
         using var recovered = new ScriptedWebSocket([Completed]);
         var connector = new ScriptedConnector([failed, recovered]);
         using var handler = new EmptyHandler();
@@ -307,12 +307,21 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         _ = await Assert.That(failed.Aborted).IsTrue();
         _ = await Assert.That(sent.RootElement.TryGetProperty("previous_response_id", out _)).IsFalse();
         _ = await Assert.That(events[^1].Kind).IsEqualTo(LLMEventKind.Completed);
+        var retry = events.Single(published => published.Kind == LLMEventKind.Retry);
+        _ = await Assert.That(retry.Attempt).IsEqualTo(1);
+        _ = await Assert.That(retry.RetryAfter).IsEqualTo(TimeSpan.Zero);
+        _ = await Assert.That(retry.Text).IsEqualTo(errorCode == "previous_response_not_found"
+            ? "Previous provider response is unavailable. Retrying the full request on a new WebSocket connection."
+            : "WebSocket connection limit reached. Retrying the full request on a new connection.");
     }
 
     [Test]
-    public async Task Unsupported_upgrade_falls_back_to_http_and_is_sticky(CancellationToken cancellationToken)
+    [Arguments(404)]
+    [Arguments(405)]
+    [Arguments(426)]
+    public async Task Unsupported_upgrade_falls_back_to_http_and_is_sticky(int statusCode, CancellationToken cancellationToken)
     {
-        var connector = new ScriptedConnector([new ResponsesWebSocketUpgradeException(404, "missing", new IOException())]);
+        var connector = new ScriptedConnector([new ResponsesWebSocketUpgradeException(statusCode, "private-sentinel", new IOException())]);
         using var handler = new ResponsesHandler(2);
         using var client = new HttpClient(handler, disposeHandler: false);
         ILLMProvider provider = new OpenAICompatibleProvider(
@@ -328,8 +337,12 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
             connector);
         await using var session = provider.OpenSession();
 
-        _ = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("one")] }, cancellationToken));
-        _ = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("two")] }, cancellationToken));
+        var first = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("one")] }, cancellationToken));
+        var second = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("two")] }, cancellationToken));
+
+        _ = await Assert.That(first.Single(published => published.Kind == LLMEventKind.Retry)).IsEqualTo(
+            LLMEvent.Retry(1, TimeSpan.Zero, $"WebSocket upgrade is unsupported (HTTP {statusCode}). Retrying over HTTP."));
+        _ = await Assert.That(second.Any(published => published.Kind == LLMEventKind.Retry)).IsFalse();
 
         _ = await Assert.That(connector.Calls).IsEqualTo(1);
         _ = await Assert.That(handler.Calls).IsEqualTo(2);
@@ -391,13 +404,17 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
     [Test]
     [Timeout(10_000)]
     [ExecutionPriority(Priority.High)]
+    [Arguments(false)]
+    [Arguments(true)]
     public async Task Exhausted_transport_retries_fall_back_once_and_remain_isolated(
-        CancellationToken cancellationToken)
+        bool upgradeFailure, CancellationToken cancellationToken)
     {
         using var independentSocket = new ScriptedWebSocket([Completed]);
         var connector = new ScriptedConnector([
             .. Enumerable.Range(0, 6)
-                .Select(_ => (object)new ResponsesWebSocketTransportException("dropped")),
+                .Select(_ => upgradeFailure
+                    ? (object)new ResponsesWebSocketUpgradeException(502, "private-sentinel", new IOException())
+                    : new ResponsesWebSocketTransportException("private-sentinel")),
             independentSocket,
         ]);
         using var handler = new ResponsesHandler(2);
@@ -416,7 +433,12 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         await using var failedSession = provider.OpenSession();
         await using var independentSession = provider.OpenSession();
 
-        _ = await Drain(failedSession.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("one")] }, cancellationToken));
+        var events = await Drain(failedSession.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("one")] }, cancellationToken));
+        var retries = events.Where(published => published.Kind == LLMEventKind.Retry).ToArray();
+        _ = await Assert.That(retries.Length).IsEqualTo(6);
+        _ = await Assert.That(retries.Select(published => published.Attempt).SequenceEqual([1, 2, 3, 4, 5, 6])).IsTrue();
+        _ = await Assert.That(retries.Select(published => published.RetryAfter.TotalMilliseconds).SequenceEqual([200, 400, 800, 1600, 3200, 0])).IsTrue();
+        _ = await Assert.That(retries[^1].Text).IsEqualTo("WebSocket retry budget exhausted. Retrying over HTTP.");
         _ = await Drain(failedSession.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("two")] }, cancellationToken));
         _ = await Drain(independentSession.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("three")] }, cancellationToken));
 

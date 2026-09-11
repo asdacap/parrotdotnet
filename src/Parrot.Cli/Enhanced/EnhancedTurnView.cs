@@ -69,7 +69,6 @@ internal sealed class EnhancedTurnView(
             case Event.PayloadOneofCase.InputAdmitted:
             case Event.PayloadOneofCase.InputPromoted:
             case Event.PayloadOneofCase.ToolCallChunk:
-            case Event.PayloadOneofCase.RetryNotice:
             case Event.PayloadOneofCase.ToolStarted:
             case Event.PayloadOneofCase.ToolFinished:
             case Event.PayloadOneofCase.ToolCancelled:
@@ -87,6 +86,10 @@ internal sealed class EnhancedTurnView(
 
                 break;
 
+            case Event.PayloadOneofCase.RetryNotice:
+                await RenderActivity(published, cancellationToken).ConfigureAwait(false);
+                break;
+
             case Event.PayloadOneofCase.AgentStatisticsUpdated:
             case Event.PayloadOneofCase.QueueSnapshot:
                 break;
@@ -99,6 +102,18 @@ internal sealed class EnhancedTurnView(
                         cancellationToken).ConfigureAwait(false);
                 }
 
+                break;
+
+            case Event.PayloadOneofCase.PlanValidationRepairInjected:
+                await Commit(
+                    ImmediateScrollbackValue.Trusted([$"{Dim}↻ Retrying after plan validation failure: {TerminalText.Sanitize(published.PlanValidationRepairInjected.Diagnostic)}{Reset}"]),
+                    cancellationToken).ConfigureAwait(false);
+                break;
+
+            case Event.PayloadOneofCase.PendingChildQuestionReminderInjected:
+                await Commit(
+                    ImmediateScrollbackValue.Trusted([$"{Dim}↻ Retrying with pending child question reminder{Reset}"]),
+                    cancellationToken).ConfigureAwait(false);
                 break;
 
             case Event.PayloadOneofCase.StatusInjected:
