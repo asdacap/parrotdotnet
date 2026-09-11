@@ -465,6 +465,7 @@ prompt_templates:
       {instruction}
       Return only one strict JSON object with no prose or code fence: {{"result":"nonblank","verdict":"accept","evidence":"nonblank"}}, {{"result":"nonblank","verdict":"reject_and_halt","feedback":"nonblank"}}, or {{"result":"nonblank","verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","replacement_result":"optional nonblank replacement result"}}.
       Omit replacement_result to carry the returned result into the next attempt.
+      To split this leaf task into child tasks, return reject_and_retry with payload set to a nonempty array of AgentTask child declarations, not a quoted JSON string. This converts the leaf into a composite: subject to the existing attempt limit, the runner prepares the composite, executes its child graph, and validates the composite result. This uses the next retry attempt; it does not bypass the attempt limit.
     allowed_arguments: [header, feedback, instruction]
     required_arguments: [header, feedback, instruction]
   agent-task.acceptance:
