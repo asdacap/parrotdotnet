@@ -31,7 +31,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
     }
 
     [Test]
-    public async Task Real_provider_headers_clear_requesting_modeline_before_response_body(
+    public async Task Real_provider_headers_show_waiting_until_first_data_before_completion(
         CancellationToken cancellationToken)
     {
         var configuration = Configuration.Load(Path.Combine(_root, "config.yaml"), Path.Combine(_root, "predefined_config.yaml"));
@@ -139,11 +139,23 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
             var headersFrame = output.ToString()[afterHeaders..];
             _ = await Assert.That(headersFrame).DoesNotContain("Requesting");
             _ = await Assert.That(headersFrame).Contains("provider/model");
-            _ = await Assert.That(headersFrame).Contains("agent main (running");
+            _ = await Assert.That(headersFrame).Contains("Waiting for first token… (running");
             _ = await Assert.That(responseText.Task.IsCompleted).IsFalse();
             _ = await Assert.That(output.ToString()).DoesNotContain("body sentinel");
 
             body.ReleaseBody.SetResult();
+            await responseText.Task.WaitAsync(cancellationToken);
+            await body.CompletionReadEntered.Task.WaitAsync(cancellationToken);
+            var afterFirstData = output.GetStringBuilder().Length;
+            await rendering.Refresh(cancellationToken);
+            var streamingFrame = output.ToString()[afterFirstData..];
+            _ = await Assert.That(streamingFrame).DoesNotContain("Waiting for first token");
+            _ = await Assert.That(streamingFrame).DoesNotContain("Requesting");
+            _ = await Assert.That(streamingFrame).Contains("agent main (running");
+            _ = await Assert.That(output.ToString()).Contains("body sentinel");
+            _ = await Assert.That(displaying.IsCompleted).IsFalse();
+
+            body.ReleaseCompletion.SetResult();
             await agent.Settled();
             await forwarding.WaitAsync(cancellationToken);
             var completed = await displaying.WaitAsync(cancellationToken);
@@ -156,6 +168,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
         {
             _ = handler.ReleaseHeaders.TrySetResult();
             _ = body.ReleaseBody.TrySetResult();
+            _ = body.ReleaseCompletion.TrySetResult();
             await agent.Settled();
             subscription.Dispose();
             await forwarding;
@@ -198,18 +211,31 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
     }
 
     private sealed class BodyBarrierStream() : MemoryStream(Encoding.UTF8.GetBytes(
-        "data: {\"choices\":[{\"delta\":{\"content\":\"body sentinel\"},\"finish_reason\":null}]}\n\n"
+        FirstData
         + "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
         + "data: [DONE]\n\n"))
     {
+        private const string FirstData = "data: {\"choices\":[{\"delta\":{\"content\":\"body sentinel\"},\"finish_reason\":null}]}\n\n";
+
         public TaskCompletionSource ReadEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public TaskCompletionSource ReleaseBody { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource CompletionReadEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReleaseCompletion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken)
         {
             _ = ReadEntered.TrySetResult();
             await ReleaseBody.Task.WaitAsync(cancellationToken);
+            if (Position < FirstData.Length)
+            {
+                return await base.ReadAsync(buffer[..Math.Min(buffer.Length, FirstData.Length - (int)Position)], cancellationToken);
+            }
+
+            _ = CompletionReadEntered.TrySetResult();
+            await ReleaseCompletion.Task.WaitAsync(cancellationToken);
             return await base.ReadAsync(buffer, cancellationToken);
         }
     }

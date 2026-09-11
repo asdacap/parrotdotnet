@@ -26,6 +26,7 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     private bool _terminalCommitted;
     private uint _requestAttempt;
+    private bool _waitingForFirstToken;
     private bool _agentTerminalPending;
     private bool _responseComplete;
     private string? _name;
@@ -51,10 +52,13 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public void UpdateStatistics(AgentStatisticsUpdatedEvent statistics) => _statistics = statistics;
 
-    public void ObserveRequestPhase(ProviderRequestPhaseChangedEvent update) =>
+    public void ObserveRequestPhase(ProviderRequestPhaseChangedEvent update)
+    {
+        _waitingForFirstToken = IsAgentActive && update.Phase == ProviderRequestPhase.HeadersReceived;
         _requestAttempt = IsAgentActive && update.Phase == ProviderRequestPhase.Requesting
             ? Math.Max(1u, update.Attempt)
             : 0;
+    }
 
     public string? StartTurn(LiveModelAliasIcon? modelAliasIcon)
     {
@@ -64,6 +68,7 @@ internal sealed class AgentSessionState(string agentSessionId)
         }
 
         _requestAttempt = 0;
+        _waitingForFirstToken = false;
         ModelAliasIcon = modelAliasIcon;
         _terminalCommitted = false;
         _agentTerminalPending = true;
@@ -163,6 +168,7 @@ internal sealed class AgentSessionState(string agentSessionId)
         }
 
         _requestAttempt = 0;
+        _waitingForFirstToken = false;
         _terminalCommitted = true;
         return AgentActivityId;
     }
@@ -175,6 +181,7 @@ internal sealed class AgentSessionState(string agentSessionId)
         }
 
         _requestAttempt = 0;
+        _waitingForFirstToken = false;
         _terminalCommitted = true;
         var interrupted = !failed
             && string.Equals(published.TurnEnded.FinishReason, "interrupted", StringComparison.Ordinal);
@@ -204,6 +211,7 @@ internal sealed class AgentSessionState(string agentSessionId)
     {
         _agentTerminalPending = false;
         _requestAttempt = 0;
+        _waitingForFirstToken = false;
         _terminalCommitted = true;
         _ = _activities.Remove(AgentActivityId);
         _ = DrainResponse();
@@ -425,15 +433,17 @@ internal sealed class AgentSessionState(string agentSessionId)
     {
         if (IsAgentActivity(activityId))
         {
-            return _requestAttempt > 0
-                ? new SpinnerValue(
-                    _requestAttempt == 1
-                        ? $"{AgentLabel} Requesting…"
-                        : $"{AgentLabel} Requesting (attempt {_requestAttempt})…",
-                    frame)
-                : _response.Length == 0
-                    ? new SpinnerValue(AgentLabel, frame)
-                    : new StreamedResponseValue("● ", _response.ToString());
+            return _waitingForFirstToken
+                ? new SpinnerValue($"{AgentLabel} Waiting for first token…", frame)
+                : _requestAttempt > 0
+                    ? new SpinnerValue(
+                        _requestAttempt == 1
+                            ? $"{AgentLabel} Requesting…"
+                            : $"{AgentLabel} Requesting (attempt {_requestAttempt})…",
+                        frame)
+                    : _response.Length == 0
+                        ? new SpinnerValue(AgentLabel, frame)
+                        : new StreamedResponseValue("● ", _response.ToString());
         }
 
         if (string.Equals(activityId, CompactionActivity, StringComparison.Ordinal))

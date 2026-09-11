@@ -10,8 +10,11 @@ namespace Parrot.Cli.Tests;
 internal sealed class EnhancedHierarchyTests
 {
     [Test]
+    [Arguments("reset")]
+    [Arguments("ended")]
+    [Arguments("failed")]
     public async Task Child_request_phase_overrides_old_preview_without_scrollback_or_root_status(
-        CancellationToken cancellationToken)
+        string ending, CancellationToken cancellationToken)
     {
         var drawn = string.Empty;
         var committed = new List<string>();
@@ -48,8 +51,9 @@ internal sealed class EnhancedHierarchyTests
         foreach (var (phase, attempt) in new[]
         {
             (ProviderRequestPhase.Requesting, 1u), (ProviderRequestPhase.HeadersReceived, 1u),
-            (ProviderRequestPhase.Requesting, 2u), (ProviderRequestPhase.Idle, 2u),
-            (ProviderRequestPhase.Requesting, 1u),
+            (ProviderRequestPhase.Requesting, 2u), (ProviderRequestPhase.HeadersReceived, 2u),
+            (ProviderRequestPhase.Idle, 2u), (ProviderRequestPhase.HeadersReceived, 1u),
+            (ProviderRequestPhase.Unspecified, 1u), (ProviderRequestPhase.HeadersReceived, 1u),
         })
         {
             await view.Render(
@@ -66,13 +70,45 @@ internal sealed class EnhancedHierarchyTests
                 _ = await Assert.That(drawn).Contains(attempt == 1 ? "Requesting…" : "Requesting (attempt 2)…");
             }
 
+            _ = await Assert.That(drawn.Contains("Waiting for first token…", StringComparison.Ordinal))
+                .IsEqualTo(phase == ProviderRequestPhase.HeadersReceived);
+            if (phase == ProviderRequestPhase.HeadersReceived)
+            {
+                _ = await Assert.That(drawn).Contains("agent worker Waiting for first token…");
+                _ = await Assert.That(drawn).DoesNotContain("earlier preview");
+            }
+            else if (phase != ProviderRequestPhase.Requesting)
+            {
+                _ = await Assert.That(drawn).Contains("earlier preview");
+            }
+
             _ = await Assert.That(main).IsEqualTo(rootLabel);
         }
 
-        await view.ResetRequests(cancellationToken);
+        if (ending == "reset")
+        {
+            await view.ResetRequests(cancellationToken);
+            _ = await Assert.That(drawn).Contains("earlier preview");
+        }
+        else
+        {
+            var terminalEvent = new Event { AgentSessionId = "child" };
+            if (ending == "ended")
+            {
+                terminalEvent.TurnEnded = new TurnEnded { FinishReason = "stop" };
+            }
+            else
+            {
+                terminalEvent.TurnFailed = new TurnFailed { Message = "failed" };
+            }
+
+            await view.Render(terminalEvent, cancellationToken);
+        }
+
         _ = await Assert.That(drawn).DoesNotContain("Requesting…");
-        _ = await Assert.That(drawn).Contains("earlier preview");
+        _ = await Assert.That(drawn).DoesNotContain("Waiting for first token…");
         _ = await Assert.That(string.Join('|', committed)).DoesNotContain("Requesting…");
+        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("Waiting for first token…");
     }
 
     [Test]

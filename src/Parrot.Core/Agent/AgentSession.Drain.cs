@@ -1296,6 +1296,7 @@ internal sealed partial class AgentSession
 
         var completed = LLMEvent.Completed(string.Empty, 0, 0, 0, string.Empty, []);
         uint requestAttempt = 0;
+        var awaitingFirstData = false;
 
         try
         {
@@ -1310,6 +1311,7 @@ internal sealed partial class AgentSession
                         requestAttempt++;
                     }
 
+                    awaitingFirstData = llmEvent.Kind == LLMEventKind.HttpResponseHeadersReceived;
                     PublishProviderRequestPhase(
                         llmEvent.Kind == LLMEventKind.HttpRequestStarted
                             ? ProviderRequestPhase.Requesting
@@ -1320,6 +1322,19 @@ internal sealed partial class AgentSession
 
                 if (llmEvent.Kind == LLMEventKind.Retry)
                 {
+                    awaitingFirstData = false;
+                    PublishProviderRequestPhase(ProviderRequestPhase.Idle, requestAttempt);
+                }
+
+                if (awaitingFirstData && llmEvent.Kind switch
+                {
+                    LLMEventKind.TextDelta or LLMEventKind.ReasoningDelta => llmEvent.Text.Length > 0,
+                    LLMEventKind.ToolCallDelta => llmEvent.ToolCallId.Length > 0
+                        || llmEvent.ToolName.Length > 0 || llmEvent.Text.Length > 0,
+                    _ => false,
+                })
+                {
+                    awaitingFirstData = false;
                     PublishProviderRequestPhase(ProviderRequestPhase.Idle, requestAttempt);
                 }
 

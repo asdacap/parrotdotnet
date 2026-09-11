@@ -49,10 +49,15 @@ internal sealed class EnhancedRenderingSessionTests
         {
             ("root", ProviderRequestPhase.Requesting, 1u, "Requesting…"),
             ("child", ProviderRequestPhase.HeadersReceived, 2u, "Requesting…"),
-            ("root", ProviderRequestPhase.HeadersReceived, 1u, string.Empty),
+            ("root", ProviderRequestPhase.HeadersReceived, 1u, "Waiting for first token…"),
+            ("child", ProviderRequestPhase.Idle, 2u, "Waiting for first token…"),
+            ("root", ProviderRequestPhase.Idle, 1u, string.Empty),
             ("root", ProviderRequestPhase.Requesting, 2u, "Requesting (attempt 2)…"),
             ("root", ProviderRequestPhase.Idle, 2u, string.Empty),
             ("root", ProviderRequestPhase.Requesting, 1u, "Requesting…"),
+            ("root", ProviderRequestPhase.HeadersReceived, 1u, "Waiting for first token…"),
+            ("root", ProviderRequestPhase.Unspecified, 1u, string.Empty),
+            ("root", ProviderRequestPhase.HeadersReceived, 1u, "Waiting for first token…"),
         })
         {
             await stream.WriteAsync(
@@ -66,10 +71,12 @@ internal sealed class EnhancedRenderingSessionTests
             var offset = output.GetStringBuilder().Length;
             await session.Refresh(cancellationToken);
             var frame = output.ToString()[offset..];
-            _ = await Assert.That(frame.Contains("Requesting", StringComparison.Ordinal)).IsEqualTo(label.Length > 0);
+            _ = await Assert.That(frame.Contains("Requesting", StringComparison.Ordinal)).IsEqualTo(label.StartsWith("Requesting", StringComparison.Ordinal));
+            _ = await Assert.That(frame.Contains("Waiting for first token…", StringComparison.Ordinal))
+                .IsEqualTo(label == "Waiting for first token…");
             if (label.Length > 0)
             {
-                _ = await Assert.That(frame).Contains(label);
+                _ = await Assert.That(frame).Contains($"{label} (running");
             }
 
             _ = await Assert.That(frame).Contains("provider/model");
@@ -94,6 +101,7 @@ internal sealed class EnhancedRenderingSessionTests
             var terminalAt = output.GetStringBuilder().Length;
             await session.Refresh(cancellationToken);
             _ = await Assert.That(output.ToString()[terminalAt..]).DoesNotContain("Requesting…");
+            _ = await Assert.That(output.ToString()[terminalAt..]).DoesNotContain("Waiting for first token…");
             await release.Writer.WriteAsync(true, cancellationToken);
         }
 
@@ -110,6 +118,7 @@ internal sealed class EnhancedRenderingSessionTests
         var clearedAt = output.GetStringBuilder().Length;
         await session.Refresh(cancellationToken);
         _ = await Assert.That(output.ToString()[clearedAt..]).DoesNotContain("Requesting…");
+        _ = await Assert.That(output.ToString()[clearedAt..]).DoesNotContain("Waiting for first token…");
     }
 
     [Test]

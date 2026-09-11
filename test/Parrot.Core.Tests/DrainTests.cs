@@ -717,7 +717,15 @@ internal sealed class DrainTests : IDisposable
     public async Task Provider_request_phases_are_transient_and_reset_on_retry_and_terminal_paths(
         string outcome, CancellationToken cancellationToken)
     {
-        using var provider = new RequestPhaseProvider(outcome == "failed");
+        using var provider = new RequestPhaseProvider(
+            outcome == "failed",
+            [
+                LLMEvent.HttpRequestStarted(),
+                LLMEvent.HttpResponseHeadersReceived(),
+                LLMEvent.Retry(1, TimeSpan.FromSeconds(1), "retry"),
+                LLMEvent.HttpRequestStarted(),
+                LLMEvent.HttpResponseHeadersReceived(),
+            ]);
         var repository = new EventRepository(_database);
         using var subscription = _broker.Subscribe();
         await using var session = Session(provider, repository, [], cancellationToken);
@@ -730,6 +738,7 @@ internal sealed class DrainTests : IDisposable
             ProviderRequestPhase.HeadersReceived,
             ProviderRequestPhase.Idle,
             ProviderRequestPhase.Requesting,
+            ProviderRequestPhase.HeadersReceived,
         };
         for (var phaseIndex = 0; phaseIndex < expectedPhases.Length; phaseIndex++)
         {
@@ -788,10 +797,10 @@ internal sealed class DrainTests : IDisposable
             item.PayloadCase == Event.PayloadOneofCase.ProviderRequestPhaseChanged).ToArray();
         _ = await Assert.That(string.Join(" | ", phases.Select(item => item.ProviderRequestPhaseChanged.Phase)))
             .IsEqualTo(outcome == "completed"
-                ? "Requesting | HeadersReceived | Idle | Requesting | Idle | Requesting | HeadersReceived | Idle | Requesting | Idle"
-                : "Requesting | HeadersReceived | Idle | Requesting | Idle");
+                ? "Requesting | HeadersReceived | Idle | Requesting | HeadersReceived | Idle | Requesting | HeadersReceived | Idle | Requesting | HeadersReceived | Idle"
+                : "Requesting | HeadersReceived | Idle | Requesting | HeadersReceived | Idle");
         _ = await Assert.That(string.Join(" | ", phases.Select(item => item.ProviderRequestPhaseChanged.Attempt)))
-            .IsEqualTo(outcome == "completed" ? "1 | 1 | 1 | 2 | 2 | 1 | 1 | 1 | 2 | 2" : "1 | 1 | 1 | 2 | 2");
+            .IsEqualTo(outcome == "completed" ? "1 | 1 | 1 | 2 | 2 | 2 | 1 | 1 | 1 | 2 | 2 | 2" : "1 | 1 | 1 | 2 | 2 | 2");
         _ = await Assert.That(phases.All(item => item.AgentSessionId == "agent" && item.Id.Length > 0)).IsTrue();
         _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.ProviderRequestPhaseChanged)).IsEqualTo(0);
         _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.RetryNotice)).IsEqualTo(outcome == "completed" ? 2 : 1);
@@ -809,6 +818,90 @@ internal sealed class DrainTests : IDisposable
         {
             _ = await Assert.That(Endings(repository)).Contains("interrupted");
         }
+    }
+
+    [Test]
+    [Arguments("text")]
+    [Arguments("reasoning")]
+    [Arguments("tool-id")]
+    [Arguments("tool-name")]
+    [Arguments("tool-arguments")]
+    [Arguments("empty")]
+    public async Task Provider_first_data_clears_header_phase_once_before_delta_and_resets_on_retry(
+        string dataKind, CancellationToken cancellationToken)
+    {
+        var delta = dataKind switch
+        {
+            "text" => LLMEvent.TextDelta(" "),
+            "reasoning" => LLMEvent.ReasoningDelta(" "),
+            "tool-id" => LLMEvent.ToolCallDelta("call", string.Empty, string.Empty),
+            "tool-name" => LLMEvent.ToolCallDelta(string.Empty, "tool", string.Empty),
+            "tool-arguments" => LLMEvent.ToolCallDelta(string.Empty, string.Empty, "{"),
+            _ => LLMEvent.TextDelta(string.Empty),
+        };
+        var clears = dataKind != "empty";
+        (LLMEvent Event, int PhaseCount, ProviderRequestPhase Phase)[] steps =
+        [
+            (LLMEvent.HttpRequestStarted(), 1, ProviderRequestPhase.Requesting),
+            (delta, 1, ProviderRequestPhase.Requesting),
+            (LLMEvent.HttpResponseHeadersReceived(), 2, ProviderRequestPhase.HeadersReceived),
+            (LLMEvent.TextDelta(string.Empty), 2, ProviderRequestPhase.HeadersReceived),
+            (LLMEvent.ReasoningDelta(string.Empty, LLMReasoningKind.Summary, "part", completed: true), 2, ProviderRequestPhase.HeadersReceived),
+            (LLMEvent.ToolCallDelta(string.Empty, string.Empty, string.Empty), 2, ProviderRequestPhase.HeadersReceived),
+            (delta, clears ? 3 : 2, clears ? ProviderRequestPhase.Idle : ProviderRequestPhase.HeadersReceived),
+            (delta, clears ? 3 : 2, clears ? ProviderRequestPhase.Idle : ProviderRequestPhase.HeadersReceived),
+            (LLMEvent.Retry(1, TimeSpan.Zero, "retry"), clears ? 4 : 3, ProviderRequestPhase.Idle),
+            (delta, clears ? 4 : 3, ProviderRequestPhase.Idle),
+            (LLMEvent.HttpRequestStarted(), clears ? 5 : 4, ProviderRequestPhase.Requesting),
+            (LLMEvent.HttpResponseHeadersReceived(), clears ? 6 : 5, ProviderRequestPhase.HeadersReceived),
+            (delta, clears ? 7 : 5, clears ? ProviderRequestPhase.Idle : ProviderRequestPhase.HeadersReceived),
+        ];
+        using var provider = new RequestPhaseProvider(false, [.. steps.Select(step => step.Event)]);
+        var repository = new EventRepository(_database);
+        using var subscription = _broker.Subscribe();
+        await using var session = Session(provider, repository, [], cancellationToken);
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
+        var published = new List<Event>();
+        var previousPhaseCount = 0;
+        foreach (var step in steps)
+        {
+            await provider.Arrived(cancellationToken);
+            while (subscription.Reader.TryRead(out var next))
+            {
+                published.Add(next);
+            }
+
+            var phases = published.Where(item => item.PayloadCase == Event.PayloadOneofCase.ProviderRequestPhaseChanged).ToArray();
+            _ = await Assert.That(phases.Length).IsEqualTo(step.PhaseCount);
+            _ = await Assert.That(phases[^1].ProviderRequestPhaseChanged.Phase).IsEqualTo(step.Phase);
+            if (ReferenceEquals(step.Event, delta) && step.PhaseCount > previousPhaseCount)
+            {
+                _ = await Assert.That(published[^2]).IsEqualTo(phases[^1]);
+                _ = await Assert.That(published[^1].PayloadCase).IsEqualTo(delta.Kind switch
+                {
+                    LLMEventKind.ReasoningDelta => Event.PayloadOneofCase.ReasoningChunk,
+                    LLMEventKind.ToolCallDelta => Event.PayloadOneofCase.ToolCallChunk,
+                    _ => Event.PayloadOneofCase.TextChunk,
+                });
+            }
+
+            previousPhaseCount = step.PhaseCount;
+            provider.Release();
+        }
+
+        await session.Settled();
+        await session.DisposeAsync();
+        while (subscription.Reader.TryRead(out var next))
+        {
+            published.Add(next);
+        }
+
+        var finalPhases = published.Where(item => item.PayloadCase == Event.PayloadOneofCase.ProviderRequestPhaseChanged).ToArray();
+        _ = await Assert.That(finalPhases.Length).IsEqualTo(steps[^1].PhaseCount + 1);
+        _ = await Assert.That(finalPhases[^1].ProviderRequestPhaseChanged.Phase).IsEqualTo(ProviderRequestPhase.Idle);
+        _ = await Assert.That(finalPhases[^1].ProviderRequestPhaseChanged.Attempt).IsEqualTo(2u);
+        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.ProviderRequestPhaseChanged)).IsEqualTo(0);
+        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnFailed)).IsEqualTo(0);
     }
 
     [Test]
@@ -2328,7 +2421,7 @@ internal sealed class DrainTests : IDisposable
         internal void Release() => _ = _released.TrySetResult();
     }
 
-    private sealed class RequestPhaseProvider(bool fail) : ILLMProvider, IDisposable
+    private sealed class RequestPhaseProvider(bool fail, IReadOnlyList<LLMEvent> events) : ILLMProvider, IDisposable
     {
         private readonly SemaphoreSlim _arrived = new(0);
         private readonly SemaphoreSlim _released = new(0);
@@ -2346,13 +2439,6 @@ internal sealed class DrainTests : IDisposable
             LLMRequest request,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
         {
-            LLMEvent[] events =
-            [
-                new() { Kind = LLMEventKind.HttpRequestStarted },
-                new() { Kind = LLMEventKind.HttpResponseHeadersReceived },
-                LLMEvent.Retry(1, TimeSpan.FromSeconds(1), "retry"),
-                new() { Kind = LLMEventKind.HttpRequestStarted },
-            ];
             foreach (var next in events)
             {
                 yield return next;
