@@ -89,6 +89,24 @@ internal sealed class RawActivityView(
         }
     }
 
+    public async Task ResetRequests(CancellationToken cancellationToken)
+    {
+        await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            foreach (var state in _agentSessions.Values)
+            {
+                state.ObserveRequestPhase(new ProviderRequestPhaseChangedEvent());
+            }
+
+            await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = _rendering.Release();
+        }
+    }
+
     public async Task Run(CancellationToken cancellationToken)
     {
         try
@@ -377,6 +395,11 @@ internal sealed class RawActivityView(
                 case Event.PayloadOneofCase.CompactionFinished:
                 case Event.PayloadOneofCase.CompactionFailed:
                     await FinishCompaction(published, cancellationToken).ConfigureAwait(false);
+                    break;
+                case Event.PayloadOneofCase.ProviderRequestPhaseChanged:
+                    GetAgentSession(published.AgentSessionId).ObserveRequestPhase(
+                        published.ProviderRequestPhaseChanged);
+                    await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.ToolCallChunk:
                     ToolCall(published.AgentSessionId, published.ToolCallChunk);

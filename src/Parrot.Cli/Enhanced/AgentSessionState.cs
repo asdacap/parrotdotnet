@@ -25,6 +25,7 @@ internal sealed class AgentSessionState(string agentSessionId)
     private readonly StringBuilder _response = new();
 
     private bool _terminalCommitted;
+    private uint _requestAttempt;
     private bool _agentTerminalPending;
     private bool _responseComplete;
     private string? _name;
@@ -50,6 +51,11 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public void UpdateStatistics(AgentStatisticsUpdatedEvent statistics) => _statistics = statistics;
 
+    public void ObserveRequestPhase(ProviderRequestPhaseChangedEvent update) =>
+        _requestAttempt = IsAgentActive && update.Phase == ProviderRequestPhase.Requesting
+            ? Math.Max(1u, update.Attempt)
+            : 0;
+
     public string? StartTurn(LiveModelAliasIcon? modelAliasIcon)
     {
         if (!_activities.Add(AgentActivityId))
@@ -57,6 +63,7 @@ internal sealed class AgentSessionState(string agentSessionId)
             return null;
         }
 
+        _requestAttempt = 0;
         ModelAliasIcon = modelAliasIcon;
         _terminalCommitted = false;
         _agentTerminalPending = true;
@@ -155,6 +162,7 @@ internal sealed class AgentSessionState(string agentSessionId)
             throw;
         }
 
+        _requestAttempt = 0;
         _terminalCommitted = true;
         return AgentActivityId;
     }
@@ -166,6 +174,7 @@ internal sealed class AgentSessionState(string agentSessionId)
             return null;
         }
 
+        _requestAttempt = 0;
         _terminalCommitted = true;
         var interrupted = !failed
             && string.Equals(published.TurnEnded.FinishReason, "interrupted", StringComparison.Ordinal);
@@ -194,6 +203,7 @@ internal sealed class AgentSessionState(string agentSessionId)
     public void CompleteAgent()
     {
         _agentTerminalPending = false;
+        _requestAttempt = 0;
         _terminalCommitted = true;
         _ = _activities.Remove(AgentActivityId);
         _ = DrainResponse();
@@ -415,9 +425,15 @@ internal sealed class AgentSessionState(string agentSessionId)
     {
         if (IsAgentActivity(activityId))
         {
-            return _response.Length == 0
-                ? new SpinnerValue(AgentLabel, frame)
-                : new StreamedResponseValue("● ", _response.ToString());
+            return _requestAttempt > 0
+                ? new SpinnerValue(
+                    _requestAttempt == 1
+                        ? $"{AgentLabel} Requesting…"
+                        : $"{AgentLabel} Requesting (attempt {_requestAttempt})…",
+                    frame)
+                : _response.Length == 0
+                    ? new SpinnerValue(AgentLabel, frame)
+                    : new StreamedResponseValue("● ", _response.ToString());
         }
 
         if (string.Equals(activityId, CompactionActivity, StringComparison.Ordinal))

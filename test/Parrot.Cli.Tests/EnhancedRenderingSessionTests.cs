@@ -8,6 +8,111 @@ namespace Parrot.Cli.Tests;
 internal sealed class EnhancedRenderingSessionTests
 {
     [Test]
+    [Arguments("eof")]
+    [Arguments("cancel")]
+    [Arguments("ended")]
+    [Arguments("failed")]
+    public async Task Request_phase_updates_modeline_without_output_and_clears_at_stream_end(
+        string ending, CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var terminal = new TestTerminal(driver.Input, output, error, 160);
+        var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
+        var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
+        var stream = new ChannelStreamWriter<Event>();
+        var observed = System.Threading.Channels.Channel.CreateUnbounded<Event>();
+        var release = System.Threading.Channels.Channel.CreateUnbounded<bool>();
+        await using var session = new EnhancedRenderingSession(
+            new EnhancedTurnRenderer(terminal, configuration, presenters),
+            presenters,
+            new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(false), 10, 12, true),
+            new TestSlashSession("provider/model"),
+            [new PromptValue("> ", "draft", 0)],
+            async (published, token) =>
+            {
+                await observed.Writer.WriteAsync(published, token);
+                _ = await release.Reader.ReadAsync(token);
+            },
+            static _ => Task.CompletedTask,
+            static _ => Task.CompletedTask,
+            static () => true,
+            static (_, _) => Task.CompletedTask,
+            false);
+        var running = session.Run(stream.Reader, stopping.Token);
+        await stream.WriteAsync(new Event { AgentSessionId = "root", TurnStarted = new TurnStarted() }, cancellationToken);
+        _ = await observed.Reader.ReadAsync(cancellationToken);
+        await release.Writer.WriteAsync(true, cancellationToken);
+        foreach (var (agent, phase, attempt, label) in new[]
+        {
+            ("root", ProviderRequestPhase.Requesting, 1u, "Requesting…"),
+            ("child", ProviderRequestPhase.HeadersReceived, 2u, "Requesting…"),
+            ("root", ProviderRequestPhase.HeadersReceived, 1u, string.Empty),
+            ("root", ProviderRequestPhase.Requesting, 2u, "Requesting (attempt 2)…"),
+            ("root", ProviderRequestPhase.Idle, 2u, string.Empty),
+            ("root", ProviderRequestPhase.Requesting, 1u, "Requesting…"),
+        })
+        {
+            await stream.WriteAsync(
+                new Event
+                {
+                    AgentSessionId = agent,
+                    ProviderRequestPhaseChanged = new ProviderRequestPhaseChangedEvent { Phase = phase, Attempt = attempt },
+                },
+                cancellationToken);
+            _ = await observed.Reader.ReadAsync(cancellationToken);
+            var offset = output.GetStringBuilder().Length;
+            await session.Refresh(cancellationToken);
+            var frame = output.ToString()[offset..];
+            _ = await Assert.That(frame.Contains("Requesting", StringComparison.Ordinal)).IsEqualTo(label.Length > 0);
+            if (label.Length > 0)
+            {
+                _ = await Assert.That(frame).Contains(label);
+            }
+
+            _ = await Assert.That(frame).Contains("provider/model");
+            _ = await Assert.That(frame).Contains("mode: build");
+            await release.Writer.WriteAsync(true, cancellationToken);
+        }
+
+        if (ending is "ended" or "failed")
+        {
+            var terminalEvent = new Event { AgentSessionId = "root" };
+            if (ending == "ended")
+            {
+                terminalEvent.TurnEnded = new TurnEnded { FinishReason = "stop" };
+            }
+            else
+            {
+                terminalEvent.TurnFailed = new TurnFailed { Message = "failed" };
+            }
+
+            await stream.WriteAsync(terminalEvent, cancellationToken);
+            _ = await observed.Reader.ReadAsync(cancellationToken);
+            var terminalAt = output.GetStringBuilder().Length;
+            await session.Refresh(cancellationToken);
+            _ = await Assert.That(output.ToString()[terminalAt..]).DoesNotContain("Requesting…");
+            await release.Writer.WriteAsync(true, cancellationToken);
+        }
+
+        if (ending == "cancel")
+        {
+            await stopping.CancelAsync();
+        }
+        else
+        {
+            stream.Complete();
+        }
+
+        _ = await running.WaitAsync(cancellationToken);
+        var clearedAt = output.GetStringBuilder().Length;
+        await session.Refresh(cancellationToken);
+        _ = await Assert.That(output.ToString()[clearedAt..]).DoesNotContain("Requesting…");
+    }
+
+    [Test]
     [Arguments(20)]
     [Arguments(80)]
     public async Task Question_countdown_preserves_input_and_clears_without_another_key(

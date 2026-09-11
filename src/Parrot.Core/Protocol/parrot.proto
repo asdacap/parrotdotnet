@@ -513,6 +513,7 @@ message Event {
     ContextReminderInjected context_reminder_injected = 39;
     SkillLoadedEvent skill_loaded = 40;
     InputCanceled input_canceled = 41;
+    ProviderRequestPhaseChangedEvent provider_request_phase_changed = 42;
   }
 }
 
@@ -537,6 +538,18 @@ message AgentTaskProgressSnapshot {
   string origin_tool_call_id = 1;
   uint64 revision = 2;
   repeated AgentTaskProgressNode root_nodes = 3;
+}
+
+enum ProviderRequestPhase {
+  PROVIDER_REQUEST_PHASE_UNSPECIFIED = 0;
+  PROVIDER_REQUEST_PHASE_REQUESTING = 1;
+  PROVIDER_REQUEST_PHASE_HEADERS_RECEIVED = 2;
+  PROVIDER_REQUEST_PHASE_IDLE = 3;
+}
+
+message ProviderRequestPhaseChangedEvent {
+  ProviderRequestPhase phase = 1;
+  uint32 attempt = 2;
 }
 
 message ProviderCallUsage {

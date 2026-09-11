@@ -33,6 +33,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
     private long? _questionRemainingSeconds;
     private string _mainAgentActivity = string.Empty;
     private string _modelineActivity = string.Empty;
+    private uint _requestAttempt;
     private RunningDuration? _rootTurnDuration;
     private int _modelineFrame;
     private Task _spinnerRendering = Task.CompletedTask;
@@ -183,6 +184,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
         await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            _requestAttempt = 0;
             _modelineActivity = "Preparing turn…";
             _input = [.. input];
             await _renderer.Commit(scrollback, Snapshot(), CancellationToken.None).ConfigureAwait(false);
@@ -226,6 +228,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
             }
 
             _mainAgentActivity = string.Empty;
+            _requestAttempt = 0;
             _modelineActivity = string.Empty;
             await DrawFrame(CancellationToken.None).ConfigureAwait(false);
         }
@@ -260,6 +263,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
             _foreground.Reset();
             _modelineTools.Clear();
             _mainAgentActivity = string.Empty;
+            _requestAttempt = 0;
             _modelineActivity = string.Empty;
             _rootTurnDuration = null;
             _modelineFrame = 0;
@@ -327,11 +331,13 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
             RuntimeUsage.FormatRate(_rates.Current),
             runtime.FormatCost(),
         };
-        var activityLabel = _modelineTools.Count > 0
-            ? _modelineActivity
-            : _mainAgentActivity.Length > 0
-                ? _mainAgentActivity
-                : _modelineActivity;
+        var activityLabel = _requestAttempt > 0
+            ? _requestAttempt == 1 ? "Requesting…" : $"Requesting (attempt {_requestAttempt})…"
+            : _modelineTools.Count > 0
+                ? _modelineActivity
+                : _mainAgentActivity.Length > 0
+                    ? _mainAgentActivity
+                    : _modelineActivity;
         if (_rootTurnDuration is { } duration && activityLabel.Length > 0)
         {
             activityLabel = $"{activityLabel} (running {duration.Format()})";
@@ -460,6 +466,17 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
         {
             await animating.CancelAsync().ConfigureAwait(false);
             await animation.ConfigureAwait(false);
+            await activity.ResetRequests(CancellationToken.None).ConfigureAwait(false);
+            await _composing.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                _requestAttempt = 0;
+                _ = _updates.Invalidate();
+            }
+            finally
+            {
+                _ = _composing.Release();
+            }
         }
     }
 
@@ -517,6 +534,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
         {
             _rootTurnDuration = null;
             _modelineTools.Clear();
+            _requestAttempt = 0;
             _modelineActivity = string.Empty;
         }
         else if (published.PayloadCase == Event.PayloadOneofCase.TurnStarted
@@ -524,7 +542,15 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
         {
             _rootTurnDuration = new RunningDuration(_timeProvider);
             _modelineTools.Clear();
+            _requestAttempt = 0;
             _modelineActivity = string.Empty;
+        }
+        else if (published.PayloadCase == Event.PayloadOneofCase.ProviderRequestPhaseChanged
+                 && _foreground.IsMain(published.AgentSessionId))
+        {
+            _requestAttempt = published.ProviderRequestPhaseChanged.Phase == ProviderRequestPhase.Requesting
+                ? Math.Max(1u, published.ProviderRequestPhaseChanged.Attempt)
+                : 0;
         }
         else if (published.PayloadCase == Event.PayloadOneofCase.ToolStarted
                  && _foreground.IsMain(published.AgentSessionId)

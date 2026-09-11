@@ -1295,6 +1295,7 @@ internal sealed partial class AgentSession
         };
 
         var completed = LLMEvent.Completed(string.Empty, 0, 0, 0, string.Empty, []);
+        uint requestAttempt = 0;
 
         try
         {
@@ -1302,6 +1303,26 @@ internal sealed partial class AgentSession
             await foreach (var llmEvent in _providerSessions.Get(selectedModel.Provider)
                 .Call(request, cancellationToken).ConfigureAwait(false))
             {
+                if (llmEvent.Kind is LLMEventKind.HttpRequestStarted or LLMEventKind.HttpResponseHeadersReceived)
+                {
+                    if (llmEvent.Kind == LLMEventKind.HttpRequestStarted)
+                    {
+                        requestAttempt++;
+                    }
+
+                    PublishProviderRequestPhase(
+                        llmEvent.Kind == LLMEventKind.HttpRequestStarted
+                            ? ProviderRequestPhase.Requesting
+                            : ProviderRequestPhase.HeadersReceived,
+                        requestAttempt);
+                    continue;
+                }
+
+                if (llmEvent.Kind == LLMEventKind.Retry)
+                {
+                    PublishProviderRequestPhase(ProviderRequestPhase.Idle, requestAttempt);
+                }
+
                 if (llmEvent.Kind == LLMEventKind.Completed)
                 {
                     _providerTokenBudget.ObserveUsage(selectedModel.Selector, estimatedInputTokens, llmEvent);
@@ -1337,9 +1358,18 @@ internal sealed partial class AgentSession
         }
         finally
         {
+            PublishProviderRequestPhase(ProviderRequestPhase.Idle, requestAttempt);
             Activity.FinishProviderRequest();
         }
     }
+
+    private void PublishProviderRequestPhase(ProviderRequestPhase phase, uint attempt) =>
+        eventBroker.PublishTransient(new Event
+        {
+            Id = Identifier.EventId(),
+            AgentSessionId = SessionId,
+            ProviderRequestPhaseChanged = new ProviderRequestPhaseChangedEvent { Phase = phase, Attempt = attempt },
+        });
 
     private async Task<(Event Published, ToolExecutionTerminal Terminal)> Invoke(
         AgentTurnSelection selection,

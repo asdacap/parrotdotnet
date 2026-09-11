@@ -10,6 +10,72 @@ namespace Parrot.Cli.Tests;
 internal sealed class EnhancedHierarchyTests
 {
     [Test]
+    public async Task Child_request_phase_overrides_old_preview_without_scrollback_or_root_status(
+        CancellationToken cancellationToken)
+    {
+        var drawn = string.Empty;
+        var committed = new List<string>();
+        var main = string.Empty;
+        var context = new LiveBufferRenderContext(160, new TerminalPalette(false));
+        await using var view = new RawActivityView(
+            (items, _) =>
+            {
+                drawn = string.Join('|', items.SelectMany(item => item.Render(context).Lines).Select(line => line.Text));
+                return Task.CompletedTask;
+            },
+            (item, _, _) =>
+            {
+                committed.Add(string.Join('|', item.Render(new ScrollbackRenderContext(160, context.Palette))));
+                return Task.CompletedTask;
+            },
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            (label, _) =>
+            {
+                main = label;
+                return Task.CompletedTask;
+            });
+        await view.Render(new Event { AgentSessionId = "root", TurnStarted = new TurnStarted() }, cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" },
+            },
+            cancellationToken);
+        await view.Render(new Event { AgentSessionId = "child", TurnStarted = new TurnStarted() }, cancellationToken);
+        await view.Render(new Event { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = "earlier preview" } }, cancellationToken);
+        var rootLabel = main;
+        foreach (var (phase, attempt) in new[]
+        {
+            (ProviderRequestPhase.Requesting, 1u), (ProviderRequestPhase.HeadersReceived, 1u),
+            (ProviderRequestPhase.Requesting, 2u), (ProviderRequestPhase.Idle, 2u),
+            (ProviderRequestPhase.Requesting, 1u),
+        })
+        {
+            await view.Render(
+                new Event
+                {
+                    AgentSessionId = "child",
+                    ProviderRequestPhaseChanged = new ProviderRequestPhaseChangedEvent { Phase = phase, Attempt = attempt },
+                },
+                cancellationToken);
+            _ = await Assert.That(drawn.Contains("Requesting", StringComparison.Ordinal))
+                .IsEqualTo(phase == ProviderRequestPhase.Requesting);
+            if (phase == ProviderRequestPhase.Requesting)
+            {
+                _ = await Assert.That(drawn).Contains(attempt == 1 ? "Requesting…" : "Requesting (attempt 2)…");
+            }
+
+            _ = await Assert.That(main).IsEqualTo(rootLabel);
+        }
+
+        await view.ResetRequests(cancellationToken);
+        _ = await Assert.That(drawn).DoesNotContain("Requesting…");
+        _ = await Assert.That(drawn).Contains("earlier preview");
+        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("Requesting…");
+    }
+
+    [Test]
     public async Task Agent_notices_are_committed_at_the_owning_agent_level(CancellationToken cancellationToken)
     {
         var committed = new List<string>();

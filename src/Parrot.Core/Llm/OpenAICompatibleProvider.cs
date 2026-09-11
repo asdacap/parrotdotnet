@@ -210,6 +210,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
         async IAsyncEnumerable<LLMEvent> Send(ProviderAttemptDiagnostics? attempt, [EnumeratorCancellation] CancellationToken sendCancellationToken)
         {
             attempt?.RecordRequestBytes(body.Length);
+            yield return LLMEvent.HttpRequestStarted();
             var response = await HttpStreaming
                 .OpenStream(_client, _endpoint, body, headers, _headerTimeout, _maximumRequestBytes, attempt, sendCancellationToken)
                 .ConfigureAwait(false);
@@ -217,6 +218,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
 
             await using (response.ConfigureAwait(false))
             {
+                yield return LLMEvent.HttpResponseHeadersReceived();
                 var responseEvents = _protocol == CompatibleProtocol.Responses
                     ? ResponsesAdapter.Parse(response.Content, HttpStreaming.MaxEventBytes, sendCancellationToken)
                     : ChatCompletionsAdapter.Parse(response.Content, HttpStreaming.MaxEventBytes, sendCancellationToken);

@@ -5,6 +5,27 @@ namespace Parrot.Cli.Tests;
 internal sealed class BasicCliTests
 {
     [Test]
+    public async Task Provider_request_phases_do_not_interrupt_partial_text(CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        await stream.WriteAsync(new Event { TextChunk = new TextChunk { Fragment = "before" } }, cancellationToken);
+        foreach (var phase in new[] { ProviderRequestPhase.Requesting, ProviderRequestPhase.HeadersReceived, ProviderRequestPhase.Idle })
+        {
+            await stream.WriteAsync(
+                new Event { ProviderRequestPhaseChanged = new ProviderRequestPhaseChangedEvent { Phase = phase } },
+                cancellationToken);
+        }
+
+        await stream.WriteAsync(new Event { TextChunk = new TextChunk { Fragment = "after" } }, cancellationToken);
+        stream.Complete();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        _ = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
+        _ = await Assert.That(output.ToString()).IsEqualTo("beforeafter");
+        _ = await Assert.That(error.ToString()).IsEqualTo(string.Empty);
+    }
+
+    [Test]
     [Arguments(false, false, "interactive")]
     [Arguments(false, true, "interactive")]
     [Arguments(true, false, "interactive")]

@@ -7,4 +7,6 @@ internal enum LLMEventKind
     ToolCallDelta,
     Retry,
     Completed,
+    HttpRequestStarted,
+    HttpResponseHeadersReceived,
 }

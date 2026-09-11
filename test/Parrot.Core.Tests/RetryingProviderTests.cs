@@ -42,6 +42,42 @@ internal sealed class RetryingProviderTests
     }
 
     [Test]
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Arguments(true, true)]
+    public async Task Http_lifecycle_events_do_not_prevent_retry(
+        bool useSession, bool receivedHeaders, CancellationToken cancellationToken)
+    {
+        var phases = receivedHeaders
+            ? new[] { LLMEvent.HttpRequestStarted(), LLMEvent.HttpResponseHeadersReceived() }
+            : [LLMEvent.HttpRequestStarted()];
+        var scripted = new ReplayProvider(
+            () => YieldThenThrow(new HeaderTimeoutException(), phases),
+            () => Yield(
+                LLMEvent.HttpRequestStarted(),
+                LLMEvent.HttpResponseHeadersReceived(),
+                LLMEvent.Completed("stop", 1, 0, 1, "answer", [])));
+        ILLMProvider provider = new RetryingProvider(scripted) { HeaderTimeoutMaxRetries = 1 };
+        await using var session = provider.OpenSession();
+        var events = new List<LLMEvent>();
+        await foreach (var published in useSession
+            ? session.Call(Request, cancellationToken)
+            : provider.Call(Request, cancellationToken))
+        {
+            events.Add(published);
+        }
+
+        var expected = receivedHeaders
+            ? "HttpRequestStarted,HttpResponseHeadersReceived,Retry,HttpRequestStarted,HttpResponseHeadersReceived,Completed"
+            : "HttpRequestStarted,Retry,HttpRequestStarted,HttpResponseHeadersReceived,Completed";
+        _ = await Assert.That(string.Join(',', events.Select(item => item.Kind))).IsEqualTo(expected);
+        _ = await Assert.That(scripted.Calls).IsEqualTo(2);
+        _ = await Assert.That(events[^1].AssistantText).IsEqualTo("answer");
+        _ = await Assert.That(events[^1].OutputTokens).IsEqualTo(1);
+    }
+
+    [Test]
     [Timeout(90_000)]
     [Arguments(false, 0)]
     [Arguments(true, 0)]

@@ -42,6 +42,10 @@ internal sealed record LLMEvent
 
     public string AssistantText { get; init; } = string.Empty;
 
+    public static LLMEvent HttpRequestStarted() => new() { Kind = LLMEventKind.HttpRequestStarted };
+
+    public static LLMEvent HttpResponseHeadersReceived() => new() { Kind = LLMEventKind.HttpResponseHeadersReceived };
+
     public static LLMEvent TextDelta(string fragment) =>
         new() { Kind = LLMEventKind.TextDelta, Text = fragment };
 

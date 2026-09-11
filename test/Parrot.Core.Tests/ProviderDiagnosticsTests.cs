@@ -230,7 +230,11 @@ internal sealed class ProviderDiagnosticsTests
         {
             await foreach (var published in sessions.Get(provider).Call(request, cancellation.Token))
             {
-                _ = published;
+                if (published.Kind is LLMEventKind.HttpRequestStarted or LLMEventKind.HttpResponseHeadersReceived)
+                {
+                    continue;
+                }
+
                 if (behavior == "disposed")
                 {
                     break;
