@@ -1,5 +1,6 @@
 using Parrot.Agent;
 using Parrot.Config;
+using Scriban.Runtime;
 
 namespace Parrot.Context;
 
@@ -11,7 +12,7 @@ internal sealed class AgentPathEnvironmentProvider(AgentPathEnvironment environm
     {
         ArgumentNullException.ThrowIfNull(identity);
         var displayed = new List<KeyValuePair<string, string>>();
-        var entries = new List<string>();
+        var entries = new ScriptArray();
         foreach (var entry in environment.Materialize().OrderByDescending(entry => entry.Key, StringComparer.Ordinal))
         {
             var path = entry.Value;
@@ -32,15 +33,15 @@ internal sealed class AgentPathEnvironmentProvider(AgentPathEnvironment environm
                 }
             }
 
-            entries.Add(templates.Render("context.agent-path-environment-entry", [
-                new PromptTemplateArgument("name", entry.Key),
-                new PromptTemplateArgument("path", path),
-            ]));
+            entries.Add(new ScriptObject
+            {
+                ["name"] = entry.Key,
+                ["path"] = path,
+            });
             displayed.Add(entry);
         }
 
-        return new StaticSystemPrompt(templates.Render("context.agent-path-environment", [
-            new PromptTemplateArgument("entries", string.Join('\n', entries)),
-        ]));
+        return new StaticSystemPrompt(templates.RenderStructured(
+            "context.agent-path-environment", new ScriptObject { ["entries"] = entries }, CancellationToken.None));
     }
 }

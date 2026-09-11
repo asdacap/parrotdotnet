@@ -123,7 +123,9 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
-    public async Task Available_subagents_follow_agent_selectability_without_affecting_modes()
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Available_subagents_follow_agent_selectability_without_affecting_modes(bool disableAll)
     {
         var profiles = TestModels.Profiles.ToDictionary(
             entry => entry.Key,
@@ -137,14 +139,30 @@ internal sealed class CompactorAndContextTests : IDisposable
         profiles["worker"] = profiles["worker"] with { IsUserSelectable = true };
         profiles["explorer"] = profiles["explorer"] with { IsAgentSelectable = false };
         profiles["test"] = profiles["test"] with { IsUserSelectable = false, IsAgentSelectable = false };
+        if (disableAll)
+        {
+            foreach (var id in profiles.Keys)
+            {
+                profiles[id] = profiles[id] with { IsAgentSelectable = false };
+            }
+        }
+
         var registry = new ProfileRegistry(profiles, [], [], new HashSet<string>(StringComparer.Ordinal));
         var prompt = new SubagentsProvider(registry, TestModels.PromptTemplates)
             .Materialize(AgentIdentity.Main("session", string.Empty, TestModels.PromptTemplates));
 
         var rendered = prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value);
 
-        _ = await Assert.That(rendered).Contains("- build: Test profile.");
-        _ = await Assert.That(rendered).Contains("- worker: Test child profile.");
+        _ = await Assert.That(rendered).IsEqualTo(disableAll
+            ? "Available subagents: none"
+            : "Available subagents; delegate according to their configured usage:"
+                + string.Concat(registry.Children.Select(profile => $"- {profile.Id}: {profile.Usage}")));
+        if (!disableAll)
+        {
+            _ = await Assert.That(rendered).Contains("- build: Test profile.");
+            _ = await Assert.That(rendered).Contains("- worker: Test child profile.");
+        }
+
         _ = await Assert.That(rendered).DoesNotContain("- explorer:");
         _ = await Assert.That(rendered).DoesNotContain("- review:");
         _ = await Assert.That(rendered).DoesNotContain("- test:");
@@ -287,15 +305,17 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
-    public async Task Model_prompt_context_sorts_configured_guidance_and_filters_disabled_aliases()
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Model_prompt_context_sorts_configured_guidance_and_filters_disabled_aliases(bool disableAll)
     {
         var provider = new UnusedProvider();
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
         var snapshot = new ModelAliasSnapshot(
         [
-            new("zeta", model.Selector, "last", null, null),
+            new("zeta", disableAll ? string.Empty : model.Selector, "last", null, null),
             new("disabled", string.Empty, "hidden", null, null),
-            new("alpha", model.Selector, "first", null, null),
+            new("alpha", disableAll ? string.Empty : model.Selector, "first", null, null),
         ]);
         var selection = new AgentTurnSelection(
             new ModelSelector(model.Selector),
@@ -307,11 +327,10 @@ internal sealed class CompactorAndContextTests : IDisposable
             .Materialize(AgentIdentity.Main("session", string.Empty, TestModels.PromptTemplates))
             .Build(selection);
 
-        _ = await Assert.That(built).Contains($"- alpha: {model.Selector} — first");
-        _ = await Assert.That(built).Contains($"- zeta: {model.Selector} — last");
-        _ = await Assert.That(built).DoesNotContain("disabled");
-        _ = await Assert.That(built.IndexOf("- alpha:", StringComparison.Ordinal))
-            .IsLessThan(built.IndexOf("- zeta:", StringComparison.Ordinal));
+        _ = await Assert.That(built).IsEqualTo(disableAll
+            ? string.Empty
+            : "Configured model aliases may be passed anywhere a model selector is accepted, especially `agent_spawn.model`:\n"
+                + $"- alpha: {model.Selector} — first\n- zeta: {model.Selector} — last");
     }
 
     [Test]

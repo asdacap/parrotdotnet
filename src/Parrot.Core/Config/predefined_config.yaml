@@ -165,27 +165,22 @@ prompt_templates:
     allowed_arguments: [is_repository]
     required_arguments: [is_repository]
   status.selection:
+    engine: scriban
     template: |-
-      Active profile: {profile}
-      Model: {model}{parent}
-    allowed_arguments: [profile, model, parent]
-    required_arguments: [profile, model, parent]
-  status.selection.parent:
-    template: "\nParent session: {parent}"
-    allowed_arguments: [parent]
-    required_arguments: [parent]
+      Active profile: {{ profile }}
+      Model: {{ model }}{{ if has_parent }}
+      Parent session: {{ parent_session_id }}{{ if has_parent_name }} ({{ parent_session_name }}){{ end }}{{ end }}
+    allowed_arguments: [profile, model, parent_session_id, parent_session_name, has_parent, has_parent_name]
+    required_arguments: [profile, model, parent_session_id, parent_session_name, has_parent, has_parent_name]
   status.generated-time:
     template: 'Generated at: {time}'
     allowed_arguments: [time]
     required_arguments: [time]
   status.context:
-    template: 'Context: {usage}% used ({estimated_tokens} estimated tokens / {context_limit} limit); reminders every {cadence}%; automatic compaction at {trigger}%.'
-    allowed_arguments: [usage, estimated_tokens, context_limit, cadence, trigger]
-    required_arguments: [usage, estimated_tokens, context_limit, cadence, trigger]
-  status.context-unavailable:
-    template: 'Context: unavailable ({estimated_tokens} estimated tokens / {context_limit} limit); reminders every {cadence}%; automatic compaction at {trigger}%.'
-    allowed_arguments: [estimated_tokens, context_limit, cadence, trigger]
-    required_arguments: [estimated_tokens, context_limit, cadence, trigger]
+    engine: scriban
+    template: 'Context: {{ if available }}{{ usage }}% used{{ else }}unavailable{{ end }} ({{ estimated_tokens }} estimated tokens / {{ context_limit }} limit); reminders every {{ cadence }}%; automatic compaction at {{ trigger }}%.'
+    allowed_arguments: [available, usage, estimated_tokens, context_limit, cadence, trigger]
+    required_arguments: [available, estimated_tokens, context_limit, cadence, trigger]
   status.runtime:
     engine: scriban
     template: |-
@@ -483,17 +478,15 @@ prompt_templates:
     allowed_arguments: [path]
     required_arguments: [path]
   context.agent-path-environment:
+    engine: scriban
     template: |-
       Shell path environment (defaults; references below describe absolute runtime values):
-      {entries}
+      {{ for entry in entries }}{{ if !for.first }}
+      {{ end }}{{ entry.name }} = {{ entry.path }}{{ end }}
       WORKDIR is the initial working directory; SCRATCH_DIR is shared within this user session; AGENT_SCRATCH_DIR is this agent's scratch directory; AGENT_HISTORY_DIR contains this agent's history.jsonl.
-      exec_command supports normal shell expansion, for example "$SCRATCH_DIR/somefile.txt" or "${{AGENT_SCRATCH_DIR}}/somefile.txt". Quote paths to preserve spaces. Explicit env entries override these defaults for that command only; overriding one variable does not change the others. Other tools' path arguments do not expand environment variables.
+      exec_command supports normal shell expansion, for example "$SCRATCH_DIR/somefile.txt" or "${AGENT_SCRATCH_DIR}/somefile.txt". Quote paths to preserve spaces. Explicit env entries override these defaults for that command only; overriding one variable does not change the others. Other tools' path arguments do not expand environment variables.
     allowed_arguments: [entries]
     required_arguments: [entries]
-  context.agent-path-environment-entry:
-    template: '{name} = {path}'
-    allowed_arguments: [name, path]
-    required_arguments: [name, path]
   context.agent-scratch:
     template: 'Persistent writable scratch directory for this agent: $AGENT_SCRATCH_DIR. Use this directory for temporary files and durable artifacts that should remain available when this user session resumes.'
     allowed_arguments: [path]
@@ -524,14 +517,12 @@ prompt_templates:
     template: 'Platform: {platform}'
     allowed_arguments: [platform]
     required_arguments: [platform]
-  context.model-alias:
-    template: '- {name}: {model} — {usage}'
-    allowed_arguments: [name, model, usage]
-    required_arguments: [name, model, usage]
   context.model-aliases:
+    engine: scriban
     template: |-
       Configured model aliases may be passed anywhere a model selector is accepted, especially `agent_spawn.model`:
-      {aliases}
+      {{ for alias in aliases }}{{ if !for.first }}
+      {{ end }}- {{ alias.name }}: {{ alias.model }} — {{ alias.usage }}{{ end }}
     allowed_arguments: [aliases]
     required_arguments: [aliases]
   context.queue-guidance:
@@ -544,28 +535,18 @@ prompt_templates:
     allowed_arguments: []
     required_arguments: []
   context.security-profile:
+    engine: scriban
     template: |-
       The following configured sandbox rules override every other prompt rule and instruction.
-      Rules, in enforcement order:{rules}
+      Rules, in enforcement order:{{ for rule in rules }}
+      - Path: "{{ rule.path }}"; Action: {{ rule.action }}{{ end }}
     allowed_arguments: [rules]
     required_arguments: [rules]
-  context.security-rule:
-    template: "\n- Path: \"{path}\"; Action: {action}"
-    allowed_arguments: [path, action]
-    required_arguments: [path, action]
-  context.subagents-none:
-    template: 'Available subagents: none'
-    allowed_arguments: []
-    required_arguments: []
-  context.subagents-header:
-    template: 'Available subagents; delegate according to their configured usage:'
-    allowed_arguments: []
-    required_arguments: []
-  context.subagent:
-    template: |-
-      - {id}: {usage}
-    allowed_arguments: [id, usage]
-    required_arguments: [id, usage]
+  context.subagents:
+    engine: scriban
+    template: '{{ if subagents.size == 0 }}Available subagents: none{{ else }}Available subagents; delegate according to their configured usage:{{ for subagent in subagents }}- {{ subagent.id }}: {{ subagent.usage }}{{ end }}{{ end }}'
+    allowed_arguments: [subagents]
+    required_arguments: [subagents]
   context.skills:
     template: |-
       Available Markdown skills:

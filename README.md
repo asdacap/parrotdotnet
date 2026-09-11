@@ -145,7 +145,20 @@ Malformed scalar templates, unknown or repeated placeholders, undeclared or dupl
 
 Runtime status now uses one `status.runtime` Scriban template, rendered separately by the runtime-tree and AgentTask status providers (their status keys, availability, and ordering are unchanged). Its model has `section` (`tree` or `agent-tasks`), `agents`, and `runs`; the unused array is empty. Agents are in depth-first traversal order, with `indent`, `name`, `session_id`, ordered `queues` (`name`, culture-formatted `size`, JSON-escaped `description`, or empty), and ordered `processes` (`id`, `state`, `name`). Runs are ordered by ID and contain `run_id`, `display_name`, `owner_session_id`, invariant-formatted `revision`, and depth-first `nodes` (`indent`, `name`, `description`, `status`). Indentation reflects nesting; the template owns the visible labels, separators, and conditional descriptions.
 
-**Migration:** overrides of the retired `status.runtime.agent`, `.queue`, `.queue-description`, `.process`, `.agent-task`, and `.agent-task-node` fragments must move into `prompt_templates.status.runtime.template`. Old fragments are no longer rendered. A previous header-only `status.runtime` override must likewise be replaced with a complete Scriban template. All other predefined templates retain scalar syntax.
+**Migration:** overrides of the retired `status.runtime.agent`, `.queue`, `.queue-description`, `.process`, `.agent-task`, and `.agent-task-node` fragments must move into `prompt_templates.status.runtime.template`. Old fragments are no longer rendered. A previous header-only `status.runtime` override must likewise be replaced with a complete Scriban template. The context and status templates listed below also use Scriban; other predefined templates retain scalar syntax.
+
+The following fragment groups are likewise consolidated. Existing overrides must move to the destination template and use Scriban syntax; retained destination keys now receive structured values instead of pre-rendered fragments.
+
+| Destination template | Retired keys | Model |
+| --- | --- | --- |
+| `context.subagents` | `context.subagents-none`, `context.subagents-header`, `context.subagent` | `subagents`: ordered array of `{id, usage}`; empty selects the no-subagents message. |
+| `context.model-aliases` | `context.model-alias` | `aliases`: ordered array of `{name, model, usage}` with configured model targets; omitted from the prompt when empty. |
+| `context.security-profile` | `context.security-rule` | `rules`: enforcement-ordered array of `{path, action}`; paths retain their existing escaped representation. |
+| `context.agent-path-environment` | `context.agent-path-environment-entry` | `entries`: descending-name-ordered array of `{name, path}`; paths retain their existing environment-variable references. |
+| `status.selection` | `status.selection.parent` | `profile`, `model`, `parent_session_id`, `parent_session_name`, `has_parent`, `has_parent_name`; parent presence uses the existing non-whitespace checks. |
+| `status.context` | `status.context-unavailable` | `available`, invariant-formatted `estimated_tokens`, `context_limit`, `cadence`, `trigger`, and `usage` when available. |
+
+These consolidations preserve the default messages, ordering, and availability. Retired keys are no longer rendered.
 
 Parrot writes an agent-readable `predefined_config.yaml` alongside the
 user-owned `config.yaml`. The user file is recursively layered over the

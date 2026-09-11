@@ -2,6 +2,7 @@ using System.Text;
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Security;
+using Scriban.Runtime;
 
 namespace Parrot.Context;
 
@@ -17,18 +18,18 @@ internal sealed class SecurityProfilePrompt(IReadOnlyList<SandboxRule> rules, Pr
     {
         ArgumentNullException.ThrowIfNull(selection);
 
-        var rules = new StringBuilder();
+        var rules = new ScriptArray();
         foreach (var rule in _rules)
         {
-            _ = rules.Append(templates.Render("context.security-rule", [
-                new PromptTemplateArgument("path", Escape(rule.Path)),
-                new PromptTemplateArgument("action", rule.Action.ToString()),
-            ]));
+            rules.Add(new ScriptObject
+            {
+                ["path"] = Escape(rule.Path),
+                ["action"] = rule.Action.ToString(),
+            });
         }
 
-        return templates.Render("context.security-profile", [
-            new PromptTemplateArgument("rules", rules.ToString()),
-        ]);
+        return templates.RenderStructured(
+            "context.security-profile", new ScriptObject { ["rules"] = rules }, CancellationToken.None);
     }
 
     private static string Escape(string value)

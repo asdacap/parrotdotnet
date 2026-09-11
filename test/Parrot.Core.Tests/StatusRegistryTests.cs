@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.Versioning;
 using Parrot.Agent;
 using Parrot.Config;
@@ -57,20 +58,64 @@ internal sealed class StatusRegistryTests
                 TestModels.PromptTemplates);
         var observation = await provider.Observe(new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"), CancellationToken.None);
 
+        var expectedUsage = available ? FormattableString.Invariant($"{usage}% used") : "unavailable";
         _ = await Assert.That(observation.Available).IsTrue();
-        _ = await Assert.That(observation.Text).Contains($"{estimatedTokens} estimated");
-        _ = await Assert.That(observation.Text).Contains($"{contextLimit} limit");
-        _ = await Assert.That(observation.Text).Contains("every 10%");
-        _ = await Assert.That(observation.Text).Contains("automatic compaction at 90%");
-        if (available)
+        _ = await Assert.That(observation.Text).IsEqualTo(FormattableString.Invariant(
+            $"Context: {expectedUsage} ({estimatedTokens} estimated tokens / {contextLimit} limit); reminders every 10%; automatic compaction at 90%."));
+    }
+
+    [Test]
+    [Arguments(true, false, "Context: -12% used (-123 estimated tokens / 1000 limit); reminders every 10%; automatic compaction at -90%.")]
+    [Arguments(false, false, "Context: unavailable (-123 estimated tokens / -1 limit); reminders every 10%; automatic compaction at -90%.")]
+    [Arguments(true, true, "-12|-123|1000|10|-90")]
+    [Arguments(false, true, "missing|-123|-1|10|-90")]
+    public async Task Context_preserves_invariant_metrics_and_supports_structured_overrides(bool available, bool custom, string expected)
+    {
+        var originalCulture = CultureInfo.CurrentCulture;
+        var culture = (CultureInfo)CultureInfo.InvariantCulture.Clone();
+        culture.NumberFormat.NegativeSign = "minus";
+        CultureInfo.CurrentCulture = culture;
+        try
         {
-            _ = await Assert.That(observation.Text).IsEqualTo($"Context: {usage}% used ({estimatedTokens} estimated tokens / {contextLimit} limit); reminders every 10%; automatic compaction at 90%.");
+            var templates = custom
+                ? new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)
+                {
+                    ["status.context"] = new(
+                        new HashSet<string>(["available", "usage", "estimated_tokens", "context_limit", "cadence", "trigger"], StringComparer.Ordinal),
+                        new HashSet<string>(["available", "estimated_tokens", "context_limit", "cadence", "trigger"], StringComparer.Ordinal),
+                        new ScribanPromptTemplateEngine("prompt_templates.status.context", "{{ if available }}{{ usage }}{{ else }}missing{{ end }}|{{ estimated_tokens }}|{{ context_limit }}|{{ cadence }}|{{ trigger }}")),
+                })
+                : TestModels.PromptTemplates;
+            IStatusProvider provider = new ContextStatusProvider(new ContextSnapshot(-123, available ? 1000 : -1, available ? -12 : null, -90), templates);
+
+            var observation = await provider.Observe(new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"), CancellationToken.None);
+
+            _ = await Assert.That(observation.Text).IsEqualTo(expected);
         }
-        else
+        finally
         {
-            _ = await Assert.That(observation.Text).Contains("Context: unavailable");
-            _ = await Assert.That(observation.Text).DoesNotContain("% used");
+            CultureInfo.CurrentCulture = originalCulture;
         }
+    }
+
+    [Test]
+    [Arguments("", "ignored", "build|{{ model }}|root")]
+    [Arguments("parent", " \t", "build|{{ model }}|parent")]
+    [Arguments("parent", " name ", "build|{{ model }}|parent/ name ")]
+    public async Task Selection_supports_structured_overrides(string parentSessionId, string parentSessionName, string expected)
+    {
+        var arguments = new HashSet<string>(["profile", "model", "parent_session_id", "parent_session_name", "has_parent", "has_parent_name"], StringComparer.Ordinal);
+        var templates = new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)
+        {
+            ["status.selection"] = new(arguments, arguments, new ScribanPromptTemplateEngine(
+                "prompt_templates.status.selection",
+                "{{ profile }}|{{ model }}|{{ if has_parent }}{{ parent_session_id }}{{ if has_parent_name }}/{{ parent_session_name }}{{ end }}{{ else }}root{{ end }}")),
+        });
+        IStatusProvider provider = new SelectionStatusProvider(templates);
+
+        var observation = await provider.Observe(new StatusQuery("child", parentSessionId, parentSessionName, "build", "{{ model }}"), CancellationToken.None);
+
+        _ = await Assert.That(observation.Text).IsEqualTo(expected);
     }
 
     [Test]
@@ -155,9 +200,13 @@ internal sealed class StatusRegistryTests
 
     [Test]
     [Arguments("", "")]
+    [Arguments(" \t\n", "ignored-name")]
     [Arguments("parent", "")]
     [Arguments("parent", "  ")]
+    [Arguments("parent", "\t\n")]
     [Arguments("parent", "main-agent")]
+    [Arguments(" parent ", " main-agent ")]
+    [Arguments("{{ hostile }}", "{name}\n{{ name }}")]
     public async Task Selection_reports_parent_context_when_present(string parentSessionId, string parentSessionName)
     {
         IStatusProvider provider = new SelectionStatusProvider(TestModels.PromptTemplates);

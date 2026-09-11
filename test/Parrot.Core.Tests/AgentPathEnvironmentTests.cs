@@ -43,8 +43,7 @@ internal sealed class AgentPathEnvironmentTests : IDisposable
         var identity = AgentIdentity.Main(agentSessionId, string.Empty, TestModels.PromptTemplates);
         var templates = new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)
         {
-            ["context.agent-path-environment"] = new(new HashSet<string>(["entries"], StringComparer.Ordinal), new HashSet<string>(["entries"], StringComparer.Ordinal), new ScalarPromptTemplateEngine("environment", "{entries}", new HashSet<string>(["entries"], StringComparer.Ordinal))),
-            ["context.agent-path-environment-entry"] = new(new HashSet<string>(["name", "path"], StringComparer.Ordinal), new HashSet<string>(["name", "path"], StringComparer.Ordinal), new ScalarPromptTemplateEngine("entry", "{name}={path}", new HashSet<string>(["name", "path"], StringComparer.Ordinal))),
+            ["context.agent-path-environment"] = new(new HashSet<string>(["entries"], StringComparer.Ordinal), new HashSet<string>(["entries"], StringComparer.Ordinal), new ScribanPromptTemplateEngine("environment", "{{ for entry in entries }}{{ if !for.first }}\n{{ end }}{{ entry.name }}={{ entry.path }}{{ end }}")),
             ["system.working-directory"] = new(new HashSet<string>(["working_directory"], StringComparer.Ordinal), new HashSet<string>(["working_directory"], StringComparer.Ordinal), new ScalarPromptTemplateEngine("working", "{working_directory}", new HashSet<string>(["working_directory"], StringComparer.Ordinal))),
             ["context.agent-scratch"] = new(new HashSet<string>(["path"], StringComparer.Ordinal), new HashSet<string>(["path"], StringComparer.Ordinal), new ScalarPromptTemplateEngine("scratch", "{path}", new HashSet<string>(["path"], StringComparer.Ordinal))),
             ["context.agent-history"] = new(new HashSet<string>(["path"], StringComparer.Ordinal), new HashSet<string>(["path"], StringComparer.Ordinal), new ScalarPromptTemplateEngine("history", "{path}", new HashSet<string>(["path"], StringComparer.Ordinal))),
@@ -58,6 +57,11 @@ internal sealed class AgentPathEnvironmentTests : IDisposable
             new TestProfileFixture().Mode,
             SecurityProfile.Compose(readOnly: false, [], [], []));
         var rendered = prompt.Build(selection);
+        var defaultRendered = new AgentPathEnvironmentProvider(environment, TestModels.PromptTemplates).Materialize(identity).Build(selection);
+        _ = await Assert.That(string.Join('\n', defaultRendered.Split('\n').Skip(1).Take(4)))
+            .IsEqualTo($"WORKDIR = {_workspace}\nSCRATCH_DIR = $WORKDIR/state/sessions/{userSessionId}/scratch\nAGENT_SCRATCH_DIR = $SCRATCH_DIR/{agentSessionId}\nAGENT_HISTORY_DIR = $AGENT_SCRATCH_DIR");
+        _ = await Assert.That(defaultRendered).Contains("\"${AGENT_SCRATCH_DIR}/somefile.txt\"");
+        _ = await Assert.That(defaultRendered.Split('\n')).Count().IsEqualTo(7);
         _ = await Assert.That(new WorkingDirectoryProvider(_workspace, templates).Materialize(identity).Build(selection)).IsEqualTo(_workspace);
         _ = await Assert.That(new ScratchDirectoryProvider(scratch, templates).Materialize(identity).Build(selection)).IsEqualTo(scratch.Root);
         _ = await Assert.That(new AgentHistoryProvider(resources, templates).Materialize(identity).Build(selection))

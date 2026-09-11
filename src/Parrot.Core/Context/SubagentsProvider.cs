@@ -1,6 +1,6 @@
-using System.Text;
 using Parrot.Agent;
 using Parrot.Config;
+using Scriban.Runtime;
 
 namespace Parrot.Context;
 
@@ -11,22 +11,17 @@ internal sealed class SubagentsProvider(ProfileRegistry profiles, PromptTemplate
     public ISystemPrompt Materialize(AgentIdentity identity)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        var childProfiles = profiles.Children;
-
-        if (childProfiles.Count == 0)
+        var subagents = new ScriptArray();
+        foreach (var profile in profiles.Children)
         {
-            return new StaticSystemPrompt(templates.Render("context.subagents-none", []));
+            subagents.Add(new ScriptObject
+            {
+                ["id"] = profile.Id,
+                ["usage"] = profile.Usage,
+            });
         }
 
-        var subagents = new StringBuilder(templates.Render("context.subagents-header", []));
-        foreach (var profile in childProfiles)
-        {
-            _ = subagents.Append(templates.Render("context.subagent", [
-                new PromptTemplateArgument("id", profile.Id),
-                new PromptTemplateArgument("usage", profile.Usage),
-            ]));
-        }
-
-        return new StaticSystemPrompt(subagents.ToString());
+        return new StaticSystemPrompt(templates.RenderStructured(
+            "context.subagents", new ScriptObject { ["subagents"] = subagents }, CancellationToken.None));
     }
 }
