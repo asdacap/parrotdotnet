@@ -20,11 +20,12 @@ internal sealed class SetExitReminderTool(ExitReminder reminder, PromptTemplateC
                 invocation.ArgumentsJson,
                 AgentProcessToolJsonContext.Default.SetExitReminderToolInput);
             reminder.Set(input?.Reminder);
-            var template = string.IsNullOrEmpty(input?.Reminder)
-                ? "set-exit-reminder-tool.cleared"
-                : "set-exit-reminder-tool.set";
-            return Task.FromResult<ToolExecutionResult>(
-                ToolResultFormatter.Text(invocation, promptTemplates.Render(template, [])));
+            var response = string.IsNullOrEmpty(input?.Reminder)
+                ? promptTemplates.Render("set-exit-reminder-tool.cleared", [])
+                : promptTemplates.Render(
+                    "set-exit-reminder-tool.set",
+                    [new PromptTemplateArgument("reminder", input.Reminder)]);
+            return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.Text(invocation, response));
         }
         catch (Exception failure) when (failure is JsonException or FormatException or ArgumentException or Store.InputConflictException)
         {

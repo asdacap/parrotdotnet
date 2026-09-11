@@ -201,6 +201,18 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
         _ = await Assert.That(status.Text).Contains("task: second (");
         _ = await Assert.That(status.Text).Contains("description: Run second)");
         _ = await Assert.That(otherStatus.Available).IsFalse();
+        var customTemplates = new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)
+        {
+            ["status.runtime"] = new(
+                new HashSet<string>(["section", "agents", "runs"], StringComparer.Ordinal),
+                new HashSet<string>(["section", "agents", "runs"], StringComparer.Ordinal),
+                new ScribanPromptTemplateEngine("prompt_templates.status.runtime", "{{ section }}:{{ for run in runs }}{{ run.run_id }}={{ for node in run.nodes }}{{ node.name }};{{ end }}{{ end }}")),
+        });
+        var customizedStatus = await new AgentTaskStatusProvider(catalog, customTemplates).Observe(
+            new StatusQuery(runtime.Parent.SessionId, string.Empty, string.Empty, "profile", "model"),
+            cancellationToken);
+        _ = await Assert.That(statusProvider.Key).IsEqualTo("runtime:agent-tasks");
+        _ = await Assert.That(customizedStatus.Text).IsEqualTo("agent-tasks:first=first;second=second;");
 
         var settlement = catalog.Settle();
         _ = await Assert.That(() => owner.Start(

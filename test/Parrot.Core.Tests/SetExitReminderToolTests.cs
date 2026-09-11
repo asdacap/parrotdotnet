@@ -20,9 +20,12 @@ internal sealed class SetExitReminderToolTests
         var selection = new AgentTurnSelection(new ModelSelector(model.Selector), TestModels.Resolve(model), new TestProfileFixture().Mode, SecurityProfile.Compose(readOnly: false, [], [], []));
         var cases = new (string Json, string? Expected, string Output)[]
         {
-            ("{\"reminder\":\"alpha\"}", "alpha", "Exit reminder set."),
-            ("{\"reminder\":\"beta\"}", "beta", "Exit reminder set."),
+            ("{\"reminder\":\"alpha\"}", "alpha", "Exit reminder set: alpha"),
+            ("{\"reminder\":\"beta\"}", "beta", "Exit reminder set: beta"),
+            ("{\"reminder\":\"  first\\n{second}  \"}", "  first\n{second}  ", "Exit reminder set:   first\n{second}  "),
+            ("{\"reminder\":\" \"}", " ", "Exit reminder set:  "),
             ("{\"reminder\":\"\"}", null, "Exit reminder cleared."),
+            ("{\"reminder\":null}", null, "Exit reminder cleared."),
             ("{}", null, "Exit reminder cleared."),
         };
 

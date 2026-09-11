@@ -100,6 +100,11 @@
     "hash": "sha256-DwLIq2LSN0y2FmDz1KtUZWvpzBE1ZnkuIy0t8i2O2Y8="
   },
   {
+    "pname": "Scriban",
+    "version": "7.4.0",
+    "hash": "sha256-sTsdKz9eMuTUoOYLj7e3mGCB41dibkh1l0yowb9vt+4="
+  },
+  {
     "pname": "SixLabors.ImageSharp",
     "version": "3.1.12",
     "hash": "sha256-FR8v74w4P/1AZdW5ARW0y8zgDqLtvhxQmL1CKv68xR0="

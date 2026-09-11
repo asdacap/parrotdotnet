@@ -49,6 +49,7 @@
     <PackageReference Include="YamlDotNet" />
     <PackageReference Include="Grpc.Core.Api" />
     <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
+    <PackageReference Include="Scriban" />
     <PackageReference Include="SixLabors.ImageSharp" />
   </ItemGroup>
 

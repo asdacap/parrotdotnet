@@ -43,11 +43,11 @@ internal sealed class AgentPathEnvironmentTests : IDisposable
         var identity = AgentIdentity.Main(agentSessionId, string.Empty, TestModels.PromptTemplates);
         var templates = new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)
         {
-            ["context.agent-path-environment"] = new("environment", "{entries}", new HashSet<string>(["entries"], StringComparer.Ordinal), new HashSet<string>(["entries"], StringComparer.Ordinal)),
-            ["context.agent-path-environment-entry"] = new("entry", "{name}={path}", new HashSet<string>(["name", "path"], StringComparer.Ordinal), new HashSet<string>(["name", "path"], StringComparer.Ordinal)),
-            ["system.working-directory"] = new("working", "{working_directory}", new HashSet<string>(["working_directory"], StringComparer.Ordinal), new HashSet<string>(["working_directory"], StringComparer.Ordinal)),
-            ["context.agent-scratch"] = new("scratch", "{path}", new HashSet<string>(["path"], StringComparer.Ordinal), new HashSet<string>(["path"], StringComparer.Ordinal)),
-            ["context.agent-history"] = new("history", "{path}", new HashSet<string>(["path"], StringComparer.Ordinal), new HashSet<string>(["path"], StringComparer.Ordinal)),
+            ["context.agent-path-environment"] = new(new HashSet<string>(["entries"], StringComparer.Ordinal), new HashSet<string>(["entries"], StringComparer.Ordinal), new ScalarPromptTemplateEngine("environment", "{entries}", new HashSet<string>(["entries"], StringComparer.Ordinal))),
+            ["context.agent-path-environment-entry"] = new(new HashSet<string>(["name", "path"], StringComparer.Ordinal), new HashSet<string>(["name", "path"], StringComparer.Ordinal), new ScalarPromptTemplateEngine("entry", "{name}={path}", new HashSet<string>(["name", "path"], StringComparer.Ordinal))),
+            ["system.working-directory"] = new(new HashSet<string>(["working_directory"], StringComparer.Ordinal), new HashSet<string>(["working_directory"], StringComparer.Ordinal), new ScalarPromptTemplateEngine("working", "{working_directory}", new HashSet<string>(["working_directory"], StringComparer.Ordinal))),
+            ["context.agent-scratch"] = new(new HashSet<string>(["path"], StringComparer.Ordinal), new HashSet<string>(["path"], StringComparer.Ordinal), new ScalarPromptTemplateEngine("scratch", "{path}", new HashSet<string>(["path"], StringComparer.Ordinal))),
+            ["context.agent-history"] = new(new HashSet<string>(["path"], StringComparer.Ordinal), new HashSet<string>(["path"], StringComparer.Ordinal), new ScalarPromptTemplateEngine("history", "{path}", new HashSet<string>(["path"], StringComparer.Ordinal))),
         });
         var prompt = new AgentPathEnvironmentProvider(environment, templates).Materialize(identity);
         prompt.RenewEpoch();

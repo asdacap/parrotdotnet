@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
@@ -201,7 +202,7 @@ internal sealed class StatusRegistryTests
         var child = fixture.Build(AgentIdentity.Child("child", "root", "main", "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(root, AgentCompletionDeliveryPolicy.RetainedOnly));
         _ = await child.Session.SendTextMessage("work", cancellationToken);
         await fixture.Provider.Arrived(cancellationToken);
-        _ = root.Queues.Create("work", "queued work");
+        _ = root.Queues.Create("work", "queued work\n{{ hostile }}");
         _ = child.Queues.Create("results", string.Empty);
         _ = child.Processes.Start("fetch", "sleep 30", "call", ProcessEnvironmentOverrides.Empty, child.Session, SecurityProfile.Compose(readOnly: false, [], [], []));
         _ = root.Processes.Start("build", "sleep 30", "call", ProcessEnvironmentOverrides.Empty, root.Session, SecurityProfile.Compose(readOnly: false, [], [], []));
@@ -215,7 +216,7 @@ internal sealed class StatusRegistryTests
             """
             Runtime:
             - agent: main (root)
-              - queue: work (0 items, description: "queued work")
+              - queue: work (0 items, description: "queued work\n{{ hostile }}")
               - process: root/build (shell, running, name: build)
               - agent: worker (child)
                 - queue: results (0 items)
@@ -224,17 +225,30 @@ internal sealed class StatusRegistryTests
     }
 
     [Test]
-    public async Task Runtime_tree_reports_only_the_root_agent_when_idle(CancellationToken cancellationToken)
+    [Arguments(false, "Runtime:\n- agent: main (root)")]
+    [Arguments(true, "tree:main;")]
+    public async Task Runtime_tree_reports_only_the_root_agent_when_idle(bool custom, string expected, CancellationToken cancellationToken)
     {
         await using var fixture = new RuntimeTreeFixture();
         _ = fixture.Build(AgentIdentity.Main("root", "main", TestModels.PromptTemplates), AgentSessionParentLink.Root());
-        IStatusProvider provider = new RuntimeTreeStatusProvider(fixture.Registry, TestModels.PromptTemplates);
+        var templates = custom
+            ? new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)
+            {
+                ["status.runtime"] = new(
+                    new HashSet<string>(["section", "agents", "runs"], StringComparer.Ordinal),
+                    new HashSet<string>(["section", "agents", "runs"], StringComparer.Ordinal),
+                    new ScribanPromptTemplateEngine("prompt_templates.status.runtime", "{{ section }}:{{ for agent in agents }}{{ agent.name }};{{ end }}")),
+            })
+            : TestModels.PromptTemplates;
+        IStatusProvider provider = new RuntimeTreeStatusProvider(fixture.Registry, templates);
 
         var observation = await provider.Observe(
             new StatusQuery("root", string.Empty, string.Empty, "build", "provider/model"),
             cancellationToken);
 
-        _ = await Assert.That(observation.Text).IsEqualTo("Runtime:\n- agent: main (root)");
+        _ = await Assert.That(provider.Key).IsEqualTo("runtime:queues");
+        _ = await Assert.That(observation.Available).IsTrue();
+        _ = await Assert.That(observation.Text).IsEqualTo(expected);
     }
 
     [Test]
