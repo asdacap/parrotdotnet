@@ -12,6 +12,9 @@ internal readonly record struct ToolBlock(
     public static ToolBlock FromText(string text) =>
         text.Length == 0 ? Empty : new(ToolBlockKind.Text, text, string.Empty, string.Empty, 0);
 
+    public static ToolBlock FromStatus(string text) =>
+        text.Length == 0 ? Empty : new(ToolBlockKind.Status, text, string.Empty, string.Empty, 0);
+
     public static ToolBlock FromOutput(string text) =>
         text.Length == 0 ? Empty : new(ToolBlockKind.Output, text, string.Empty, string.Empty, 0);
 

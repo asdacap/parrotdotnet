@@ -47,6 +47,13 @@ internal sealed class ToolScrollbackValue(
         var activityLabel = HierarchicalActivityValue.RemoveOwner(Report.Label, context.ActivityOwner);
         var header = LayoutHeader($"{marker} {activityLabel}", context.Columns, Report.Metadata.MultilineLabel);
         var lines = header.Select(style.Apply).ToList();
+        if (Report.Block.Kind == ToolBlockKind.Status)
+        {
+            lines.AddRange(TerminalText.Sanitize(Report.Block.Text).Split('\n')
+                .SelectMany(line => TerminalText.Layout($"  {line}", context.Columns)));
+            return lines;
+        }
+
         var maximumLines = Report.Block.Kind switch
         {
             ToolBlockKind.Diff => DiffScrollbackValue.MaximumRows + 2,

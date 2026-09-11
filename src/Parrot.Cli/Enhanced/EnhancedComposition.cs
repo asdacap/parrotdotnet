@@ -43,6 +43,7 @@ internal partial class EnhancedComposition
                     new RunAgentTasksToolPresenter(new GenericToolPresenter()),
                     new QuestionToolPresenter(),
                     new SetCheckpointToolPresenter(),
+                    new StatusToolPresenter(),
                     new QueuePushToolPresenter(),
                     new QueueTakeToolPresenter(),
                     new WaitToolPresenter(),

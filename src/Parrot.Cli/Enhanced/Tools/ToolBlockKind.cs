@@ -5,6 +5,7 @@ internal enum ToolBlockKind
     None,
     Text,
     Output,
+    Status,
     Diff,
     Code,
     Queue,
