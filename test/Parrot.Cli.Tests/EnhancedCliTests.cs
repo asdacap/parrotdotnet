@@ -697,6 +697,120 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Arguments(true, true)]
+    public async Task Custom_question_preserves_context_and_optionless_answers_continue_in_order(
+        bool multiple, bool optionless, CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var running = driver.Drive(cancellationToken);
+        driver.Input.Type("ask me");
+        await driver.Sent(1, cancellationToken);
+        await PublishQuestionStart(driver);
+        await WaitForQuestionList(driver, 1, cancellationToken);
+        var pending = new PendingQuestion { Id = "question-request" };
+        var question = new QuestionDefinition
+        {
+            Header = "Answer context",
+            Prompt = "Explain your choice",
+            Custom = true,
+            Multiple = multiple,
+        };
+        if (!optionless)
+        {
+            question.Options.Add("Blue");
+        }
+
+        pending.Questions.Add(question);
+        pending.Questions.Add(new QuestionDefinition { Prompt = "Next answer", Custom = true });
+        var beforeQuestion = driver.Output.Length;
+        driver.Invoker.AddPendingQuestion(pending);
+        await driver.OutputContains("Explain your choice", cancellationToken);
+        if (!optionless)
+        {
+            driver.Input.Type("Custom");
+            await driver.OutputContainsAfter(beforeQuestion, "> Custom answer", cancellationToken);
+        }
+
+        var beforeRefresh = driver.Output.Length;
+        driver.Resize(79);
+        await driver.OutputContainsAfter(beforeRefresh, "Explain your choice", cancellationToken);
+        var activeOutput = driver.Output[beforeRefresh..];
+        _ = await Assert.That(activeOutput).Contains("Answer context");
+        _ = await Assert.That(activeOutput).DoesNotContain("Answer context Explain your choice");
+        _ = await Assert.That(activeOutput).DoesNotContain("Write an answer");
+        driver.Input.Type("  typed answer  ");
+        if (multiple && !optionless)
+        {
+            await driver.OutputContains("Finish selecting", cancellationToken);
+            driver.Input.Type("Done");
+        }
+
+        await driver.OutputContains("Next answer", cancellationToken);
+        driver.Input.Type("second answer");
+        while (driver.Invoker.QuestionReplies.Count == 0)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        var answers = driver.Invoker.QuestionReplies.Single().Answers;
+        _ = await Assert.That(answers.Count).IsEqualTo(2);
+        _ = await Assert.That(answers[0].Text).IsEqualTo("typed answer");
+        _ = await Assert.That(answers[1].Text).IsEqualTo("second answer");
+        _ = await Assert.That(driver.Invoker.QuestionRejections).IsEmpty();
+        driver.Input.End();
+        _ = await running;
+    }
+
+    [Test]
+    [Arguments(false, "")]
+    [Arguments(true, "\u001b")]
+    [Arguments(false, "settle")]
+    [Arguments(true, "settle")]
+    public async Task Optionless_question_rejection_and_settlement_do_not_submit_answers(
+        bool multiple, string action, CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var running = driver.Drive(cancellationToken);
+        driver.Input.Type("ask me");
+        await driver.Sent(1, cancellationToken);
+        await PublishQuestionStart(driver);
+        await WaitForQuestionList(driver, 1, cancellationToken);
+        var pending = new PendingQuestion { Id = "question-request" };
+        pending.Questions.Add(new QuestionDefinition
+        {
+            Prompt = "Write directly",
+            Custom = true,
+            Multiple = multiple,
+        });
+        driver.Invoker.AddPendingQuestion(pending);
+        await driver.OutputContains("Write directly", cancellationToken);
+        var beforeClosure = driver.Output.Length;
+        if (action == "settle")
+        {
+            driver.Invoker.RemovePendingQuestion(pending.Id);
+            await driver.OutputContainsAfter(beforeClosure, "\u001b[2K❯ ", cancellationToken);
+            _ = await Assert.That(driver.Invoker.QuestionRejections).IsEmpty();
+        }
+        else
+        {
+            driver.Input.Type(action);
+            while (driver.Invoker.QuestionRejections.Count == 0)
+            {
+                await Task.Delay(5, cancellationToken);
+            }
+
+            _ = await Assert.That(driver.Invoker.QuestionRejections).HasSingleItem();
+        }
+
+        _ = await Assert.That(driver.Invoker.QuestionReplies).IsEmpty();
+        driver.Input.End();
+        _ = await running;
+    }
+
+    [Test]
     public async Task Finished_shell_tool_flushes_its_command_to_scrollback(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();

@@ -204,6 +204,29 @@ internal sealed class EnhancedSlashDialogTests
         _ = await Assert.That(dialog.Loads[0]).IsEqualTo("Loading models…");
     }
 
+    [Test]
+    [Arguments("Header\nQuestion", 80, "Header|Question")]
+    [Arguments("Header\nQuestion", 6, "Header|Questi|on")]
+    [Arguments("Question", 80, "Question")]
+    public async Task Picker_and_text_keep_multiline_context_in_every_editing_frame(
+        string contextText, int columns, string expectedLines, CancellationToken cancellationToken)
+    {
+        var pickerHost = new ScriptedLiveInputHost("a\r");
+        ISlashDialog picker = new EnhancedSlashDialog(pickerHost);
+        _ = await picker.Select(
+            contextText,
+            [new SlashDialogOption("answer", "Answer", string.Empty)],
+            cancellationToken);
+        var textHost = new ScriptedLiveInputHost("ab\r");
+        ISlashDialog text = new EnhancedSlashDialog(textHost);
+        _ = await text.ReadText(contextText, cancellationToken);
+        foreach (var frame in pickerHost.Frames.Concat(textHost.Frames))
+        {
+            var rendered = frame[0].Render(new LiveBufferRenderContext(columns, new TerminalPalette(false)));
+            _ = await Assert.That(string.Join('|', rendered.Lines.Select(line => line.Text))).IsEqualTo(expectedLines);
+        }
+    }
+
     private static async Task AssertPrompt(ILiveBufferItem item, string text, int column)
     {
         var rendered = item.Render(new LiveBufferRenderContext(80, new TerminalPalette(false)));

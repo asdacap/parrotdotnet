@@ -718,9 +718,12 @@ internal sealed class EnhancedCli(
             {
                 const string customId = "__custom__";
                 const string doneId = "__done__";
-                var title = $"{question.Header} {question.Prompt}".Trim();
+                var title = string.IsNullOrWhiteSpace(question.Header)
+                    ? question.Prompt
+                    : $"{question.Header}\n{question.Prompt}";
+                var directCustomAnswer = question.Options.Count == 0 && question.Custom;
 
-                if (!question.Multiple)
+                if (!question.Multiple || directCustomAnswer)
                 {
                     var choices = question.Options
                         .Select((option, index) => new SlashDialogOption($"__option_{index}__", option, option))
@@ -730,7 +733,9 @@ internal sealed class EnhancedCli(
                         choices.Add(new SlashDialogOption(customId, "Custom answer", "Write an answer"));
                     }
 
-                    var selected = await dialog.Select(title, choices, interaction.Token).ConfigureAwait(false);
+                    var selected = directCustomAnswer
+                        ? choices[0]
+                        : await dialog.Select(title, choices, interaction.Token).ConfigureAwait(false);
                     if (lifetime.IsClosed)
                     {
                         return;
@@ -750,7 +755,7 @@ internal sealed class EnhancedCli(
                     string answerText;
                     if (selected.Id == customId)
                     {
-                        var custom = await dialog.ReadText(question.Prompt, interaction.Token).ConfigureAwait(false);
+                        var custom = await dialog.ReadText(title, interaction.Token).ConfigureAwait(false);
                         if (lifetime.IsClosed)
                         {
                             return;
@@ -826,7 +831,7 @@ internal sealed class EnhancedCli(
 
                     if (selected.Id == customId)
                     {
-                        var custom = await dialog.ReadText(question.Prompt, interaction.Token).ConfigureAwait(false);
+                        var custom = await dialog.ReadText(title, interaction.Token).ConfigureAwait(false);
                         if (lifetime.IsClosed)
                         {
                             return;
