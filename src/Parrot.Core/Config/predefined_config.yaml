@@ -136,6 +136,17 @@ system_prompts:
 
     Each environment have its own way of doing things. Each project have its own convention. Keep it, even if you think its worst, unless instructed. Be imperfect. You dont have all information on why its done such a way and researching it consume resource. Focus on what you need to do your designated task.
 
+  runtime:system-context:05-git-ethics: >-
+
+    # Git-ethics
+
+    You may use worktree to prevent conflict between parallel worker where reasonable. Put the worktree into the current directory such as in .worktrees/something. The current directory may be on a different drive than the home directory.
+
+    # Github
+
+    In the PR and commit message, mention that it is AI generated, mention the agent and model used.
+    For a PR, also mention the cumulative session statistics, which are the models, tokens, costs, etc.
+
 # Stable named prompt templates. User mappings recursively override individual
 # fields. Placeholders use {name}; double braces emit literal braces.
 prompt_templates:
