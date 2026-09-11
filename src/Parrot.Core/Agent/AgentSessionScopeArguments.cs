@@ -1,4 +1,3 @@
-using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
@@ -26,7 +25,6 @@ internal sealed record AgentSessionScopeArguments(
     WebFetcher WebFetcher,
     AgentTaskConfig AgentTasks,
     RequestLimitsConfig RequestLimits,
-    AgentTaskRunCatalog AgentTaskRuns,
     ToolDefinitionCatalog ToolDefinitions,
     IReadOnlyList<string> ReadOnlyExecCommandPrefixes,
     ProcessRunner ProcessRunner,

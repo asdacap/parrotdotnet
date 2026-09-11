@@ -5,9 +5,9 @@ using Parrot.Statuses;
 
 namespace Parrot.AgentTasks;
 
-internal sealed class AgentTaskRunCatalog(IDiagnosticLog diagnostics, CancellationToken lifetime) : IAsyncDisposable
+internal sealed class AgentTaskRunCatalog(string ownerAgentSessionId, IDiagnosticLog diagnostics, CancellationToken lifetime) : IAsyncDisposable
 {
-    private readonly Dictionary<RunKey, AgentTaskRun> _runs = [];
+    private readonly Dictionary<string, AgentTaskRun> _runs = new(StringComparer.Ordinal);
     private readonly List<AgentTaskRun> _ownedRuns = [];
     private readonly List<Exception> _failures = [];
     private readonly CancellationTokenSource _lifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
@@ -20,8 +20,8 @@ internal sealed class AgentTaskRunCatalog(IDiagnosticLog diagnostics, Cancellati
         lock (_gate)
         {
             return [.. _runs.Values
-                .Select(static run => new ActiveWorkObservation(
-                    $"{run.Key.OwnerAgentSessionId}/{run.Key.RunId}",
+                .Select(run => new ActiveWorkObservation(
+                    $"{ownerAgentSessionId}/{run.RunId}",
                     run.DisplayName,
                     ActiveWorkKind.AgentTask,
                     ActiveWorkState.Running))
@@ -38,66 +38,47 @@ internal sealed class AgentTaskRunCatalog(IDiagnosticLog diagnostics, Cancellati
         ArgumentException.ThrowIfNullOrWhiteSpace(request.DisplayName);
         ArgumentNullException.ThrowIfNull(request.Artifact);
         cancellationToken.ThrowIfCancellationRequested();
-        var key = new RunKey(request.OwnerScope.Session.SessionId, request.RunId);
+        if (!string.Equals(request.OwnerScope.Session.SessionId, ownerAgentSessionId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("AgentTask run owner does not match the requesting agent session.");
+        }
+
+        var runId = request.RunId;
 
         lock (_gate)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!_accepting || _lifetime.IsCancellationRequested)
             {
-                throw new InvalidOperationException("The user session is shutting down.");
+                throw new InvalidOperationException("The agent session is shutting down.");
             }
 
-            if (_runs.ContainsKey(key))
+            if (_runs.ContainsKey(runId))
             {
                 throw new InvalidOperationException($"AgentTask run '{request.RunId}' is already active.");
             }
 
-            var run = new AgentTaskRun(key, request, this, _lifetime.Token);
+            var run = new AgentTaskRun(runId, request, this, _lifetime.Token);
             run.Initialize(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            _runs.Add(key, run);
+            _runs.Add(runId, run);
             _ownedRuns.Add(run);
             run.Start();
         }
     }
 
-    internal IReadOnlyList<AgentTaskRunSnapshot> Snapshot(string ownerAgentSessionId)
+    internal IReadOnlyList<AgentTaskRunSnapshot> Snapshot()
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(ownerAgentSessionId);
         lock (_gate)
         {
             return Array.AsReadOnly(_runs.Values
-                .Where(run => string.Equals(
-                    run.Key.OwnerAgentSessionId,
-                    ownerAgentSessionId,
-                    StringComparison.Ordinal))
-                .OrderBy(run => run.Key.RunId, StringComparer.Ordinal)
+                .OrderBy(run => run.RunId, StringComparer.Ordinal)
                 .Select(run => new AgentTaskRunSnapshot(
-                    run.Key.OwnerAgentSessionId,
-                    run.Key.RunId,
+                    ownerAgentSessionId,
+                    run.RunId,
                     run.DisplayName,
                     run.Progress.CurrentSnapshot()))
                 .ToArray());
-        }
-    }
-
-    internal IReadOnlyList<ActiveWorkObservation> Active(string ownerAgentSessionId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(ownerAgentSessionId);
-        lock (_gate)
-        {
-            return [.. _runs.Values
-                .Where(run => string.Equals(
-                    run.Key.OwnerAgentSessionId,
-                    ownerAgentSessionId,
-                    StringComparison.Ordinal))
-                .Select(static run => new ActiveWorkObservation(
-                    $"{run.Key.OwnerAgentSessionId}/{run.Key.RunId}",
-                    run.DisplayName,
-                    ActiveWorkKind.AgentTask,
-                    ActiveWorkState.Running))
-                .OrderBy(static item => item.Id, StringComparer.Ordinal)];
         }
     }
 
@@ -108,7 +89,15 @@ internal sealed class AgentTaskRunCatalog(IDiagnosticLog diagnostics, Cancellati
             if (_settlement is null)
             {
                 _accepting = false;
-                _settlement = SettleRuns();
+                if (_ownedRuns.Count == 0)
+                {
+                    _lifetime.Dispose();
+                    _settlement = _failures.Count == 0 ? Task.CompletedTask : Task.FromException(_failures[0]);
+                }
+                else
+                {
+                    _settlement = SettleRuns();
+                }
             }
 
             return _settlement;
@@ -150,11 +139,11 @@ internal sealed class AgentTaskRunCatalog(IDiagnosticLog diagnostics, Cancellati
         }
     }
 
-    private void WriteDiagnostic(RunKey key, string operation, string outcome, long started, Exception? failure) =>
+    private void WriteDiagnostic(string runId, string operation, string outcome, long started, Exception? failure) =>
         diagnostics.Write(new DiagnosticEvent("task_run", operation, outcome == "failed" ? DiagnosticSeverity.Error : DiagnosticSeverity.Information)
         {
-            AgentSessionId = key.OwnerAgentSessionId,
-            CorrelationId = key.RunId,
+            AgentSessionId = ownerAgentSessionId,
+            CorrelationId = runId,
             Outcome = outcome,
             DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
             ErrorCode = failure is null ? null : DiagnosticEvent.ClassifyFailure(failure),
@@ -164,9 +153,9 @@ internal sealed class AgentTaskRunCatalog(IDiagnosticLog diagnostics, Cancellati
     {
         lock (_gate)
         {
-            if (_runs.TryGetValue(run.Key, out var current) && ReferenceEquals(current, run))
+            if (_runs.TryGetValue(run.RunId, out var current) && ReferenceEquals(current, run))
             {
-                _ = _runs.Remove(run.Key);
+                _ = _runs.Remove(run.RunId);
                 _ = _ownedRuns.Remove(run);
             }
         }
@@ -177,13 +166,13 @@ internal sealed class AgentTaskRunCatalog(IDiagnosticLog diagnostics, Cancellati
         lock (_gate)
         {
             _failures.Add(new InvalidOperationException(
-                $"AgentTask run '{run.Key.RunId}' completion delivery failed.",
+                $"AgentTask run '{run.RunId}' completion delivery failed.",
                 failure));
         }
     }
 
     private sealed class AgentTaskRun(
-        RunKey key,
+        string runId,
         AgentTaskRunRequest request,
         AgentTaskRunCatalog catalog,
         CancellationToken lifetime)
@@ -194,7 +183,7 @@ internal sealed class AgentTaskRunCatalog(IDiagnosticLog diagnostics, Cancellati
         private Task _execution = Task.CompletedTask;
         private Exception? _deliveryFailure;
 
-        internal RunKey Key => key;
+        internal string RunId => runId;
 
         internal string DisplayName => request.DisplayName;
 
@@ -209,7 +198,7 @@ internal sealed class AgentTaskRunCatalog(IDiagnosticLog diagnostics, Cancellati
             await _execution.WaitAsync(CancellationToken.None).ConfigureAwait(false);
 
         private void WriteDiagnostic(string operation, string outcome, long started, Exception? failure) =>
-            catalog.WriteDiagnostic(key, operation, outcome, started, failure);
+            catalog.WriteDiagnostic(runId, operation, outcome, started, failure);
 
         private async Task Execute()
         {
@@ -229,7 +218,7 @@ internal sealed class AgentTaskRunCatalog(IDiagnosticLog diagnostics, Cancellati
             {
                 var result = await runner.Run(request.Artifact, lifetime).ConfigureAwait(false);
                 terminal = new AgentTaskRunTerminal(
-                    key.RunId,
+                    runId,
                     _completionMessageId,
                     result.Status,
                     result.Serialize(),
@@ -238,7 +227,7 @@ internal sealed class AgentTaskRunCatalog(IDiagnosticLog diagnostics, Cancellati
             catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
             {
                 terminal = new AgentTaskRunTerminal(
-                    key.RunId,
+                    runId,
                     _completionMessageId,
                     AgentTaskExecutionStatus.Canceled,
                     string.Empty,
@@ -248,7 +237,7 @@ internal sealed class AgentTaskRunCatalog(IDiagnosticLog diagnostics, Cancellati
             {
                 executionFailure = failure;
                 terminal = new AgentTaskRunTerminal(
-                    key.RunId,
+                    runId,
                     _completionMessageId,
                     AgentTaskExecutionStatus.Failed,
                     string.Empty,
@@ -319,6 +308,4 @@ internal sealed class AgentTaskRunCatalog(IDiagnosticLog diagnostics, Cancellati
             return false;
         }
     }
-
-    private sealed record RunKey(string OwnerAgentSessionId, string RunId);
 }

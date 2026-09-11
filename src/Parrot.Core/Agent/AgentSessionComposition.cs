@@ -121,10 +121,10 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.AgentTasks;
             })
-            .Bind<AgentTaskRunOwner>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<AgentTaskRunCatalog>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new AgentTaskRunOwner(arguments.Identity.SessionId, arguments.AgentTaskRuns);
+                return new AgentTaskRunCatalog(arguments.Identity.SessionId, arguments.Diagnostics, arguments.Lifetime);
             })
             .Bind<IReadOnlyList<string>>().To(ctx =>
             {
@@ -322,7 +322,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<ShellProcessOwner>(out var processes);
-                ctx.Inject<AgentTaskRunOwner>(out var agentTasks);
+                ctx.Inject<AgentTaskRunCatalog>(out var agentTasks);
                 ctx.Inject<IChildRegistry>(out var children);
                 return new ActiveWorkCompletionReminder(
                     children,
@@ -352,7 +352,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Root<IAgentSession>("Session")
             .Root<GoalService>("Goals")
             .Root<AgentSpawner>("AgentSpawner")
-            .Root<AgentTaskRunOwner>("AgentTaskRuns")
+            .Root<AgentTaskRunCatalog>("AgentTaskRuns")
             .Root<ChildRegistry>("ChildRegistry")
             .Root<AgentSessionParentScope>("ParentScope")
             .Root<ChildQuestionCoordinator>("ChildQuestions")

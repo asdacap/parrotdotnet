@@ -14,7 +14,7 @@ internal sealed class RunAgentTasksToolFactory(
     EventBroker eventBroker,
     EventRepository eventRepository,
     IAgentSessionScope ownerScope,
-    AgentTaskRunOwner runs,
+    AgentTaskRunCatalog runs,
     ToolOutputBlobStore outputBlobs,
     PromptTemplateCatalog promptTemplates,
     AgentTaskConfig agentTasks,
