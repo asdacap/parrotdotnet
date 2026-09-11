@@ -514,6 +514,8 @@ message Event {
     SkillLoadedEvent skill_loaded = 40;
     InputCanceled input_canceled = 41;
     ProviderRequestPhaseChangedEvent provider_request_phase_changed = 42;
+    RequestUsageRecorded request_usage_recorded = 43;
+    ToolExecutionStarted tool_execution_started = 44;
   }
 }
 
@@ -550,6 +552,34 @@ enum ProviderRequestPhase {
 message ProviderRequestPhaseChangedEvent {
   ProviderRequestPhase phase = 1;
   uint32 attempt = 2;
+}
+
+// Durable facts, unlike the transient token-rate observation below.
+message RequestUsageRecorded {
+  string request_id = 1;
+  string parent_agent_session_id = 2;
+  string provider = 3;
+  string model = 4;
+  optional string effort = 5;
+  int64 input_tokens = 6;
+  int64 cached_input_tokens = 7;
+  int64 output_tokens = 8;
+  double input_cost = 9;
+  double output_cost = 10;
+  int64 context_size = 11;
+  int64 context_limit = 12;
+  repeated string tool_call_ids = 13;
+}
+
+message ToolExecutionStarted {
+  string request_id = 1;
+  int64 assistant_sequence = 2;
+  string tool_call_id = 3;
+  string tool_name = 4;
+  string parent_agent_session_id = 5;
+  string provider = 6;
+  string model = 7;
+  optional string effort = 8;
 }
 
 message ProviderCallUsage {

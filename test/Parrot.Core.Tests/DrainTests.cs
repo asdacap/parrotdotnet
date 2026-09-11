@@ -644,7 +644,7 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
-    public async Task Statistics_include_tool_rounds_are_durable_and_restored(
+    public async Task Statistics_replay_individual_facts_and_restore_tool_rounds(
         CancellationToken cancellationToken)
     {
         var repository = new EventRepository(_database);
@@ -670,6 +670,7 @@ internal sealed class DrainTests : IDisposable
             await firstSession.DisposeAsync();
         }
 
+        repository = new EventRepository(_database);
         using (var secondProvider = new SteppedProvider(
             LLMEvent.Completed("stop", 6, 1, 2, "second", [])))
         {
@@ -682,8 +683,8 @@ internal sealed class DrainTests : IDisposable
 
         var replay = repository.Replay().ToList();
         var statistics = replay
-            .Where(published => published.PayloadCase == Event.PayloadOneofCase.AgentStatisticsUpdated)
-            .Select(published => published.AgentStatisticsUpdated)
+            .Where(published => published.PayloadCase == Event.PayloadOneofCase.RequestUsageRecorded)
+            .Select(published => published.RequestUsageRecorded)
             .ToArray();
         var endings = replay
             .Where(published => published.PayloadCase == Event.PayloadOneofCase.TurnEnded)
@@ -695,19 +696,23 @@ internal sealed class DrainTests : IDisposable
             string.Join(" | ", statistics.Select(updated =>
                 $"{updated.InputTokens}:{updated.CachedInputTokens}:{updated.OutputTokens}:"
                 + $"{updated.ContextSize}:{updated.ContextLimit}")))
-            .IsEqualTo("10:3:4:10:100000 | 17:5:9:7:100000 | 23:6:11:6:100000");
+            .IsEqualTo("10:3:4:10:100000 | 7:2:5:7:100000 | 6:1:2:6:100000");
         _ = await Assert.That(statistics[0].InputCost).IsEqualTo(0.95);
         _ = await Assert.That(statistics[0].OutputCost).IsEqualTo(1.0);
-        _ = await Assert.That(statistics[1].InputCost).IsEqualTo(1.625);
-        _ = await Assert.That(statistics[1].OutputCost).IsEqualTo(2.25);
-        _ = await Assert.That(statistics[2].InputCost).IsEqualTo(2.275);
-        _ = await Assert.That(statistics[2].OutputCost).IsEqualTo(2.75);
+        _ = await Assert.That(statistics[1].InputCost).IsEqualTo(0.675);
+        _ = await Assert.That(statistics[1].OutputCost).IsEqualTo(1.25);
+        _ = await Assert.That(statistics[2].InputCost).IsEqualTo(0.65);
+        _ = await Assert.That(statistics[2].OutputCost).IsEqualTo(0.5);
         _ = await Assert.That(
             string.Join(" | ", endings.Select(ended => $"{ended.InputTokens}:{ended.OutputTokens}")))
             .IsEqualTo("17:9 | 23:11");
         _ = await Assert.That(replay.FindIndex(
-            published => published.PayloadCase == Event.PayloadOneofCase.AgentStatisticsUpdated))
+            published => published.PayloadCase == Event.PayloadOneofCase.RequestUsageRecorded))
             .IsLessThan(replay.FindIndex(published => published.PayloadCase == Event.PayloadOneofCase.ToolStarted));
+        var recovered = repository.ReplayStatistics().Agents["agent"];
+        _ = await Assert.That(recovered.Self.Totals).IsEqualTo(new AgentUsageTotals(23, 6, 11, 1, 2.275, 2.75));
+        _ = await Assert.That(repository.GetRuntimeStatistics().GetAgentStatistics("agent").Capture().Self.Totals).IsEqualTo(recovered.Self.Totals);
+        _ = await Assert.That(replay.Any(published => published.PayloadCase == Event.PayloadOneofCase.AgentStatisticsUpdated)).IsFalse();
     }
 
     [Test]
@@ -949,7 +954,7 @@ internal sealed class DrainTests : IDisposable
         {
             var sampleIndex = published.IndexOf(sample);
             var statistics = published.Take(sampleIndex).Last(published =>
-                published.PayloadCase == Event.PayloadOneofCase.AgentStatisticsUpdated);
+                published.PayloadCase == Event.PayloadOneofCase.RequestUsageRecorded);
             _ = await Assert.That(repository.Replay().Any(published => published.Id == statistics.Id)).IsTrue();
         }
     }
@@ -1428,6 +1433,8 @@ internal sealed class DrainTests : IDisposable
 
         _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
             "started:call-1:missing | error:call-1:missing:unknown tool missing");
+        _ = await Assert.That(session.CaptureStatistics().Self.Totals.ToolCalls).IsEqualTo(0);
+        _ = await Assert.That(repository.ReplayStatistics().Agents["agent"].Self.Totals.ToolCalls).IsEqualTo(0);
     }
 
     [Test]
@@ -1483,6 +1490,8 @@ internal sealed class DrainTests : IDisposable
         provider.Release();
         await session.DisposeAsync();
         _ = await Assert.That(session.Activity.Capture().CurrentTool).IsNull();
+        _ = await Assert.That(session.CaptureStatistics().Self.Totals.ToolCalls).IsEqualTo(1);
+        _ = await Assert.That(repository.ReplayStatistics().Agents["agent"].Self.Totals.ToolCalls).IsEqualTo(1);
     }
 
     [Test]
@@ -1540,6 +1549,8 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(answered).IsEqualTo("call-1 | call-2");
         _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
             "started:call-1:held | cancelled:call-1:held | cancelled:call-2:held");
+        _ = await Assert.That(session.CaptureStatistics().Self.Totals.ToolCalls).IsEqualTo(1);
+        _ = await Assert.That(repository.ReplayStatistics().Agents["agent"].Self.Totals.ToolCalls).IsEqualTo(1);
     }
 
     [Test]
@@ -2105,6 +2116,7 @@ internal sealed class DrainTests : IDisposable
             TestModels.Route(model),
             _broker,
             repository,
+            repository.GetRuntimeStatistics(),
             [.. toolFactories.Select(tool => tool.Factory)],
             new TestToolDefinitionsFixture([.. toolFactories.Select(factory => factory.Tool.Name)]).Definitions,
             prompt,
@@ -2151,6 +2163,7 @@ internal sealed class DrainTests : IDisposable
             TestModels.Route(model),
             _broker,
             repository,
+            repository.GetRuntimeStatistics(),
             [.. toolFactories.Select(tool => tool.Factory)],
             new TestToolDefinitionsFixture([.. toolFactories.Select(factory => factory.Tool.Name)]).Definitions,
             TestModels.MaterializePrompt(identity, ".", "."),

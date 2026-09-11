@@ -23,6 +23,12 @@ internal interface IAgentSession : IAsyncDisposable
 
     AgentSessionActivity Activity { get; }
 
+    /// <summary>Captures immutable own and subtree usage, including model/effort buckets and costs.</summary>
+    AgentSessionStatisticsSnapshot CaptureStatistics();
+
+    /// <summary>Accumulates committed descendant usage and forwards it to the direct parent.</summary>
+    void AddDescendantUsage(AgentUsageIncrement increment);
+
     AgentSelection CurrentSelection();
 
     /// <summary>Caches the resolved model for the current selection.</summary>

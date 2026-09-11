@@ -8,6 +8,7 @@ namespace Parrot.Store;
 [JsonSerializable(typeof(AgentHistoryEntry))]
 [JsonSerializable(typeof(AgentHistoryMessageEntry))]
 [JsonSerializable(typeof(AgentHistoryCompactionEntry))]
+[JsonSerializable(typeof(AgentHistoryRequestEntry))]
 [JsonSerializable(typeof(AgentHistoryPart))]
 [JsonSerializable(typeof(AgentHistoryToolCall))]
 internal sealed partial class AgentHistoryJsonContext : JsonSerializerContext;

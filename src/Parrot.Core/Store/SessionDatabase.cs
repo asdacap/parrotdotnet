@@ -197,6 +197,12 @@ internal sealed class SessionDatabase : IDisposable
                     UNIQUE (conversation_sequence)
                 );
 
+                CREATE TABLE IF NOT EXISTS request_history_anchor (
+                    event_sequence INTEGER PRIMARY KEY REFERENCES event(sequence),
+                    agent_session TEXT NOT NULL,
+                    history_sequence INTEGER NOT NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS agent_history_by_session
                     ON agent_history (agent_session, sequence);
 

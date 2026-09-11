@@ -920,8 +920,8 @@ internal sealed partial class AgentSession
                         TurnEnded = new TurnEnded
                         {
                             FinishReason = completed.FinishReason,
-                            InputTokens = _statistics.InputTokens,
-                            OutputTokens = _statistics.OutputTokens,
+                            InputTokens = CaptureStatistics().Self.Totals.InputTokens,
+                            OutputTokens = CaptureStatistics().Self.Totals.OutputTokens,
                         },
                     };
                     if (deferredPlanCompletion is { } planCompleted)
@@ -973,8 +973,8 @@ internal sealed partial class AgentSession
                     TurnEnded = new TurnEnded
                     {
                         FinishReason = InterruptedFinish,
-                        InputTokens = _statistics.InputTokens,
-                        OutputTokens = _statistics.OutputTokens,
+                        InputTokens = CaptureStatistics().Self.Totals.InputTokens,
+                        OutputTokens = CaptureStatistics().Self.Totals.OutputTokens,
                     },
                 };
                 await EmitEvent(ended, "assistant", _interruptedNote, CancellationToken.None)
@@ -1341,14 +1341,7 @@ internal sealed partial class AgentSession
                 if (llmEvent.Kind == LLMEventKind.Completed)
                 {
                     _providerTokenBudget.ObserveUsage(selectedModel.Selector, estimatedInputTokens, llmEvent);
-                    var statistics = _statistics.Add(llmEvent, selectedModel.Model);
-                    var published = new Event
-                    {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                        AgentStatisticsUpdated = AgentStatisticsUpdatedEvent.From(statistics),
-                    };
-                    await EmitEvent(published, null, null, CancellationToken.None).ConfigureAwait(false);
+                    RecordRequestUsage(selectedModel, request.Reasoning, llmEvent);
                     eventBroker.PublishTransient(
                         new Event
                         {
@@ -1360,7 +1353,6 @@ internal sealed partial class AgentSession
                                 OutputTokens = Math.Max(0, llmEvent.OutputTokens),
                             },
                         });
-                    _statistics = statistics;
                     completed = llmEvent;
                     continue;
                 }
@@ -1435,6 +1427,7 @@ internal sealed partial class AgentSession
             var execution = Activity.BeginTool(tool.Name);
             try
             {
+                RecordToolUsage(assistantSequence, call);
                 result = await tool.Execute(invocation, invocationSelection, cancellationToken).ConfigureAwait(false);
             }
             finally

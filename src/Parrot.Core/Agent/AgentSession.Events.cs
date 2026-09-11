@@ -67,10 +67,9 @@ internal sealed partial class AgentSession
         string? content,
         CancellationToken cancellationToken)
     {
-        SessionUsage? usage;
         try
         {
-            usage = eventRepository.Append(published, role, content);
+            _ = eventRepository.Append(published, role, content);
         }
         catch (Exception failure)
         {
@@ -84,9 +83,5 @@ internal sealed partial class AgentSession
         }
 
         await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
-        if (usage is not null)
-        {
-            await eventBroker.Publish(new Event { SessionUsageSnapshot = SessionUsageSnapshot.From(usage) }, cancellationToken).ConfigureAwait(false);
-        }
     }
 }
