@@ -7,7 +7,7 @@ namespace Parrot.Llm;
 internal sealed class ProviderRequestDiagnostics(IDiagnosticLog diagnostics, DiagnosticEvent call)
 {
     public async IAsyncEnumerable<LLMEvent> Trace(
-        IAsyncEnumerable<LLMEvent> events,
+        Func<ProviderAttemptDiagnostics?, CancellationToken, IAsyncEnumerable<LLMEvent>> send,
         string transport,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -18,6 +18,7 @@ internal sealed class ProviderRequestDiagnostics(IDiagnosticLog diagnostics, Dia
             RequestId = Guid.NewGuid().ToString("N"),
             Transport = transport,
         };
+        var attempt = new ProviderAttemptDiagnostics(diagnostics, entry);
         diagnostics.Write(entry);
         var outcome = "disposed";
         Exception? failure = null;
@@ -26,7 +27,7 @@ internal sealed class ProviderRequestDiagnostics(IDiagnosticLog diagnostics, Dia
         {
             try
             {
-                enumerator = events.GetAsyncEnumerator(cancellationToken);
+                enumerator = send(attempt, cancellationToken).GetAsyncEnumerator(cancellationToken);
             }
             catch (Exception exception)
             {
@@ -70,6 +71,8 @@ internal sealed class ProviderRequestDiagnostics(IDiagnosticLog diagnostics, Dia
                 diagnostics.Write(entry with
                 {
                     Operation = "request_finished",
+                    RequestBytes = attempt.RequestBytes,
+                    ResponseBytes = attempt.ResponseBytes,
                     Severity = failure is null or OperationCanceledException
                         ? DiagnosticSeverity.Information
                         : DiagnosticSeverity.Error,

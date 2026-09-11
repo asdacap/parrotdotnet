@@ -1153,7 +1153,7 @@ internal sealed class DrainTests : IDisposable
     [Test]
     public async Task Terminal_provider_failures_publish_the_response_body(CancellationToken cancellationToken)
     {
-        var provider = new FailingProvider();
+        var provider = new FailingProvider(new ProviderHttpException(400, "invalid_request", "bad", "broken", "provider body"));
         var repository = new EventRepository(_database);
         await using var session = Session(provider, repository, [], cancellationToken);
 
@@ -1165,6 +1165,48 @@ internal sealed class DrainTests : IDisposable
             published.PayloadCase == Event.PayloadOneofCase.TurnFailed).TurnFailed;
         _ = await Assert.That(failure.Message).Contains("HTTP 400");
         _ = await Assert.That(failure.ProviderResponseBody).IsEqualTo("provider body");
+    }
+
+    [Test]
+    [Timeout(90_000)]
+    [Arguments(0, false)]
+    [Arguments(1, false)]
+    [Arguments(5, false)]
+    [Arguments(5, true)]
+    public async Task Header_retry_exhaustion_reaches_the_terminal_event_without_private_details(
+        int maximumRetries, bool cancelled, CancellationToken cancellationToken)
+    {
+        var failingProvider = new FailingProvider(cancelled
+            ? new OperationCanceledException("private-sentinel")
+            : new HeaderTimeoutException("private-sentinel"));
+        ILLMProvider provider = maximumRetries == 5
+            ? new RetryingProvider(failingProvider)
+            : new RetryingProvider(failingProvider) { HeaderTimeoutMaxRetries = maximumRetries };
+        var repository = new EventRepository(_database);
+        await using var session = Session(provider, repository, [], cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
+        await session.Settled();
+        await session.DisposeAsync();
+
+        var events = repository.Replay().ToArray();
+        _ = await Assert.That(events.Count(published => published.PayloadCase == Event.PayloadOneofCase.RetryNotice))
+            .IsEqualTo(cancelled ? 0 : maximumRetries);
+        var terminal = events.Last(published => published.PayloadCase is
+            Event.PayloadOneofCase.TurnFailed or Event.PayloadOneofCase.TurnEnded);
+        if (cancelled)
+        {
+            _ = await Assert.That(terminal.PayloadCase).IsEqualTo(Event.PayloadOneofCase.TurnEnded);
+            _ = await Assert.That(events.Any(published => published.PayloadCase == Event.PayloadOneofCase.TurnFailed)).IsFalse();
+        }
+        else
+        {
+            _ = await Assert.That(terminal.PayloadCase).IsEqualTo(Event.PayloadOneofCase.TurnFailed);
+            _ = await Assert.That(terminal.TurnFailed.Message).IsEqualTo(
+                $"Provider header timeout retry limit exceeded ({maximumRetries} retries, {maximumRetries + 1} attempts).");
+            _ = await Assert.That(terminal.TurnFailed.ProviderResponseBody).IsEmpty();
+            _ = await Assert.That(terminal.TurnFailed.Message).DoesNotContain("private-sentinel");
+        }
     }
 
     [Test]
@@ -2148,7 +2190,7 @@ internal sealed class DrainTests : IDisposable
         }
     }
 
-    private sealed class FailingProvider : ILLMProvider
+    private sealed class FailingProvider(Exception failure) : ILLMProvider
     {
         public string Id => "failing";
 
@@ -2167,7 +2209,7 @@ internal sealed class DrainTests : IDisposable
             cancellationToken.ThrowIfCancellationRequested();
             if (request.Model.Length > 0)
             {
-                throw new ProviderHttpException(400, "invalid_request", "bad", "broken", "provider body");
+                throw failure;
             }
 
             yield return LLMEvent.Completed("stop", 0, 0, 0, string.Empty, []);

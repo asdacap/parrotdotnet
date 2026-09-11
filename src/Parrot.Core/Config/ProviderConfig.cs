@@ -23,7 +23,9 @@ internal sealed record ProviderConfig
 
     public bool DisableWebSocket { get; init; } = true;
 
-    public int? HeaderTimeoutMs { get; init; }
+    public int HeaderTimeoutMs { get; init; } = 60000;
+
+    public int HeaderTimeoutMaxRetries { get; init; } = 5;
 
     // Opaque JSON object forwarded as the request body's "provider" field.
     public string ProviderPreferences { get; init; } = string.Empty;

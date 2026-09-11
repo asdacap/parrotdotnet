@@ -98,6 +98,7 @@ internal static class HttpStreaming
         IReadOnlyDictionary<string, string> headers,
         TimeSpan headerTimeout,
         int maximumRequestBytes,
+        ProviderAttemptDiagnostics? attempt,
         CancellationToken cancellationToken)
     {
         if (body.Length > maximumRequestBytes)
@@ -138,6 +139,8 @@ internal static class HttpStreaming
             throw new HeaderTimeoutException(headerTimeout);
         }
 
+        attempt?.MarkResponseObtained();
+
         // The request message is disposed by the using; the response body stream
         // outlives it and is owned by the returned BoundedStream on success.
         var transferred = false;
@@ -146,7 +149,7 @@ internal static class HttpStreaming
         {
             if (!response.IsSuccessStatusCode)
             {
-                throw await ParseError(response, cancellationToken).ConfigureAwait(false);
+                throw await ParseError(response, attempt, cancellationToken).ConfigureAwait(false);
             }
 
             var raw = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
@@ -155,7 +158,7 @@ internal static class HttpStreaming
                 header => string.Join(", ", header.Value),
                 StringComparer.OrdinalIgnoreCase);
             transferred = true;
-            return new StreamingHttpResponse(raw, MaxStreamBytes, response, responseHeaders);
+            return new StreamingHttpResponse(raw, MaxStreamBytes, response, responseHeaders, attempt);
         }
         finally
         {
@@ -197,7 +200,7 @@ internal static class HttpStreaming
                 .ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                throw await ParseError(response, timeoutCts.Token).ConfigureAwait(false);
+                throw await ParseError(response, null, timeoutCts.Token).ConfigureAwait(false);
             }
 
             var stream = await response.Content.ReadAsStreamAsync(timeoutCts.Token).ConfigureAwait(false);
@@ -239,6 +242,7 @@ internal static class HttpStreaming
 
     private static async Task<ProviderHttpException> ParseError(
         HttpResponseMessage response,
+        ProviderAttemptDiagnostics? attempt,
         CancellationToken cancellationToken)
     {
         var status = (int)response.StatusCode;
@@ -249,7 +253,7 @@ internal static class HttpStreaming
             var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
             await using (stream.ConfigureAwait(false))
             {
-                body = await ReadErrorBody(stream, cancellationToken).ConfigureAwait(false);
+                body = await ReadErrorBody(stream, attempt, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (Exception failure) when (failure is not ProviderHttpException && !cancellationToken.IsCancellationRequested)
@@ -277,13 +281,17 @@ internal static class HttpStreaming
             ProviderErrors.BoundResponseBody(body));
     }
 
-    private static async Task<string> ReadErrorBody(Stream stream, CancellationToken cancellationToken)
+    private static async Task<string> ReadErrorBody(
+        Stream stream,
+        ProviderAttemptDiagnostics? attempt,
+        CancellationToken cancellationToken)
     {
         var buffer = new byte[MaxErrorBytes + 4];
         var total = 0;
         while (total < buffer.Length)
         {
             var read = await stream.ReadAsync(buffer.AsMemory(total), cancellationToken).ConfigureAwait(false);
+            attempt?.RecordResponseBytes(read);
             if (read == 0)
             {
                 break;

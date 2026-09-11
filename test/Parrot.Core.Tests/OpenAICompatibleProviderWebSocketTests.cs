@@ -15,6 +15,87 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         """;
 
     [Test]
+    [Arguments(0)]
+    [Arguments(1250)]
+    public async Task Configured_header_timeout_reaches_websocket_connector(
+        int timeoutMilliseconds,
+        CancellationToken cancellationToken)
+    {
+        using var socket = new ScriptedWebSocket([Completed]);
+        var connector = new ScriptedConnector([socket]);
+        using var handler = new EmptyHandler();
+        using var client = new HttpClient(handler, disposeHandler: false);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+                HeaderTimeout = TimeSpan.FromMilliseconds(timeoutMilliseconds),
+            },
+            client,
+            connector);
+        await using var session = provider.OpenSession();
+
+        var events = await Drain(session.Call(
+            new LLMRequest { Model = "model", Messages = [LLMMessage.User("hello")] }, cancellationToken));
+
+        _ = await Assert.That(events[^1].Kind).IsEqualTo(LLMEventKind.Completed);
+        _ = await Assert.That(connector.ConnectTimeout).IsEqualTo(TimeSpan.FromMilliseconds(timeoutMilliseconds));
+    }
+
+    [Test]
+    [Arguments(0, false)]
+    [Arguments(0, true)]
+    [Arguments(20, false)]
+    [Arguments(20, true)]
+    [Timeout(10_000)]
+    public async Task Configured_header_timeout_applies_to_http_and_websocket_fallback(
+        int timeoutMilliseconds,
+        bool fallback,
+        CancellationToken cancellationToken)
+    {
+        var connector = new ScriptedConnector(fallback
+            ? [new ResponsesWebSocketUpgradeException(404, "missing", new IOException())]
+            : []);
+        using var handler = new ResponsesHandler(1)
+        {
+            HeaderDelay = TimeSpan.FromMilliseconds(250),
+        };
+        using var client = new HttpClient(handler, disposeHandler: false);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = !fallback,
+                HeaderTimeout = TimeSpan.FromMilliseconds(timeoutMilliseconds),
+            },
+            client,
+            connector);
+        await using var session = provider.OpenSession();
+
+        async Task Consume() => _ = await Drain(session.Call(
+            new LLMRequest { Model = "model", Messages = [LLMMessage.User("hello")] }, cancellationToken));
+
+        if (timeoutMilliseconds == 0)
+        {
+            await Consume();
+            _ = await Assert.That(handler.Calls).IsEqualTo(1);
+        }
+        else
+        {
+            _ = await Assert.That(Consume).Throws<HeaderTimeoutException>();
+        }
+
+        _ = await Assert.That(connector.Calls).IsEqualTo(fallback ? 1 : 0);
+    }
+
+    [Test]
     [Arguments("reuse")]
     [Arguments("fallback")]
     [Arguments("previous_response_not_found")]
@@ -76,6 +157,16 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
             behavior == "fallback" ? ["websocket", "http_sse"] : ["websocket", "websocket"],
             behavior == "reuse" ? ["completed", "completed"] : ["failed", "completed"],
             behavior == "reuse" ? 2 : 1);
+        if (behavior != "fallback")
+        {
+            long?[] responseBytes = behavior == "reuse"
+                ? [Encoding.UTF8.GetByteCount(completed), Encoding.UTF8.GetByteCount(completed)]
+                : [Encoding.UTF8.GetByteCount($"{{\"type\":\"error\",\"error\":{{\"code\":\"{behavior}\",\"message\":\"private-sentinel-error\"}}}}"), Encoding.UTF8.GetByteCount(completed)];
+            await log.AssertByteCounts(
+                "websocket-agent",
+                behavior == "reuse" ? [.. recovered.Sent.Select(bytes => (long?)bytes.Length)] : [failed.Sent[0].Length, recovered.Sent[0].Length],
+                responseBytes);
+        }
     }
 
     [Test]
@@ -161,6 +252,7 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         _ = await Drain(session.Call(continued, cancellationToken));
 
         using var second = JsonDocument.Parse(socket.Sent[1]);
+        _ = await Assert.That(connector.ConnectTimeout).IsEqualTo(TimeSpan.FromSeconds(60));
         _ = await Assert.That(connector.Calls).IsEqualTo(1);
         _ = await Assert.That(socket.Sent).Count().IsEqualTo(2);
         _ = await Assert.That(second.RootElement.GetProperty("previous_response_id").GetString()).IsEqualTo("resp-1");
@@ -682,6 +774,8 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
     {
         private readonly Queue<object> _outcomes = new(outcomes);
 
+        public TimeSpan ConnectTimeout { get; private set; }
+
         public int Calls { get; private set; }
 
         public Task<(WebSocket Socket, IReadOnlyDictionary<string, string> ResponseHeaders)> Connect(
@@ -691,6 +785,7 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
             CancellationToken cancellationToken)
         {
             Calls++;
+            ConnectTimeout = timeout;
             var outcome = _outcomes.Dequeue();
             return outcome switch
             {
@@ -829,7 +924,9 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
     {
         public int Calls { get; private set; }
 
-        protected override Task<HttpResponseMessage> SendAsync(
+        public TimeSpan HeaderDelay { get; init; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
@@ -839,13 +936,14 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
                 throw new InvalidOperationException("Too many HTTP requests.");
             }
 
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            await Task.Delay(HeaderDelay, cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
                     "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n",
                     Encoding.UTF8,
                     "text/event-stream"),
-            });
+            };
         }
     }
 }

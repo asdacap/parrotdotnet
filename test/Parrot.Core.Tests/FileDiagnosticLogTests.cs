@@ -59,6 +59,43 @@ internal sealed class FileDiagnosticLogTests
     }
 
     [Test]
+    public async Task Byte_counts_preserve_zero_and_large_values_and_omit_unknown_sizes()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        try
+        {
+            _ = Directory.CreateDirectory(directory);
+            var resources = new UserSessionResources(
+                new StatePaths(directory, directory, directory),
+                UserSessionId.Parse("byte-counts"),
+                ProjectWorkspace.FromLaunchDirectory(directory));
+            using var log = FileDiagnosticLog.OpenSession(resources, "instance", TextWriter.Null, TimeProvider.System);
+            log.Write(new DiagnosticEvent("provider", "request_size", DiagnosticSeverity.Information)
+            {
+                RequestBytes = 4_294_967_296,
+            });
+            log.Write(new DiagnosticEvent("provider", "request_finished", DiagnosticSeverity.Information)
+            {
+                RequestBytes = 0,
+                ResponseBytes = 0,
+            });
+            log.Write(new DiagnosticEvent("provider", "request_finished", DiagnosticSeverity.Information));
+            var lines = await File.ReadAllLinesAsync(resources.LogPath);
+            _ = await Assert.That(lines.Length).IsEqualTo(3);
+            _ = await Assert.That(lines[0].Contains("request_bytes=\"4294967296\"", StringComparison.Ordinal)).IsTrue();
+            _ = await Assert.That(lines[0].Contains("response_bytes=", StringComparison.Ordinal)).IsFalse();
+            _ = await Assert.That(lines[1].Contains("request_bytes=\"0\"", StringComparison.Ordinal)).IsTrue();
+            _ = await Assert.That(lines[1].Contains("response_bytes=\"0\"", StringComparison.Ordinal)).IsTrue();
+            _ = await Assert.That(lines[2].Contains("request_bytes=", StringComparison.Ordinal)).IsFalse();
+            _ = await Assert.That(lines[2].Contains("response_bytes=", StringComparison.Ordinal)).IsFalse();
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Test]
     public async Task Concurrent_global_writers_have_distinct_files_and_intact_lines()
     {
         var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));

@@ -39,7 +39,7 @@ internal sealed record OpenAICompatibleOptions
 
     public IModelListDecoder Decoder { get; init; } = StandardModelDecoder.Instance;
 
-    public TimeSpan HeaderTimeout { get; init; }
+    public TimeSpan HeaderTimeout { get; init; } = TimeSpan.FromSeconds(60);
 
     // Forwarded as the top-level "provider" object of each request body. Empty
     // unless the provider supports routing preferences (OpenRouter).

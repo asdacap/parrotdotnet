@@ -55,6 +55,7 @@ internal static class ProviderImplementations
                 new ResponsesWebSocketConnector())
             {
                 MaximumRequestBytes = context.RequestLimits.ProviderRequestBytes,
+                HeaderTimeout = TimeSpan.FromMilliseconds(context.Config.HeaderTimeoutMs),
             });
         }
     }
@@ -98,9 +99,7 @@ internal static class ProviderImplementations
                 ModelDefaults = ProviderModels.ReadDefaults(context.Id, config.ModelDefaults),
                 ExternalModels = context.ExternalModels,
                 Decoder = decoder,
-                HeaderTimeout = config.HeaderTimeoutMs is { } milliseconds
-                    ? TimeSpan.FromMilliseconds(milliseconds)
-                    : TimeSpan.Zero,
+                HeaderTimeout = TimeSpan.FromMilliseconds(config.HeaderTimeoutMs),
                 ProviderPreferences = supportsProviderPreferences ? config.ProviderPreferences : string.Empty,
             };
             var provider = build(options, context.HttpClient);

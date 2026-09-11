@@ -14,6 +14,71 @@ internal sealed class ChatGptProviderWebSocketTests
         "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"answer\"}]}]}}";
 
     [Test]
+    [Arguments(0)]
+    [Arguments(1250)]
+    public async Task Configured_header_timeout_reaches_websocket_connector(
+        int timeoutMilliseconds,
+        CancellationToken cancellationToken)
+    {
+        using var socket = new ScriptedWebSocket([Completed]);
+        var connector = new RecordingConnector([socket]);
+        using var handler = new UnexpectedHttpHandler();
+        using var client = new HttpClient(handler, disposeHandler: false);
+        ILLMProvider provider = new ChatGptProvider(new FixedOAuthTokenSource(), client, [], [], [], false, connector)
+        {
+            HeaderTimeout = TimeSpan.FromMilliseconds(timeoutMilliseconds),
+        };
+        await using var session = provider.OpenSession();
+
+        var events = await Drain(session.Call(
+            new LLMRequest { Model = "model", Messages = [LLMMessage.User("hello")] }, cancellationToken));
+
+        _ = await Assert.That(events[^1].Kind).IsEqualTo(LLMEventKind.Completed);
+        _ = await Assert.That(connector.ConnectTimeout).IsEqualTo(TimeSpan.FromMilliseconds(timeoutMilliseconds));
+    }
+
+    [Test]
+    [Arguments(0, false)]
+    [Arguments(0, true)]
+    [Arguments(20, false)]
+    [Arguments(20, true)]
+    [Timeout(10_000)]
+    public async Task Configured_header_timeout_applies_to_http_and_websocket_fallback(
+        int timeoutMilliseconds,
+        bool fallback,
+        CancellationToken cancellationToken)
+    {
+        var connector = new RecordingConnector(fallback
+            ? [new ResponsesWebSocketUpgradeException(404, "missing", new IOException())]
+            : []);
+        using var handler = new ResponsesHandler()
+        {
+            HeaderDelay = TimeSpan.FromMilliseconds(250),
+        };
+        using var client = new HttpClient(handler, disposeHandler: false);
+        ILLMProvider provider = new ChatGptProvider(new FixedOAuthTokenSource(), client, [], [], [], !fallback, connector)
+        {
+            HeaderTimeout = TimeSpan.FromMilliseconds(timeoutMilliseconds),
+        };
+        await using var session = provider.OpenSession();
+
+        async Task Consume() => _ = await Drain(session.Call(
+            new LLMRequest { Model = "model", Messages = [LLMMessage.User("hello")] }, cancellationToken));
+
+        if (timeoutMilliseconds == 0)
+        {
+            await Consume();
+            _ = await Assert.That(handler.Calls).IsEqualTo(1);
+        }
+        else
+        {
+            _ = await Assert.That(Consume).Throws<HeaderTimeoutException>();
+        }
+
+        _ = await Assert.That(connector.Calls).IsEqualTo(fallback ? 1 : 0);
+    }
+
+    [Test]
     [Arguments("reuse")]
     [Arguments("fallback")]
     [Arguments("previous_response_not_found")]
@@ -133,6 +198,7 @@ internal sealed class ChatGptProviderWebSocketTests
         _ = await Drain(session.Call(continued, cancellationToken));
 
         _ = await Assert.That(connector.Calls).IsEqualTo(1);
+        _ = await Assert.That(connector.ConnectTimeout).IsEqualTo(TimeSpan.FromSeconds(60));
         _ = await Assert.That(connector.Endpoint).IsEqualTo(new Uri("wss://chatgpt.com/backend-api/codex/responses"));
         _ = await Assert.That(connector.Headers["OpenAI-Beta"]).IsEqualTo("responses_websockets=2026-02-06");
         _ = await Assert.That(connector.Headers["Authorization"]).IsEqualTo("Bearer access-token");
@@ -243,6 +309,8 @@ internal sealed class ChatGptProviderWebSocketTests
 
         public List<IReadOnlyDictionary<string, string>> HeadersByCall { get; } = [];
 
+        public TimeSpan ConnectTimeout { get; private set; }
+
         public int Calls { get; private set; }
 
         public Task<(WebSocket Socket, IReadOnlyDictionary<string, string> ResponseHeaders)> Connect(
@@ -252,6 +320,7 @@ internal sealed class ChatGptProviderWebSocketTests
             CancellationToken cancellationToken)
         {
             Calls++;
+            ConnectTimeout = timeout;
             Endpoint = endpoint;
             Headers = headers;
             HeadersByCall.Add(headers);
@@ -341,18 +410,21 @@ internal sealed class ChatGptProviderWebSocketTests
 
         public int Calls => SessionIds.Count;
 
-        protected override Task<HttpResponseMessage> SendAsync(
+        public TimeSpan HeaderDelay { get; init; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             SessionIds.Add(string.Join(',', request.Headers.GetValues("session-id")));
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            await Task.Delay(HeaderDelay, cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
                     "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n",
                     Encoding.UTF8,
                     "text/event-stream"),
-            });
+            };
         }
     }
 }

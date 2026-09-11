@@ -224,7 +224,7 @@ internal sealed class ProviderDiagnosticsTests
                 client);
         provider = new RetryingProvider(provider);
         var sessions = log.OpenSessions("first-agent");
-        var request = new LLMRequest { Model = "model", Messages = [LLMMessage.User("private-sentinel-prompt")] };
+        var request = new LLMRequest { Model = "model", Messages = [LLMMessage.User("private-sentinel-prompt-é漢😀")] };
         Exception? failure = null;
         try
         {
@@ -255,6 +255,8 @@ internal sealed class ProviderDiagnosticsTests
             behavior == "retry" ? ["failed", "completed"] : [behavior],
             1);
 
+        await log.AssertByteCounts("first-agent", [.. handler.RequestBytes], [.. handler.ResponseBytes]);
+
         handler.Complete = true;
         var otherSessions = log.OpenSessions("second-agent");
         try
@@ -275,6 +277,8 @@ internal sealed class ProviderDiagnosticsTests
             behavior == "retry" ? ["failed", "completed"] : [behavior],
             1);
         await log.AssertAttempts("second-agent", ["http_sse"], ["completed"], 1);
+        await log.AssertByteCounts("first-agent", [.. handler.RequestBytes.Take(attempts)], [.. handler.ResponseBytes.Take(attempts)]);
+        await log.AssertByteCounts("second-agent", [handler.RequestBytes[^1]], [handler.ResponseBytes[^1]]);
     }
 
     private sealed class SentinelOAuthTokenSource : IOAuthTokenSource
@@ -298,26 +302,36 @@ internal sealed class ProviderDiagnosticsTests
 
         public bool Complete { get; set; }
 
+        public List<long?> RequestBytes { get; } = [];
+
+        public List<long?> ResponseBytes { get; } = [];
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Calls++;
+            var content = request.Content ?? throw new InvalidOperationException("Expected request content.");
+            RequestBytes.Add((await content.ReadAsByteArrayAsync(cancellationToken)).LongLength);
             if (!Complete && behavior == "cancelled")
             {
+                ResponseBytes.Add(null);
                 await cancellation.CancelAsync();
                 cancellationToken.ThrowIfCancellationRequested();
             }
 
             if (!Complete && (behavior == "failed" || (behavior == "retry" && Calls == 1)))
             {
+                const string error = "private-sentinel-error-é漢😀";
+                ResponseBytes.Add(Encoding.UTF8.GetByteCount(error));
                 return new HttpResponseMessage(behavior == "failed" ? HttpStatusCode.BadRequest : HttpStatusCode.InternalServerError)
                 {
-                    Content = new StringContent("private-sentinel-error"),
+                    Content = new StringContent(error),
                 };
             }
 
             var stream = protocol == "completions"
-                ? "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"private-sentinel-response\"}}]}\n\ndata: {\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"delta\":{}}]}\n\ndata: [DONE]\n\n"
-                : "data: {\"type\":\"response.output_text.delta\",\"delta\":\"private-sentinel-response\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"private-sentinel-response-id\",\"output\":[]}}\n\n";
+                ? "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"private-sentinel-response-é漢😀\"}}]}\n\ndata: {\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"delta\":{}}]}\n\ndata: [DONE]\n\n"
+                : "data: {\"type\":\"response.output_text.delta\",\"delta\":\"private-sentinel-response-é漢😀\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"private-sentinel-response-id\",\"output\":[]}}\n\n";
+            ResponseBytes.Add(Encoding.UTF8.GetByteCount(stream));
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(stream, Encoding.UTF8, "text/event-stream"),

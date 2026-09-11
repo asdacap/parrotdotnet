@@ -20,6 +20,7 @@ internal sealed class ResponsesWebSocket(
     public async IAsyncEnumerable<LLMEvent> Send(
         byte[] request,
         ResponsesAdapter.ParseState response,
+        ProviderAttemptDiagnostics? attempt,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -29,6 +30,7 @@ internal sealed class ResponsesWebSocket(
             throw new ProviderHttpException($"provider: request exceeds {maximumRequestBytes} bytes");
         }
 
+        attempt?.RecordRequestBytes(request.Length);
         try
         {
             await WithIdleTimeout(
@@ -38,7 +40,7 @@ internal sealed class ResponsesWebSocket(
             var totalBytes = 0L;
             while (!response.Done)
             {
-                var message = await ReceiveText(cancellationToken).ConfigureAwait(false);
+                var message = await ReceiveText(attempt, cancellationToken).ConfigureAwait(false);
                 totalBytes += message.Length;
                 if (totalBytes > HttpStreaming.MaxStreamBytes)
                 {
@@ -73,7 +75,7 @@ internal sealed class ResponsesWebSocket(
         return ValueTask.CompletedTask;
     }
 
-    private async Task<byte[]> ReceiveText(CancellationToken cancellationToken)
+    private async Task<byte[]> ReceiveText(ProviderAttemptDiagnostics? attempt, CancellationToken cancellationToken)
     {
         var writer = new ArrayBufferWriter<byte>();
         while (true)
@@ -81,6 +83,11 @@ internal sealed class ResponsesWebSocket(
             var memory = writer.GetMemory(8192);
             var received = await WithIdleTimeout(
                 token => socket.ReceiveAsync(memory, token).AsTask(), cancellationToken).ConfigureAwait(false);
+
+            if (received.MessageType != WebSocketMessageType.Close)
+            {
+                attempt?.RecordResponseBytes(received.Count);
+            }
 
             if (received.MessageType == WebSocketMessageType.Close)
             {

@@ -16,7 +16,6 @@ internal sealed class ChatGptProvider : ILLMProvider
     private const string StreamEndpoint = "https://chatgpt.com/backend-api/codex/responses";
     private const string ModelsEndpoint = "https://chatgpt.com/backend-api/codex/models";
     private const string ModelsClientVersion = "0.144.5";
-    private static readonly TimeSpan HeaderTimeout = TimeSpan.FromSeconds(10);
 
     private readonly ImageGenerationClient _images;
     private readonly IOAuthTokenSource _tokens;
@@ -54,6 +53,8 @@ internal sealed class ChatGptProvider : ILLMProvider
         _disableWebSocket = disableWebSocket;
         _websocketConnector = websocketConnector;
     }
+
+    public TimeSpan HeaderTimeout { get; init; } = TimeSpan.FromSeconds(60);
 
     public int MaximumRequestBytes { get; init; } = new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes;
 
@@ -232,10 +233,10 @@ internal sealed class ChatGptProvider : ILLMProvider
             throw new ProviderHttpException($"provider: request exceeds {MaximumRequestBytes} bytes");
         }
 
-        var events = Send(cancellationToken);
+        var events = Send(null, cancellationToken);
         if (request.Diagnostics is { } diagnostics)
         {
-            events = diagnostics.Trace(events, "http_sse", cancellationToken);
+            events = diagnostics.Trace(Send, "http_sse", cancellationToken);
         }
 
         await foreach (var published in events.ConfigureAwait(false))
@@ -243,10 +244,11 @@ internal sealed class ChatGptProvider : ILLMProvider
             yield return published;
         }
 
-        async IAsyncEnumerable<LLMEvent> Send([EnumeratorCancellation] CancellationToken sendCancellationToken)
+        async IAsyncEnumerable<LLMEvent> Send(ProviderAttemptDiagnostics? attempt, [EnumeratorCancellation] CancellationToken sendCancellationToken)
         {
+            attempt?.RecordRequestBytes(body.Length);
             var response = await HttpStreaming
-                .OpenStream(_client, _endpoint, body, headers, HeaderTimeout, MaximumRequestBytes, sendCancellationToken)
+                .OpenStream(_client, _endpoint, body, headers, HeaderTimeout, MaximumRequestBytes, attempt, sendCancellationToken)
                 .ConfigureAwait(false);
             foreach (var header in response.Headers)
             {

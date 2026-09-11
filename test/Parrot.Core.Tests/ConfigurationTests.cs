@@ -156,6 +156,36 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    [Arguments("chatgpt")]
+    [Arguments("openai")]
+    [Arguments("custom")]
+    public async Task Provider_header_settings_preserve_defaults_and_overrides(string providerId)
+    {
+        var defaults = Load(Write($"providers:\n  {providerId}: {{}}\n")).Providers[providerId];
+        var custom = Load(Write($"providers:\n  {providerId}:\n    header_timeout_ms: 2500\n    header_timeout_max_retries: 2\n")).Providers[providerId];
+        var disabled = Load(Write($"providers:\n  {providerId}:\n    header_timeout_ms: 0\n    header_timeout_max_retries: 0\n")).Providers[providerId];
+
+        _ = await Assert.That(defaults.HeaderTimeoutMs).IsEqualTo(60000);
+        _ = await Assert.That(defaults.HeaderTimeoutMaxRetries).IsEqualTo(5);
+        _ = await Assert.That(custom.HeaderTimeoutMs).IsEqualTo(2500);
+        _ = await Assert.That(custom.HeaderTimeoutMaxRetries).IsEqualTo(2);
+        _ = await Assert.That(disabled.HeaderTimeoutMs).IsEqualTo(0);
+        _ = await Assert.That(disabled.HeaderTimeoutMaxRetries).IsEqualTo(0);
+    }
+
+    [Test]
+    [Arguments("header_timeout_ms", "-1")]
+    [Arguments("header_timeout_max_retries", "-1")]
+    [Arguments("header_timeout_ms", "null")]
+    [Arguments("header_timeout_max_retries", "bad")]
+    public async Task Provider_header_settings_reject_invalid_values(string setting, string value)
+    {
+        var failure = Assert.Throws<InvalidDataException>(
+            () => Load(Write($"providers:\n  custom:\n    {setting}: {value}\n")));
+        _ = await Assert.That(failure.Message).IsEqualTo($"providers.custom.{setting} must be a non-negative integer");
+    }
+
+    [Test]
     public async Task Openai_provider_defaults_can_be_partially_overridden()
     {
         var provider = Load(Write("providers:\n  openai:\n    header_timeout_ms: 2500\n")).Providers["openai"];

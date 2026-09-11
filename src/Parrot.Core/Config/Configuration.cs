@@ -1748,7 +1748,12 @@ internal sealed partial class Configuration(string path)
                     item, "allow_invalid_tls_certificate", $"providers.{id}.allow_invalid_tls_certificate"),
                 DisableWebSocket = !Child(item, "disable_websocket", out var disableWebSocket) ||
                     ParseBoolean(disableWebSocket, $"providers.{id}.disable_websocket"),
-                HeaderTimeoutMs = Integer(item, "header_timeout_ms"),
+                HeaderTimeoutMs = Child(item, "header_timeout_ms", out _)
+                    ? NonNegativeInteger(item, "header_timeout_ms", $"providers.{id}.header_timeout_ms")
+                    : 60000,
+                HeaderTimeoutMaxRetries = Child(item, "header_timeout_max_retries", out _)
+                    ? NonNegativeInteger(item, "header_timeout_max_retries", $"providers.{id}.header_timeout_max_retries")
+                    : 5,
                 Headers = StringMap(item, "headers"),
                 ProviderPreferences = RawJson(item, "provider_preferences"),
                 ModelDefaults = ReadModels(item, "model_defaults"),

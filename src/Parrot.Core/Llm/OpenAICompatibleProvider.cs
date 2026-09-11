@@ -196,10 +196,10 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
             throw new ProviderHttpException($"provider: request exceeds {_maximumRequestBytes} bytes");
         }
 
-        var events = Send(cancellationToken);
+        var events = Send(null, cancellationToken);
         if (request.Diagnostics is { } diagnostics)
         {
-            events = diagnostics.Trace(events, "http_sse", cancellationToken);
+            events = diagnostics.Trace(Send, "http_sse", cancellationToken);
         }
 
         await foreach (var published in events.ConfigureAwait(false))
@@ -207,10 +207,11 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
             yield return published;
         }
 
-        async IAsyncEnumerable<LLMEvent> Send([EnumeratorCancellation] CancellationToken sendCancellationToken)
+        async IAsyncEnumerable<LLMEvent> Send(ProviderAttemptDiagnostics? attempt, [EnumeratorCancellation] CancellationToken sendCancellationToken)
         {
+            attempt?.RecordRequestBytes(body.Length);
             var response = await HttpStreaming
-                .OpenStream(_client, _endpoint, body, headers, _headerTimeout, _maximumRequestBytes, sendCancellationToken)
+                .OpenStream(_client, _endpoint, body, headers, _headerTimeout, _maximumRequestBytes, attempt, sendCancellationToken)
                 .ConfigureAwait(false);
             CaptureTurnState(response.Headers, captureTurnState);
 

@@ -4,9 +4,10 @@ internal sealed class StreamingHttpResponse(
     Stream content,
     long limit,
     IDisposable owner,
-    IReadOnlyDictionary<string, string> headers) : IAsyncDisposable
+    IReadOnlyDictionary<string, string> headers,
+    ProviderAttemptDiagnostics? attempt) : IAsyncDisposable
 {
-    public Stream Content { get; } = new BoundedStream(content, limit, owner);
+    public Stream Content { get; } = new BoundedStream(content, limit, owner) { Attempt = attempt };
 
     public IReadOnlyDictionary<string, string> Headers { get; } = headers;
 

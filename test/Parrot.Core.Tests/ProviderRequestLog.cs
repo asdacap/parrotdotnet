@@ -1,3 +1,4 @@
+using System.Globalization;
 using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.State;
@@ -49,13 +50,56 @@ internal sealed class ProviderRequestLog : IDisposable
             _ = await Assert.That(ReadField(finishes[index], "transport")).IsEqualTo(transports[index]);
             _ = await Assert.That(ReadField(finishes[index], "outcome")).IsEqualTo(outcomes[index]);
             _ = await Assert.That(finishes[index].Contains("duration_ms=\"", StringComparison.Ordinal)).IsTrue();
-            _ = await Assert.That(lines.Count(line => line.Contains($"request=\"{request}\"", StringComparison.Ordinal))).IsEqualTo(2);
+            var sizes = owned.Where(line => line.Contains("event=\"request_size\"", StringComparison.Ordinal)
+                && ReadField(line, "request") == request).ToArray();
+            _ = await Assert.That(sizes.Length).IsLessThanOrEqualTo(1);
+            if (sizes.Length == 1)
+            {
+                _ = await Assert.That(ReadField(sizes[0], "correlation")).IsEqualTo(correlation);
+                _ = await Assert.That(ReadField(sizes[0], "transport")).IsEqualTo(transports[index]);
+                _ = await Assert.That(ReadField(sizes[0], "request_bytes")).IsEqualTo(ReadField(finishes[index], "request_bytes"));
+            }
+            else
+            {
+                _ = await Assert.That(finishes[index].Contains("request_bytes=", StringComparison.Ordinal)).IsFalse();
+            }
+
+            _ = await Assert.That(lines.Count(line => line.Contains($"request=\"{request}\"", StringComparison.Ordinal))).IsEqualTo(2 + sizes.Length);
         }
 
         var text = string.Join('\n', lines);
         _ = await Assert.That(text.Contains("private-sentinel", StringComparison.Ordinal)).IsFalse();
         _ = await Assert.That(text.Contains("access-token", StringComparison.Ordinal)).IsFalse();
         _ = await Assert.That(text.Contains("account-id", StringComparison.Ordinal)).IsFalse();
+    }
+
+    public async Task AssertByteCounts(string agent, long?[] requestBytes, long?[] responseBytes)
+    {
+        var lines = await File.ReadAllLinesAsync(_resources.LogPath);
+        var finishes = lines.Where(line => line.Contains($"agent=\"{agent}\"", StringComparison.Ordinal)
+            && line.Contains("event=\"request_finished\"", StringComparison.Ordinal)).ToArray();
+        _ = await Assert.That(finishes.Length).IsEqualTo(requestBytes.Length);
+        _ = await Assert.That(finishes.Length).IsEqualTo(responseBytes.Length);
+        for (var index = 0; index < finishes.Length; index++)
+        {
+            if (requestBytes[index] is { } expectedRequestBytes)
+            {
+                _ = await Assert.That(ReadField(finishes[index], "request_bytes")).IsEqualTo(expectedRequestBytes.ToString(CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                _ = await Assert.That(finishes[index].Contains("request_bytes=", StringComparison.Ordinal)).IsFalse();
+            }
+
+            if (responseBytes[index] is { } expectedResponseBytes)
+            {
+                _ = await Assert.That(ReadField(finishes[index], "response_bytes")).IsEqualTo(expectedResponseBytes.ToString(CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                _ = await Assert.That(finishes[index].Contains("response_bytes=", StringComparison.Ordinal)).IsFalse();
+            }
+        }
     }
 
     public void Dispose()

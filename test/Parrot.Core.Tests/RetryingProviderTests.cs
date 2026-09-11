@@ -9,6 +9,81 @@ internal sealed class RetryingProviderTests
     private static readonly LLMRequest Request = new() { Model = "m", Messages = [] };
 
     [Test]
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Arguments(true, true)]
+    public async Task Header_timeout_retry_can_succeed_or_be_cancelled(
+        bool useSession, bool cancelRetry, CancellationToken cancellationToken)
+    {
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var scripted = new ReplayProvider(
+            () => ThrowImmediately(new HeaderTimeoutException()),
+            () => Yield(LLMEvent.Completed("stop", 0, 0, 0, string.Empty, [])));
+        ILLMProvider provider = new RetryingProvider(scripted) { HeaderTimeoutMaxRetries = 1 };
+        await using var session = provider.OpenSession();
+        var events = useSession ? session.Call(Request, cancellation.Token) : provider.Call(Request, cancellation.Token);
+        await using var enumerator = events.GetAsyncEnumerator(cancellation.Token);
+        _ = await Assert.That(await enumerator.MoveNextAsync()).IsTrue();
+        _ = await Assert.That(enumerator.Current.Kind).IsEqualTo(LLMEventKind.Retry);
+        if (cancelRetry)
+        {
+            await cancellation.CancelAsync();
+            _ = await Assert.That(async () => await enumerator.MoveNextAsync()).Throws<OperationCanceledException>();
+            _ = await Assert.That(scripted.Calls).IsEqualTo(1);
+        }
+        else
+        {
+            _ = await Assert.That(await enumerator.MoveNextAsync()).IsTrue();
+            _ = await Assert.That(enumerator.Current.Kind).IsEqualTo(LLMEventKind.Completed);
+            _ = await Assert.That(await enumerator.MoveNextAsync()).IsFalse();
+            _ = await Assert.That(scripted.Calls).IsEqualTo(2);
+        }
+    }
+
+    [Test]
+    [Timeout(90_000)]
+    [Arguments(false, 0)]
+    [Arguments(true, 0)]
+    [Arguments(false, 1)]
+    [Arguments(true, 1)]
+    [Arguments(false, 5)]
+    [Arguments(true, 5)]
+    public async Task Header_timeout_retries_stop_at_the_configured_limit(
+        bool useSession, int maximumRetries, CancellationToken cancellationToken)
+    {
+        var timeout = new HeaderTimeoutException("private-sentinel");
+        var scripted = new ReplayProvider([.. Enumerable.Range(0, maximumRetries + 1)
+            .Select(_ => (Func<IAsyncEnumerable<LLMEvent>>)(() => ThrowImmediately(timeout)))]);
+        ILLMProvider provider = maximumRetries == 5
+            ? new RetryingProvider(scripted)
+            : new RetryingProvider(scripted) { HeaderTimeoutMaxRetries = maximumRetries };
+        await using var session = provider.OpenSession();
+        var events = useSession ? session.Call(Request, cancellationToken) : provider.Call(Request, cancellationToken);
+        var retries = new List<LLMEvent>();
+        HeaderTimeoutException? exhausted = null;
+        try
+        {
+            await foreach (var published in events)
+            {
+                retries.Add(published);
+            }
+        }
+        catch (HeaderTimeoutException failure)
+        {
+            exhausted = failure;
+        }
+
+        _ = await Assert.That(scripted.Calls).IsEqualTo(maximumRetries + 1);
+        _ = await Assert.That(retries.Count).IsEqualTo(maximumRetries);
+        _ = await Assert.That(retries.Select(published => published.Attempt).SequenceEqual(
+            Enumerable.Range(1, maximumRetries))).IsTrue();
+        _ = await Assert.That(exhausted?.Message).IsEqualTo(
+            $"Provider header timeout retry limit exceeded ({maximumRetries} retries, {maximumRetries + 1} attempts).");
+        _ = await Assert.That(ReferenceEquals(exhausted?.InnerException, timeout)).IsTrue();
+    }
+
+    [Test]
     [Arguments(false)]
     [Arguments(true)]
     public async Task Retry_events_preserve_output_without_duplicate_observation(

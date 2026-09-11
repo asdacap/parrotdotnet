@@ -152,6 +152,81 @@ internal sealed class EnhancedRenderingSessionTests
     }
 
     [Test]
+    [Arguments(0)]
+    [Arguments(1)]
+    [Arguments(5)]
+    public async Task Header_retry_exhaustion_remains_visible_and_clears_running_activity(
+        int maximumRetries, CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        await stream.WriteAsync(
+            new Event
+            {
+                AgentSessionId = "root",
+                TurnStarted = new TurnStarted { Model = "model" },
+            },
+            cancellationToken);
+        for (var attempt = 1; attempt <= maximumRetries; attempt++)
+        {
+            await stream.WriteAsync(
+                new Event
+                {
+                    AgentSessionId = "root",
+                    RetryNotice = new RetryNotice
+                    {
+                        Attempt = attempt,
+                        RetryAfterMs = 2000,
+                        Reason = "Provider response headers timed out. Retrying.",
+                    },
+                },
+                cancellationToken);
+        }
+
+        var failureMessage = $"Provider header timeout retry limit exceeded ({maximumRetries} retries, {maximumRetries + 1} attempts).";
+        await stream.WriteAsync(
+            new Event
+            {
+                AgentSessionId = "root",
+                TurnFailed = new TurnFailed { Message = failureMessage },
+            },
+            cancellationToken);
+        stream.Complete();
+
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var terminal = new TestTerminal(driver.Input, output, error, 140);
+        var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
+        var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
+        var finishedTurns = 0;
+        await using var session = new EnhancedRenderingSession(
+            new EnhancedTurnRenderer(terminal, configuration, presenters),
+            presenters,
+            new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(false), 10, 12, true),
+            new TestSlashSession("provider/model"),
+            [new PromptValue("> ", string.Empty, 0)],
+            static (_, _) => Task.CompletedTask,
+            static _ => Task.CompletedTask,
+            _ =>
+            {
+                finishedTurns++;
+                return Task.CompletedTask;
+            },
+            static () => true,
+            static (_, _) => Task.CompletedTask,
+            true);
+
+        _ = await Assert.That(await session.Run(stream.Reader, cancellationToken)).IsFalse();
+        _ = await Assert.That(finishedTurns).IsEqualTo(1);
+        _ = await Assert.That(output.ToString() + error.ToString()).Contains(failureMessage);
+        var finishedAt = output.GetStringBuilder().Length;
+        await session.Refresh(cancellationToken);
+        var finalFrame = output.ToString()[finishedAt..];
+        _ = await Assert.That(finalFrame).DoesNotContain("running");
+        _ = await Assert.That(finalFrame).DoesNotContain("Retrying.");
+    }
+
+    [Test]
     public async Task Root_turn_duration_advances_and_respects_lifecycle_boundaries(
         CancellationToken cancellationToken)
     {

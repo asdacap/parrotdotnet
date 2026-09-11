@@ -5,7 +5,7 @@ namespace Parrot.Llm;
 
 // Wraps a provider so a call that fails before delivering client-visible output
 // is retried, without ever duplicating output that already reached the client.
-// It folds Go's two retry layers into one: header-timeout retries (unbounded,
+// It folds Go's two retry layers into one: header-timeout retries (configurable,
 // 2s..30s), transient engine-overload retries (<=5, shared budget), and stream
 // reconnects on a dropped connection (<=5). Usage and router metadata are
 // bookkeeping and do not count as visible output.
@@ -16,6 +16,8 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
     private static readonly TimeSpan StreamRetryBaseDelay = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan HeaderRetryInitialDelay = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan HeaderRetryMaximumDelay = TimeSpan.FromSeconds(30);
+
+    public int HeaderTimeoutMaxRetries { get; init; } = 5;
 
     public string Id => inner.Id;
 
@@ -32,23 +34,25 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
     public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
         inner.ListModels(cancellationToken);
 
-    public ILLMProviderSession OpenSession() => new RetryingProviderSession(inner.OpenSession());
+    public ILLMProviderSession OpenSession() => new RetryingProviderSession(inner.OpenSession(), HeaderTimeoutMaxRetries);
 
     public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
-        Retry(inner.Call, request, cancellationToken);
+        Retry(inner.Call, request, HeaderTimeoutMaxRetries, cancellationToken);
 
     private static IAsyncEnumerable<LLMEvent> Retry(
         Func<LLMRequest, CancellationToken, IAsyncEnumerable<LLMEvent>> call,
         LLMRequest request,
+        int headerTimeoutMaxRetries,
         CancellationToken cancellationToken) =>
-        RetryWithoutFallback(call, request, cancellationToken);
+        RetryWithoutFallback(call, request, headerTimeoutMaxRetries, cancellationToken);
 
     private static async IAsyncEnumerable<LLMEvent> RetryWithoutFallback(
         Func<LLMRequest, CancellationToken, IAsyncEnumerable<LLMEvent>> call,
         LLMRequest request,
+        int headerTimeoutMaxRetries,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var state = new RetryState(request);
+        var state = new RetryState(request, headerTimeoutMaxRetries);
         while (true)
         {
             Advance retry;
@@ -137,6 +141,13 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
         switch (failure)
         {
             case HeaderTimeoutException:
+                if (state.TimeoutAttempt >= state.HeaderTimeoutMaxRetries)
+                {
+                    throw new HeaderTimeoutException(
+                        $"Provider header timeout retry limit exceeded ({state.HeaderTimeoutMaxRetries} retries, {(long)state.TimeoutAttempt + 1} attempts).",
+                        failure);
+                }
+
                 var headerDelay = HeaderDelay(state.TimeoutAttempt);
                 state.TimeoutAttempt++;
 
@@ -235,7 +246,7 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
         return delay > maximum ? maximum : delay;
     }
 
-    private sealed class RetryingProviderSession(ILLMProviderSession innerSession) : ILLMProviderSession
+    private sealed class RetryingProviderSession(ILLMProviderSession innerSession, int headerTimeoutMaxRetries) : ILLMProviderSession
     {
         private readonly ILLMProviderSession _innerSession = innerSession;
 
@@ -252,7 +263,7 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
             LLMRequest request,
             [EnumeratorCancellation] CancellationToken cancellationToken)
         {
-            var state = new RetryState(request);
+            var state = new RetryState(request, headerTimeoutMaxRetries);
             while (true)
             {
                 Advance retry;
@@ -308,7 +319,7 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
         }
     }
 
-    private sealed class RetryState(LLMRequest request)
+    private sealed class RetryState(LLMRequest request, int headerTimeoutMaxRetries)
     {
         private bool _contextAdjusted;
         private int _overloadAttempts;
@@ -318,6 +329,8 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
         public LLMRequest Request { get; private set; } = request;
 
         public bool OutputEmitted { get; set; }
+
+        public int HeaderTimeoutMaxRetries { get; } = headerTimeoutMaxRetries;
 
         public int TimeoutAttempt { get; set; }
 

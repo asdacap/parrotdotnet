@@ -49,7 +49,10 @@ internal sealed class ProviderRegistryBuilder(
             {
                 RequestLimits = configuration.RequestLimits,
             });
-            providers.Add(new RetryingProvider(built.Provider));
+            providers.Add(new RetryingProvider(built.Provider)
+            {
+                HeaderTimeoutMaxRetries = config.HeaderTimeoutMaxRetries,
+            });
             catalogues[id] = built.Seed;
         }
 

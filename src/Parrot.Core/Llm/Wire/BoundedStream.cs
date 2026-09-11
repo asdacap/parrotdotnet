@@ -7,6 +7,8 @@ internal sealed class BoundedStream(Stream inner, long limit, IDisposable owner)
 {
     private long _remaining = limit;
 
+    public ProviderAttemptDiagnostics? Attempt { get; init; }
+
     public override bool CanRead => true;
 
     public override bool CanSeek => false;
@@ -34,13 +36,16 @@ internal sealed class BoundedStream(Stream inner, long limit, IDisposable owner)
         }
 
         var read = await inner.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+        Attempt?.RecordResponseBytes(read);
         _remaining -= read;
 
         if (_remaining <= 0 && read > 0)
         {
             var probe = new byte[1];
 
-            if (await inner.ReadAsync(probe, cancellationToken).ConfigureAwait(false) > 0)
+            var probeRead = await inner.ReadAsync(probe, cancellationToken).ConfigureAwait(false);
+            Attempt?.RecordResponseBytes(probeRead);
+            if (probeRead > 0)
             {
                 throw new WireProtocolException("provider: response stream exceeds byte limit");
             }
@@ -62,10 +67,12 @@ internal sealed class BoundedStream(Stream inner, long limit, IDisposable owner)
         }
 
         var read = inner.Read(buffer, offset, count);
+        Attempt?.RecordResponseBytes(read);
         _remaining -= read;
 
         if (_remaining <= 0 && read > 0 && inner.ReadByte() >= 0)
         {
+            Attempt?.RecordResponseBytes(1);
             throw new WireProtocolException("provider: response stream exceeds byte limit");
         }
 

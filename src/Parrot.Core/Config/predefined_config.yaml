@@ -1581,7 +1581,11 @@ subagents:
 # Active built-in providers and their seeded model catalogues. Credential values
 # are sourced from the configured environment variables or credential store.
 providers:
+  # Header timeout includes request upload. Zero disables it; overrides are per provider.
+  # header_timeout_max_retries defaults to 5; zero disables header-timeout retries.
   chatgpt:
+    header_timeout_ms: 60000
+    header_timeout_max_retries: 5
     model_defaults:
       gpt-5.4: {}
       gpt-5.4-mini:
@@ -1595,7 +1599,7 @@ providers:
     protocol: responses
     base_url: https://api.openai.com/v1
     api_key_env: OPENAI_API_KEY
-    header_timeout_ms: 10000
+    header_timeout_ms: 60000
     model_defaults:
       gpt-5.4: {}
       gpt-5.4-mini:
@@ -1608,7 +1612,7 @@ providers:
     protocol: chat-completions
     base_url: https://openrouter.ai/api/v1
     api_key_env: OPENROUTER_API_KEY
-    header_timeout_ms: 10000
+    header_timeout_ms: 60000
     provider_preferences:
       allow_fallbacks: true
       require_parameters: true
@@ -1618,7 +1622,7 @@ providers:
     protocol: chat-completions
     base_url: https://opencode.ai/zen/go/v1
     api_key_env: OPENCODE_GO_API_KEY
-    header_timeout_ms: 10000
+    header_timeout_ms: 60000
     model_defaults:
       minimax-m3: { name: MiniMax M3, reasoning: false }
       minimax-m2.7: { name: MiniMax M2.7, reasoning: false }

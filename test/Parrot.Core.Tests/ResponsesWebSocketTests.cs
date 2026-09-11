@@ -9,6 +9,57 @@ namespace Parrot.Core.Tests;
 internal sealed class ResponsesWebSocketTests
 {
     [Test]
+    [Arguments("completed")]
+    [Arguments("partial_cancelled")]
+    [Arguments("partial_failed")]
+    public async Task Attempt_bytes_count_utf8_fragments_including_partial_messages(string behavior, CancellationToken cancellationToken)
+    {
+        var payload = Encoding.UTF8.GetBytes("{\"type\":\"response.completed\",\"response\":{\"output\":[],\"id\":\"é\"}}");
+        var frames = new List<ScriptedFrame> { new(payload[..11], WebSocketMessageType.Text, false) };
+        if (behavior == "completed")
+        {
+            frames.Add(new(payload[11..], WebSocketMessageType.Text, true));
+        }
+        else if (behavior == "partial_failed")
+        {
+            frames.Add(new([], WebSocketMessageType.Close, true));
+        }
+
+        using var socket = new ScriptedWebSocket(frames);
+        await using var connection = new ResponsesWebSocket(
+            socket,
+            new Dictionary<string, string>(StringComparer.Ordinal),
+            TimeSpan.FromSeconds(1),
+            1024);
+        var attempt = new ProviderAttemptDiagnostics(
+            TestDiagnosticLog.Instance,
+            new Parrot.Diagnostics.DiagnosticEvent("provider", "request_started", Parrot.Diagnostics.DiagnosticSeverity.Information));
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (behavior == "partial_cancelled")
+        {
+            cancellation.CancelAfter(TimeSpan.FromMilliseconds(100));
+        }
+
+        Exception? failure = null;
+        try
+        {
+            await foreach (var published in connection.Send(Encoding.UTF8.GetBytes("éé"), new ResponsesAdapter.ParseState(), attempt, cancellation.Token))
+            {
+                _ = published;
+            }
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
+
+        _ = await Assert.That(failure is not null).IsEqualTo(behavior != "completed");
+        _ = await Assert.That(attempt.RequestBytes).IsEqualTo(4);
+        _ = await Assert.That(attempt.ResponseBytes).IsEqualTo(behavior == "completed" ? payload.Length : 11);
+        _ = await Assert.That(socket.Aborted).IsEqualTo(behavior != "completed");
+    }
+
+    [Test]
     public async Task Client_derives_secure_endpoint_and_adds_v2_and_auth_headers(CancellationToken cancellationToken)
     {
         using var socket = new ScriptedWebSocket([]);
@@ -71,7 +122,7 @@ internal sealed class ResponsesWebSocketTests
         var events = new List<LLMEvent>();
 
         await foreach (var published in connection.Send(
-            request.EncodeWebSocket(string.Empty, request.Input, string.Empty), state, cancellationToken))
+            request.EncodeWebSocket(string.Empty, request.Input, string.Empty), state, null, cancellationToken))
         {
             events.Add(published);
         }
@@ -105,7 +156,7 @@ internal sealed class ResponsesWebSocketTests
 
         async Task Consume()
         {
-            await foreach (var published in connection.Send(Encoding.UTF8.GetBytes("{}"), state, cancellationToken))
+            await foreach (var published in connection.Send(Encoding.UTF8.GetBytes("{}"), state, null, cancellationToken))
             {
                 _ = published;
             }
@@ -130,7 +181,7 @@ internal sealed class ResponsesWebSocketTests
 
         async Task Consume()
         {
-            await foreach (var published in connection.Send(Encoding.UTF8.GetBytes("{}"), state, cancelled.Token))
+            await foreach (var published in connection.Send(Encoding.UTF8.GetBytes("{}"), state, null, cancelled.Token))
             {
                 _ = published;
             }
@@ -161,7 +212,7 @@ internal sealed class ResponsesWebSocketTests
 
         async Task Consume()
         {
-            await foreach (var published in connection.Send(request, new ResponsesAdapter.ParseState(), cancellationToken))
+            await foreach (var published in connection.Send(request, new ResponsesAdapter.ParseState(), null, cancellationToken))
             {
                 _ = published;
             }
@@ -200,6 +251,7 @@ internal sealed class ResponsesWebSocketTests
                 new Dictionary<string, string>(StringComparer.Ordinal),
                 TimeSpan.FromSeconds(1),
                 maximumRequestBytes,
+                null,
                 cancellationToken);
         }
 

@@ -300,8 +300,8 @@ internal sealed class OpenAICompatibleProviderSession(
         {
             if (_enumerator is null)
             {
-                var events = Send(cancellationToken);
-                _enumerator = (diagnostics is null ? events : diagnostics.Trace(events, "websocket", cancellationToken))
+                var events = Send(null, cancellationToken);
+                _enumerator = (diagnostics is null ? events : diagnostics.Trace(Send, "websocket", cancellationToken))
                     .GetAsyncEnumerator(cancellationToken);
             }
 
@@ -329,12 +329,13 @@ internal sealed class OpenAICompatibleProviderSession(
             }
         }
 
-        private async IAsyncEnumerable<LLMEvent> Send([EnumeratorCancellation] CancellationToken cancellationToken)
+        private async IAsyncEnumerable<LLMEvent> Send(ProviderAttemptDiagnostics? attempt, [EnumeratorCancellation] CancellationToken cancellationToken)
         {
             var connection = await getConnection(cancellationToken).ConfigureAwait(false);
             await foreach (var published in connection.Send(
                 Prepared.EncodeWebSocket(request.PreviousResponseId, request.Input, getTurnState()),
                 Response,
+                attempt,
                 cancellationToken).ConfigureAwait(false))
             {
                 yield return published;
