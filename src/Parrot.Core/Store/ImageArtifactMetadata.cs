@@ -10,4 +10,15 @@ internal sealed record ImageArtifactMetadata(
     int FrameCount,
     long AggregatePixels,
     string DisplayName,
-    string Origin);
+    string Origin)
+{
+    public bool MatchesContent(ImageArtifactMetadata artifact) =>
+        ArtifactId == artifact.ArtifactId
+        && Sha256 == artifact.Sha256
+        && MediaType == artifact.MediaType
+        && ByteLength == artifact.ByteLength
+        && Width == artifact.Width
+        && Height == artifact.Height
+        && FrameCount == artifact.FrameCount
+        && AggregatePixels == artifact.AggregatePixels;
+}

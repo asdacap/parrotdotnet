@@ -1670,13 +1670,19 @@ internal sealed class EventRepository
             var existing = ImageUpload(transaction, uploadId);
             if (existing is not null)
             {
-                if (existing == artifact)
+                if (existing.MatchesContent(artifact))
                 {
                     transaction.Commit();
                     return existing;
                 }
 
                 throw new InputConflictException($"image upload {uploadId} was already recorded with different content");
+            }
+
+            var existingArtifact = ResolveImageArtifact(transaction, artifact.ArtifactId);
+            if (existingArtifact is not null && !existingArtifact.MatchesContent(artifact))
+            {
+                throw new InputConflictException($"image artifact {artifact.ArtifactId} was already recorded with different metadata");
             }
 
             using (var content = _database.Connection.CreateCommand())
@@ -1718,7 +1724,7 @@ internal sealed class EventRepository
 
             var recorded = ResolveImageArtifact(transaction, artifact.ArtifactId)
                 ?? throw new InvalidOperationException("The image artifact was not recorded.");
-            if (recorded != artifact)
+            if (!recorded.MatchesContent(artifact))
             {
                 throw new InputConflictException($"image artifact {artifact.ArtifactId} was already recorded with different metadata");
             }
