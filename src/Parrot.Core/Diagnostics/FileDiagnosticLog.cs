@@ -200,6 +200,8 @@ internal sealed class FileDiagnosticLog : IDiagnosticLog
         Append(text, "session", _userSessionId ?? entry.UserSessionId);
         Append(text, "agent", entry.AgentSessionId);
         Append(text, "correlation", entry.CorrelationId);
+        Append(text, "request", entry.RequestId);
+        Append(text, "transport", entry.Transport);
         Append(text, "provider", entry.ProviderId);
         Append(text, "model", entry.ModelId);
         Append(text, "tool", entry.ToolName);

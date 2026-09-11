@@ -15,6 +15,70 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         """;
 
     [Test]
+    [Arguments("reuse")]
+    [Arguments("fallback")]
+    [Arguments("previous_response_not_found")]
+    [Arguments("websocket_connection_limit_reached")]
+    public async Task Physical_websocket_attempts_include_recovery_fallback_and_reused_connections(
+        string behavior,
+        CancellationToken cancellationToken)
+    {
+        using var log = new ProviderRequestLog();
+        var completed = Completed.Replace("answer", "private-sentinel-response", StringComparison.Ordinal);
+        using var recovered = new ScriptedWebSocket([completed, completed]);
+        using var failed = new ScriptedWebSocket([$"{{\"type\":\"error\",\"error\":{{\"code\":\"{behavior}\",\"message\":\"private-sentinel-error\"}}}}"]);
+        var connector = new ScriptedConnector(behavior == "reuse"
+            ? [recovered]
+            : behavior == "fallback"
+                ? [new ResponsesWebSocketUpgradeException(404, "private-sentinel-upgrade", new IOException("private-sentinel-exception"))]
+                : [failed, recovered]);
+        using var handler = new ResponsesHandler(1);
+        using var client = new HttpClient(handler, disposeHandler: false);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+            },
+            client,
+            connector);
+        var sessions = log.OpenSessions("websocket-agent");
+        try
+        {
+            var session = sessions.Get(provider);
+            var events = await Drain(session.Call(
+                new LLMRequest { Model = "model", Messages = [LLMMessage.User("private-sentinel-prompt")] }, cancellationToken));
+            _ = await Assert.That(events[^1].Kind).IsEqualTo(LLMEventKind.Completed);
+            if (behavior == "reuse")
+            {
+                _ = await Drain(session.Call(
+                    new LLMRequest
+                    {
+                        Model = "model",
+                        Messages = [LLMMessage.User("private-sentinel-next")],
+                    },
+                    cancellationToken));
+            }
+        }
+        finally
+        {
+            await sessions.Close();
+        }
+
+        _ = await Assert.That(connector.Calls).IsEqualTo(behavior is "reuse" or "fallback" ? 1 : 2);
+        _ = await Assert.That(handler.Calls).IsEqualTo(behavior == "fallback" ? 1 : 0);
+        _ = await Assert.That(recovered.Sent.Count + failed.Sent.Count).IsEqualTo(behavior == "fallback" ? 0 : 2);
+        await log.AssertAttempts(
+            "websocket-agent",
+            behavior == "fallback" ? ["websocket", "http_sse"] : ["websocket", "websocket"],
+            behavior == "reuse" ? ["completed", "completed"] : ["failed", "completed"],
+            behavior == "reuse" ? 2 : 1);
+    }
+
+    [Test]
     [Arguments(true, false)]
     [Arguments(false, false)]
     [Arguments(false, true)]

@@ -1,6 +1,10 @@
+using System.Net;
+using System.Text;
+using Parrot.Auth;
 using Parrot.Context;
 using Parrot.Diagnostics;
 using Parrot.Llm;
+using Parrot.Llm.Wire;
 using Parrot.State;
 using Parrot.Store;
 
@@ -181,6 +185,143 @@ internal sealed class ProviderDiagnosticsTests
         finally
         {
             Directory.Delete(directory, true);
+        }
+    }
+
+    [Test]
+    [Arguments("chatgpt", "completed")]
+    [Arguments("chatgpt", "retry")]
+    [Arguments("chatgpt", "failed")]
+    [Arguments("chatgpt", "cancelled")]
+    [Arguments("chatgpt", "disposed")]
+    [Arguments("responses", "completed")]
+    [Arguments("responses", "retry")]
+    [Arguments("responses", "failed")]
+    [Arguments("responses", "cancelled")]
+    [Arguments("responses", "disposed")]
+    [Arguments("completions", "completed")]
+    [Arguments("completions", "retry")]
+    [Arguments("completions", "failed")]
+    [Arguments("completions", "cancelled")]
+    [Arguments("completions", "disposed")]
+    public async Task Physical_http_attempts_keep_logical_correlation_and_agent_ownership(string protocol, string behavior)
+    {
+        using var log = new ProviderRequestLog();
+        using var cancellation = new CancellationTokenSource();
+        using var handler = new AttemptHandler(protocol, behavior, cancellation);
+        using var client = new HttpClient(handler, disposeHandler: false);
+        ILLMProvider provider = protocol == "chatgpt"
+            ? new ChatGptProvider(new SentinelOAuthTokenSource(), client, [], [], [], true, new ResponsesWebSocketConnector())
+            : new OpenAICompatibleProvider(
+                new OpenAICompatibleOptions
+                {
+                    Id = "configured",
+                    BaseUrl = "https://example.test/v1",
+                    Protocol = protocol == "responses" ? CompatibleProtocol.Responses : CompatibleProtocol.ChatCompletions,
+                    ApiKeySource = new SentinelApiKeySource(),
+                    DisableWebSocket = true,
+                },
+                client);
+        provider = new RetryingProvider(provider);
+        var sessions = log.OpenSessions("first-agent");
+        var request = new LLMRequest { Model = "model", Messages = [LLMMessage.User("private-sentinel-prompt")] };
+        Exception? failure = null;
+        try
+        {
+            await foreach (var published in sessions.Get(provider).Call(request, cancellation.Token))
+            {
+                _ = published;
+                if (behavior == "disposed")
+                {
+                    break;
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
+        finally
+        {
+            await sessions.Close();
+        }
+
+        _ = await Assert.That(failure is not null).IsEqualTo(behavior is "failed" or "cancelled");
+        var attempts = behavior == "retry" ? 2 : 1;
+        _ = await Assert.That(handler.Calls).IsEqualTo(attempts);
+        await log.AssertAttempts(
+            "first-agent",
+            [.. Enumerable.Repeat("http_sse", attempts)],
+            behavior == "retry" ? ["failed", "completed"] : [behavior],
+            1);
+
+        handler.Complete = true;
+        var otherSessions = log.OpenSessions("second-agent");
+        try
+        {
+            await foreach (var published in otherSessions.Get(provider).Call(request, CancellationToken.None))
+            {
+                _ = published;
+            }
+        }
+        finally
+        {
+            await otherSessions.Close();
+        }
+
+        await log.AssertAttempts(
+            "first-agent",
+            [.. Enumerable.Repeat("http_sse", attempts)],
+            behavior == "retry" ? ["failed", "completed"] : [behavior],
+            1);
+        await log.AssertAttempts("second-agent", ["http_sse"], ["completed"], 1);
+    }
+
+    private sealed class SentinelOAuthTokenSource : IOAuthTokenSource
+    {
+        public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+
+        public Task<OAuthAccess> Token(CancellationToken cancellationToken) =>
+            Task.FromResult(new OAuthAccess("private-sentinel-token", "private-sentinel-account"));
+    }
+
+    private sealed class SentinelApiKeySource : IApiKeySource
+    {
+        public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+
+        public ValueTask<string> ApiKey(CancellationToken cancellationToken) => ValueTask.FromResult("private-sentinel-key");
+    }
+
+    private sealed class AttemptHandler(string protocol, string behavior, CancellationTokenSource cancellation) : HttpMessageHandler
+    {
+        public int Calls { get; private set; }
+
+        public bool Complete { get; set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Calls++;
+            if (!Complete && behavior == "cancelled")
+            {
+                await cancellation.CancelAsync();
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            if (!Complete && (behavior == "failed" || (behavior == "retry" && Calls == 1)))
+            {
+                return new HttpResponseMessage(behavior == "failed" ? HttpStatusCode.BadRequest : HttpStatusCode.InternalServerError)
+                {
+                    Content = new StringContent("private-sentinel-error"),
+                };
+            }
+
+            var stream = protocol == "completions"
+                ? "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"private-sentinel-response\"}}]}\n\ndata: {\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"delta\":{}}]}\n\ndata: [DONE]\n\n"
+                : "data: {\"type\":\"response.output_text.delta\",\"delta\":\"private-sentinel-response\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"private-sentinel-response-id\",\"output\":[]}}\n\n";
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(stream, Encoding.UTF8, "text/event-stream"),
+            };
         }
     }
 

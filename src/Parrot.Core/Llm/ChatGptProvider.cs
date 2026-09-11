@@ -227,24 +227,43 @@ internal sealed class ChatGptProvider : ILLMProvider
             headers["x-codex-turn-state"] = turnState;
         }
 
-        var response = await HttpStreaming
-            .OpenStream(_client, _endpoint, body, headers, HeaderTimeout, MaximumRequestBytes, cancellationToken)
-            .ConfigureAwait(false);
-        foreach (var header in response.Headers)
+        if (body.Length > MaximumRequestBytes)
         {
-            if (header.Key.Equals("x-codex-turn-state", StringComparison.OrdinalIgnoreCase))
-            {
-                captureTurnState(header.Value);
-                break;
-            }
+            throw new ProviderHttpException($"provider: request exceeds {MaximumRequestBytes} bytes");
         }
 
-        await using (response.ConfigureAwait(false))
+        var events = Send(cancellationToken);
+        if (request.Diagnostics is { } diagnostics)
         {
-            await foreach (var published in
-                ResponsesAdapter.Parse(response.Content, HttpStreaming.MaxEventBytes, cancellationToken).ConfigureAwait(false))
+            events = diagnostics.Trace(events, "http_sse", cancellationToken);
+        }
+
+        await foreach (var published in events.ConfigureAwait(false))
+        {
+            yield return published;
+        }
+
+        async IAsyncEnumerable<LLMEvent> Send([EnumeratorCancellation] CancellationToken sendCancellationToken)
+        {
+            var response = await HttpStreaming
+                .OpenStream(_client, _endpoint, body, headers, HeaderTimeout, MaximumRequestBytes, sendCancellationToken)
+                .ConfigureAwait(false);
+            foreach (var header in response.Headers)
             {
-                yield return published;
+                if (header.Key.Equals("x-codex-turn-state", StringComparison.OrdinalIgnoreCase))
+                {
+                    captureTurnState(header.Value);
+                    break;
+                }
+            }
+
+            await using (response.ConfigureAwait(false))
+            {
+                await foreach (var published in
+                    ResponsesAdapter.Parse(response.Content, HttpStreaming.MaxEventBytes, sendCancellationToken).ConfigureAwait(false))
+                {
+                    yield return published;
+                }
             }
         }
     }

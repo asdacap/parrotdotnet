@@ -4,29 +4,19 @@ using Parrot.Diagnostics;
 
 namespace Parrot.Llm;
 
-internal sealed class DiagnosticProviderSession(
-    ILLMProviderSession providerSession,
-    IDiagnosticLog diagnostics,
-    string agentSessionId,
-    string providerId) : ILLMProviderSession
+internal sealed class ProviderRequestDiagnostics(IDiagnosticLog diagnostics, DiagnosticEvent call)
 {
-    public void BeginTurn() => providerSession.BeginTurn();
-
-    public ValueTask<bool> TryFallBackToHttp() => providerSession.TryFallBackToHttp();
-
-    public ValueTask DisposeAsync() => providerSession.DisposeAsync();
-
-    public async IAsyncEnumerable<LLMEvent> Call(
-        LLMRequest request,
+    public async IAsyncEnumerable<LLMEvent> Trace(
+        IAsyncEnumerable<LLMEvent> events,
+        string transport,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var started = Stopwatch.GetTimestamp();
-        var entry = new DiagnosticEvent("provider", "call_started", DiagnosticSeverity.Information)
+        var entry = call with
         {
-            AgentSessionId = agentSessionId,
-            CorrelationId = Guid.NewGuid().ToString("N"),
-            ProviderId = providerId,
-            ModelId = request.Model,
+            Operation = "request_started",
+            RequestId = Guid.NewGuid().ToString("N"),
+            Transport = transport,
         };
         diagnostics.Write(entry);
         var outcome = "disposed";
@@ -36,11 +26,7 @@ internal sealed class DiagnosticProviderSession(
         {
             try
             {
-                enumerator = providerSession.CallWithRetryObservation(
-                        request with { Diagnostics = new ProviderRequestDiagnostics(diagnostics, entry) },
-                        ObserveRetry,
-                        cancellationToken)
-                    .GetAsyncEnumerator(cancellationToken);
+                enumerator = events.GetAsyncEnumerator(cancellationToken);
             }
             catch (Exception exception)
             {
@@ -67,17 +53,6 @@ internal sealed class DiagnosticProviderSession(
                     throw;
                 }
 
-                if (published.Kind == LLMEventKind.Retry)
-                {
-                    ObserveRetry(published.Attempt, published.RetryAfter);
-                }
-                else if (published.Kind == LLMEventKind.Completed)
-                {
-                    diagnostics.Write(entry with { Operation = "input_tokens", Count = published.InputTokens });
-                    diagnostics.Write(entry with { Operation = "cached_input_tokens", Count = published.CachedInputTokens });
-                    diagnostics.Write(entry with { Operation = "output_tokens", Count = published.OutputTokens });
-                }
-
                 yield return published;
             }
         }
@@ -94,7 +69,7 @@ internal sealed class DiagnosticProviderSession(
             {
                 diagnostics.Write(entry with
                 {
-                    Operation = "call_finished",
+                    Operation = "request_finished",
                     Severity = failure is null or OperationCanceledException
                         ? DiagnosticSeverity.Information
                         : DiagnosticSeverity.Error,
@@ -104,14 +79,6 @@ internal sealed class DiagnosticProviderSession(
                 });
             }
         }
-
-        void ObserveRetry(int attempt, TimeSpan delay) => diagnostics.Write(entry with
-        {
-            Operation = "call_retry",
-            Severity = DiagnosticSeverity.Warning,
-            Count = attempt,
-            DurationMilliseconds = (long)delay.TotalMilliseconds,
-        });
 
         async ValueTask DisposeStream(IAsyncEnumerator<LLMEvent> stream)
         {

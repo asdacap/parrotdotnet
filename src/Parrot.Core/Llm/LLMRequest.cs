@@ -20,5 +20,7 @@ internal sealed record LLMRequest
     // field by routers that read it (OpenRouter). Empty when unset.
     public string ProviderPreferences { get; init; } = string.Empty;
 
+    public ProviderRequestDiagnostics? Diagnostics { get; init; }
+
     public bool IncludeRouterMetadata { get; init; }
 }

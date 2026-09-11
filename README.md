@@ -718,7 +718,19 @@ waits, background agents/tasks/processes, recovery, and shutdown. Each line has
 an invariant UTC timestamp, `INFO`, `WARN`, or `ERROR`, and quoted key/value
 fields such as `category`, `event`, `instance`, `session`, `agent`,
 `correlation`, `outcome`, and `duration_ms`. Identifiers distinguish concurrent
-operations; numeric counts describe usage without recording content. Fields
+operations; numeric counts describe usage without recording content.
+Provider `call_started`/`call_finished` events describe a logical call, including
+its retries. Separate `request_started`/`request_finished` pairs describe each
+chat transport attempt, including retries, WebSocket recovery, and HTTP fallback.
+Each attempt has a unique `request` ID and the logical call's `correlation` ID;
+`transport` is `http_sse` or `websocket`. Reused WebSocket connections still log
+one pair per request, not per frame. WebSocket attempts include connection setup
+and request encoding, so an unsuccessful upgrade or local failure before sending
+also finishes that attempt. Request timing spans send/connection through
+stream parsing and disposal, with `completed`, `failed`, `cancelled`, or
+`disposed` outcomes. Local HTTP preparation, credential and request-size failures
+are not transport attempts. Model discovery, usage reporting, image generation,
+and OAuth traffic are not included in these chat request events. Fields
 are escaped onto one line and overly long values are marked `[truncated]`.
 
 Logs exclude prompts, responses, reasoning, tool arguments/results, shell

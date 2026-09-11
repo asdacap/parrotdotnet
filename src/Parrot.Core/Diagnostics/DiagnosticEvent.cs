@@ -9,6 +9,10 @@ internal sealed record DiagnosticEvent(string Category, string Operation, Diagno
 
     public string? CorrelationId { get; init; }
 
+    public string? RequestId { get; init; }
+
+    public string? Transport { get; init; }
+
     public string? ProviderId { get; init; }
 
     public string? ModelId { get; init; }

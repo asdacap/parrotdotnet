@@ -55,7 +55,7 @@ internal sealed class OpenAICompatibleProviderSession(
             {
                 AttemptStep recovery;
                 await using (var attempt = new WebSocketAttempt(
-                    prepared, incrementalRequest, GetTurnState, GetConnection, CaptureTurnState))
+                    prepared, incrementalRequest, GetTurnState, GetConnection, CaptureTurnState, request.Diagnostics))
                 {
                     var releasedForRecovery = false;
                     try
@@ -281,7 +281,8 @@ internal sealed class OpenAICompatibleProviderSession(
         IncrementalRequest request,
         Func<string> getTurnState,
         Func<CancellationToken, Task<ResponsesWebSocket>> getConnection,
-        Action<string> captureTurnState) : IAsyncDisposable
+        Action<string> captureTurnState,
+        ProviderRequestDiagnostics? diagnostics) : IAsyncDisposable
     {
         private IAsyncEnumerator<LLMEvent>? _enumerator;
         private bool _disposalStarted;
@@ -299,11 +300,9 @@ internal sealed class OpenAICompatibleProviderSession(
         {
             if (_enumerator is null)
             {
-                var connection = await getConnection(cancellationToken).ConfigureAwait(false);
-                _enumerator = connection.Send(
-                    Prepared.EncodeWebSocket(request.PreviousResponseId, request.Input, getTurnState()),
-                    Response,
-                    cancellationToken).GetAsyncEnumerator(cancellationToken);
+                var events = Send(cancellationToken);
+                _enumerator = (diagnostics is null ? events : diagnostics.Trace(events, "websocket", cancellationToken))
+                    .GetAsyncEnumerator(cancellationToken);
             }
 
             return await _enumerator.MoveNextAsync().ConfigureAwait(false);
@@ -327,6 +326,18 @@ internal sealed class OpenAICompatibleProviderSession(
             {
                 await _enumerator.DisposeAsync().ConfigureAwait(false);
                 _enumerator = null;
+            }
+        }
+
+        private async IAsyncEnumerable<LLMEvent> Send([EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            var connection = await getConnection(cancellationToken).ConfigureAwait(false);
+            await foreach (var published in connection.Send(
+                Prepared.EncodeWebSocket(request.PreviousResponseId, request.Input, getTurnState()),
+                Response,
+                cancellationToken).ConfigureAwait(false))
+            {
+                yield return published;
             }
         }
     }

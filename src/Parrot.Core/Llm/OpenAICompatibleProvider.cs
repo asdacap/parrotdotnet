@@ -191,20 +191,39 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
             headers["x-codex-turn-state"] = turnState;
         }
 
-        var response = await HttpStreaming
-            .OpenStream(_client, _endpoint, body, headers, _headerTimeout, _maximumRequestBytes, cancellationToken)
-            .ConfigureAwait(false);
-        CaptureTurnState(response.Headers, captureTurnState);
-
-        await using (response.ConfigureAwait(false))
+        if (body.Length > _maximumRequestBytes)
         {
-            var events = _protocol == CompatibleProtocol.Responses
-                ? ResponsesAdapter.Parse(response.Content, HttpStreaming.MaxEventBytes, cancellationToken)
-                : ChatCompletionsAdapter.Parse(response.Content, HttpStreaming.MaxEventBytes, cancellationToken);
+            throw new ProviderHttpException($"provider: request exceeds {_maximumRequestBytes} bytes");
+        }
 
-            await foreach (var published in events.ConfigureAwait(false))
+        var events = Send(cancellationToken);
+        if (request.Diagnostics is { } diagnostics)
+        {
+            events = diagnostics.Trace(events, "http_sse", cancellationToken);
+        }
+
+        await foreach (var published in events.ConfigureAwait(false))
+        {
+            yield return published;
+        }
+
+        async IAsyncEnumerable<LLMEvent> Send([EnumeratorCancellation] CancellationToken sendCancellationToken)
+        {
+            var response = await HttpStreaming
+                .OpenStream(_client, _endpoint, body, headers, _headerTimeout, _maximumRequestBytes, sendCancellationToken)
+                .ConfigureAwait(false);
+            CaptureTurnState(response.Headers, captureTurnState);
+
+            await using (response.ConfigureAwait(false))
             {
-                yield return published;
+                var responseEvents = _protocol == CompatibleProtocol.Responses
+                    ? ResponsesAdapter.Parse(response.Content, HttpStreaming.MaxEventBytes, sendCancellationToken)
+                    : ChatCompletionsAdapter.Parse(response.Content, HttpStreaming.MaxEventBytes, sendCancellationToken);
+
+                await foreach (var published in responseEvents.ConfigureAwait(false))
+                {
+                    yield return published;
+                }
             }
         }
     }
