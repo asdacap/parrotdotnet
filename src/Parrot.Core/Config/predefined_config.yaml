@@ -622,14 +622,14 @@ model_aliases:
       color: gray
   medium_llm:
     model_string: ""
-    usage: Settled component work requiring local judgment.
+    usage: Settled component work requiring local specifid judgment.
     augment_system_prompt: null
     icon:
       glyph: ◆
       color: cyan
   high_llm:
     model_string: ""
-    usage: Tactical ambiguity, debugging, coordination, integration, or substantive review.
+    usage: Tactical ambiguity, debugging, coordination, integration, or substantive review. Good architect.
     augment_system_prompt: null
     icon:
       glyph: ◆
