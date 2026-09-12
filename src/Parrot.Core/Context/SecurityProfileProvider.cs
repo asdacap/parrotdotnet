@@ -8,7 +8,7 @@ internal sealed class SecurityProfileProvider(IReadOnlyList<SandboxRule> rules, 
 {
     private readonly SandboxRule[] _rules = [.. rules];
 
-    public string Key => "runtime:system-context:10-security-profile";
+    public string Key => "runtime:system-context:16-security-profile";
 
     public ISystemPrompt Materialize(AgentIdentity identity)
     {

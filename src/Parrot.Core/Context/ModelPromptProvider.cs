@@ -7,7 +7,7 @@ internal sealed class ModelPromptProvider(IReadOnlyDictionary<string, string> au
 {
     private readonly Dictionary<string, string> _augmentations = new(augmentations, StringComparer.Ordinal);
 
-    public string Key => "runtime:model-prompt";
+    public string Key => "runtime:system-context:10-model-prompt";
 
     public ISystemPrompt Materialize(AgentIdentity identity)
     {

@@ -5,7 +5,7 @@ namespace Parrot.Context;
 
 internal sealed class WorkingDirectoryProvider(string workingDirectory, PromptTemplateCatalog templates) : ISystemPromptProvider
 {
-    public string Key => "runtime:system-context:06-working-directory";
+    public string Key => "runtime:system-context:12-working-directory";
 
     public ISystemPrompt Materialize(AgentIdentity identity)
     {

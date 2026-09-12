@@ -6,7 +6,7 @@ namespace Parrot.Context;
 
 internal sealed class GitRepositoryProvider(ProjectWorkspace workspace, PromptTemplateCatalog templates) : ISystemPromptProvider
 {
-    public string Key => "runtime:system-context:06a-git-repository";
+    public string Key => "runtime:system-context:13-git-repository";
 
     public ISystemPrompt Materialize(AgentIdentity identity)
     {

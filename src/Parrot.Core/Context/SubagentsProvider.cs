@@ -6,7 +6,7 @@ namespace Parrot.Context;
 
 internal sealed class SubagentsProvider(ProfileRegistry profiles, PromptTemplateCatalog templates) : ISystemPromptProvider
 {
-    public string Key => "runtime:system-context:09-subagents";
+    public string Key => "runtime:system-context:15-subagents";
 
     public ISystemPrompt Materialize(AgentIdentity identity)
     {

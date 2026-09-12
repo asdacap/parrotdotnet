@@ -4,7 +4,7 @@ namespace Parrot.Context;
 
 internal sealed class SessionIdentityProvider : ISystemPromptProvider
 {
-    public string Key => "runtime:system-context:08-session-identity";
+    public string Key => "runtime:system-context:14-session-identity";
 
     public ISystemPrompt Materialize(AgentIdentity identity)
     {

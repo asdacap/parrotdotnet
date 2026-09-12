@@ -69,6 +69,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(built).Contains("PROJECT RULE: be terse.");
         _ = await Assert.That(built).Contains("Available CLI utilities: none");
         _ = await Assert.That(built).Contains("Available optional CLI utilities: none");
+        var baseIndex = built.IndexOf("Configured base prompt.", StringComparison.Ordinal);
         var projectIndex = built.IndexOf("PROJECT RULE: be terse.", StringComparison.Ordinal);
         var expectedIndex = built.IndexOf("Available CLI utilities: none", StringComparison.Ordinal);
         var platformIndex = built.IndexOf("Platform:", StringComparison.Ordinal);
@@ -77,18 +78,17 @@ internal sealed class CompactorAndContextTests : IDisposable
         var optionalIndex = built.IndexOf("Available optional CLI utilities: none", StringComparison.Ordinal);
         var subagentsIndex = built.IndexOf("Available subagents;", StringComparison.Ordinal);
         var securityIndex = built.IndexOf("The following configured sandbox rules", StringComparison.Ordinal);
-        _ = await Assert.That(built.IndexOf("GLOBAL RULE: be concise.", StringComparison.Ordinal))
-            .IsLessThan(projectIndex);
-        _ = await Assert.That(projectIndex).IsLessThan(expectedIndex);
+        _ = await Assert.That(baseIndex).IsLessThan(expectedIndex);
         _ = await Assert.That(expectedIndex).IsLessThan(platformIndex);
-        _ = await Assert.That(platformIndex).IsLessThan(workingDirectoryIndex);
+        _ = await Assert.That(platformIndex).IsLessThan(optionalIndex);
+        _ = await Assert.That(optionalIndex).IsLessThan(projectIndex);
+        _ = await Assert.That(projectIndex).IsLessThan(workingDirectoryIndex);
         _ = await Assert.That(workingDirectoryIndex).IsLessThan(gitRepositoryIndex);
-        _ = await Assert.That(gitRepositoryIndex).IsLessThan(optionalIndex);
-        _ = await Assert.That(optionalIndex).IsLessThan(subagentsIndex);
+        _ = await Assert.That(gitRepositoryIndex).IsLessThan(subagentsIndex);
         _ = await Assert.That(subagentsIndex).IsLessThan(securityIndex);
         _ = await Assert.That(built).EndsWith("Rules, in enforcement order:");
         _ = await Assert.That(new SecurityProfileProvider([], TestModels.PromptTemplates).Key)
-            .IsEqualTo("runtime:system-context:10-security-profile");
+            .IsEqualTo("runtime:system-context:16-security-profile");
     }
 
     [Test]

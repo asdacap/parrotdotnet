@@ -5,7 +5,7 @@ namespace Parrot.Context;
 
 internal sealed class QueueGuidanceProvider(PromptTemplateCatalog templates) : ISystemPromptProvider
 {
-    public string Key => "runtime:queue-guidance";
+    public string Key => "runtime:system-context:09-queue-guidance";
 
     public ISystemPrompt Materialize(AgentIdentity identity)
     {

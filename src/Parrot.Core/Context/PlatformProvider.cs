@@ -6,7 +6,7 @@ namespace Parrot.Context;
 
 internal sealed class PlatformProvider(PromptTemplateCatalog templates) : ISystemPromptProvider
 {
-    public string Key => "runtime:system-context:05-platform";
+    public string Key => "runtime:system-context:07-platform";
 
     public ISystemPrompt Materialize(AgentIdentity identity)
     {
