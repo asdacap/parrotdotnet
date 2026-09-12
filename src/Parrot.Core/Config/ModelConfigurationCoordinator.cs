@@ -1,3 +1,4 @@
+using Parrot.Context;
 using Parrot.Llm;
 
 namespace Parrot.Config;
@@ -24,7 +25,7 @@ internal sealed class ModelConfigurationCoordinator(
                 string.Equals(definition.Name, name, StringComparison.Ordinal)
                     ? definition with { ModelString = modelString }
                     : definition).ToArray();
-            var replacement = routing.Prepare(refreshed.Model, definitions);
+            var replacement = routing.Prepare(refreshed.Model, definitions) with { ContextLimit = refreshed.ContextLimit };
 
             refreshed.SetModelAlias(name, modelString);
             Configuration.SynchronizeModelConfiguration(configuration, refreshed);
@@ -34,7 +35,10 @@ internal sealed class ModelConfigurationCoordinator(
                 modelString,
                 existing.Usage,
                 existing.AugmentSystemPrompt,
-                ParseIcon(existing.Icon));
+                ParseIcon(existing.Icon))
+            {
+                ContextLimit = existing.ContextLimit,
+            };
         }
     }
 
@@ -71,7 +75,7 @@ internal sealed class ModelConfigurationCoordinator(
                 targets.TryGetValue(definition.Name, out var modelString)
                     ? definition with { ModelString = modelString }
                     : definition).ToArray();
-            var replacement = routing.Prepare(refreshed.Model, definitions);
+            var replacement = routing.Prepare(refreshed.Model, definitions) with { ContextLimit = refreshed.ContextLimit };
 
             refreshed.SetModelAliases(defaults);
             Configuration.SynchronizeModelConfiguration(configuration, refreshed);
@@ -90,7 +94,10 @@ internal sealed class ModelConfigurationCoordinator(
             var preset = new ModelPresetConfig(
                 selectedModel,
                 refreshed.ModelAliases.Select(alias =>
-                    new KeyValuePair<string, string>(alias.Key, alias.Value.ModelString)));
+                    new KeyValuePair<string, string>(alias.Key, alias.Value.ModelString)))
+            {
+                ContextLimits = refreshed.CaptureContextLimits(),
+            };
 
             refreshed.SetModelPreset(name, preset);
             Configuration.SynchronizeModelConfiguration(configuration, refreshed);
@@ -128,9 +135,31 @@ internal sealed class ModelConfigurationCoordinator(
                 aliases[target.Key] = existing with { ModelString = target.Value };
             }
 
-            var replacement = routing.Prepare(preset.Model, Definitions(aliases));
+            if (preset.ContextLimits is { } limits)
+            {
+                foreach (var aliasName in limits.ModelAliases.Keys)
+                {
+                    if (!aliases.ContainsKey(aliasName))
+                    {
+                        throw new LLMProviderException($"model preset: alias \"{aliasName}\" is no longer defined");
+                    }
+                }
+
+                foreach (var aliasName in aliases.Keys.ToArray())
+                {
+                    aliases[aliasName] = aliases[aliasName] with
+                    {
+                        ContextLimit = limits.ModelAliases.GetValueOrDefault(aliasName),
+                    };
+                }
+            }
+
+            var replacement = routing.Prepare(preset.Model, Definitions(aliases)) with
+            {
+                ContextLimit = preset.ContextLimits is null ? refreshed.ContextLimit : preset.ContextLimits.Default,
+            };
             var resolved = router.ResolveFrom(replacement, preset.Model);
-            refreshed.SetModelRouting(preset.Model, preset.ModelAliases);
+            refreshed.SetModelRoutingWithLimits(preset.Model, preset.ModelAliases, preset.ContextLimits);
             Configuration.SynchronizeModelConfiguration(configuration, refreshed);
             routing.Publish(replacement);
             try
@@ -155,6 +184,23 @@ internal sealed class ModelConfigurationCoordinator(
         }
     }
 
+    public ModelRoutingSnapshot SetContextLimit(ContextSize contextLimit)
+    {
+        ArgumentNullException.ThrowIfNull(contextLimit);
+        lock (_gate)
+        {
+            var refreshed = Reload();
+            var replacement = routing.Prepare(refreshed.Model, Definitions(refreshed.ModelAliases)) with
+            {
+                ContextLimit = contextLimit,
+            };
+            refreshed.SetContextLimit(contextLimit);
+            Configuration.SynchronizeModelConfiguration(configuration, refreshed);
+            routing.Publish(replacement);
+            return replacement;
+        }
+    }
+
     public ModelRoutingSnapshot Refresh()
     {
         lock (_gate)
@@ -170,7 +216,10 @@ internal sealed class ModelConfigurationCoordinator(
             alias.Value.ModelString,
             alias.Value.Usage,
             alias.Value.AugmentSystemPrompt,
-            ParseIcon(alias.Value.Icon)));
+            ParseIcon(alias.Value.Icon))
+        {
+            ContextLimit = alias.Value.ContextLimit,
+        });
 
     private static ModelAliasIcon? ParseIcon(ModelAliasIconConfig? icon) => icon is null
         ? null
@@ -180,12 +229,13 @@ internal sealed class ModelConfigurationCoordinator(
     {
         lock (_gate)
         {
-            previousConfiguration.SetModelRouting(
+            previousConfiguration.SetModelRoutingWithLimits(
                 previousConfiguration.Model,
                 previousConfiguration.ModelAliases.ToDictionary(
                     entry => entry.Key,
                     entry => entry.Value.ModelString,
-                    StringComparer.Ordinal));
+                    StringComparer.Ordinal),
+                previousConfiguration.CaptureContextLimits());
             Configuration.SynchronizeModelConfiguration(configuration, previousConfiguration);
             routing.Publish(previousRouting);
         }
@@ -194,7 +244,10 @@ internal sealed class ModelConfigurationCoordinator(
     private Configuration Reload()
     {
         var refreshed = configuration.ReloadModelConfiguration();
-        var replacement = routing.Prepare(refreshed.Model, Definitions(refreshed.ModelAliases));
+        var replacement = routing.Prepare(refreshed.Model, Definitions(refreshed.ModelAliases)) with
+        {
+            ContextLimit = refreshed.ContextLimit,
+        };
         Configuration.SynchronizeModelConfiguration(configuration, refreshed);
         routing.Publish(replacement);
         return refreshed;

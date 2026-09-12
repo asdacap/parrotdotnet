@@ -1,3 +1,5 @@
+using Parrot.Context;
+
 namespace Parrot.Cli.Commands;
 
 internal sealed class CompactCommand(
@@ -11,23 +13,51 @@ internal sealed class CompactCommand(
 
     public async Task Run(string arguments, CancellationToken cancellationToken)
     {
-        if (arguments.Length > 0)
+        string? target;
+        try
         {
-            await dialog.ShowError("usage: /compact", cancellationToken).ConfigureAwait(false);
+            target = ParseTarget(arguments);
+        }
+        catch (FormatException)
+        {
+            await dialog.ShowError($"usage: {Name}", cancellationToken).ConfigureAwait(false);
             return;
         }
 
         await activity.WaitUntilIdle(cancellationToken).ConfigureAwait(false);
 
-        // A failed compaction is already reported as a CompactionFailed event by
-        // the session; swallowing it here keeps the process up for the next prompt.
         try
         {
-            await session.Compact(cancellationToken).ConfigureAwait(false);
+            await session.Compact(target, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception failure)
         {
             await dialog.ShowError($"compaction failed: {failure.Message}", cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private static string? ParseTarget(string arguments)
+    {
+        var trimmed = arguments.Trim();
+        if (trimmed.Length == 0)
+        {
+            if (arguments.Length > 0)
+            {
+                throw new FormatException("expected one context size");
+            }
+
+            return null;
+        }
+
+        if (trimmed.Contains(' ')
+            || trimmed.Contains('\t')
+            || trimmed.Contains('\r')
+            || trimmed.Contains('\n'))
+        {
+            throw new FormatException("expected one context size");
+        }
+
+        _ = ContextSize.Parse(trimmed);
+        return trimmed;
     }
 }

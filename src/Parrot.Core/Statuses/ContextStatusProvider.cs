@@ -32,7 +32,15 @@ internal sealed class ContextStatusProvider(
             model.Add("usage", usage.ToString(CultureInfo.InvariantCulture));
         }
 
+        if (snapshot.HasContextLimitOverride)
+        {
+            model.Add("trigger_tokens", snapshot.TriggerTokens?.ToString(CultureInfo.InvariantCulture) ?? "unavailable");
+        }
+
         return ValueTask.FromResult(StatusObservation.AvailableText(
-            templates.RenderStructured("status.context", model, cancellationToken)));
+            templates.RenderStructured(
+                snapshot.HasContextLimitOverride ? "status.context-limit" : "status.context",
+                model,
+                cancellationToken)));
     }
 }

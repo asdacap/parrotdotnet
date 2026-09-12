@@ -212,6 +212,7 @@ internal sealed partial class Configuration(string path)
     {
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(refreshed);
+        target.ContextLimit = refreshed.ContextLimit;
         target.Model = refreshed.Model;
         target.ModelAliases = refreshed.ModelAliases;
         target.ModelPresets = refreshed.ModelPresets;
@@ -233,6 +234,7 @@ internal sealed partial class Configuration(string path)
         var promptTemplates = ReadPromptTemplates(root);
         var configuration = new Configuration(path)
         {
+            ContextLimit = ReadContextLimit(root, "context_limit", "context_limit"),
             Model = Scalar(root, ModelKey),
             SystemPrompts = ReadSystemPrompts(root),
             PromptTemplates = promptTemplates,
@@ -268,6 +270,7 @@ internal sealed partial class Configuration(string path)
         var root = Merge(LoadRootContent(Predefined.Value), userRoot);
         return new Configuration(path)
         {
+            ContextLimit = ReadContextLimit(root, "context_limit", "context_limit"),
             Model = Scalar(root, ModelKey),
             ModelAliases = ReadModelAliases(root),
             ModelPresets = ReadModelPresets(root),
@@ -298,6 +301,11 @@ internal sealed partial class Configuration(string path)
                 { "model", preset.Model },
                 { ModelAliasesKey, aliases },
             };
+            if (preset.ContextLimits is { } contextLimits)
+            {
+                fields.Add("context_limits", WriteContextLimits(contextLimits));
+            }
+
             presets.Children[new YamlScalarNode(name)] = fields;
             Write(root);
 
@@ -311,7 +319,13 @@ internal sealed partial class Configuration(string path)
         }
     }
 
-    internal void SetModelRouting(string model, IReadOnlyDictionary<string, string> aliasTargets)
+    internal void SetModelRouting(string model, IReadOnlyDictionary<string, string> aliasTargets) =>
+        SetModelRoutingWithLimits(model, aliasTargets, null);
+
+    internal void SetModelRoutingWithLimits(
+        string model,
+        IReadOnlyDictionary<string, string> aliasTargets,
+        ModelPresetContextLimits? contextLimits)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(aliasTargets);
@@ -337,9 +351,15 @@ internal sealed partial class Configuration(string path)
                 updated[target.Key] = existing with { ModelString = target.Value };
             }
 
+            if (contextLimits is not null)
+            {
+                ApplyContextLimits(root, updated, contextLimits);
+            }
+
             root.Children[new YamlScalarNode(ModelKey)] = new YamlScalarNode(model);
             Write(root);
             Model = model;
+            ContextLimit = contextLimits is null ? ContextLimit : contextLimits.Default;
             ModelAliases = updated;
         }
     }
@@ -586,7 +606,10 @@ internal sealed partial class Configuration(string path)
             var icon = ReadModelAliasIcon(fields, name);
 
             ValidateModelSelector($"{ModelAliasesKey}.{name}.model_string", modelString, allowEmpty: true);
-            aliases[name] = new(modelString, usage, augmentation, icon);
+            aliases[name] = new(modelString, usage, augmentation, icon)
+            {
+                ContextLimit = ReadContextLimit(fields, "context_limit", $"{ModelAliasesKey}.{name}.context_limit"),
+            };
         }
 
         return aliases;
@@ -619,7 +642,7 @@ internal sealed partial class Configuration(string path)
                 throw new InvalidDataException($"{ModelPresetsKey}.{name} must be a mapping");
             }
 
-            ValidateKeys(fields, $"{ModelPresetsKey}.{name}", "model", ModelAliasesKey);
+            ValidateKeys(fields, $"{ModelPresetsKey}.{name}", "model", ModelAliasesKey, "context_limits");
             var model = ScalarValue(fields, "model", $"{ModelPresetsKey}.{name}.model");
             ValidateRequestedSelector($"{ModelPresetsKey}.{name}.model", model);
             if (!Child(fields, ModelAliasesKey, out var aliasesNode) || aliasesNode is not YamlMappingNode aliases)
@@ -643,7 +666,10 @@ internal sealed partial class Configuration(string path)
                 targets.Add(aliasName, target);
             }
 
-            presets.Add(name, new ModelPresetConfig(model, targets));
+            presets.Add(name, new ModelPresetConfig(model, targets)
+            {
+                ContextLimits = ReadContextLimits(fields, $"{ModelPresetsKey}.{name}.context_limits"),
+            });
         }
 
         return presets;
@@ -924,7 +950,7 @@ internal sealed partial class Configuration(string path)
         foreach (var key in fields.Children.Keys)
         {
             if (key is not YamlScalarNode { Value: { } value } ||
-                value is not ("model_string" or "usage" or "augment_system_prompt" or "icon"))
+                value is not ("model_string" or "usage" or "augment_system_prompt" or "icon" or "context_limit"))
             {
                 throw new InvalidDataException($"{ModelAliasesKey}.{name} contains an unsupported key");
             }

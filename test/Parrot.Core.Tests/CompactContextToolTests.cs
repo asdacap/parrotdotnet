@@ -110,6 +110,8 @@ internal sealed class CompactContextToolTests : IDisposable
             new { Arguments = "null", ContextWindow = 100_000, Expected = "error:", Calls = 2, Compacted = false, Seed = true },
             new { Arguments = "[]", ContextWindow = 100_000, Expected = "error:", Calls = 2, Compacted = false, Seed = true },
             new { Arguments = "{\"extra\":true}", ContextWindow = 100_000, Expected = "error:", Calls = 2, Compacted = false, Seed = true },
+            new { Arguments = "{\"target_context_size\":\"\"}", ContextWindow = 100_000, Expected = "error:", Calls = 2, Compacted = false, Seed = true },
+            new { Arguments = "{\"target_context_size\":\"20%\"}", ContextWindow = 100_000, Expected = "Compacted this calling agent session", Calls = 3, Compacted = true, Seed = true },
             new { Arguments = "{}", ContextWindow = 100_000, Expected = "Compacted this calling agent session", Calls = 3, Compacted = true, Seed = true },
             new { Arguments = "{}", ContextWindow = 0, Expected = "Context compaction is unavailable", Calls = 2, Compacted = false, Seed = true },
         })

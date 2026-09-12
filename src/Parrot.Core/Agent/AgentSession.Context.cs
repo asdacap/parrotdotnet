@@ -71,6 +71,7 @@ internal sealed partial class AgentSession
 
     public async Task<ContextCompactionResult> CompactFromTool(
         AgentTurnSelection selection,
+        ContextSize? targetContextSize,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(selection);
@@ -94,6 +95,7 @@ internal sealed partial class AgentSession
 
         var compacted = await CompactEpoch(
             selection,
+            targetContextSize,
             tools.Definitions,
             instructions,
             cancellationToken).ConfigureAwait(false);
@@ -161,7 +163,7 @@ internal sealed partial class AgentSession
                 }
 
                 var instructions = _systemPrompt.Build(selection);
-                _ = await CompactEpoch(selection, tools.Definitions, instructions, operation.Token).ConfigureAwait(false);
+                _ = await CompactEpoch(selection, request.TargetContextSize, tools.Definitions, instructions, operation.Token).ConfigureAwait(false);
                 _ = request.Completion.TrySetResult();
             }
             catch (OperationCanceledException failure)
@@ -189,8 +191,8 @@ internal sealed partial class AgentSession
         }
 
         var instructions = _systemPrompt.Build(selection);
-        var context = compactor.EstimateContext(
-            selection.ResolvedModel.CanonicalModel,
+        var context = compactor.EstimateSelectedContext(
+            selection.ResolvedModel,
             instructions,
             tools,
             _skills.HasSelection ? _skills.Augment(_history) : _history);
@@ -199,11 +201,11 @@ internal sealed partial class AgentSession
             context.EstimatedTokens);
         if (context.ExceedsTrigger
             || (context.InputLimit > 0
-                && calibratedInputTokens > (long)context.InputLimit * context.TriggerPercent / 100))
+                && context.ExceedsCompactionTrigger(calibratedInputTokens)))
         {
-            instructions = (await CompactEpoch(selection, tools, instructions, cancellationToken).ConfigureAwait(false)).Instructions;
-            context = compactor.EstimateContext(
-                selection.ResolvedModel.CanonicalModel,
+            instructions = (await CompactEpoch(selection, null, tools, instructions, cancellationToken).ConfigureAwait(false)).Instructions;
+            context = compactor.EstimateSelectedContext(
+                selection.ResolvedModel,
                 instructions,
                 tools,
                 _skills.HasSelection ? _skills.Augment(_history) : _history);
@@ -233,8 +235,8 @@ internal sealed partial class AgentSession
 
         if (_skills.HasSelection)
         {
-            var requestContext = compactor.EstimateContext(
-                selection.ResolvedModel.CanonicalModel,
+            var requestContext = compactor.EstimateSelectedContext(
+                selection.ResolvedModel,
                 instructions,
                 tools,
                 _skills.Augment(_history));
@@ -255,7 +257,7 @@ internal sealed partial class AgentSession
         var selectedModel = selection.ResolvedModel.CanonicalModel;
         var reminder = RenderContextReminder(context, percentage);
         LLMMessage[] candidateHistory = [.. _history, LLMMessage.System(reminder)];
-        var insertedContext = compactor.EstimateContext(selectedModel, instructions, tools, candidateHistory);
+        var insertedContext = compactor.EstimateSelectedContext(selection.ResolvedModel, instructions, tools, candidateHistory);
         if (!insertedContext.IsAvailable)
         {
             return instructions;
@@ -263,8 +265,8 @@ internal sealed partial class AgentSession
 
         if (insertedContext.ExceedsInputLimit || insertedContext.ExceedsTrigger)
         {
-            var compacted = await CompactEpoch(selection, tools, instructions, cancellationToken).ConfigureAwait(false);
-            var compactedContext = compactor.EstimateContext(selectedModel, compacted.Instructions, tools, _history);
+            var compacted = await CompactEpoch(selection, null, tools, instructions, cancellationToken).ConfigureAwait(false);
+            var compactedContext = compactor.EstimateSelectedContext(selection.ResolvedModel, compacted.Instructions, tools, _history);
             EnsureRequestFitsAfterCompaction(compactedContext);
             return compacted.Instructions;
         }
@@ -278,27 +280,34 @@ internal sealed partial class AgentSession
         }
 
         _history.Add(LLMMessage.System(reminder));
-        var persistedContext = compactor.EstimateContext(selectedModel, instructions, tools, _history);
+        var persistedContext = compactor.EstimateSelectedContext(selection.ResolvedModel, instructions, tools, _history);
         contextCadence.Acknowledge(persistedContext, selectedModel.Selector, _history.Count);
         await eventBroker.Publish(published, CancellationToken.None).ConfigureAwait(false);
         return instructions;
     }
 
-    private string RenderContextReminder(ContextSnapshot context, int percentage) =>
-        promptTemplates.Render("agent-session.context-reminder", [
-            new PromptTemplateArgument("percentage", percentage.ToString(CultureInfo.InvariantCulture)),
-            new PromptTemplateArgument(
-                "estimated_tokens",
-                context.EstimatedTokens.ToString(CultureInfo.InvariantCulture)),
-            new PromptTemplateArgument("context_limit", context.ContextLimit.ToString(CultureInfo.InvariantCulture)),
-            new PromptTemplateArgument(
-                "notification_interval",
-                ContextCadence.NotificationInterval.ToString(CultureInfo.InvariantCulture)),
-            new PromptTemplateArgument("trigger", context.TriggerPercent.ToString(CultureInfo.InvariantCulture)),
-        ]);
+    private string RenderContextReminder(ContextSnapshot context, int percentage)
+    {
+        List<PromptTemplateArgument> arguments = [
+            new("percentage", percentage.ToString(CultureInfo.InvariantCulture)),
+            new("estimated_tokens", context.EstimatedTokens.ToString(CultureInfo.InvariantCulture)),
+            new("context_limit", context.ContextLimit.ToString(CultureInfo.InvariantCulture)),
+            new("notification_interval", ContextCadence.NotificationInterval.ToString(CultureInfo.InvariantCulture)),
+            new("trigger", context.TriggerPercent.ToString(CultureInfo.InvariantCulture)),
+        ];
+        if (context.HasContextLimitOverride)
+        {
+            arguments.Add(new("trigger_tokens", context.TriggerTokens?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"));
+        }
+
+        return promptTemplates.Render(
+            context.HasContextLimitOverride ? "agent-session.context-limit-reminder" : "agent-session.context-reminder",
+            arguments);
+    }
 
     private async Task<CompactionEpochResult> CompactEpoch(
         AgentTurnSelection selection,
+        ContextSize? targetContextSize,
         IReadOnlyList<LLMToolDefinition> tools,
         string instructions,
         CancellationToken cancellationToken)
@@ -348,7 +357,8 @@ internal sealed partial class AgentSession
                 cancellationToken).ConfigureAwait(false);
             var fixedStatus = LLMMessage.System(statusContent);
             var compacted = await compactor.CompactWithProviderSessions(
-                selectedModel,
+                selection.ResolvedModel,
+                targetContextSize,
                 instructions,
                 tools,
                 compactionGroups,
@@ -422,8 +432,8 @@ internal sealed partial class AgentSession
                 _providerTokenBudget.Reset();
                 _history.Clear();
                 _history.AddRange(RestoreHistory(eventRepository, SessionId));
-                var persistedContext = compactor.EstimateContext(
-                    selectedModel,
+                var persistedContext = compactor.EstimateSelectedContext(
+                    selection.ResolvedModel,
                     instructions,
                     tools,
                     _history);
@@ -589,6 +599,6 @@ internal sealed partial class AgentSession
         ArgumentNullException.ThrowIfNull(instructions);
         ArgumentNullException.ThrowIfNull(tools);
         ArgumentNullException.ThrowIfNull(history);
-        return compactor.EstimateContext(selection.ResolvedModel.CanonicalModel, instructions, tools, history);
+        return compactor.EstimateSelectedContext(selection.ResolvedModel, instructions, tools, history);
     }
 }

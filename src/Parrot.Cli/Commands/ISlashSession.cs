@@ -34,7 +34,10 @@ internal interface ISlashSession
     Task ClearGoal(CancellationToken cancellationToken);
 
     /// <summary>Requests compaction of the current session context.</summary>
-    Task Compact(CancellationToken cancellationToken);
+    Task Compact(string? targetContextSize, CancellationToken cancellationToken);
+
+    /// <summary>Persists the default context compaction trigger and returns whether an alias masks it.</summary>
+    Task<SetContextLimitResponse> SetContextLimit(string contextLimit, CancellationToken cancellationToken);
 
     Task<ListSkillsResponse> ListSkills(CancellationToken cancellationToken);
 

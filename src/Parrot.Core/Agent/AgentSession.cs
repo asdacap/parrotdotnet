@@ -295,10 +295,10 @@ internal sealed partial class AgentSession(
         await _providerSessions.Close().ConfigureAwait(false);
     }
 
-    public Task Compact(CancellationToken cancellationToken)
+    public Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var request = new ForcedCompactionRequest(cancellationToken);
+        var request = new ForcedCompactionRequest(targetContextSize, cancellationToken);
 
         lock (_drainLifecycle.Gate)
         {
@@ -857,8 +857,10 @@ internal sealed partial class AgentSession(
         internal Task<bool> WaitForStartup() => _startup.Task.WaitAsync(CancellationToken.None);
     }
 
-    private sealed class ForcedCompactionRequest(CancellationToken cancellationToken)
+    private sealed class ForcedCompactionRequest(ContextSize? targetContextSize, CancellationToken cancellationToken)
     {
+        internal ContextSize? TargetContextSize { get; } = targetContextSize;
+
         internal CancellationToken CancellationToken { get; } = cancellationToken;
 
         internal TaskCompletionSource Completion { get; } =

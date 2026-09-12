@@ -1,4 +1,5 @@
 using Parrot.Config;
+using Parrot.Context;
 using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Llm;
@@ -386,8 +387,8 @@ internal sealed class UserSession : IAsyncDisposable
 
     internal void ClearGoal() => MainScope().Goals.ClearGoal();
 
-    internal Task Compact(CancellationToken cancellationToken) =>
-        Main().Compact(cancellationToken);
+    internal Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken) =>
+        Main().Compact(targetContextSize, cancellationToken);
 
     private async Task DisposeResources()
     {

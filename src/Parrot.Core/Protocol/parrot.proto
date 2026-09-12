@@ -32,6 +32,7 @@ service Parrot {
   rpc UploadAttachment (stream AttachmentUploadFrame) returns (AttachmentUploadResponse);
   rpc Interrupt (InterruptRequest) returns (InterruptResponse);
   rpc Compact (CompactRequest) returns (CompactResponse);
+  rpc SetContextLimit (SetContextLimitRequest) returns (SetContextLimitResponse);
   rpc ListPendingQuestions (ListPendingQuestionsRequest) returns (ListPendingQuestionsResponse);
   rpc ReplyQuestion (ReplyQuestionRequest) returns (ReplyQuestionResponse);
   rpc RejectQuestion (RejectQuestionRequest) returns (RejectQuestionResponse);
@@ -177,6 +178,8 @@ message ModelPreset {
   string name = 1;
   string model = 2;
   map<string, string> model_aliases = 3;
+  string context_limit = 4;
+  map<string, string> model_alias_context_limits = 5;
 }
 
 message ListModesRequest {}
@@ -346,9 +349,20 @@ message InterruptResponse {}
 
 message CompactRequest {
   string user_session_id = 1;
+  string target_context_size = 2;
 }
 
 message CompactResponse {}
+
+message SetContextLimitRequest {
+  string user_session_id = 1;
+  string context_limit = 2;
+}
+
+message SetContextLimitResponse {
+  string context_limit = 1;
+  bool alias_override = 2;
+}
 
 message ListPendingQuestionsRequest {
   string user_session_id = 1;

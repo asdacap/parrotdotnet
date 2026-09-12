@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Parrot.Auth;
 using Parrot.Config;
+using Parrot.Context;
 using Parrot.Llm;
 using Parrot.Llm.Wire;
 
@@ -733,6 +734,71 @@ internal sealed class ProviderRegistryTests
                 .IsEqualTo(persisted.ModelAliases["preferred"].ModelString);
             _ = await Assert.That(router.Resolve("preferred").CanonicalModel.Selector)
                 .IsEqualTo(persisted.ModelAliases["preferred"].ModelString);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Context_limits_refresh_alias_precedence_and_preset_rollback(bool rejectSelection)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-context-routing", Guid.NewGuid().ToString("n"));
+        _ = Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "config.yaml");
+        try
+        {
+            const string initialConfiguration = """
+                model: first
+                context_limit: 100k
+                model_aliases:
+                  first:
+                    model_string: p/model
+                    usage: First
+                    context_limit: 20%
+                  second:
+                    model_string: p/model
+                    usage: Second
+                """;
+            await File.WriteAllTextAsync(path, initialConfiguration);
+            var configuration = Configuration.Load(path, Path.Combine(directory, "predefined.yaml"));
+            var registry = new ProviderRegistry(
+                [new FakeProvider("p", true, null)],
+                new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal)
+                {
+                    ["p"] = [new LLMModel("model", "p")],
+                });
+            var routing = new ModelRouting(new ModelAliasCatalog(registry, []), configuration.Model);
+            var router = new ModelRouter(registry, routing);
+            var coordinator = new ModelConfigurationCoordinator(configuration, routing, router);
+            _ = coordinator.Refresh();
+            var captured = router.Resolve("second");
+            _ = coordinator.SetPreset("saved", "first");
+            _ = coordinator.SetContextLimit(ContextSize.Parse("50k"));
+            _ = await Assert.That(router.Resolve("first").ContextLimit).IsEqualTo(ContextSize.Parse("20%"));
+            _ = await Assert.That(router.Resolve("second").ContextLimit).IsEqualTo(ContextSize.Parse("50k"));
+            _ = await Assert.That(captured.ContextLimit).IsEqualTo(ContextSize.Parse("100k"));
+            _ = await Assert.That(router.Resolve("first").CanonicalModel.Selector)
+                .IsEqualTo(router.Resolve("second").CanonicalModel.Selector);
+            if (rejectSelection)
+            {
+                _ = Assert.Throws<InvalidOperationException>(() => coordinator.SelectPreset(
+                    "saved", "second", static _ => throw new InvalidOperationException("rejected")));
+            }
+            else
+            {
+                _ = coordinator.SelectPreset("saved", "second", static _ => { });
+            }
+
+            var expected = ContextSize.Parse(rejectSelection ? "50k" : "100k");
+            _ = await Assert.That(router.Resolve("second").ContextLimit).IsEqualTo(expected);
+            _ = await Assert.That(configuration.ContextLimit).IsEqualTo(expected);
+            _ = await Assert.That(Configuration.Load(path, Path.Combine(directory, "predefined.yaml")).ContextLimit)
+                .IsEqualTo(expected);
+            _ = await Assert.That(router.Resolve("first").ContextLimit).IsEqualTo(ContextSize.Parse("20%"));
         }
         finally
         {

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Grpc.Core;
 using Parrot.Agent;
 using Parrot.Config;
+using Parrot.Context;
 using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Permissions;
@@ -754,9 +755,55 @@ internal sealed class ParrotService(
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(context);
 
-        await Find(request.UserSessionId).Compact(context.CancellationToken).ConfigureAwait(false);
+        ContextSize? target = null;
+        if (request.TargetContextSize.Length > 0)
+        {
+            try
+            {
+                target = ContextSize.Parse(request.TargetContextSize);
+            }
+            catch (FormatException failure)
+            {
+                throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+            }
+        }
+
+        await Find(request.UserSessionId).Compact(target, context.CancellationToken).ConfigureAwait(false);
 
         return new CompactResponse();
+    }
+
+    public override Task<SetContextLimitResponse> SetContextLimit(
+        SetContextLimitRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+        context.CancellationToken.ThrowIfCancellationRequested();
+        var current = Find(request.UserSessionId);
+        if (request.ContextLimit.Length == 0)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "context limit must not be empty"));
+        }
+
+        ContextSize limit;
+        try
+        {
+            limit = ContextSize.Parse(request.ContextLimit);
+        }
+        catch (FormatException failure)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+        }
+
+        _ = modelConfiguration.SetContextLimit(limit);
+        var aliasOverride = current.Model.Length > 0
+            && modelConfiguration.CaptureRouting().Aliases.Find(current.Model)?.ContextLimit is not null;
+        return Task.FromResult(new SetContextLimitResponse
+        {
+            ContextLimit = limit.ToString(),
+            AliasOverride = aliasOverride,
+        });
     }
 
     public override Task<ListPendingQuestionsResponse> ListPendingQuestions(
@@ -1056,6 +1103,19 @@ internal sealed class ParrotService(
     private static ModelPreset ToProtocol(string name, ModelPresetConfig preset)
     {
         var converted = new ModelPreset { Name = name, Model = preset.Model };
+        if (preset.ContextLimits?.Default is { } defaultLimit)
+        {
+            converted.ContextLimit = defaultLimit.ToString();
+        }
+
+        if (preset.ContextLimits is { } contextLimits)
+        {
+            foreach (var aliasLimit in contextLimits.ModelAliases)
+            {
+                converted.ModelAliasContextLimits.Add(aliasLimit.Key, aliasLimit.Value.ToString());
+            }
+        }
+
         foreach (var alias in preset.ModelAliases)
         {
             converted.ModelAliases.Add(alias.Key, alias.Value);
