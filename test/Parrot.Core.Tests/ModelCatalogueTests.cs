@@ -65,7 +65,7 @@ internal sealed class ModelCatalogueTests
         _ = await Assert.That(models.Count).IsEqualTo(2);
         _ = await Assert.That(model.Name).IsEqualTo("served");
         _ = await Assert.That(model.Fields.HasFlag(ModelMetadataFields.Name)).IsFalse();
-        _ = await Assert.That(model.ContextWindow).IsEqualTo(0);
+        _ = await Assert.That(model.ContextWindow).IsEqualTo(64);
         _ = await Assert.That(model.MaxInputTokens).IsEqualTo(64);
         _ = await Assert.That(model.MaxOutputTokens).IsEqualTo(32);
         _ = await Assert.That(model.Fields.HasFlag(ModelMetadataFields.InputPrice)).IsFalse();
@@ -94,23 +94,23 @@ internal sealed class ModelCatalogueTests
 
         _ = await Assert.That(string.Join(",", models.Select(model => model.Id)))
             .IsEqualTo("qwen38-27b,nested-only,normalized-only,malformed-normalized,duplicate");
-        _ = await Assert.That(qwen.ContextWindow).IsEqualTo(0);
+        _ = await Assert.That(qwen.ContextWindow).IsEqualTo(262144);
         _ = await Assert.That(qwen.MaxInputTokens).IsEqualTo(262144);
         _ = await Assert.That(qwen.MaxOutputTokens).IsEqualTo(64);
         _ = await Assert.That(qwen.Capabilities.Tools).IsFalse();
         _ = await Assert.That(qwen.Capabilities.Reasoning).IsTrue();
         _ = await Assert.That(string.Join(",", qwen.Capabilities.Variants.Select(variant => variant.Name)))
             .IsEqualTo("low,medium,xhigh");
-        _ = await Assert.That(models.Single(model => model.Id == "nested-only").ContextWindow).IsEqualTo(0);
+        _ = await Assert.That(models.Single(model => model.Id == "nested-only").ContextWindow).IsEqualTo(1024);
         _ = await Assert.That(models.Single(model => model.Id == "nested-only").MaxInputTokens).IsEqualTo(1024);
-        _ = await Assert.That(models.Single(model => model.Id == "normalized-only").ContextWindow).IsEqualTo(0);
+        _ = await Assert.That(models.Single(model => model.Id == "normalized-only").ContextWindow).IsEqualTo(2048);
         _ = await Assert.That(models.Single(model => model.Id == "normalized-only").MaxInputTokens).IsEqualTo(2048);
         _ = await Assert.That(models.Single(model => model.Id == "normalized-only").Capabilities.Reasoning).IsFalse();
         _ = await Assert.That(models.Single(model => model.Id == "malformed-normalized").ContextWindow)
-            .IsEqualTo(0);
+            .IsEqualTo(4096);
         _ = await Assert.That(models.Single(model => model.Id == "malformed-normalized").MaxInputTokens)
             .IsEqualTo(4096);
-        _ = await Assert.That(duplicate.ContextWindow).IsEqualTo(0);
+        _ = await Assert.That(duplicate.ContextWindow).IsEqualTo(4096);
         _ = await Assert.That(duplicate.MaxInputTokens).IsEqualTo(4096);
         _ = await Assert.That(duplicate.MaxOutputTokens).IsEqualTo(128);
         _ = await Assert.That(string.Join(",", duplicate.Capabilities.Variants.Select(variant => variant.Name)))
@@ -144,7 +144,7 @@ internal sealed class ModelCatalogueTests
 
         _ = await Assert.That(string.Join(",", merged.Select(model => model.Id)))
             .IsEqualTo("primary-only,served");
-        _ = await Assert.That(served.ContextWindow).IsEqualTo(256);
+        _ = await Assert.That(served.ContextWindow).IsEqualTo(512);
         _ = await Assert.That(served.MaxInputTokens).IsEqualTo(512);
         _ = await Assert.That(served.MaxOutputTokens).IsEqualTo(0);
         _ = await Assert.That(served.InputPrice).IsEqualTo(0.01);

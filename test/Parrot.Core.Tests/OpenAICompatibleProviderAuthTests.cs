@@ -169,7 +169,7 @@ internal sealed class OpenAICompatibleProviderAuthTests
         _ = await Assert.That(string.Join("|", handler.TenantHeaders)).IsEqualTo("tenant|tenant");
         _ = await Assert.That(source.RequestCount).IsEqualTo(1);
         _ = await Assert.That(string.Join(",", listed.Select(model => model.Id))).IsEqualTo("primary-only,served");
-        _ = await Assert.That(served.ContextWindow).IsEqualTo(0);
+        _ = await Assert.That(served.ContextWindow).IsEqualTo(512);
         _ = await Assert.That(served.MaxInputTokens).IsEqualTo(512);
         _ = await Assert.That(served.MaxOutputTokens).IsEqualTo(0);
         _ = await Assert.That(served.Capabilities.Tools).IsFalse();

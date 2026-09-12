@@ -58,14 +58,14 @@ internal sealed class LiteLlmModelInfoDecoder : IModelListDecoder
                 && configuredModelInfo.ValueKind == JsonValueKind.Object)
             {
                 configured = ModelMetadataDecoder.Decode(
-                    id, providerId, id, configuredModelInfo, [], readName: false);
+                    id, providerId, id, configuredModelInfo, ["max_input_tokens"], readName: false);
             }
 
             if (item.TryGetProperty("model_info", out var normalizedModelInfo)
                 && normalizedModelInfo.ValueKind == JsonValueKind.Object)
             {
                 normalized = ModelMetadataDecoder.Decode(
-                    id, providerId, id, normalizedModelInfo, [], readName: false);
+                    id, providerId, id, normalizedModelInfo, ["max_input_tokens"], readName: false);
             }
 
             LLMModel decoded;
