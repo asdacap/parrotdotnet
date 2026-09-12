@@ -1702,7 +1702,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             .Select(index => new CompactionGroup(
                 [LLMMessage.User($"message {index} {new string('x', 300)}")], index + 1, false, true))
             .ToList();
-        var sessions = new ProviderSessions(TestDiagnosticLog.Instance, "agent-test");
+        var sessions = new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null);
         try
         {
             var tiny = await compactor.CompactWithProviderSessions(
