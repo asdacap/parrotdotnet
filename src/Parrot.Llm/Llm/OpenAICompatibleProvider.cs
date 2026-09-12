@@ -9,6 +9,7 @@ namespace Parrot.Llm;
 internal sealed class OpenAICompatibleProvider : ILLMProvider
 {
     private readonly ImageGenerationClient _images;
+    private readonly IImageTokenCalculator _imageTokenCalculator;
     private readonly Uri _endpoint;
     private readonly Uri _modelsEndpoint;
     private readonly Uri _modelInfoEndpoint;
@@ -21,6 +22,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     private readonly IModelListDecoder _decoder;
     private readonly HttpClient _client;
     private readonly TimeSpan _headerTimeout;
+    private readonly TimeSpan _streamIdleTimeout;
     private readonly string _providerPreferences;
     private readonly IResponsesWebSocketConnector _websocketConnector;
     private readonly bool _disableWebSocket;
@@ -46,6 +48,11 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
 
         ArgumentNullException.ThrowIfNull(options.ApiKeySource);
 
+        if (options.StreamIdleTimeout < TimeSpan.Zero)
+        {
+            throw new LLMProviderException("provider: stream idle timeout cannot be negative");
+        }
+
         if (options.HeaderTimeout < TimeSpan.Zero)
         {
             throw new LLMProviderException("provider: header timeout cannot be negative");
@@ -59,6 +66,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
         };
 
         Id = options.Id;
+        _imageTokenCalculator = options.ImageTokenCalculator;
         _protocol = options.Protocol;
         _apiKeySource = options.ApiKeySource;
         _endpoint = HttpStreaming.EndpointUrl(
@@ -79,6 +87,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
             HttpStreaming.EndpointUrl(options.BaseUrl, "images/edits", options.AllowInsecureLocalhost, options.AllowInsecureRemote),
             AuthHeadersForSession);
         _headerTimeout = options.HeaderTimeout;
+        _streamIdleTimeout = options.StreamIdleTimeout;
         _providerPreferences = options.ProviderPreferences;
         _websocketConnector = websocketConnector;
         _disableWebSocket = options.DisableWebSocket;
@@ -86,6 +95,9 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     }
 
     public string Id { get; }
+
+    public long CalculateImageTokens(LLMModel model, LLMContent image) =>
+        _imageTokenCalculator.CalculateImageTokens(model, image);
 
     public Task<ImageGenerationResult> GenerateImage(ImageGenerationRequest request, CancellationToken cancellationToken) =>
         _images.GenerateImage(request, cancellationToken);
@@ -213,7 +225,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
             request.Diagnostics?.DumpRequest(body);
             yield return LLMEvent.HttpRequestStarted();
             var response = await HttpStreaming
-                .OpenStream(_client, _endpoint, body, headers, _headerTimeout, _maximumRequestBytes, attempt, sendCancellationToken)
+                .OpenStream(_client, _endpoint, body, headers, _headerTimeout, _streamIdleTimeout, _maximumRequestBytes, attempt, sendCancellationToken)
                 .ConfigureAwait(false);
             CaptureTurnState(response.Headers, captureTurnState);
 

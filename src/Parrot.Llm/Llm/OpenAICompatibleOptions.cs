@@ -7,6 +7,8 @@ internal sealed record OpenAICompatibleOptions
 {
     public int MaximumRequestBytes { get; init; } = new RequestLimitsConfig().ProviderRequestBytes;
 
+    public IImageTokenCalculator ImageTokenCalculator { get; init; } = FallbackImageTokenCalculator.Instance;
+
     public required string Id { get; init; }
 
     public required string BaseUrl { get; init; }
@@ -38,6 +40,8 @@ internal sealed record OpenAICompatibleOptions
     public IReadOnlyList<LLMModel> ExternalModels { get; init; } = [];
 
     public IModelListDecoder Decoder { get; init; } = StandardModelDecoder.Instance;
+
+    public TimeSpan StreamIdleTimeout { get; init; } = TimeSpan.FromMinutes(5);
 
     public TimeSpan HeaderTimeout { get; init; } = TimeSpan.FromSeconds(60);
 

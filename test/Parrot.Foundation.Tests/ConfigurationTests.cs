@@ -237,6 +237,34 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    [Arguments("chatgpt")]
+    [Arguments("openai")]
+    [Arguments("custom")]
+    public async Task Provider_stream_idle_timeout_preserves_defaults_and_overrides(string providerId)
+    {
+        var defaults = Load(Write($"providers:\n  {providerId}: {{}}\n")).Providers[providerId];
+        var custom = Load(Write($"providers:\n  {providerId}:\n    stream_idle_timeout_ms: 2500\n")).Providers[providerId];
+        var disabled = Load(Write($"providers:\n  {providerId}:\n    stream_idle_timeout_ms: 0\n")).Providers[providerId];
+
+        _ = await Assert.That(defaults.StreamIdleTimeoutMs).IsEqualTo(300000);
+        _ = await Assert.That(custom.StreamIdleTimeoutMs).IsEqualTo(2500);
+        _ = await Assert.That(disabled.StreamIdleTimeoutMs).IsEqualTo(0);
+    }
+
+    [Test]
+    [Arguments("-1")]
+    [Arguments("null")]
+    [Arguments("bad")]
+    [Arguments("1.5")]
+    [Arguments("2147483648")]
+    public async Task Provider_stream_idle_timeout_rejects_invalid_values(string value)
+    {
+        var failure = Assert.Throws<InvalidDataException>(
+            () => Load(Write($"providers:\n  custom:\n    stream_idle_timeout_ms: {value}\n")));
+        _ = await Assert.That(failure.Message).IsEqualTo("providers.custom.stream_idle_timeout_ms must be a non-negative integer");
+    }
+
+    [Test]
     public async Task Openai_provider_defaults_can_be_partially_overridden()
     {
         var provider = Load(Write("providers:\n  openai:\n    header_timeout_ms: 2500\n")).Providers["openai"];

@@ -12,7 +12,12 @@ internal sealed class ScriptedProvider(string reply) : ILLMProvider
 
     public IReadOnlyList<LLMRequest> Requests => _requests;
 
+    public IImageTokenCalculator ImageTokenCalculator { get; init; } = FallbackImageTokenCalculator.Instance;
+
     public IReadOnlyList<LLMModel> Models { get; init; } = [];
+
+    public long CalculateImageTokens(LLMModel model, LLMContent image) =>
+        ImageTokenCalculator.CalculateImageTokens(model, image);
 
     public IReadOnlyList<LLMModel> SeedModels() => Models;
 

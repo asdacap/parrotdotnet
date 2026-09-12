@@ -327,7 +327,7 @@ internal sealed class StatusDrainTests : IDisposable
 
     private static async Task AssertContextLine(string content, LLMRequest request, int contextLimit)
     {
-        var estimated = Compactor.EstimateInputTokens(request.Instructions, request.Tools, request.Messages);
+        var estimated = Compactor.EstimateInputTokens(new ProviderModel(new ScriptedProvider(string.Empty), new LLMModel(request.Model, "scripted")), request.Instructions, request.Tools, request.Messages);
         var usage = estimated >= contextLimit
             ? 100
             : (int)(estimated * 100L / contextLimit);

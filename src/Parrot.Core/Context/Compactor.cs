@@ -12,8 +12,6 @@ internal sealed class Compactor(
     int summaryOutputTokens,
     IPromptTemplateCatalog promptTemplates)
 {
-    // Image token usage depends on provider-side vision processing, not encoded file size.
-    private const long EstimatedImageTokens = 4096;
     private const string SummaryInstructionsTemplate = "compaction.summary-instructions";
     private const string SummaryPrefixTemplate = "compaction.summary-prefix";
     private const string OversizedToolGroupNoticeTemplate = "compaction.oversized-tool-group-notice";
@@ -21,13 +19,15 @@ internal sealed class Compactor(
     private readonly string _summaryInstructions = promptTemplates.Render(SummaryInstructionsTemplate, []);
     private readonly string _summaryPrefix = promptTemplates.Render(SummaryPrefixTemplate, []);
 
-    public static long EstimateTokens(IReadOnlyList<LLMMessage> messages)
+    public static long EstimateTokens(ProviderModel selectedModel, IReadOnlyList<LLMMessage> messages)
     {
         ArgumentNullException.ThrowIfNull(messages);
-        return messages.Sum(EstimateTokens);
+        ArgumentNullException.ThrowIfNull(selectedModel);
+        return messages.Sum(message => EstimateMessageTokens(selectedModel, message));
     }
 
     public static long EstimateInputTokens(
+        ProviderModel selectedModel,
         string instructions,
         IReadOnlyList<LLMToolDefinition> tools,
         IReadOnlyList<LLMMessage> messages)
@@ -41,7 +41,7 @@ internal sealed class Compactor(
                 + EstimateStringTokens(tool.Description)
                 + EstimateStringTokens(tool.ParametersJson)
                 + 12L)
-            + EstimateTokens(messages)
+            + EstimateTokens(selectedModel, messages)
             + 4;
     }
 
@@ -56,7 +56,7 @@ internal sealed class Compactor(
         ArgumentNullException.ThrowIfNull(tools);
         ArgumentNullException.ThrowIfNull(history);
 
-        var estimatedTokens = EstimateInputTokens(instructions, tools, history);
+        var estimatedTokens = EstimateInputTokens(selectedModel, instructions, tools, history);
         var contextLimit = selectedModel.Model.ContextWindow;
         int? usagePercent = contextLimit > 0
             ? estimatedTokens >= contextLimit
@@ -237,11 +237,11 @@ internal sealed class Compactor(
         && group.Messages[0].Role == LLMRole.Assistant
         && group.Messages[0].ToolCalls.Count > 0;
 
-    private static long EstimateTokens(LLMMessage message) =>
+    private static long EstimateMessageTokens(ProviderModel selectedModel, LLMMessage message) =>
         message.Contents.Sum(content => content.Kind switch
         {
             LLMContentKind.Text => EstimateStringTokens(content.Text),
-            LLMContentKind.Image => EstimatedImageTokens,
+            LLMContentKind.Image => selectedModel.Provider.CalculateImageTokens(selectedModel.Model, content),
             _ => throw new InvalidOperationException($"unsupported LLM content kind {content.Kind}"),
         })
         + message.ToolCalls.Sum(call => EstimateStringTokens(call.Id) + EstimateStringTokens(call.Name)
@@ -324,7 +324,7 @@ internal sealed class Compactor(
         while (keepGroupFrom > 1)
         {
             var candidate = groups[keepGroupFrom - 1].Messages.Concat(retained).ToList();
-            if (EstimateWithSummary(instructions, tools, fixedMessage, candidate) + 1 > targetBudget)
+            if (EstimateWithSummary(selectedModel, instructions, tools, fixedMessage, candidate) + 1 > targetBudget)
             {
                 break;
             }
@@ -333,7 +333,7 @@ internal sealed class Compactor(
             keepGroupFrom--;
         }
 
-        var naturalRequiredExceedsTarget = EstimateWithSummary(instructions, tools, fixedMessage, retained) + 1
+        var naturalRequiredExceedsTarget = EstimateWithSummary(selectedModel, instructions, tools, fixedMessage, retained) + 1
             > targetBudget;
         var checkpointCut = Enumerable.Range(0, groups.Count)
             .Where(index => groups[index].HasCheckpointBefore)
@@ -344,7 +344,7 @@ internal sealed class Compactor(
             })
             .Where(candidate =>
             {
-                var estimate = EstimateWithSummary(instructions, tools, fixedMessage, candidate.Retained) + 1;
+                var estimate = EstimateWithSummary(selectedModel, instructions, tools, fixedMessage, candidate.Retained) + 1;
                 return estimate <= targetBudget || (naturalRequiredExceedsTarget && estimate <= inputTokenLimit);
             })
             .OrderBy(candidate => Math.Abs(candidate.Index - keepGroupFrom))
@@ -369,7 +369,7 @@ internal sealed class Compactor(
             return null;
         }
 
-        var summaryBaseTokens = EstimateWithSummary(instructions, tools, fixedMessage, retained);
+        var summaryBaseTokens = EstimateWithSummary(selectedModel, instructions, tools, fixedMessage, retained);
         var targetExceededByRequiredContext = summaryBaseTokens + 1 > targetBudget;
         var summaryBudget = (targetExceededByRequiredContext ? inputTokenLimit : targetBudget) - summaryBaseTokens;
         if (summaryBudget <= 0)
@@ -396,7 +396,7 @@ internal sealed class Compactor(
         foreach (var group in toSummarise)
         {
             var providerGroup = group.Messages;
-            if (EstimateRequestTokens(string.Empty, [], providerGroup) > inputBudget)
+            if (EstimateRequestTokens(selectedModel, string.Empty, [], providerGroup) > inputBudget)
             {
                 if (!IsEligibleForSpill(group))
                 {
@@ -409,7 +409,7 @@ internal sealed class Compactor(
                     [new PromptTemplateArgument("path", path)]));
                 substitutions.Add(group, notice);
                 providerGroup = [notice];
-                if (EstimateRequestTokens(string.Empty, [], providerGroup) > inputBudget)
+                if (EstimateRequestTokens(selectedModel, string.Empty, [], providerGroup) > inputBudget)
                 {
                     throw new InvalidOperationException("A complete conversation group exceeds the compaction input budget.");
                 }
@@ -424,7 +424,7 @@ internal sealed class Compactor(
         {
             var providerGroup = providerGroups[group];
             if (chunk.Count > 0
-                && EstimateRequestTokens(summary, MessagesOf(chunk), providerGroup) > inputBudget)
+                && EstimateRequestTokens(selectedModel, summary, MessagesOf(chunk), providerGroup) > inputBudget)
             {
                 summary = await FoldGroups(
                     selectedModel,
@@ -437,7 +437,7 @@ internal sealed class Compactor(
                 chunk = [];
             }
 
-            if (EstimateRequestTokens(summary, MessagesOf(chunk), providerGroup) > inputBudget)
+            if (EstimateRequestTokens(selectedModel, summary, MessagesOf(chunk), providerGroup) > inputBudget)
             {
                 if (!IsEligibleForSpill(group) || substitutions.ContainsKey(group))
                 {
@@ -450,7 +450,7 @@ internal sealed class Compactor(
                     [new PromptTemplateArgument("path", path)]));
                 substitutions.Add(group, notice);
                 providerGroup = [notice];
-                if (EstimateRequestTokens(summary, MessagesOf(chunk), providerGroup) > inputBudget)
+                if (EstimateRequestTokens(selectedModel, summary, MessagesOf(chunk), providerGroup) > inputBudget)
                 {
                     throw new InvalidOperationException("A complete conversation group exceeds the compaction input budget.");
                 }
@@ -473,7 +473,7 @@ internal sealed class Compactor(
 
         var summaryMessage = LLMMessage.System($"{_summaryPrefix}{summary}");
         IReadOnlyList<LLMMessage> compacted = [summaryMessage, fixedMessage, .. retained];
-        var compactedTokens = EstimateInputTokens(instructions, tools, compacted);
+        var compactedTokens = EstimateInputTokens(selectedModel, instructions, tools, compacted);
         if (compactedTokens > inputTokenLimit)
         {
             throw new InvalidOperationException("The compacted conversation exceeds the selected model input limit.");
@@ -489,19 +489,21 @@ internal sealed class Compactor(
     }
 
     private long EstimateWithSummary(
+        ProviderModel selectedModel,
         string instructions,
         IReadOnlyList<LLMToolDefinition> tools,
         LLMMessage fixedMessage,
         IReadOnlyList<LLMMessage> retained) =>
-        EstimateInputTokens(instructions, tools, [LLMMessage.System(_summaryPrefix), fixedMessage, .. retained]);
+        EstimateInputTokens(selectedModel, instructions, tools, [LLMMessage.System(_summaryPrefix), fixedMessage, .. retained]);
 
     private long EstimateRequestTokens(
+        ProviderModel selectedModel,
         string precedingSummary,
         IReadOnlyList<LLMMessage> chunk,
         IReadOnlyList<LLMMessage> nextGroup)
     {
         var messages = RequestMessages(precedingSummary, chunk, nextGroup);
-        return EstimateTokens(messages);
+        return EstimateTokens(selectedModel, messages);
     }
 
     private List<LLMMessage> RequestMessages(

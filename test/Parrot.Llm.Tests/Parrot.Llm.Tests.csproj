@@ -15,4 +15,9 @@
     <ProjectReference Include="../../src/Parrot.Llm/Parrot.Llm.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="../Parrot.Core.Tests/ControlledTimeProvider.cs" Link="ControlledTimeProvider.cs" />
+    <Compile Include="../Parrot.Core.Tests/UnusedProvider.cs" Link="UnusedProvider.cs" />
+  </ItemGroup>
+
 </Project>

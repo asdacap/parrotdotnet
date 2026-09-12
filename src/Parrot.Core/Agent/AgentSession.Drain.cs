@@ -1314,7 +1314,7 @@ internal sealed partial class AgentSession
     {
         var selectedModel = selection?.ResolvedModel.CanonicalModel
             ?? throw new AgentRegistryException("turn selection is unavailable");
-        var estimatedInputTokens = Compactor.EstimateInputTokens(instructions, snapshot.Definitions, messages);
+        var estimatedInputTokens = Compactor.EstimateInputTokens(selectedModel, instructions, snapshot.Definitions, messages);
         var maximumOutputTokens = _providerTokenBudget.CalculateMaximumOutputTokens(
             selectedModel.Selector,
             estimatedInputTokens,

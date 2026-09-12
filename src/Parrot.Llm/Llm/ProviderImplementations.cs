@@ -14,6 +14,11 @@ internal static class ProviderImplementations
     private static readonly IReadOnlyDictionary<string, IProviderImplementation> Known =
         new Dictionary<string, IProviderImplementation>(StringComparer.Ordinal)
         {
+            ["openai"] = new CompatibleProviderImplementation(
+                StandardModelDecoder.Instance,
+                supportsProviderPreferences: false,
+                static (options, client) => new OpenAICompatibleProvider(
+                    options with { ImageTokenCalculator = OpenAiImageTokenCalculator.Instance }, client)),
             [ChatGptProvider.ProviderId] = new ChatGptProviderImplementation(),
             ["openrouter"] = new CompatibleProviderImplementation(
                 OpenRouterModelDecoder.Instance,
@@ -56,6 +61,7 @@ internal static class ProviderImplementations
             {
                 MaximumRequestBytes = context.RequestLimits.ProviderRequestBytes,
                 HeaderTimeout = TimeSpan.FromMilliseconds(context.Config.HeaderTimeoutMs),
+                StreamIdleTimeout = TimeSpan.FromMilliseconds(context.Config.StreamIdleTimeoutMs),
             });
         }
     }
@@ -100,6 +106,7 @@ internal static class ProviderImplementations
                 ExternalModels = context.ExternalModels,
                 Decoder = decoder,
                 HeaderTimeout = TimeSpan.FromMilliseconds(config.HeaderTimeoutMs),
+                StreamIdleTimeout = TimeSpan.FromMilliseconds(config.StreamIdleTimeoutMs),
                 ProviderPreferences = supportsProviderPreferences ? config.ProviderPreferences : string.Empty,
             };
             var provider = build(options, context.HttpClient);

@@ -1785,6 +1785,9 @@ internal sealed partial class Configuration(string path)
                     item, "allow_invalid_tls_certificate", $"providers.{id}.allow_invalid_tls_certificate"),
                 DisableWebSocket = !Child(item, "disable_websocket", out var disableWebSocket) ||
                     ParseBoolean(disableWebSocket, $"providers.{id}.disable_websocket"),
+                StreamIdleTimeoutMs = Child(item, "stream_idle_timeout_ms", out _)
+                    ? NonNegativeInteger(item, "stream_idle_timeout_ms", $"providers.{id}.stream_idle_timeout_ms")
+                    : 300000,
                 HeaderTimeoutMs = Child(item, "header_timeout_ms", out _)
                     ? NonNegativeInteger(item, "header_timeout_ms", $"providers.{id}.header_timeout_ms")
                     : 60000,
