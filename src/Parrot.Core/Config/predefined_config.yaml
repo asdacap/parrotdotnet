@@ -200,9 +200,9 @@ prompt_templates:
   status.statistics:
     engine: scriban
     template: |-
-      Statistics for agent {{ session_id }} (lifetime):{{ for view in views }}
-      {{ if view.cumulative }}Cumulative (self + descendants){{ else }}Self{{ end }}: {{ view.input_tokens }} input / {{ view.cached_input_tokens }} cached / {{ view.output_tokens }} output tokens; {{ view.tool_calls }} started tool executions; cost ${{ view.total_cost }} (input ${{ view.input_cost }}, output ${{ view.output_cost }}).{{ for model in view.models }}
-        - {{ model.provider }}/{{ model.model }}; effort {{ if model.legacy }}unknown (legacy){{ else if model.has_effort }}{{ model.effort }}{{ else }}unspecified/default{{ end }}: {{ model.input_tokens }} input / {{ model.cached_input_tokens }} cached / {{ model.output_tokens }} output tokens; {{ model.tool_calls }} started tool executions; cost ${{ model.total_cost }} (input ${{ model.input_cost }}, output ${{ model.output_cost }}).{{ end }}{{ end }}{{ if incomplete_legacy_tool_counts }}
+      Statistics (lifetime):{{ for view in views }}
+      {{ if view.cumulative }}Cumulative (self + descendants){{ else }}Self{{ end }}: {{ view.input_tokens }} ({{ view.cache_percentage }}% cache) / {{ view.output_tokens }}; {{ view.tool_calls }} tool; cost ${{ view.total_cost }} (input ${{ view.input_cost }}, output ${{ view.output_cost }}).{{ for model in view.models }}
+        - {{ model.provider }}/{{ model.model }}/{{ if model.legacy }}unknown (legacy){{ else if model.has_effort }}{{ model.effort }}{{ else }}unspecified/default{{ end }}: {{ model.input_tokens }} ({{ model.cache_percentage }}% cache) / {{ model.output_tokens }}; {{ model.tool_calls }} tool; cost ${{ model.total_cost }} (input ${{ model.input_cost }}, output ${{ model.output_cost }}).{{ end }}{{ end }}{{ if incomplete_legacy_tool_counts }}
       Legacy tool-execution counts may be incomplete in this agent or its descendants; only recoverable executions are included.{{ end }}
     allowed_arguments: [session_id, views, incomplete_legacy_tool_counts]
     required_arguments: [session_id, views, incomplete_legacy_tool_counts]
@@ -210,7 +210,7 @@ prompt_templates:
     engine: scriban
     template: |-
       {{ if section == "tree" }}Runtime:{{ for agent in agents }}
-      {{ agent.indent }}- agent: {{ agent.name }} ({{ agent.session_id }}){{ for queue in agent.queues }}
+      {{ agent.indent }}- agent: {{ agent.name }}{{ if agent.status != "" }} ({{ agent.status }}){{ end }}{{ for queue in agent.queues }}
       {{ agent.indent }}  - queue: {{ queue.name }} ({{ queue.size }} items{{ if queue.description != "" }}, description: {{ queue.description }}{{ end }}){{ end }}{{ for process in agent.processes }}
       {{ agent.indent }}  - process: {{ process.id }} (shell, {{ process.state }}, name: {{ process.name }}){{ end }}{{ end }}{{ else }}{{ for run in runs }}{{ if !for.first }}
       {{ end }}- AgentTask graph: {{ run.run_id }} (name: {{ run.display_name }}, owner: {{ run.owner_session_id }}, revision: {{ run.revision }}){{ for node in run.nodes }}

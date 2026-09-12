@@ -6,6 +6,7 @@ using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Skills;
 using Parrot.State;
+using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -53,7 +54,7 @@ internal sealed class StatusDrainTests : IDisposable
             _ = await Assert.That(buildRequest.Instructions).DoesNotContain(session.Mode.Profile.Prompt);
             await AssertContextLine(buildStatus, buildRequest, 100_000);
             _ = await Assert.That(buildStatus).StartsWith($"{session.Mode.Profile.Prompt}\n\nGenerated at: ");
-            _ = await Assert.That(buildStatus).Contains("\n\nRuntime:\n- agent: main-agent (");
+            _ = await Assert.That(buildStatus).Contains("\n\nRuntime:\n- agent: main-agent");
             _ = await Assert.That(CountOccurrences(buildStatus, session.Mode.Profile.Prompt)).IsEqualTo(1);
             await AssertStatusOrder(buildStatus, "Active profile: build");
             provider.Release();
@@ -275,14 +276,14 @@ internal sealed class StatusDrainTests : IDisposable
         await provider.Arrived(cancellationToken);
 
         var result = provider.Requests[1].Messages.Single(message => message.Role == LLMRole.Tool).Content;
-        _ = await Assert.That(result).StartsWith("Runtime:\n- agent: main-agent (");
+        _ = await Assert.That(result).StartsWith("Runtime:\n- agent: main-agent");
         _ = await Assert.That(result).DoesNotContain(session.Mode.Profile.Prompt);
         _ = await Assert.That(result).DoesNotContain("Active profile:");
         _ = await Assert.That(result).DoesNotContain("Model:");
-        _ = await Assert.That(result).Contains("Self: 1 input / 0 cached / 1 output tokens; 1 started tool executions; cost $0");
-        _ = await Assert.That(result).Contains("Cumulative (self + descendants): 1 input / 0 cached / 1 output tokens; 1 started tool executions");
-        _ = await Assert.That(result).Contains($"{provider.Id}/model; effort unspecified/default:");
-        _ = await Assert.That(provider.Requests[0].Messages[0].Content).DoesNotContain("Statistics for agent");
+        _ = await Assert.That(result).Contains("Self: 1 (0.00% cache) / 1; 1 tool; cost $0");
+        _ = await Assert.That(result).Contains("Cumulative (self + descendants): 1 (0.00% cache) / 1; 1 tool");
+        _ = await Assert.That(result).Contains($"{provider.Id}/model/unspecified/default:");
+        _ = await Assert.That(provider.Requests[0].Messages[0].Content).DoesNotContain("Statistics (lifetime):");
 
         provider.Release();
         await Settled(session);
@@ -327,7 +328,7 @@ internal sealed class StatusDrainTests : IDisposable
         var usage = estimated >= contextLimit
             ? 100
             : (int)(estimated * 100L / contextLimit);
-        var expected = $"Context: {usage}% used ({estimated} estimated tokens / {contextLimit} limit); reminders every 10%; automatic compaction at 90%.";
+        var expected = $"Context: {usage}% used ({TokenCountFormatter.Format(estimated)} estimated tokens / {TokenCountFormatter.Format(contextLimit)} limit); reminders every 10%; automatic compaction at 90%.";
         _ = await Assert.That(content).Contains(expected);
     }
 

@@ -57,12 +57,14 @@ internal sealed class StatisticsStatusProvider(
 
     private static void AppendTotals(ScriptObject model, AgentUsageTotals totals)
     {
-        model.Add("input_tokens", totals.InputTokens.ToString(CultureInfo.InvariantCulture));
-        model.Add("cached_input_tokens", totals.CachedInputTokens.ToString(CultureInfo.InvariantCulture));
-        model.Add("output_tokens", totals.OutputTokens.ToString(CultureInfo.InvariantCulture));
+        model.Add("input_tokens", TokenCountFormatter.Format(totals.InputTokens));
+        model.Add("cache_percentage", (totals.InputTokens > 0
+            ? (double)totals.CachedInputTokens / totals.InputTokens * 100
+            : 0).ToString("F2", CultureInfo.InvariantCulture));
+        model.Add("output_tokens", TokenCountFormatter.Format(totals.OutputTokens));
         model.Add("tool_calls", totals.ToolCalls.ToString(CultureInfo.InvariantCulture));
-        model.Add("input_cost", totals.InputCost.ToString("G", CultureInfo.InvariantCulture));
-        model.Add("output_cost", totals.OutputCost.ToString("G", CultureInfo.InvariantCulture));
-        model.Add("total_cost", totals.TotalCost.ToString("G", CultureInfo.InvariantCulture));
+        model.Add("input_cost", totals.InputCost.ToString("F2", CultureInfo.InvariantCulture));
+        model.Add("output_cost", totals.OutputCost.ToString("F2", CultureInfo.InvariantCulture));
+        model.Add("total_cost", totals.TotalCost.ToString("F2", CultureInfo.InvariantCulture));
     }
 }

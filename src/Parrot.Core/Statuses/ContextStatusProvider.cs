@@ -22,8 +22,8 @@ internal sealed class ContextStatusProvider(
         var model = new ScriptObject
         {
             ["available"] = snapshot.IsAvailable,
-            ["estimated_tokens"] = snapshot.EstimatedTokens.ToString(CultureInfo.InvariantCulture),
-            ["context_limit"] = snapshot.ContextLimit.ToString(CultureInfo.InvariantCulture),
+            ["estimated_tokens"] = TokenCountFormatter.Format(snapshot.EstimatedTokens),
+            ["context_limit"] = TokenCountFormatter.Format(snapshot.ContextLimit),
             ["cadence"] = ContextCadence.NotificationInterval.ToString(CultureInfo.InvariantCulture),
             ["trigger"] = snapshot.TriggerPercent.ToString(CultureInfo.InvariantCulture),
         };

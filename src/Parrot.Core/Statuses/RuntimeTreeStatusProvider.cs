@@ -23,6 +23,15 @@ internal sealed class RuntimeTreeStatusProvider(
         var activeAgents = agents.ActiveSnapshot();
         var activeProcesses = scopes.SelectMany(static scope => scope.Processes.Snapshot()).ToArray();
         var nodes = BuildNodes(query.SessionId, queueOwners, activeAgents, activeProcesses);
+        foreach (var scope in scopes)
+        {
+            if (nodes.TryGetValue(scope.Session.SessionId, out var node))
+            {
+                var state = scope.Session.Activity.Capture().State;
+                node.Status = state == DrainState.Idle ? string.Empty : state.ToString().ToLowerInvariant();
+            }
+        }
+
         var agentModels = new ScriptArray();
         Append(agentModels, nodes, query.SessionId, 0, new HashSet<string>(StringComparer.Ordinal));
         var model = new ScriptObject
@@ -141,6 +150,7 @@ internal sealed class RuntimeTreeStatusProvider(
         {
             ["indent"] = new string(' ', depth * 2),
             ["name"] = node.Name,
+            ["status"] = node.Status,
             ["session_id"] = node.SessionId,
             ["queues"] = queues,
             ["processes"] = processes,
@@ -158,6 +168,8 @@ internal sealed class RuntimeTreeStatusProvider(
         public string ParentSessionId { get; set; } = parentSessionId;
 
         public string Name { get; set; } = name;
+
+        public string Status { get; set; } = string.Empty;
 
         public List<QueueInfo> Queues { get; } = [];
 

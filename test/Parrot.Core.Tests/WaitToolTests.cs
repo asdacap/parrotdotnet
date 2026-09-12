@@ -89,10 +89,10 @@ internal sealed class WaitToolTests : IAsyncDisposable
             Wait timed out after 10000 ms.
 
             Runtime:
-            - agent: main (agent)
+            - agent: main
               - queue: work (1 items, description: "queued work")
               - process: agent/process (shell, running, name: process)
-              - agent: worker (child)
+              - agent: worker (running)
 
             Context: unavailable ({estimatedTokens} estimated tokens / 0 limit); reminders every 10%; automatic compaction at 90%.
             """);

@@ -47,11 +47,12 @@ internal sealed class StatusRegistryTests
     }
 
     [Test]
-    [Arguments(123, 1000, 12, true)]
-    [Arguments(1500, 1000, 100, true)]
-    [Arguments(123, 0, 0, false)]
-    [Arguments(123, -1, 0, false)]
-    public async Task Context_reports_available_and_unavailable_windows_exactly(long estimatedTokens, int contextLimit, int usage, bool available)
+    [Arguments(123, 1000, 12, true, "123", "1k")]
+    [Arguments(1500, 1000, 100, true, "1.5k", "1k")]
+    [Arguments(62539, 1050000, 5, true, "62.5k", "1.1M")]
+    [Arguments(123, 0, 0, false, "123", "0")]
+    [Arguments(123, -1, 0, false, "123", "-1")]
+    public async Task Context_reports_available_and_unavailable_windows_exactly(long estimatedTokens, int contextLimit, int usage, bool available, string formattedTokens, string formattedLimit)
     {
         IStatusProvider provider = new ContextStatusProvider(
                 new ContextSnapshot(estimatedTokens, contextLimit, available ? usage : null, 90),
@@ -61,7 +62,7 @@ internal sealed class StatusRegistryTests
         var expectedUsage = available ? FormattableString.Invariant($"{usage}% used") : "unavailable";
         _ = await Assert.That(observation.Available).IsTrue();
         _ = await Assert.That(observation.Text).IsEqualTo(FormattableString.Invariant(
-            $"Context: {expectedUsage} ({estimatedTokens} estimated tokens / {contextLimit} limit); reminders every 10%; automatic compaction at 90%."));
+            $"Context: {expectedUsage} ({formattedTokens} estimated tokens / {formattedLimit} limit); reminders every 10%; automatic compaction at 90%."));
     }
 
     [Test]
@@ -80,7 +81,7 @@ internal sealed class StatusRegistryTests
             new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"),
             CancellationToken.None);
 
-        _ = await Assert.That(observation.Text).Contains("1000000 model context window")
+        _ = await Assert.That(observation.Text).Contains("1M model context window")
             .And.Contains($"strictly above {expectedTrigger} tokens");
         _ = await Assert.That(snapshot.ExceedsTrigger).IsFalse();
         _ = await Assert.That(snapshot.ExceedsCompactionTrigger(100_001)).IsEqualTo(triggerTokens is not null);
@@ -88,9 +89,9 @@ internal sealed class StatusRegistryTests
     }
 
     [Test]
-    [Arguments(true, false, "Context: -12% used (-123 estimated tokens / 1000 limit); reminders every 10%; automatic compaction at -90%.")]
+    [Arguments(true, false, "Context: -12% used (-123 estimated tokens / 1k limit); reminders every 10%; automatic compaction at -90%.")]
     [Arguments(false, false, "Context: unavailable (-123 estimated tokens / -1 limit); reminders every 10%; automatic compaction at -90%.")]
-    [Arguments(true, true, "-12|-123|1000|10|-90")]
+    [Arguments(true, true, "-12|-123|1k|10|-90")]
     [Arguments(false, true, "missing|-123|-1|10|-90")]
     public async Task Context_preserves_invariant_metrics_and_supports_structured_overrides(bool available, bool custom, string expected)
     {
@@ -155,7 +156,7 @@ internal sealed class StatusRegistryTests
         var runtimeText = await new StatusRegistry(runtime).ObserveWithProvider(query, null, context, CancellationToken.None);
 
         _ = await Assert.That(fullText).StartsWith("profile prompt\n\nGenerated at: ");
-        _ = await Assert.That(fullText).Contains("\n\nRuntime:\n- agent: main (session)\n\nContext: 12% used");
+        _ = await Assert.That(fullText).Contains("\n\nRuntime:\n- agent: main\n\nContext: 12% used");
         _ = await Assert.That(fullText).EndsWith("\n\nActive profile: build\nModel: provider/model");
         _ = await Assert.That(runtimeText).Contains("Context: 12% used");
         _ = await Assert.That(runtimeText).DoesNotContain("profile prompt");
@@ -287,17 +288,17 @@ internal sealed class StatusRegistryTests
         _ = await Assert.That(observation.Text).IsEqualTo(
             """
             Runtime:
-            - agent: main (root)
+            - agent: main
               - queue: work (0 items, description: "queued work\n{{ hostile }}")
               - process: root/build (shell, running, name: build)
-              - agent: worker (child)
+              - agent: worker (running)
                 - queue: results (0 items)
                 - process: child/fetch (shell, running, name: fetch)
             """);
     }
 
     [Test]
-    [Arguments(false, "Runtime:\n- agent: main (root)")]
+    [Arguments(false, "Runtime:\n- agent: main")]
     [Arguments(true, "tree:main;")]
     public async Task Runtime_tree_reports_only_the_root_agent_when_idle(bool custom, string expected, CancellationToken cancellationToken)
     {
