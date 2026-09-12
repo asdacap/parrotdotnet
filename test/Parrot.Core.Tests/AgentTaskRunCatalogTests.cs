@@ -180,6 +180,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
         var reminder = new ActiveWorkCompletionReminder(
             runtime.ParentScope.ChildRegistry,
             runtime.Processes,
+            runtime.ParentScope.Queues,
             TestModels.PromptTemplates,
             catalog).Build();
         _ = await Assert.That(reminder).Contains("Running AgentTask graphs:");

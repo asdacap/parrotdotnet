@@ -121,7 +121,7 @@ internal sealed class AgentTaskScopeTests
             foreach (var scope in scopes)
             {
                 _ = await Assert.That(scope.AgentTaskRuns.Snapshot().Single().OwnerAgentSessionId).IsEqualTo(scope.Session.SessionId);
-                var reminder = new ActiveWorkCompletionReminder(scope.ChildRegistry, scope.Processes, configuration.PromptTemplates, scope.AgentTaskRuns).Build();
+                var reminder = new ActiveWorkCompletionReminder(scope.ChildRegistry, scope.Processes, scope.Queues, configuration.PromptTemplates, scope.AgentTaskRuns).Build();
                 _ = await Assert.That(reminder).Contains($"{scope.Session.SessionId}/shared-run");
                 var status = await new AgentTaskStatusProvider(session.Registry, configuration.PromptTemplates).Observe(
                     new StatusQuery(scope.Session.SessionId, root.Session.SessionId, root.Session.Name, "profile", "model"), cancellationToken);
