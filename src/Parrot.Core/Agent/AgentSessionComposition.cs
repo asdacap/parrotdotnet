@@ -334,9 +334,11 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<IProcessOwner>(out var processes);
                 ctx.Inject<IAgentTaskRunCatalog>(out var agentTasks);
                 ctx.Inject<IChildRegistry>(out var children);
+                ctx.Inject<IAgentQueues>(out var queues);
                 return new ActiveWorkCompletionReminder(
                     children,
                     processes,
+                    queues,
                     arguments.PromptTemplates,
                     agentTasks);
             })

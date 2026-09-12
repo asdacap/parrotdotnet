@@ -2,6 +2,7 @@ using System.Text;
 using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Process;
+using Parrot.Queues;
 using Parrot.Statuses;
 
 namespace Parrot.Agent;
@@ -9,6 +10,7 @@ namespace Parrot.Agent;
 internal sealed class ActiveWorkCompletionReminder(
     IChildRegistry children,
     IProcessOwner processes,
+    IAgentQueues queues,
     IPromptTemplateCatalog promptTemplates,
     IAgentTaskRunCatalog? agentTasks)
 {
@@ -27,19 +29,37 @@ internal sealed class ActiveWorkCompletionReminder(
         var ownedProcesses = processes.Active();
         var ownedAgentTasks = agentTasks?.Active() ?? [];
 
-        if (activeChildren.Length == 0 && ownedProcesses.Count == 0 && ownedAgentTasks.Count == 0)
+        var reminders = new List<string>();
+        if (activeChildren.Length > 0 || ownedProcesses.Count > 0 || ownedAgentTasks.Count > 0)
         {
-            return null;
+            var activeWork = FormatActiveWork(
+                activeChildren,
+                ownedProcesses,
+                ownedAgentTasks,
+                promptTemplates.Render("agent-session.active-work-agent-tasks-heading", []));
+            reminders.Add(promptTemplates.Render(
+                "agent-session.active-work-reminder",
+                [new PromptTemplateArgument("active_work", activeWork)]));
         }
 
-        var activeWork = FormatActiveWork(
-            activeChildren,
-            ownedProcesses,
-            ownedAgentTasks,
-            promptTemplates.Render("agent-session.active-work-agent-tasks-heading", []));
-        return promptTemplates.Render(
-            "agent-session.active-work-reminder",
-            [new PromptTemplateArgument("active_work", activeWork)]);
+        var nonemptyQueues = queues.Snapshot().Queues
+            .Where(static queue => queue.Size > 0)
+            .OrderBy(static queue => queue.Name, StringComparer.Ordinal)
+            .Select(queue => promptTemplates.Render(
+                "agent-session.nonempty-queue-item",
+                [
+                    new PromptTemplateArgument("name", queue.Name),
+                    new PromptTemplateArgument("size", queue.Size.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                ]))
+            .ToArray();
+        if (nonemptyQueues.Length > 0)
+        {
+            reminders.Add(promptTemplates.Render(
+                "agent-session.nonempty-queues-reminder",
+                [new PromptTemplateArgument("queues", string.Join('\n', nonemptyQueues))]));
+        }
+
+        return reminders.Count == 0 ? null : string.Join('\n', reminders);
     }
 
     private static string FormatActiveWork(

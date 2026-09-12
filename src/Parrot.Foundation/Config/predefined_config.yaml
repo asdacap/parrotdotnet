@@ -242,6 +242,17 @@ prompt_templates:
       Use the wait tool until no direct subagent, AgentTask graph, or process remains. To interrupt a direct subagent, use agent_send to instruct it to complete. To interrupt a process, use interrupt_process. Do not finish this turn until all listed work has completed or been interrupted.
     allowed_arguments: [active_work]
     required_arguments: [active_work]
+  agent-session.nonempty-queues-reminder:
+    template: |-
+      This turn must not exit while queues owned by this agent contain items.
+      {queues}
+      Drain every listed queue before finishing, even when asked to stop. Use queue_take to consume items or coordinate consumers and wait until all owned queues are empty. Closing a queue does not drain it. There is no waiver or abandon action. Parent-owned queues do not block completion; an empty open queue does not block completion.
+    allowed_arguments: [queues]
+    required_arguments: [queues]
+  agent-session.nonempty-queue-item:
+    template: '- {name} (remaining items: {size})'
+    allowed_arguments: [name, size]
+    required_arguments: [name, size]
   agent-session.active-work-agent-tasks-heading:
     template: 'Running AgentTask graphs'
     allowed_arguments: []
