@@ -7,10 +7,10 @@ using Parrot.Store;
 namespace Parrot.AgentTasks;
 
 internal sealed class AgentTaskGraphRunner(
-    ModelRouter router,
+    IModelRouter router,
     IAgentSessionScope ownerScope,
     AgentTurnSelection selection,
-    AgentTaskProgress progress,
+    IAgentTaskProgress progress,
     AgentTaskConfig configuration,
     HistoryForkBoundary rootHistoryBoundary)
 {
@@ -302,7 +302,7 @@ internal sealed class AgentTaskGraphRunner(
 
     private async Task<IReadOnlyList<AgentTaskResult>> RunSiblings(
         IReadOnlyList<AgentTask> tasks,
-        IReadOnlyList<AgentTaskProgress.NodeHandle> handles,
+        IReadOnlyList<AgentTaskNodeHandle> handles,
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskPrepareContext> contexts,
         string parentPath,
@@ -436,7 +436,7 @@ internal sealed class AgentTaskGraphRunner(
 
     private async Task<AgentTaskResult> RunTask(
         AgentTask approved,
-        AgentTaskProgress.NodeHandle handle,
+        AgentTaskNodeHandle handle,
         IReadOnlyList<AgentTask> siblings,
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskPrepareContext> inheritedContexts,
@@ -526,7 +526,7 @@ internal sealed class AgentTaskGraphRunner(
     private async Task<AgentTaskResult> RunLeafTask(
         AgentTask approved,
         EffectiveAgentTask effective,
-        AgentTaskProgress.NodeHandle handle,
+        AgentTaskNodeHandle handle,
         IReadOnlyList<AgentTask> siblings,
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskPrepareContext> inheritedContexts,
@@ -768,8 +768,8 @@ internal sealed class AgentTaskGraphRunner(
     private async Task<AgentTaskResult> RunLegacyAttempts(
         AgentTask approved,
         EffectiveAgentTask effective,
-        AgentTaskProgress.NodeHandle handle,
-        IReadOnlyList<AgentTaskProgress.NodeHandle> childHandles,
+        AgentTaskNodeHandle handle,
+        IReadOnlyList<AgentTaskNodeHandle> childHandles,
         IReadOnlyList<AgentTask> siblings,
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskAncestor> currentAncestors,

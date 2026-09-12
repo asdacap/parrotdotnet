@@ -10,7 +10,6 @@ using Parrot.Skills;
 using Parrot.State;
 using Parrot.Store;
 using Parrot.Web;
-using UserSession = Parrot.Agent.UserSession;
 
 namespace Parrot.Core.Tests;
 
@@ -132,7 +131,7 @@ internal sealed class AgentInventoryStreamTests
         _ = await owner.Queues.Push("queued", ["item"], QueueDirection.Back, false, timeout.Token);
         var processOwner = owner.Processes;
         var queueOwner = owner.Queues;
-        var process = processOwner.Start("held", "sleep 300", ProcessEnvironmentOverrides.Empty, owner.Session, fixture.Session.Mode.Profile.SecurityProfile, ShellProcessTerminalMode.Pipe);
+        var process = processOwner.StartUnattributed("held", "sleep 300", ProcessEnvironmentOverrides.Empty, owner.Session, fixture.Session.Mode.Profile.SecurityProfile, ShellProcessTerminalMode.Pipe);
         using var queues = owner.Queues.SubscribeInventory();
         using var processes = owner.Processes.SubscribeInventory();
         var initialQueues = await queues.Reader.ReadAsync(timeout.Token);
@@ -175,7 +174,7 @@ internal sealed class AgentInventoryStreamTests
         _ = await Assert.That(owner.Processes.CaptureInventory().Removed).IsTrue();
         _ = await Assert.That(child.Processes.CaptureInventory().Removed).IsTrue();
         _ = await Assert.That(child.Queues.CaptureInventory().Removed).IsTrue();
-        _ = await Assert.That(() => owner.Processes.Start("late", "true", ProcessEnvironmentOverrides.Empty, owner.Session, fixture.Session.Mode.Profile.SecurityProfile, ShellProcessTerminalMode.Pipe))
+        _ = await Assert.That(() => owner.Processes.StartUnattributed("late", "true", ProcessEnvironmentOverrides.Empty, owner.Session, fixture.Session.Mode.Profile.SecurityProfile, ShellProcessTerminalMode.Pipe))
             .Throws<InvalidOperationException>();
     }
 
@@ -220,9 +219,9 @@ internal sealed class AgentInventoryStreamTests
         string directory,
         Configuration configuration,
         ProviderModel model,
-        UserSession session) : IAsyncDisposable
+        IUserSession session) : IAsyncDisposable
     {
-        public UserSession Session { get; } = session;
+        public IUserSession Session { get; } = session;
 
         public static DiagnosticLogs CreateDiagnostics(string directory) => new(
             new StatePaths(Path.Combine(directory, "state"), Path.Combine(directory, "config"), Path.Combine(directory, "data")),

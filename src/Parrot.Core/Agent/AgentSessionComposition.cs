@@ -31,7 +31,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 return arguments.SystemPromptProvider.Materialize(arguments.Identity)
                     ?? throw new InvalidOperationException("The system prompt provider returned no prompt.");
             })
-            .Bind().As(Lifetime.Scoped).To(ctx =>
+            .Bind<IProcessOwner>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new ShellProcessOwner(arguments.Identity, arguments.Resources, arguments.PathEnvironment, arguments.ProcessRunner, arguments.Diagnostics, arguments.Lifetime);
@@ -51,7 +51,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<ChildRegistry>(out var children);
                 return children;
             })
-            .Bind<AgentSessionParentScope>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<IAgentParentScope>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<IAgentSessionScope>(out var scope);
@@ -63,35 +63,35 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                     children,
                     arguments.ParentLink);
             })
-            .Bind<AgentSpawner>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<IAgentSpawner>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                ctx.Inject<AgentSessionParentScope>(out var parentSessionScope);
+                ctx.Inject<IAgentParentScope>(out var parentSessionScope);
                 ctx.Inject<IChildRegistry>(out var children);
                 return new AgentSpawner(arguments.Identity, arguments.Registry, parentSessionScope, children);
             })
-            .Bind<ChildQuestionCoordinator>().As(Lifetime.Scoped).To<ChildQuestionCoordinator>()
+            .Bind<IChildQuestionCoordinator>().As(Lifetime.Scoped).To<ChildQuestionCoordinator>()
             .Bind<ModelSelector>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.Model;
             })
-            .Bind<ModelRouter>().To(ctx =>
+            .Bind<IModelRouter>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.Router;
             })
-            .Bind<EventBroker>().To(ctx =>
+            .Bind<IEventBroker>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.EventBroker;
             })
-            .Bind<UserSessionStatistics>().To(ctx =>
+            .Bind<IUserSessionStatistics>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.EventRepository.GetRuntimeStatistics();
             })
-            .Bind<EventRepository>().To(ctx =>
+            .Bind<IEventRepository>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.EventRepository;
@@ -106,7 +106,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.Workspace;
             })
-            .Bind<ImageArtifactRepository>().To(ctx =>
+            .Bind<IImageArtifactRepository>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.Images;
@@ -126,7 +126,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.AgentTasks;
             })
-            .Bind<AgentTaskRunCatalog>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<IAgentTaskRunCatalog>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new AgentTaskRunCatalog(arguments.Identity.SessionId, arguments.Diagnostics, arguments.Lifetime);
@@ -136,7 +136,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.ReadOnlyExecCommandPrefixes;
             })
-            .Bind<QuestionBroker>().To(ctx =>
+            .Bind<IQuestionBroker>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.UserQuestions;
@@ -151,7 +151,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.Compactor;
             })
-            .Bind<PromptTemplateCatalog>().To(ctx =>
+            .Bind<IPromptTemplateCatalog>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.PromptTemplates;
@@ -161,7 +161,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.Mode;
             })
-            .Bind<RuntimeStatus>().To(ctx =>
+            .Bind<IRuntimeStatus>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.Status;
@@ -197,16 +197,16 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                         Path.Combine(arguments.Scratch.Root, "last_request.json"),
                         arguments.Diagnostics));
             })
-            .Bind<PermissionBroker>().To(ctx =>
+            .Bind<IPermissionBroker>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.Permissions;
             })
-            .Bind<AgentQueues>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<IAgentQueues>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<IChildRegistry>(out var children);
-                return new AgentQueues(arguments.Identity, arguments.ParentLink.Parent?.Queues, arguments.Resources, children, arguments.Diagnostics);
+                return new AgentQueues(arguments.Identity, arguments.ParentLink.Parent?.Queues, arguments.Resources, children, static queueIdentity => new QueueInventory(queueIdentity), arguments.Diagnostics);
             })
             .Bind<ExecCommandToolFactory>().As(Lifetime.Scoped).To<ExecCommandToolFactory>()
             .Bind<WriteStdinToolFactory>().As(Lifetime.Scoped).To<WriteStdinToolFactory>()
@@ -331,8 +331,8 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                ctx.Inject<ShellProcessOwner>(out var processes);
-                ctx.Inject<AgentTaskRunCatalog>(out var agentTasks);
+                ctx.Inject<IProcessOwner>(out var processes);
+                ctx.Inject<IAgentTaskRunCatalog>(out var agentTasks);
                 ctx.Inject<IChildRegistry>(out var children);
                 return new ActiveWorkCompletionReminder(
                     children,
@@ -353,19 +353,19 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                ctx.Inject<AgentSessionParentScope>(out var parentScope);
+                ctx.Inject<IAgentParentScope>(out var parentScope);
                 ctx.Inject<IAgentSessionScope>(out var scope);
                 return new AgentResolver(arguments.Identity, parentScope, scope, arguments.Registry);
             })
             .Bind<IAgentSession>().As(Lifetime.Scoped).To<AgentSession>()
-            .Bind<GoalService>().As(Lifetime.Scoped).To<GoalService>()
+            .Bind<IGoalService>().As(Lifetime.Scoped).To<GoalService>()
             .Root<IAgentSession>("Session")
-            .Root<GoalService>("Goals")
-            .Root<AgentSpawner>("AgentSpawner")
-            .Root<AgentTaskRunCatalog>("AgentTaskRuns")
+            .Root<IGoalService>("Goals")
+            .Root<IAgentSpawner>("AgentSpawner")
+            .Root<IAgentTaskRunCatalog>("AgentTaskRuns")
             .Root<ChildRegistry>("ChildRegistry")
-            .Root<AgentSessionParentScope>("ParentScope")
-            .Root<ChildQuestionCoordinator>("ChildQuestions")
-            .Root<ShellProcessOwner>("Processes")
-            .Root<AgentQueues>("Queues");
+            .Root<IAgentParentScope>("ParentScope")
+            .Root<IChildQuestionCoordinator>("ChildQuestions")
+            .Root<IProcessOwner>("Processes")
+            .Root<IAgentQueues>("Queues");
 }

@@ -123,7 +123,7 @@ internal static class TestModels
                 []),
         };
 
-    public static PromptTemplateCatalog PromptTemplates { get; } = LoadPromptTemplates();
+    public static IPromptTemplateCatalog PromptTemplates { get; } = LoadPromptTemplates();
 
     public static ToolDefinitionCatalog EmptyToolDefinitions { get; } = new(
         new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal));
@@ -156,15 +156,15 @@ internal static class TestModels
 
     public static void UnregisterScope(IAgentSessionScope scope) => _ = Scopes.Remove(scope.Session);
 
-    public static ChildQuestionCoordinator CreateChildQuestions(IAgentSessionScope owner) =>
+    public static IChildQuestionCoordinator CreateChildQuestions(IAgentSessionScope owner) =>
         owner.ChildQuestions;
 
     public static IAgentRegistry Registry(
         IAgentSessionFactory agentSessions,
-        EventBroker eventBroker,
-        EventRepository eventRepository,
+        IEventBroker eventBroker,
+        IEventRepository eventRepository,
         ProfileRegistry profiles,
-        PromptTemplateCatalog promptTemplates,
+        IPromptTemplateCatalog promptTemplates,
         CancellationToken lifetime) =>
         RegistryWithBudget(
             agentSessions,
@@ -177,10 +177,10 @@ internal static class TestModels
 
     public static IAgentRegistry RegistryWithBudget(
         IAgentSessionFactory agentSessions,
-        EventBroker eventBroker,
-        EventRepository eventRepository,
+        IEventBroker eventBroker,
+        IEventRepository eventRepository,
         ProfileRegistry profiles,
-        PromptTemplateCatalog promptTemplates,
+        IPromptTemplateCatalog promptTemplates,
         RetainedAgentBudget retainedAgents,
         CancellationToken lifetime)
     {
@@ -191,14 +191,14 @@ internal static class TestModels
 
     public static AgentSessionDependencies Dependencies(
         AgentIdentity identity,
-        EventBroker eventBroker,
-        EventRepository eventRepository,
+        IEventBroker eventBroker,
+        IEventRepository eventRepository,
         CancellationToken lifetime)
     {
         var resources = Resources();
         var owner = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime);
         var children = new ChildRegistry(identity);
-        var queues = new AgentQueues(identity, null, resources, children, TestDiagnosticLog.Instance);
+        IAgentQueues queues = new AgentQueues(identity, null, resources, children, static queueIdentity => new QueueInventory(queueIdentity), TestDiagnosticLog.Instance);
         queues.Initialize();
         IAgentRegistry registry = new AgentRegistry(
             new UnsupportedAgentSessionFactory(),
@@ -227,7 +227,7 @@ internal static class TestModels
         string configDirectory) =>
         new TestSystemPromptFixture(workingDirectory, configDirectory).Provider.Materialize(identity);
 
-    public static ModelRouter Route(ProviderModel model)
+    public static IModelRouter Route(ProviderModel model)
     {
         var catalogModel = model.Variant is null
             ? model.Model
@@ -249,7 +249,7 @@ internal static class TestModels
 
     public static ResolvedModelSelection Resolve(ProviderModel model) => Route(model).Resolve(model.Selector);
 
-    private static PromptTemplateCatalog LoadPromptTemplates()
+    private static IPromptTemplateCatalog LoadPromptTemplates()
     {
         var root = Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("N"));
         return Configuration.Load(
@@ -260,18 +260,18 @@ internal static class TestModels
 
     private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory
     {
-        public EventRepository PrepareHistory(string agentSessionId, EventRepository repository) =>
+        public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
             throw new NotSupportedException("This test session does not support spawning subagents.");
 
         public IAgentSessionScope Create(
             AgentIdentity identity,
             AgentSessionParentLink parentLink,
             ModelSelector model,
-            EventBroker eventBroker,
-            EventRepository eventRepository,
+            IEventBroker eventBroker,
+            IEventRepository eventRepository,
             IMode mode,
             SecurityProfile securityProfile,
-            RuntimeStatus status,
+            IRuntimeStatus status,
             IAgentRegistry registry,
             CancellationToken lifetime) =>
             throw new NotSupportedException("This test session does not support spawning subagents.");

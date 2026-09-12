@@ -277,8 +277,8 @@ internal sealed class StatusRegistryTests
         await fixture.Provider.Arrived(cancellationToken);
         _ = root.Queues.Create("work", "queued work\n{{ hostile }}");
         _ = child.Queues.Create("results", string.Empty);
-        _ = child.Processes.Start("fetch", "sleep 30", "call", ProcessEnvironmentOverrides.Empty, child.Session, SecurityProfile.Compose(readOnly: false, [], [], []));
-        _ = root.Processes.Start("build", "sleep 30", "call", ProcessEnvironmentOverrides.Empty, root.Session, SecurityProfile.Compose(readOnly: false, [], [], []));
+        _ = child.Processes.StartPipe("fetch", "sleep 30", "call", ProcessEnvironmentOverrides.Empty, child.Session, SecurityProfile.Compose(readOnly: false, [], [], []));
+        _ = root.Processes.StartPipe("build", "sleep 30", "call", ProcessEnvironmentOverrides.Empty, root.Session, SecurityProfile.Compose(readOnly: false, [], [], []));
         IStatusProvider provider = new RuntimeTreeStatusProvider(fixture.Registry, TestModels.PromptTemplates);
 
         var observation = await provider.Observe(
@@ -361,9 +361,9 @@ internal sealed class StatusRegistryTests
             Path.Combine(Path.GetTempPath(), "parrot-status-tests", Guid.NewGuid().ToString("n"))).FullName;
 
         private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
-        private readonly EventBroker _broker = new();
-        private readonly EventRepository _repository;
-        private readonly ModelRouter _router;
+        private readonly IEventBroker _broker = new EventBroker();
+        private readonly IEventRepository _repository;
+        private readonly IModelRouter _router;
         private readonly UserSessionResources _resources;
         private ProcessRunner _runner = new(string.Empty);
 

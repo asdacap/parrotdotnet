@@ -25,12 +25,12 @@ namespace Parrot.Agent;
 // for the same conversation.
 internal sealed partial class AgentSession(
     AgentIdentity identity,
-    AgentSessionParentScope parentScope,
+    IAgentParentScope parentScope,
     ModelSelector model,
-    ModelRouter router,
-    EventBroker eventBroker,
-    EventRepository eventRepository,
-    UserSessionStatistics userStatistics,
+    IModelRouter router,
+    IEventBroker eventBroker,
+    IEventRepository eventRepository,
+    IUserSessionStatistics userStatistics,
     [InjectionTag("toolFactories")] IReadOnlyList<IToolFactory> toolFactories,
     ToolDefinitionCatalog toolDefinitions,
     ISystemPrompt systemPrompt,
@@ -39,16 +39,16 @@ internal sealed partial class AgentSession(
     Compactor compactor,
     ProviderSessions providerSessions,
     ContextCadence contextCadence,
-    PromptTemplateCatalog promptTemplates,
-    ChildQuestionCoordinator childQuestions,
+    IPromptTemplateCatalog promptTemplates,
+    IChildQuestionCoordinator childQuestions,
     ExitReminder exitReminder,
     IMode mode,
     [InjectionTag("turnCompletionCallbacks")] IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
     AgentSessionSecurity security,
     AgentSkills skills,
     RequestLimitsConfig requestLimits,
-    RuntimeStatus status,
-    AgentQueues queues,
+    IRuntimeStatus status,
+    IAgentQueues queues,
     AgentSessionActivity activity,
     IDiagnosticLog diagnostics,
     CancellationToken lifetime) : IAgentSession
@@ -106,11 +106,11 @@ internal sealed partial class AgentSession(
 
     internal AgentSession(
         AgentIdentity identity,
-        AgentSessionParentScope parentScope,
+        IAgentParentScope parentScope,
         ModelSelector model,
-        ModelRouter router,
-        EventBroker eventBroker,
-        EventRepository eventRepository,
+        IModelRouter router,
+        IEventBroker eventBroker,
+        IEventRepository eventRepository,
         IReadOnlyList<IToolFactory> toolFactories,
         ToolDefinitionCatalog toolDefinitions,
         ISystemPrompt systemPrompt,
@@ -119,14 +119,14 @@ internal sealed partial class AgentSession(
         Compactor compactor,
         ProviderSessions providerSessions,
         ContextCadence contextCadence,
-        PromptTemplateCatalog promptTemplates,
-        ChildQuestionCoordinator childQuestions,
+        IPromptTemplateCatalog promptTemplates,
+        IChildQuestionCoordinator childQuestions,
         ExitReminder exitReminder,
         IMode mode,
         IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
         AgentSessionSecurity security,
-        RuntimeStatus status,
-        AgentQueues queues,
+        IRuntimeStatus status,
+        IAgentQueues queues,
         AgentSessionActivity activity,
         IDiagnosticLog diagnostics,
         CancellationToken lifetime)
@@ -477,7 +477,7 @@ internal sealed partial class AgentSession(
 
         if (admission.Published is not null)
         {
-            await eventBroker.Publish(admission.Published, cancellationToken).ConfigureAwait(false);
+            await eventBroker.PublishWithCancellation(admission.Published, cancellationToken).ConfigureAwait(false);
         }
 
         if (admission.Created || eventRepository.HasPendingInputs(SessionId))
@@ -609,7 +609,7 @@ internal sealed partial class AgentSession(
         ArgumentNullException.ThrowIfNull(message);
         ArgumentException.ThrowIfNullOrWhiteSpace(messageId);
 
-        var admission = eventRepository.Admit(
+        var admission = eventRepository.AdmitParts(
             SessionId,
             messageId,
             [ConversationPart.TextPart(message)],
@@ -633,7 +633,7 @@ internal sealed partial class AgentSession(
             });
         if (admission.Published is not null)
         {
-            await eventBroker.Publish(admission.Published, cancellationToken).ConfigureAwait(false);
+            await eventBroker.PublishWithCancellation(admission.Published, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -719,7 +719,7 @@ internal sealed partial class AgentSession(
         return value[..characters];
     }
 
-    private static List<LLMMessage> RestoreHistory(EventRepository repository, string agentSessionId)
+    private static List<LLMMessage> RestoreHistory(IEventRepository repository, string agentSessionId)
     {
         var context = repository.CompactionHistory(agentSessionId);
         if (context is null)
@@ -775,7 +775,7 @@ internal sealed partial class AgentSession(
         }
     }
 
-    private static LLMMessage RestoreMessage(EventRepository repository, ConversationItem item) => new()
+    private static LLMMessage RestoreMessage(IEventRepository repository, ConversationItem item) => new()
     {
         Role = item.Role,
         Contents = repository.Materialize(item.Parts),

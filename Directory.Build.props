@@ -14,7 +14,7 @@
     <EnableDefaultItems>true</EnableDefaultItems>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <ArtifactsPath>$(MSBuildThisFileDirectory)artifacts</ArtifactsPath>
-    <!-- One version for every assembly: BuildInfo reads it off Parrot.Core, so
+    <!-- One version for every assembly: BuildInfo reads it off Parrot.Common, so
          setting it per-project would make `parrot version` report the wrong one. -->
     <Version>0.0.0-dev</Version>
   </PropertyGroup>

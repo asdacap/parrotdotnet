@@ -8,7 +8,7 @@ internal sealed class ShellProcessInventoryFeed : IDisposable
     private readonly List<Channel<ShellProcessInventorySnapshot>> _subscribers = [];
     private bool _disposed;
 
-    public ShellProcessInventorySubscription Subscribe(ShellProcessInventorySnapshot initial)
+    public IShellProcessInventorySubscription Subscribe(ShellProcessInventorySnapshot initial)
     {
         var channel = Channel.CreateBounded<ShellProcessInventorySnapshot>(
             new BoundedChannelOptions(1)
@@ -22,14 +22,14 @@ internal sealed class ShellProcessInventoryFeed : IDisposable
             if (_disposed)
             {
                 _ = channel.Writer.TryComplete();
-                return new(this, channel);
+                return new ShellProcessInventorySubscription(this, channel);
             }
 
             _subscribers.Add(channel);
             _ = channel.Writer.TryWrite(initial);
         }
 
-        return new(this, channel);
+        return new ShellProcessInventorySubscription(this, channel);
     }
 
     public void Publish(ShellProcessInventorySnapshot snapshot)

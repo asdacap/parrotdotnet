@@ -5,7 +5,7 @@ using Parrot.Statuses;
 namespace Parrot.Tools;
 
 internal sealed class WaitTool(
-    RuntimeStatus status,
+    IRuntimeStatus status,
     IAgentSession session,
     TimeProvider timeProvider) : ITool
 {

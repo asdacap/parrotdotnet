@@ -7,19 +7,19 @@ using Parrot.Store;
 namespace Parrot.AgentTasks;
 
 internal sealed class AgentTaskProgress(
-    EventBroker eventBroker,
-    EventRepository eventRepository,
+    IEventBroker eventBroker,
+    IEventRepository eventRepository,
     string ownerAgentSessionId,
     string originToolCallId,
-    IDiagnosticLog diagnostics)
+    IDiagnosticLog diagnostics) : IAgentTaskProgress
 {
     private readonly Lock _gate = new();
-    private readonly Dictionary<NodeHandle, ProgressNode> _nodes = [];
+    private readonly Dictionary<AgentTaskNodeHandle, ProgressNode> _nodes = [];
     private readonly List<ProgressNode> _roots = [];
     private ulong _revision;
     private bool _initialized;
 
-    internal IReadOnlyList<NodeHandle> Initialize(
+    public IReadOnlyList<AgentTaskNodeHandle> Initialize(
         IReadOnlyList<AgentTask> tasks,
         CancellationToken cancellationToken)
     {
@@ -38,7 +38,7 @@ internal sealed class AgentTaskProgress(
         }
     }
 
-    internal AgentTaskProgressSnapshot CurrentSnapshot()
+    public AgentTaskProgressSnapshot CurrentSnapshot()
     {
         lock (_gate)
         {
@@ -46,7 +46,7 @@ internal sealed class AgentTaskProgress(
         }
     }
 
-    internal IReadOnlyList<NodeHandle> EnsureInitialized(
+    public IReadOnlyList<AgentTaskNodeHandle> EnsureInitialized(
         IReadOnlyList<AgentTask> tasks,
         CancellationToken cancellationToken)
     {
@@ -65,7 +65,7 @@ internal sealed class AgentTaskProgress(
         }
     }
 
-    internal IReadOnlyList<NodeHandle> GetChildren(NodeHandle handle)
+    public IReadOnlyList<AgentTaskNodeHandle> GetChildren(AgentTaskNodeHandle handle)
     {
         lock (_gate)
         {
@@ -73,7 +73,7 @@ internal sealed class AgentTaskProgress(
         }
     }
 
-    internal void MarkRunning(NodeHandle handle, CancellationToken cancellationToken)
+    public void MarkRunning(AgentTaskNodeHandle handle, CancellationToken cancellationToken)
     {
         lock (_gate)
         {
@@ -86,7 +86,7 @@ internal sealed class AgentTaskProgress(
         }
     }
 
-    internal void ReportRetry(string path, int nextAttempt, int maximumAttempts, CancellationToken cancellationToken)
+    public void ReportRetry(string path, int nextAttempt, int maximumAttempts, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var safePath = string.Concat(path.Where(character => !char.IsControl(character)).Take(160));
@@ -104,8 +104,8 @@ internal sealed class AgentTaskProgress(
         eventBroker.Publish(published);
     }
 
-    internal void MarkTerminal(
-        NodeHandle handle,
+    public void MarkTerminal(
+        AgentTaskNodeHandle handle,
         AgentTaskExecutionStatus status,
         CancellationToken cancellationToken)
     {
@@ -135,7 +135,7 @@ internal sealed class AgentTaskProgress(
         }
     }
 
-    internal void MarkBlocked(NodeHandle handle, CancellationToken cancellationToken)
+    public void MarkBlocked(AgentTaskNodeHandle handle, CancellationToken cancellationToken)
     {
         lock (_gate)
         {
@@ -149,8 +149,8 @@ internal sealed class AgentTaskProgress(
         }
     }
 
-    internal IReadOnlyList<NodeHandle> ReplaceChildren(
-        NodeHandle handle,
+    public IReadOnlyList<AgentTaskNodeHandle> ReplaceChildren(
+        AgentTaskNodeHandle handle,
         AgentTaskPayload payload,
         CancellationToken cancellationToken)
     {
@@ -164,8 +164,8 @@ internal sealed class AgentTaskProgress(
         }
     }
 
-    internal IReadOnlyList<NodeHandle> UpdatePreparedTask(
-        NodeHandle handle,
+    public IReadOnlyList<AgentTaskNodeHandle> UpdatePreparedTask(
+        AgentTaskNodeHandle handle,
         string description,
         AgentTaskPayload? payload,
         CancellationToken cancellationToken)
@@ -191,7 +191,7 @@ internal sealed class AgentTaskProgress(
         }
     }
 
-    internal void MarkRemainingCanceled(CancellationToken cancellationToken)
+    public void MarkRemainingCanceled(CancellationToken cancellationToken)
     {
         lock (_gate)
         {
@@ -203,7 +203,7 @@ internal sealed class AgentTaskProgress(
         }
     }
 
-    internal void MarkRemainingFailed(CancellationToken cancellationToken)
+    public void MarkRemainingFailed(CancellationToken cancellationToken)
     {
         lock (_gate)
         {
@@ -215,7 +215,7 @@ internal sealed class AgentTaskProgress(
         }
     }
 
-    private static System.Collections.ObjectModel.ReadOnlyCollection<NodeHandle> Handles(
+    private static System.Collections.ObjectModel.ReadOnlyCollection<AgentTaskNodeHandle> Handles(
         IReadOnlyList<ProgressNode> nodes) =>
         Array.AsReadOnly(nodes.Select(node => node.Handle).ToArray());
 
@@ -334,7 +334,7 @@ internal sealed class AgentTaskProgress(
             DurationMilliseconds = (long)Stopwatch.GetElapsedTime(node.StartedTimestamp).TotalMilliseconds,
         });
 
-    private ProgressNode Resolve(NodeHandle handle) =>
+    private ProgressNode Resolve(AgentTaskNodeHandle handle) =>
         _nodes.TryGetValue(handle, out var node)
             ? node
             : throw new InvalidOperationException("AgentTask progress handle is stale.");
@@ -383,8 +383,6 @@ internal sealed class AgentTaskProgress(
         return snapshot;
     }
 
-    internal sealed class NodeHandle;
-
     private sealed class ProgressNode(string name, string description, List<ProgressNode> children)
     {
         internal string DiagnosticId { get; } = $"task-{Guid.CreateVersion7():n}";
@@ -399,6 +397,6 @@ internal sealed class AgentTaskProgress(
 
         internal List<ProgressNode> Children { get; } = children;
 
-        internal NodeHandle Handle { get; } = new();
+        internal AgentTaskNodeHandle Handle { get; } = new();
     }
 }

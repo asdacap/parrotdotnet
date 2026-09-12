@@ -67,7 +67,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
         registry.AttachStatus(status);
         var resources = new UserSessionResources(new StatePaths(_root, _root, _root), UserSessionId.Parse("request-integration"), ProjectWorkspace.FromLaunchDirectory(_root));
         await using var children = new ChildRegistry(identity);
-        using var queues = new AgentQueues(identity, null, resources, children, diagnostics.Log);
+        using IAgentQueues queues = new AgentQueues(identity, null, resources, children, static queueIdentity => new QueueInventory(queueIdentity), diagnostics.Log);
         queues.Initialize();
         var questions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), templates);
         await using IAgentSession agent = new AgentSession(
@@ -249,11 +249,11 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
 
     private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory
     {
-        public EventRepository PrepareHistory(string agentSessionId, EventRepository repository) =>
+        public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
             throw new NotSupportedException("This test does not spawn agents.");
 
         public IAgentSessionScope Create(
-            AgentIdentity identity, AgentSessionParentLink parentLink, ModelSelector model, EventBroker eventBroker, EventRepository eventRepository, IMode mode, SecurityProfile securityProfile, RuntimeStatus status, IAgentRegistry registry, CancellationToken lifetime) =>
+            AgentIdentity identity, AgentSessionParentLink parentLink, ModelSelector model, IEventBroker eventBroker, IEventRepository eventRepository, IMode mode, SecurityProfile securityProfile, IRuntimeStatus status, IAgentRegistry registry, CancellationToken lifetime) =>
             throw new NotSupportedException("This test does not spawn agents.");
     }
 }

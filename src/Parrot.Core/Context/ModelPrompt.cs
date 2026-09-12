@@ -5,7 +5,7 @@ using Scriban.Runtime;
 
 namespace Parrot.Context;
 
-internal sealed class ModelPrompt(IReadOnlyDictionary<string, string> augmentations, PromptTemplateCatalog templates) : ISystemPrompt
+internal sealed class ModelPrompt(IReadOnlyDictionary<string, string> augmentations, IPromptTemplateCatalog templates) : ISystemPrompt
 {
     private readonly Dictionary<string, string> _augmentations = new(augmentations, StringComparer.Ordinal);
 

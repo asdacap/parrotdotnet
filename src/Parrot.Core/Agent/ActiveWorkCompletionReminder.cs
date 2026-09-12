@@ -8,9 +8,9 @@ namespace Parrot.Agent;
 
 internal sealed class ActiveWorkCompletionReminder(
     IChildRegistry children,
-    ShellProcessOwner processes,
-    PromptTemplateCatalog promptTemplates,
-    AgentTaskRunCatalog? agentTasks)
+    IProcessOwner processes,
+    IPromptTemplateCatalog promptTemplates,
+    IAgentTaskRunCatalog? agentTasks)
 {
     public string? Build()
     {

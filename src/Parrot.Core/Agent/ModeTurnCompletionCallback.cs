@@ -5,8 +5,8 @@ using Parrot.Store;
 namespace Parrot.Agent;
 
 internal sealed class ModeTurnCompletionCallback(
-    EventRepository eventRepository,
-    EventBroker eventBroker) : IAgentTurnCompletionCallback
+    IEventRepository eventRepository,
+    IEventBroker eventBroker) : IAgentTurnCompletionCallback
 {
     public async ValueTask<AgentTurnCompletionOutcome> Complete(
         AgentTurnCompletionCandidate candidate,
@@ -26,7 +26,7 @@ internal sealed class ModeTurnCompletionCallback(
             PlanValidationRepairInjected = new PlanValidationRepairInjected { Diagnostic = diagnostic },
         };
         eventRepository.AppendPlanValidationRepair(published, candidate.AssistantText, diagnostic);
-        await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+        await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
         return AgentTurnCompletionOutcome.Retry(diagnostic, true, true, true, true);
     }
 }

@@ -6,7 +6,7 @@ using Scriban.Runtime;
 
 namespace Parrot.Context;
 
-internal sealed class SecurityProfilePrompt(IReadOnlyList<SandboxRule> rules, PromptTemplateCatalog templates) : ISystemPrompt
+internal sealed class SecurityProfilePrompt(IReadOnlyList<SandboxRule> rules, IPromptTemplateCatalog templates) : ISystemPrompt
 {
     private readonly SandboxRule[] _rules = [.. rules];
 

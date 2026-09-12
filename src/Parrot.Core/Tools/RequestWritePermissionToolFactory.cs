@@ -6,7 +6,7 @@ namespace Parrot.Tools;
 internal sealed class RequestWritePermissionToolFactory(
     AgentIdentity identity,
     AgentSessionSecurity security,
-    PermissionBroker broker) : IToolFactory
+    IPermissionBroker broker) : IToolFactory
 {
     public bool Supports(IAgentSession session) => identity.Depth == 0;
 

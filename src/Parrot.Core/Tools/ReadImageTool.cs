@@ -5,7 +5,7 @@ using Parrot.Store;
 
 namespace Parrot.Tools;
 
-internal sealed class ReadImageTool(ToolWorkspace workspace, ImageArtifactRepository artifacts) : ITool
+internal sealed class ReadImageTool(ToolWorkspace workspace, IImageArtifactRepository artifacts) : ITool
 {
     public string Name => "read_image";
 

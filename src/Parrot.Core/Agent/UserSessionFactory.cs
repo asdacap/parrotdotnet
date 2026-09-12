@@ -1,4 +1,5 @@
 using Parrot.Config;
+using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Skills;
 using Parrot.Store;
@@ -8,14 +9,14 @@ namespace Parrot.Agent;
 internal sealed class UserSessionFactory(
     IAgentSessionFactorySource agentSessionFactories,
     ModeRegistry modes,
-    PromptTemplateCatalog promptTemplates,
+    IPromptTemplateCatalog promptTemplates,
     ProfileRegistry profiles,
     SkillCatalogFactory skillCatalogFactory,
     TimeSpan userInputTimeout,
     TimeProvider timeProvider) : IUserSessionFactory
 {
-    public Task<UserSession> Create(
-        SessionResourceLease resources,
+    public Task<IUserSession> Create(
+        ISessionResourceLease resources,
         string id,
         string rootAgentName,
         ResolvedModelSelection model,
@@ -34,5 +35,6 @@ internal sealed class UserSessionFactory(
             skillCatalogFactory,
             interactivePermissions,
             userInputTimeout,
-            timeProvider);
+            timeProvider,
+            static () => new EventBroker());
 }

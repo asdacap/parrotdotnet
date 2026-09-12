@@ -5,7 +5,7 @@ using Parrot.Statuses;
 
 namespace Parrot.AgentTasks;
 
-internal sealed class AgentTaskRunCatalog(string ownerAgentSessionId, IDiagnosticLog diagnostics, CancellationToken lifetime) : IAsyncDisposable
+internal sealed class AgentTaskRunCatalog(string ownerAgentSessionId, IDiagnosticLog diagnostics, CancellationToken lifetime) : IAgentTaskRunCatalog
 {
     private readonly Dictionary<string, AgentTaskRun> _runs = new(StringComparer.Ordinal);
     private readonly List<AgentTaskRun> _ownedRuns = [];
@@ -31,7 +31,7 @@ internal sealed class AgentTaskRunCatalog(string ownerAgentSessionId, IDiagnosti
 
     public ValueTask DisposeAsync() => new(Settle());
 
-    internal void Start(AgentTaskRunRequest request, CancellationToken cancellationToken)
+    public void Start(AgentTaskRunRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.RunId);
@@ -67,7 +67,7 @@ internal sealed class AgentTaskRunCatalog(string ownerAgentSessionId, IDiagnosti
         }
     }
 
-    internal IReadOnlyList<AgentTaskRunSnapshot> Snapshot()
+    public IReadOnlyList<AgentTaskRunSnapshot> Snapshot()
     {
         lock (_gate)
         {
@@ -82,7 +82,7 @@ internal sealed class AgentTaskRunCatalog(string ownerAgentSessionId, IDiagnosti
         }
     }
 
-    internal Task Settle()
+    public Task Settle()
     {
         lock (_gate)
         {
@@ -187,7 +187,7 @@ internal sealed class AgentTaskRunCatalog(string ownerAgentSessionId, IDiagnosti
 
         internal string DisplayName => request.DisplayName;
 
-        internal AgentTaskProgress Progress => request.Progress;
+        internal IAgentTaskProgress Progress => request.Progress;
 
         internal void Initialize(CancellationToken cancellationToken) =>
             _ = request.Progress.Initialize(request.Artifact.Tasks, cancellationToken);

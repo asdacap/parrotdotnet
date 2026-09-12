@@ -5,11 +5,11 @@ using Parrot.Questions;
 
 namespace Parrot.Tools;
 
-internal sealed class AnswerTool(ChildQuestionCoordinator questions) : ITool
+internal sealed class AnswerTool(IChildQuestionCoordinator questions) : ITool
 {
-    private readonly AgentSessionParentScope? _parentScope;
+    private readonly IAgentParentScope? _parentScope;
 
-    public AnswerTool(ChildQuestionCoordinator questions, AgentSessionParentScope parentScope)
+    public AnswerTool(IChildQuestionCoordinator questions, IAgentParentScope parentScope)
         : this(questions) => _parentScope = parentScope;
 
     public string Name => "answer";
@@ -39,7 +39,7 @@ internal sealed class AnswerTool(ChildQuestionCoordinator questions) : ITool
             }
             else
             {
-                questions.Reply(_parentScope, agentSessionId, reply);
+                questions.ReplyFromParent(_parentScope, agentSessionId, reply);
             }
 
             return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.QuestionReplied(invocation, agentSessionId));

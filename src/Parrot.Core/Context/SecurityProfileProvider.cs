@@ -4,7 +4,7 @@ using Parrot.Security;
 
 namespace Parrot.Context;
 
-internal sealed class SecurityProfileProvider(IReadOnlyList<SandboxRule> rules, PromptTemplateCatalog templates) : ISystemPromptProvider
+internal sealed class SecurityProfileProvider(IReadOnlyList<SandboxRule> rules, IPromptTemplateCatalog templates) : ISystemPromptProvider
 {
     private readonly SandboxRule[] _rules = [.. rules];
 

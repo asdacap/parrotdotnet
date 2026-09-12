@@ -6,7 +6,7 @@ namespace Parrot.AgentTasks;
 internal sealed class AgentTaskRunCompletion(
     IAgentSession session,
     ToolOutputBlobStore outputBlobs,
-    PromptTemplateCatalog promptTemplates) : IAgentTaskRunCompletion
+    IPromptTemplateCatalog promptTemplates) : IAgentTaskRunCompletion
 {
     private readonly Dictionary<string, Task<string>> _messages = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();

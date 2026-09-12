@@ -10,7 +10,7 @@ internal sealed class Compactor(
     int targetPercent,
     int maximumInputTokens,
     int summaryOutputTokens,
-    PromptTemplateCatalog promptTemplates)
+    IPromptTemplateCatalog promptTemplates)
 {
     // Image token usage depends on provider-side vision processing, not encoded file size.
     private const long EstimatedImageTokens = 4096;

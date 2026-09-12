@@ -12,7 +12,7 @@ using ProtocolPermissionTargetKind = Parrot.Protocol.PermissionTargetKind;
 
 namespace Parrot.Permissions;
 
-internal sealed class PermissionBroker : IDisposable
+internal sealed class PermissionBroker : IPermissionBroker
 {
     private static readonly IReadOnlyList<PermissionChoice> DeclaredChoices =
     [
@@ -23,8 +23,8 @@ internal sealed class PermissionBroker : IDisposable
 
     private readonly Lock _gate = new();
     private readonly Dictionary<string, PendingRequest> _pending = new(StringComparer.Ordinal);
-    private readonly EventBroker _events;
-    private readonly EventRepository _repository;
+    private readonly IEventBroker _events;
+    private readonly IEventRepository _repository;
     private readonly bool _interactive;
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _timeout;
@@ -32,8 +32,8 @@ internal sealed class PermissionBroker : IDisposable
     private bool _disposed;
 
     public PermissionBroker(
-        EventBroker events,
-        EventRepository repository,
+        IEventBroker events,
+        IEventRepository repository,
         bool interactive,
         TimeSpan timeout,
         TimeProvider timeProvider,

@@ -3,7 +3,7 @@ using Scriban.Runtime;
 
 namespace Parrot.Statuses;
 
-internal sealed class SelectionStatusProvider(PromptTemplateCatalog templates) : IStatusProvider
+internal sealed class SelectionStatusProvider(IPromptTemplateCatalog templates) : IStatusProvider
 {
     public string Key => "runtime:selection";
 

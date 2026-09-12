@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Parrot.Core.Tests</RootNamespace>
+    <IsTestProject>true</IsTestProject>
+    <NoWarn>$(NoWarn);CA1859</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Parrot.Core/Parrot.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../Parrot.Core.Tests/AgentQueueTestFixture.cs" Link="AgentQueueTestFixture.cs" />
+    <Compile Include="../Parrot.Core.Tests/AgentTaskBlockingProvider.cs" Link="AgentTaskBlockingProvider.cs" />
+    <Compile Include="../Parrot.Core.Tests/AgentTaskQueueProvider.cs" Link="AgentTaskQueueProvider.cs" />
+    <Compile Include="../Parrot.Core.Tests/FixedToolFactory.cs" Link="FixedToolFactory.cs" />
+    <Compile Include="../Parrot.Core.Tests/SettledTool.cs" Link="SettledTool.cs" />
+    <Compile Include="../Parrot.Core.Tests/SteppedProvider.cs" Link="SteppedProvider.cs" />
+    <Compile Include="../Parrot.Core.Tests/AgentSessionDependencies.cs" Link="AgentSessionDependencies.cs" />
+    <Compile Include="../Parrot.Core.Tests/AgentTaskTestSessionFactory.cs" Link="AgentTaskTestSessionFactory.cs" />
+    <Compile Include="../Parrot.Core.Tests/ControlledTimeProvider.cs" Link="ControlledTimeProvider.cs" />
+    <Compile Include="../Parrot.Core.Tests/SecurityProfileTestFixture.cs" Link="SecurityProfileTestFixture.cs" />
+    <Compile Include="../Parrot.Core.Tests/TestAgentSessionScope.cs" Link="TestAgentSessionScope.cs" />
+    <Compile Include="../Parrot.Core.Tests/TestCompletionCallbacksFixture.cs" Link="TestCompletionCallbacksFixture.cs" />
+    <Compile Include="../Parrot.Core.Tests/TestDiagnosticLog.cs" Link="TestDiagnosticLog.cs" />
+    <Compile Include="../Parrot.Core.Tests/TestModels.cs" Link="TestModels.cs" />
+    <Compile Include="../Parrot.Core.Tests/TestProfileFixture.cs" Link="TestProfileFixture.cs" />
+    <Compile Include="../Parrot.Core.Tests/TestSystemPromptFixture.cs" Link="TestSystemPromptFixture.cs" />
+    <Compile Include="../Parrot.Core.Tests/TestToolDefinitionsFixture.cs" Link="TestToolDefinitionsFixture.cs" />
+    <Compile Include="../Parrot.Core.Tests/UnusedProvider.cs" Link="UnusedProvider.cs" />
+  </ItemGroup>
+
+</Project>

@@ -5,15 +5,15 @@ using Parrot.Llm;
 
 namespace Parrot.Statuses;
 
-internal sealed class RuntimeStatus
+internal sealed class RuntimeStatus : IRuntimeStatus
 {
-    private readonly PromptTemplateCatalog _templates;
+    private readonly IPromptTemplateCatalog _templates;
     private readonly StatusRegistry _activity;
     private readonly StatusRegistry _full;
 
     public RuntimeStatus(
         IAgentRegistry agents,
-        PromptTemplateCatalog templates,
+        IPromptTemplateCatalog templates,
         TimeProvider timeProvider)
     {
         _templates = templates ?? throw new ArgumentNullException(nameof(templates));
@@ -89,7 +89,7 @@ internal sealed class RuntimeStatus
         return string.Join("\n\n", new[] { runtime, observation }.Where(text => !string.IsNullOrWhiteSpace(text)));
     }
 
-    internal Task<string> ObserveWithContext(
+    public Task<string> ObserveWithContext(
         IAgentSession session,
         AgentTurnSelection selection,
         IAgentProfile profile,
@@ -112,7 +112,7 @@ internal sealed class RuntimeStatus
             cancellationToken);
     }
 
-    internal async Task<string> ObserveContext(
+    public async Task<string> ObserveContext(
         IAgentSession session,
         AgentTurnSelection selection,
         ContextSnapshot contextSnapshot,

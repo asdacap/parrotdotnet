@@ -13,13 +13,13 @@ internal sealed class ShellProcessOwner(
     AgentPathEnvironment pathEnvironment,
     ProcessRunner runner,
     IDiagnosticLog diagnostics,
-    CancellationToken lifetime) : IAsyncDisposable
+    CancellationToken lifetime) : IProcessOwner
 {
     private readonly ShellProcessInventory _inventory = new(identity);
     private readonly AgentScratchDirectory _scratch = resources.AgentScratch(identity.SessionId);
     private readonly CancellationTokenSource _lifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
-    private readonly Dictionary<string, ManagedShellProcess> _processes = new(StringComparer.Ordinal);
-    private readonly List<ManagedShellProcess> _ownedProcesses = [];
+    private readonly Dictionary<string, IManagedShellProcess> _processes = new(StringComparer.Ordinal);
+    private readonly List<IManagedShellProcess> _ownedProcesses = [];
     private readonly Lock _gate = new();
     private int _generated;
     private Task? _settlement;
@@ -27,11 +27,11 @@ internal sealed class ShellProcessOwner(
 
     public string SessionId => identity.SessionId;
 
-    public ShellProcessInventorySubscription SubscribeInventory() => _inventory.Subscribe();
+    public IShellProcessInventorySubscription SubscribeInventory() => _inventory.Subscribe();
 
     public ShellProcessInventorySnapshot CaptureInventory() => _inventory.Capture();
 
-    public ManagedShellProcess Start(
+    public IManagedShellProcess StartUnattributed(
         string? requestedName,
         string command,
         ProcessEnvironmentOverrides environment,
@@ -47,7 +47,7 @@ internal sealed class ShellProcessOwner(
             securityProfile,
             terminalMode);
 
-    public ManagedShellProcess Start(
+    public IManagedShellProcess StartPipe(
         string? requestedName,
         string command,
         string originToolCallId,
@@ -63,7 +63,7 @@ internal sealed class ShellProcessOwner(
             securityProfile,
             ShellProcessTerminalMode.Pipe);
 
-    public ManagedShellProcess Start(
+    public IManagedShellProcess Start(
         string? requestedName,
         string command,
         string originToolCallId,
@@ -93,7 +93,7 @@ internal sealed class ShellProcessOwner(
                 AgentSessionId = identity.SessionId,
                 CorrelationId = processId,
             });
-            ShellProcessExecution execution;
+            IProcessExecution execution;
             try
             {
                 execution = runner.Start(
@@ -137,7 +137,7 @@ internal sealed class ShellProcessOwner(
         }
     }
 
-    public ManagedShellProcess Claim(string name)
+    public IManagedShellProcess Claim(string name)
     {
         lock (_gate)
         {
@@ -208,7 +208,7 @@ internal sealed class ShellProcessOwner(
         }
     }
 
-    private async Task SettleProcesses(ManagedShellProcess[] processes)
+    private async Task SettleProcesses(IManagedShellProcess[] processes)
     {
         await Task.Yield();
         try

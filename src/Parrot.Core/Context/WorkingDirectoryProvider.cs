@@ -3,7 +3,7 @@ using Parrot.Config;
 
 namespace Parrot.Context;
 
-internal sealed class WorkingDirectoryProvider(string workingDirectory, PromptTemplateCatalog templates) : ISystemPromptProvider
+internal sealed class WorkingDirectoryProvider(string workingDirectory, IPromptTemplateCatalog templates) : ISystemPromptProvider
 {
     public string Key => "runtime:system-context:12-working-directory";
 

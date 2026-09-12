@@ -9,7 +9,7 @@ namespace Parrot.Statuses;
 
 internal sealed class RuntimeTreeStatusProvider(
     IAgentRegistry agents,
-    PromptTemplateCatalog templates) : IStatusProvider
+    IPromptTemplateCatalog templates) : IStatusProvider
 {
     public string Key => "runtime:queues";
 

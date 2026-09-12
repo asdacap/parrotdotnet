@@ -13,7 +13,7 @@ namespace Parrot.Core.Tests;
 internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
 {
     private readonly Lock _gate = new();
-    private readonly PromptTemplateCatalog _promptTemplates;
+    private readonly IPromptTemplateCatalog _promptTemplates;
     private IAgentSession? _session;
     private Task? _shutdown;
 
@@ -21,7 +21,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         AgentIdentity owner,
         IAgentRegistry registry,
         AgentSessionParentLink parentLink,
-        PromptTemplateCatalog promptTemplates,
+        IPromptTemplateCatalog promptTemplates,
         UserSessionResources resources,
         ProcessRunner runner,
         IDiagnosticLog diagnostics,
@@ -31,7 +31,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         ChildRegistry = new ChildRegistry(owner);
         AgentTaskRuns = new AgentTaskRunCatalog(owner.SessionId, diagnostics, lifetime);
         Processes = new ShellProcessOwner(owner, resources, new AgentPathEnvironment(resources, resources.AgentScratch(owner.SessionId)), runner, diagnostics, lifetime);
-        Queues = new AgentQueues(owner, parentLink.Parent?.Queues, resources, ChildRegistry, diagnostics);
+        Queues = new AgentQueues(owner, parentLink.Parent?.Queues, resources, ChildRegistry, static queueIdentity => new QueueInventory(queueIdentity), diagnostics);
         Queues.Initialize();
         ParentScope = AgentSessionParentScope.Bind(owner, registry, () => this, ChildRegistry, parentLink);
         AgentSpawner = new AgentSpawner(owner, registry, ParentScope, ChildRegistry);
@@ -49,41 +49,41 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         }
     }
 
-    public ShellProcessOwner Processes { get; }
+    public IProcessOwner Processes { get; }
 
-    public AgentQueues Queues { get; }
+    public IAgentQueues Queues { get; }
 
-    public AgentTaskRunCatalog AgentTaskRuns { get; }
+    public IAgentTaskRunCatalog AgentTaskRuns { get; }
 
-    public GoalService? GoalsState { get; private set; }
+    public IGoalService? GoalsState { get; private set; }
 
-    public GoalService Goals =>
+    public IGoalService Goals =>
         GoalsState ?? throw new InvalidOperationException("The agent session is not attached to its scope.");
 
-    public AgentSpawner AgentSpawner { get; }
+    public IAgentSpawner AgentSpawner { get; }
 
     public IChildRegistry ChildRegistry { get; }
 
-    public AgentSessionParentScope ParentScope { get; }
+    public IAgentParentScope ParentScope { get; }
 
-    public ChildQuestionCoordinator ChildQuestions { get; }
+    public IChildQuestionCoordinator ChildQuestions { get; }
 
     public static TestAgentSessionScope Build(
         AgentIdentity owner,
         AgentSessionParentLink parentLink,
         IAgentRegistry registry,
-        PromptTemplateCatalog promptTemplates,
-        Func<AgentSessionParentScope, IAgentSessionScope, IChildRegistry, ChildQuestionCoordinator, IAgentSession> buildSession) => BuildWithResources(owner, parentLink, registry, promptTemplates, TestModels.Resources(), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, buildSession, CancellationToken.None);
+        IPromptTemplateCatalog promptTemplates,
+        Func<IAgentParentScope, IAgentSessionScope, IChildRegistry, IChildQuestionCoordinator, IAgentSession> buildSession) => BuildWithResources(owner, parentLink, registry, promptTemplates, TestModels.Resources(), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, buildSession, CancellationToken.None);
 
     public static TestAgentSessionScope BuildWithResources(
         AgentIdentity owner,
         AgentSessionParentLink parentLink,
         IAgentRegistry registry,
-        PromptTemplateCatalog promptTemplates,
+        IPromptTemplateCatalog promptTemplates,
         UserSessionResources resources,
         ProcessRunner runner,
         IDiagnosticLog diagnostics,
-        Func<AgentSessionParentScope, IAgentSessionScope, IChildRegistry, ChildQuestionCoordinator, IAgentSession> buildSession,
+        Func<IAgentParentScope, IAgentSessionScope, IChildRegistry, IChildQuestionCoordinator, IAgentSession> buildSession,
         CancellationToken lifetime)
     {
         var scope = new TestAgentSessionScope(owner, registry, parentLink, promptTemplates, resources, runner, diagnostics, lifetime);

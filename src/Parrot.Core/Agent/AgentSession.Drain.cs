@@ -325,7 +325,7 @@ internal sealed partial class AgentSession
             {
                 if (ownedExecution.Admission.Published is not null)
                 {
-                    await eventBroker.Publish(ownedExecution.Admission.Published, CancellationToken.None)
+                    await eventBroker.PublishWithCancellation(ownedExecution.Admission.Published, CancellationToken.None)
                         .ConfigureAwait(false);
                 }
 
@@ -450,7 +450,7 @@ internal sealed partial class AgentSession
         // re-sent precisely because they were not sure it had been.
         if (admission.Published is not null)
         {
-            await eventBroker.Publish(admission.Published, cancellationToken).ConfigureAwait(false);
+            await eventBroker.PublishWithCancellation(admission.Published, cancellationToken).ConfigureAwait(false);
         }
 
         var incoming = admission.Created || eventRepository.HasPendingInputs(SessionId) ? activity : null;
@@ -459,7 +459,7 @@ internal sealed partial class AgentSession
     }
 
     private Admission AdmitParts(IReadOnlyList<ConversationPart> parts, string messageId, Delivery delivery) =>
-        eventRepository.Admit(
+        eventRepository.AdmitParts(
             SessionId,
             messageId,
             parts,
@@ -579,7 +579,7 @@ internal sealed partial class AgentSession
                     {
                         try
                         {
-                            await eventBroker.Publish(canceled, CancellationToken.None).ConfigureAwait(false);
+                            await eventBroker.PublishWithCancellation(canceled, CancellationToken.None).ConfigureAwait(false);
                         }
                         catch (Exception failure)
                         {
@@ -815,12 +815,12 @@ internal sealed partial class AgentSession
                             Reason = _truncatedToolCallPrompt,
                         },
                     };
-                    _ = eventRepository.Append(
+                    _ = eventRepository.AppendMessage(
                         published,
                         LLMMessage.System(_truncatedToolCallPrompt),
                         ConversationOrigin.System);
                     _history.Add(LLMMessage.System(_truncatedToolCallPrompt));
-                    await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+                    await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
@@ -837,12 +837,12 @@ internal sealed partial class AgentSession
                             Reason = _invalidToolCallPrompt,
                         },
                     };
-                    _ = eventRepository.Append(
+                    _ = eventRepository.AppendMessage(
                         published,
                         LLMMessage.System(_invalidToolCallPrompt),
                         ConversationOrigin.System);
                     _history.Add(LLMMessage.System(_invalidToolCallPrompt));
-                    await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+                    await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
@@ -861,7 +861,7 @@ internal sealed partial class AgentSession
                         completed.ToolCalls,
                         string.Empty);
                     _history.Add(LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls));
-                    await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+                    await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
                     Activity.RecordAssistantMessage(completed.AssistantText);
                     await ReconcileToolBatches(
                         activeSelection,
@@ -1087,7 +1087,7 @@ internal sealed partial class AgentSession
         {
             _skills.Select(promotion.Input.Parts);
             _history.Add(LLMMessage.User(eventRepository.Materialize(promotion.Input.Parts)));
-            await eventBroker.Publish(promotion.Published, cancellationToken).ConfigureAwait(false);
+            await eventBroker.PublishWithCancellation(promotion.Published, cancellationToken).ConfigureAwait(false);
         }
 
         return promoted.Count;
@@ -1281,7 +1281,7 @@ internal sealed partial class AgentSession
             {
                 var published = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
                 _ = eventRepository.AppendToolSynthetic(published, batch.Sequence, images);
-                await eventBroker.Publish(published, CancellationToken.None).ConfigureAwait(false);
+                await eventBroker.PublishWithCancellation(published, CancellationToken.None).ConfigureAwait(false);
                 changed = true;
             }
         }
@@ -1299,7 +1299,7 @@ internal sealed partial class AgentSession
         Dictionary<string, ToolExecutionTerminal> terminals)
     {
         _ = eventRepository.AppendToolSettlement(settlement.Published, assistantSequence, settlement.Terminal);
-        await eventBroker.Publish(settlement.Published, CancellationToken.None).ConfigureAwait(false);
+        await eventBroker.PublishWithCancellation(settlement.Published, CancellationToken.None).ConfigureAwait(false);
         terminals.Add(settlement.Terminal.ToolCallId, settlement.Terminal);
     }
 

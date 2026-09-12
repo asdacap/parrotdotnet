@@ -25,7 +25,7 @@ namespace Parrot.Protocol;
 // repository's root namespace, and `Parrot.ParrotBase` reads as though it were
 // a namespace lookup.
 internal sealed class ParrotService(
-    ModelRouter router,
+    IModelRouter router,
     ProviderRegistry registry,
     ModelAliasConfigurator aliases,
     ModelConfigurationCoordinator modelConfiguration,
@@ -226,7 +226,7 @@ internal sealed class ParrotService(
 
             return Task.FromResult(new SelectModelPresetResponse
             {
-                Session = UserSession.From(session, false),
+                Session = UserSessionMapping.Map(session, false),
                 Preset = ToProtocol(request.Name, selected.Preset),
             });
         }
@@ -384,7 +384,7 @@ internal sealed class ParrotService(
                 throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
             }
 
-            Agent.UserSession created;
+            Agent.IUserSession created;
 
             try
             {
@@ -403,7 +403,7 @@ internal sealed class ParrotService(
             }
 
             userSessionId = created.Id;
-            return UserSession.From(created, false);
+            return UserSessionMapping.Map(created, false);
         }
         catch (Exception failure)
         {
@@ -467,7 +467,7 @@ internal sealed class ParrotService(
                         return HostSession(session, correlationId, context.CancellationToken);
                     }).ConfigureAwait(false);
                 userSessionId = resumed.Id;
-                return UserSession.From(resumed, true);
+                return UserSessionMapping.Map(resumed, true);
             }
             catch (SessionAdmissionException failure)
             {
@@ -527,7 +527,7 @@ internal sealed class ParrotService(
             operationDiagnostics = session.Diagnostics;
             ValidateWorkspace(request.WorkingDirectory, session.Resources.Workspace.LaunchDirectory);
             SessionStore.RecordOpened(session);
-            return Task.FromResult(UserSession.From(session, false));
+            return Task.FromResult(UserSessionMapping.Map(session, false));
         }
         catch (Exception failure)
         {
@@ -603,7 +603,7 @@ internal sealed class ParrotService(
         found.Update(selectedModel, selectedMode);
         SessionStore.Publish(found);
 
-        return Task.FromResult(UserSession.From(found, false));
+        return Task.FromResult(UserSessionMapping.Map(found, false));
     }
 
     public override async Task<AttachmentUploadResponse> UploadAttachment(
@@ -665,7 +665,7 @@ internal sealed class ParrotService(
 
             ValidateUploadDescription(description);
             content.Position = 0;
-            var artifact = await session.Images.Persist(
+            var artifact = await session.Images.PersistDeclared(
                 content,
                 header.UploadId,
                 description.DisplayName,
@@ -993,7 +993,7 @@ internal sealed class ParrotService(
     }
 
     private static List<ConversationPart> ResolveParts(
-        Agent.UserSession session,
+        Agent.IUserSession session,
         IEnumerable<MessageContentPart> requested)
     {
         var parts = new List<ConversationPart>();
@@ -1173,7 +1173,7 @@ internal sealed class ParrotService(
 
     private static string Limit(string value) => value.Length <= 4096 ? value : value[..4096];
 
-    private async Task<IAsyncDisposable> HostSession(Agent.UserSession session, string correlationId, CancellationToken cancellationToken)
+    private async Task<IAsyncDisposable> HostSession(Agent.IUserSession session, string correlationId, CancellationToken cancellationToken)
     {
         var started = Stopwatch.GetTimestamp();
         var operation = new DiagnosticEvent("session", "host_start", DiagnosticSeverity.Information)
@@ -1207,5 +1207,5 @@ internal sealed class ParrotService(
         }
     }
 
-    private Agent.UserSession Find(string userSessionId) => _userSessions.Find(userSessionId);
+    private Agent.IUserSession Find(string userSessionId) => _userSessions.Find(userSessionId);
 }

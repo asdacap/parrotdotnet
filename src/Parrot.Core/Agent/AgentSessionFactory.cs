@@ -12,7 +12,7 @@ using Parrot.Web;
 namespace Parrot.Agent;
 
 internal sealed class AgentSessionFactory(
-    UserSession owner,
+    IUserSession owner,
     Parrot.Process.ProcessRunner processRunner,
     string workingDirectory,
     Compactor compactor,
@@ -21,24 +21,24 @@ internal sealed class AgentSessionFactory(
     AgentTaskConfig agentTasks,
     RequestLimitsConfig requestLimits,
     IReadOnlyList<string> readOnlyExecCommandPrefixes,
-    ModelRouter router,
+    IModelRouter router,
     ISystemPromptProvider systemPromptProvider,
-    PromptTemplateCatalog promptTemplates) : IAgentSessionFactory
+    IPromptTemplateCatalog promptTemplates) : IAgentSessionFactory
 {
-    private readonly ImageArtifactRepository _images = owner.Images;
+    private readonly IImageArtifactRepository _images = owner.Images;
 
-    public EventRepository PrepareHistory(string agentSessionId, EventRepository repository) =>
+    public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
         repository.BindAgentHistory(new AgentHistoryFile(owner.Resources, agentSessionId));
 
     public IAgentSessionScope Create(
         AgentIdentity identity,
         AgentSessionParentLink parentLink,
         ModelSelector model,
-        EventBroker eventBroker,
-        EventRepository eventRepository,
+        IEventBroker eventBroker,
+        IEventRepository eventRepository,
         IMode mode,
         SecurityProfile securityProfile,
-        RuntimeStatus status,
+        IRuntimeStatus status,
         IAgentRegistry registry,
         CancellationToken lifetime)
     {

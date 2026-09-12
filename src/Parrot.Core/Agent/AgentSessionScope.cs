@@ -49,21 +49,21 @@ internal sealed class AgentSessionScope : IAgentSessionScope
 
     public IAgentSession Session { get; }
 
-    public GoalService Goals { get; }
+    public IGoalService Goals { get; }
 
-    public AgentSpawner AgentSpawner { get; }
+    public IAgentSpawner AgentSpawner { get; }
 
     public IChildRegistry ChildRegistry { get; }
 
-    public AgentSessionParentScope ParentScope { get; }
+    public IAgentParentScope ParentScope { get; }
 
-    public ChildQuestionCoordinator ChildQuestions { get; }
+    public IChildQuestionCoordinator ChildQuestions { get; }
 
-    public ShellProcessOwner Processes { get; }
+    public IProcessOwner Processes { get; }
 
-    public AgentQueues Queues { get; }
+    public IAgentQueues Queues { get; }
 
-    public AgentTaskRunCatalog AgentTaskRuns { get; }
+    public IAgentTaskRunCatalog AgentTaskRuns { get; }
 
     public ValueTask DisposeAsync()
     {

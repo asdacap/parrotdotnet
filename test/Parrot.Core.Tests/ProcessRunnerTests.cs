@@ -879,7 +879,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(15));
         using var releaseCaller = new ManualResetEventSlim();
-        var started = new TaskCompletionSource<ShellProcessExecution>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource<IProcessExecution>(TaskCreationOptions.RunContinuationsAsynchronously);
         var caller = new Thread(() =>
         {
             try

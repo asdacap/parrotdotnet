@@ -5,7 +5,7 @@ namespace Parrot.Skills;
 
 internal sealed class SkillCatalogFactory(Configuration configuration, string userHome, string packagedRoot)
 {
-    public SkillCatalog Create(ProjectWorkspace workspace)
+    public ISkillCatalog Create(ProjectWorkspace workspace)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         return new SkillCatalog(

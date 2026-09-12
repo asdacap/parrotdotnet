@@ -6,8 +6,8 @@ namespace Parrot.Agent;
 
 internal sealed class ActiveWorkTurnCompletionCallback(
     ActiveWorkCompletionReminder activeWorkReminder,
-    EventRepository eventRepository,
-    EventBroker eventBroker) : IAgentTurnCompletionCallback
+    IEventRepository eventRepository,
+    IEventBroker eventBroker) : IAgentTurnCompletionCallback
 {
     public async ValueTask<AgentTurnCompletionOutcome> Complete(
         AgentTurnCompletionCandidate candidate,
@@ -21,7 +21,7 @@ internal sealed class ActiveWorkTurnCompletionCallback(
 
         var published = new Event { Id = Identifier.EventId(), AgentSessionId = candidate.SessionId };
         eventRepository.AppendActiveWorkReminder(published, reminder);
-        await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+        await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
         return AgentTurnCompletionOutcome.Retry(reminder, false, false, false, null);
     }
 }

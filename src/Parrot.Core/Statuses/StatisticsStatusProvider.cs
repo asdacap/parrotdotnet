@@ -7,7 +7,7 @@ namespace Parrot.Statuses;
 
 internal sealed class StatisticsStatusProvider(
     AgentSessionStatisticsSnapshot snapshot,
-    PromptTemplateCatalog templates) : IStatusProvider
+    IPromptTemplateCatalog templates) : IStatusProvider
 {
     public string Key => "runtime:statistics";
 

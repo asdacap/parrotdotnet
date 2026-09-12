@@ -282,7 +282,7 @@ internal sealed partial class AgentSession
         _history.Add(LLMMessage.System(reminder));
         var persistedContext = compactor.EstimateSelectedContext(selection.ResolvedModel, instructions, tools, _history);
         contextCadence.Acknowledge(persistedContext, selectedModel.Selector, _history.Count);
-        await eventBroker.Publish(published, CancellationToken.None).ConfigureAwait(false);
+        await eventBroker.PublishWithCancellation(published, CancellationToken.None).ConfigureAwait(false);
         return instructions;
     }
 
@@ -441,7 +441,7 @@ internal sealed partial class AgentSession
                     persistedContext,
                     selectedModel.Selector,
                     _history.Count);
-                await eventBroker.Publish(statusInjected, CancellationToken.None).ConfigureAwait(false);
+                await eventBroker.PublishWithCancellation(statusInjected, CancellationToken.None).ConfigureAwait(false);
             }
 
             var finished = new Event
@@ -491,7 +491,7 @@ internal sealed partial class AgentSession
         };
         eventRepository.AppendFinalProviderRequestPrompt(published, _finalProviderRequestPrompt);
         _history.Add(LLMMessage.System(_finalProviderRequestPrompt));
-        await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+        await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task RestoreToolAvailability(CancellationToken cancellationToken)
@@ -507,7 +507,7 @@ internal sealed partial class AgentSession
         }
 
         _history.Add(LLMMessage.System(_toolAvailabilityRestoredPrompt));
-        await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+        await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<AgentTurnSelection> InjectStatus(
@@ -535,7 +535,7 @@ internal sealed partial class AgentSession
             eventRepository.AppendInitialStatusPrompt(published, content);
             _history.Add(LLMMessage.System(content));
             _epochContext.InitialStatusPending = false;
-            await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+            await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
             return selection;
         }
 
@@ -571,7 +571,7 @@ internal sealed partial class AgentSession
             }
 
             _history.Add(LLMMessage.System(content));
-            await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+            await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
         }
 
         return selection;

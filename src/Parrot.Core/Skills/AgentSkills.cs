@@ -6,8 +6,8 @@ using Parrot.Store;
 namespace Parrot.Skills;
 
 internal sealed class AgentSkills(
-    SkillCatalog catalog,
-    PromptTemplateCatalog promptTemplates)
+    ISkillCatalog catalog,
+    IPromptTemplateCatalog promptTemplates)
 {
     private const int MaximumSkillBytes = 1024 * 1024;
     private const int MaximumTurnBytes = 1024 * 1024;

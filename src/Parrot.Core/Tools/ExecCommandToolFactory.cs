@@ -4,12 +4,12 @@ using Parrot.Process;
 namespace Parrot.Tools;
 
 internal sealed class ExecCommandToolFactory(
-    ShellProcessOwner processes,
+    IProcessOwner processes,
     IReadOnlyList<string> readOnlyCommandPrefixes) : IToolFactory
 {
     private readonly ReadOnlyExecCommandClassifier _readOnlyCommandClassifier = new(readOnlyCommandPrefixes);
 
-    public ExecCommandToolFactory(ShellProcessOwner processes)
+    public ExecCommandToolFactory(IProcessOwner processes)
         : this(processes, [])
     {
     }

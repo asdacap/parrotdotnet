@@ -15,9 +15,9 @@ namespace Parrot.Core.Tests;
 internal sealed class AgentTaskRunnerTests : IAsyncDisposable
 {
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
-    private readonly EventBroker _broker = new();
+    private readonly IEventBroker _broker = new EventBroker();
     private readonly List<IAgentRegistry> _registries = [];
-    private readonly EventRepository _repository;
+    private readonly IEventRepository _repository;
 
     public AgentTaskRunnerTests() => _repository = new EventRepository(_database);
 
@@ -1481,8 +1481,8 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
         RuntimeContext runtime,
         string originToolCallId,
         int maximumAttempts,
-        EventBroker broker,
-        EventRepository repository)
+        IEventBroker broker,
+        IEventRepository repository)
     {
         internal AgentTaskGraphRunner Runner { get; } = new(
             runtime.Router,
@@ -1494,7 +1494,7 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
     }
 
     private sealed record RuntimeContext(
-        ModelRouter Router,
+        IModelRouter Router,
         AgentTaskTestSessionFactory Sessions,
         IAgentRegistry Registry,
         IAgentSessionScope ParentScope,
@@ -1503,18 +1503,18 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
 
     private sealed class DiagnosticChildFactory(IAgentSessionScope scope, bool fail) : IAgentSessionFactory
     {
-        public EventRepository PrepareHistory(string agentSessionId, EventRepository repository) =>
+        public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
             repository;
 
         public IAgentSessionScope Create(
             AgentIdentity identity,
             AgentSessionParentLink parentLink,
             ModelSelector model,
-            EventBroker eventBroker,
-            EventRepository eventRepository,
+            IEventBroker eventBroker,
+            IEventRepository eventRepository,
             IMode mode,
             SecurityProfile securityProfile,
-            RuntimeStatus status,
+            IRuntimeStatus status,
             IAgentRegistry registry,
             CancellationToken lifetime) =>
             fail ? throw new InvalidOperationException("secret-exception") : scope;

@@ -3,11 +3,11 @@ using Parrot.Protocol;
 
 namespace Parrot.Events;
 
-internal sealed class EventSubscription : IDisposable
+internal sealed class EventSubscription : IEventSubscription
 {
     private const int CapacityPerRetention = 1024;
 
-    private readonly EventBroker _owner;
+    private readonly IEventBroker _owner;
     private readonly Lock _gate = new();
     private readonly LinkedList<BufferedEvent> _events = [];
     private readonly LinkedList<IReadOnlyList<Event>> _inventories = [];
@@ -27,7 +27,7 @@ internal sealed class EventSubscription : IDisposable
     private bool _completed;
     private bool _disposed;
 
-    public EventSubscription(EventBroker owner)
+    public EventSubscription(IEventBroker owner)
     {
         _owner = owner;
         Reader = new SubscriptionReader(this);
@@ -48,7 +48,7 @@ internal sealed class EventSubscription : IDisposable
         _owner.Unsubscribe(this);
     }
 
-    internal void Publish(Event published, bool transient)
+    public void Publish(Event published, bool transient)
     {
         lock (_gate)
         {
@@ -81,7 +81,7 @@ internal sealed class EventSubscription : IDisposable
         }
     }
 
-    internal void PublishInventory(IReadOnlyList<Event> chunks)
+    public void PublishInventory(IReadOnlyList<Event> chunks)
     {
         if (chunks.Count == 0)
         {
@@ -109,7 +109,7 @@ internal sealed class EventSubscription : IDisposable
         }
     }
 
-    internal void Complete()
+    public void Complete()
     {
         lock (_gate)
         {

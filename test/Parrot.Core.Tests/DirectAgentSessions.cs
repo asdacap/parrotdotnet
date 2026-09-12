@@ -19,10 +19,10 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
 {
     private readonly List<AgentIdentity> _identities = [];
     private readonly List<AgentSessionSecurity> _securities = [];
-    private readonly List<AgentQueues> _queues = [];
+    private readonly List<IAgentQueues> _queues = [];
     private readonly List<IAgentSession> _sessions = [];
-    private readonly List<UserSession> _owners = [];
-    private ModelRouter? _router;
+    private readonly List<IUserSession> _owners = [];
+    private IModelRouter? _router;
     private TimeProvider _timeProvider = TimeProvider.System;
     private bool _includeStatusTool;
 
@@ -30,38 +30,38 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
 
     public IReadOnlyList<AgentSessionSecurity> Securities => _securities;
 
-    public IReadOnlyList<AgentQueues> Queues => _queues;
+    public IReadOnlyList<IAgentQueues> Queues => _queues;
 
     public IReadOnlyList<IAgentSession> Sessions => _sessions;
 
-    public IReadOnlyList<UserSession> Owners => _owners;
+    public IReadOnlyList<IUserSession> Owners => _owners;
 
     public void IncludeStatusTool() => _includeStatusTool = true;
 
-    public void Use(ModelRouter router) => _router = router;
+    public void Use(IModelRouter router) => _router = router;
 
     public void UseTimeProvider(TimeProvider timeProvider) => _timeProvider = timeProvider;
 
-    public IAgentSessionFactory Create(UserSession owner)
+    public IAgentSessionFactory Create(IUserSession owner)
     {
         _owners.Add(owner);
         return new OwnerAgentSessions(this, owner);
     }
 
-    private sealed class OwnerAgentSessions(DirectAgentSessions source, UserSession owner) : IAgentSessionFactory
+    private sealed class OwnerAgentSessions(DirectAgentSessions source, IUserSession owner) : IAgentSessionFactory
     {
-        public EventRepository PrepareHistory(string agentSessionId, EventRepository repository) =>
+        public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
             repository.BindAgentHistory(new AgentHistoryFile(owner.Resources, agentSessionId));
 
         public IAgentSessionScope Create(
             AgentIdentity identity,
             AgentSessionParentLink parentLink,
             ModelSelector model,
-            EventBroker eventBroker,
-            EventRepository eventRepository,
+            IEventBroker eventBroker,
+            IEventRepository eventRepository,
             IMode mode,
             SecurityProfile securityProfile,
-            RuntimeStatus status,
+            IRuntimeStatus status,
             IAgentRegistry registry,
             CancellationToken lifetime)
         {

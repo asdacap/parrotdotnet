@@ -12,9 +12,9 @@ internal sealed class UserSessionRegistry : IAsyncDisposable
     private SemaphoreSlim? _openingsSettled;
     private Task? _shutdown;
 
-    public async Task<Agent.UserSession> Host(
-        Func<Task<Agent.UserSession>> open,
-        Func<Agent.UserSession, Task<IAsyncDisposable>> host)
+    public async Task<Agent.IUserSession> Host(
+        Func<Task<Agent.IUserSession>> open,
+        Func<Agent.IUserSession, Task<IAsyncDisposable>> host)
     {
         ArgumentNullException.ThrowIfNull(open);
         ArgumentNullException.ThrowIfNull(host);
@@ -92,7 +92,7 @@ internal sealed class UserSessionRegistry : IAsyncDisposable
         throw new RpcException(new Status(refusal, message));
     }
 
-    public Agent.UserSession Find(string id)
+    public Agent.IUserSession Find(string id)
     {
         lock (_gate)
         {
@@ -176,9 +176,9 @@ internal sealed class UserSessionRegistry : IAsyncDisposable
         }
     }
 
-    private sealed class HostedSession(Agent.UserSession session, IAsyncDisposable listener) : IAsyncDisposable
+    private sealed class HostedSession(Agent.IUserSession session, IAsyncDisposable listener) : IAsyncDisposable
     {
-        public Agent.UserSession Session { get; } = session;
+        public Agent.IUserSession Session { get; } = session;
 
         public async ValueTask DisposeAsync()
         {

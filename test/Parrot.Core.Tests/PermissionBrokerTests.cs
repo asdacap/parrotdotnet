@@ -306,7 +306,7 @@ internal sealed class PermissionBrokerTests : IDisposable
     private static IAgentSession Session(
         string id,
         SessionDatabase database,
-        EventBroker events,
+        IEventBroker events,
         AgentSessionSecurity security)
     {
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));

@@ -51,7 +51,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             new ProcessRunner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             lifetime.Token);
-        var process = owner.Start(
+        var process = owner.StartUnattributed(
             "interactive",
             "printf first; IFS= read -r line; printf 'received:%s' \"$line\"; exit 7",
             ProcessEnvironmentOverrides.Empty,
@@ -126,7 +126,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             cd "$SCRATCH_DIR" || exit
             printf '<%s>' "$WORKDIR"
             """;
-        var process = owner.Start(
+        var process = owner.StartUnattributed(
             "paths",
             command,
             ProcessEnvironmentOverrides.Empty,
@@ -136,7 +136,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         var yielded = await process.Wait(TimeSpan.Zero, cancellationToken);
         _ = await Assert.That(yielded.Running).IsTrue();
 
-        var overridden = owner.Start(
+        var overridden = owner.StartUnattributed(
             "override",
             "printf '<%s>' \"$WORKDIR\" \"$SCRATCH_DIR\" \"$AGENT_SCRATCH_DIR\" \"$AGENT_HISTORY_DIR\"",
             new ProcessEnvironmentOverrides(new Dictionary<string, string>(StringComparer.Ordinal)
@@ -190,7 +190,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             new ProcessRunner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             lifetime.Token);
-        var process = owner.Start(
+        var process = owner.StartUnattributed(
             "spill",
             "printf prefix; sleep 0.5; dd if=/dev/zero bs=70000 count=1 2>/dev/null | tr '\\0' x",
             ProcessEnvironmentOverrides.Empty,
@@ -244,7 +244,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             new ProcessRunner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             lifetime.Token);
-        var process = owner.Start(
+        var process = owner.StartUnattributed(
             "poll",
             "printf first; sleep 0.2; printf second; sleep 30",
             ProcessEnvironmentOverrides.Empty,
@@ -293,7 +293,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             new ProcessRunner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             lifetime.Token);
-        var process = owner.Start(
+        var process = owner.StartUnattributed(
             "live-pipe",
             """printf before; printf problem >&2; while [ ! -f "$WORKDIR/release" ]; do sleep 0.02; done; printf after""",
             ProcessEnvironmentOverrides.Empty,
@@ -359,7 +359,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             new ProcessRunner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             lifetime.Token);
-        var process = owner.Start(
+        var process = owner.StartUnattributed(
             "claimed",
             "sleep 30",
             ProcessEnvironmentOverrides.Empty,
@@ -438,7 +438,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
     }
 
     private IAgentSession CreateAgent(
-        EventBroker events,
+        IEventBroker events,
         SessionDatabase database,
         string blobDirectory,
         CancellationToken lifetime)

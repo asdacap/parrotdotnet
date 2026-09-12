@@ -5,7 +5,7 @@ using Parrot.Process;
 
 namespace Parrot.Tools;
 
-internal sealed class WriteStdinTool(ShellProcessOwner processes) : ITool
+internal sealed class WriteStdinTool(IProcessOwner processes) : ITool
 {
     public string Name => "write_stdin";
 

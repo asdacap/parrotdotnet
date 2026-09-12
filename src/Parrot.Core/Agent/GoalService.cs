@@ -6,7 +6,7 @@ namespace Parrot.Agent;
 
 internal sealed class GoalService(
     IAgentSession session,
-    PromptTemplateCatalog promptTemplates)
+    IPromptTemplateCatalog promptTemplates) : IGoalService
 {
     public async Task SetGoal(string goal, CancellationToken cancellationToken)
     {

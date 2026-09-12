@@ -19,17 +19,17 @@ namespace Parrot.Agent;
 // agent session: a subagent runs in a background child session, and its events
 // are republished on this one stream so a client needs a single subscription
 // however deep the recursion goes.
-internal sealed class UserSession : IAsyncDisposable
+internal sealed class UserSession : IUserSession
 {
     private readonly List<IAgentSessionScope> _agents = [];
-    private readonly EventBroker _eventBroker = new();
-    private readonly EventRepository _eventRepository;
+    private readonly IEventBroker _eventBroker;
+    private readonly IEventRepository _eventRepository;
     private readonly IAgentSessionFactory _agentSessions;
-    private readonly SessionResourceLease _resources;
+    private readonly ISessionResourceLease _resources;
     private readonly Lock _mainGate = new();
     private readonly Lock _disposalGate = new();
     private readonly UserSessionModes _modes;
-    private readonly PromptTemplateCatalog _promptTemplates;
+    private readonly IPromptTemplateCatalog _promptTemplates;
 
     // What every drain inside this session is bounded by. It is owned here
     // rather than by an agent session because the drain outlives the request
@@ -50,19 +50,21 @@ internal sealed class UserSession : IAsyncDisposable
         string rootAgentName,
         ResolvedModelSelection model,
         string mode,
-        SessionResourceLease resources,
+        ISessionResourceLease resources,
         IAgentSessionFactorySource agentSessionFactories,
         UserSessionModes modes,
-        PromptTemplateCatalog promptTemplates,
+        IPromptTemplateCatalog promptTemplates,
         ProfileRegistry profiles,
         SkillCatalogFactory skillCatalogFactory,
         bool interactivePermissions,
         TimeSpan userInputTimeout,
         TimeProvider timeProvider,
+        Func<IEventBroker> createEventBroker,
         Stack<Func<ValueTask>> cleanup,
         CancellationTokenSource lifetime)
     {
         _resources = resources;
+        _eventBroker = createEventBroker();
         _lifetime = lifetime;
         cleanup.Push(() =>
         {
@@ -144,40 +146,41 @@ internal sealed class UserSession : IAsyncDisposable
     // to this user session's main agent; child agents select their own profile.
     public IMode Mode { get; private set; }
 
-    internal CancellationToken Lifetime => _lifetime.Token;
+    public CancellationToken Lifetime => _lifetime.Token;
 
-    internal TimeProvider TimeProvider { get; }
+    public TimeProvider TimeProvider { get; }
 
-    internal UserSessionResources Resources => _resources.Resources;
+    public UserSessionResources Resources => _resources.Resources;
 
-    internal IDiagnosticLog Diagnostics => _resources.Diagnostics;
+    public IDiagnosticLog Diagnostics => _resources.Diagnostics;
 
-    internal ImageArtifactRepository Images => _resources.Images;
+    public IImageArtifactRepository Images => _resources.Images;
 
-    internal IAgentRegistry Registry { get; }
+    public IAgentRegistry Registry { get; }
 
-    internal RuntimeStatus Status { get; }
+    public IRuntimeStatus Status { get; }
 
-    internal QuestionBroker Questions { get; }
+    public IQuestionBroker Questions { get; }
 
-    internal PermissionBroker Permissions { get; }
+    public IPermissionBroker Permissions { get; }
 
-    internal SkillCatalog SkillCatalog { get; }
+    public ISkillCatalog SkillCatalog { get; }
 
-    public static async Task<UserSession> Create(
+    public static async Task<IUserSession> Create(
         string id,
         string rootAgentName,
         ResolvedModelSelection model,
         string mode,
-        SessionResourceLease resources,
+        ISessionResourceLease resources,
         IAgentSessionFactorySource agentSessionFactories,
         UserSessionModes modes,
-        PromptTemplateCatalog promptTemplates,
+        IPromptTemplateCatalog promptTemplates,
         ProfileRegistry profiles,
         SkillCatalogFactory skillCatalogFactory,
         bool interactivePermissions,
         TimeSpan userInputTimeout,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        Func<IEventBroker> createEventBroker)
     {
         var cleanup = new Stack<Func<ValueTask>>();
         var lifetime = new CancellationTokenSource();
@@ -198,6 +201,7 @@ internal sealed class UserSession : IAsyncDisposable
                 interactivePermissions,
                 userInputTimeout,
                 timeProvider,
+                createEventBroker,
                 cleanup,
                 lifetime);
             session.Diagnostics.Write(new("session", "recovering", DiagnosticSeverity.Information));
@@ -341,7 +345,7 @@ internal sealed class UserSession : IAsyncDisposable
     // The user talks to the user session; the main agent session is what
     // actually runs the turn. Admitting is not running it: it returns as soon
     // as the prompt is durable, whether or not a turn was already in flight.
-    public async Task<Admission> Send(
+    public async Task<Admission> SendText(
         string prompt, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
         await Send([ConversationPart.TextPart(prompt)], messageId, delivery, cancellationToken).ConfigureAwait(false);
 
@@ -379,15 +383,15 @@ internal sealed class UserSession : IAsyncDisposable
         }
     }
 
-    internal IReadOnlyList<ActiveWorkObservation> ActiveWork() =>
+    public IReadOnlyList<ActiveWorkObservation> ActiveWork() =>
         [.. Registry.SnapshotScopes().SelectMany(static scope => scope.Processes.Active()), .. Registry.Active(), .. Registry.SnapshotScopes().SelectMany(static scope => scope.AgentTaskRuns.Active())];
 
-    internal Task SetGoal(string goal, CancellationToken cancellationToken) =>
+    public Task SetGoal(string goal, CancellationToken cancellationToken) =>
         MainScope().Goals.SetGoal(goal, cancellationToken);
 
-    internal void ClearGoal() => MainScope().Goals.ClearGoal();
+    public void ClearGoal() => MainScope().Goals.ClearGoal();
 
-    internal Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken) =>
+    public Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken) =>
         Main().Compact(targetContextSize, cancellationToken);
 
     private async Task DisposeResources()

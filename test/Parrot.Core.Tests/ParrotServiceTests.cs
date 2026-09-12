@@ -28,7 +28,7 @@ internal sealed class ParrotServiceTests : IDisposable
     private readonly ProviderRegistry _registry;
     private readonly ModelAliasCatalog _catalog;
     private readonly ModelRouting _routing;
-    private readonly ModelRouter _router;
+    private readonly IModelRouter _router;
     private readonly ModelConfigurationCoordinator _models;
 
     public ParrotServiceTests()
@@ -1216,7 +1216,7 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     private static async Task WaitForPermission(
-        Agent.UserSession session,
+        Agent.IUserSession session,
         CancellationToken cancellationToken)
     {
         while (session.Permissions.Pending().Count == 0)

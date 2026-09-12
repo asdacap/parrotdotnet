@@ -10,11 +10,11 @@ internal sealed class AgentQueueTestFixture : IAsyncDisposable
     public AgentQueueTestFixture(AgentIdentity identity)
     {
         _children = new ChildRegistry(identity);
-        Queues = new AgentQueues(identity, null, TestModels.Resources(), _children, TestDiagnosticLog.Instance);
+        Queues = new AgentQueues(identity, null, TestModels.Resources(), _children, static queueIdentity => new QueueInventory(queueIdentity), TestDiagnosticLog.Instance);
         Queues.Initialize();
     }
 
-    public AgentQueues Queues { get; }
+    public IAgentQueues Queues { get; }
 
     public async ValueTask DisposeAsync()
     {

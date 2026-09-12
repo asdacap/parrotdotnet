@@ -5,7 +5,7 @@ using Parrot.Process;
 
 namespace Parrot.Tools;
 
-internal sealed class InterruptProcessTool(ShellProcessOwner processes) : ITool
+internal sealed class InterruptProcessTool(IProcessOwner processes) : ITool
 {
     public string Name => "interrupt_process";
 

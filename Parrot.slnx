@@ -1,6 +1,10 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Parrot.Cli/Parrot.Cli.csproj" />
+    <Project Path="src/Parrot.Common/Parrot.Common.csproj" />
+    <Project Path="src/Parrot.Foundation/Parrot.Foundation.csproj" />
+    <Project Path="src/Parrot.Infrastructure/Parrot.Infrastructure.csproj" />
+    <Project Path="src/Parrot.Llm/Parrot.Llm.csproj" />
     <Project Path="src/Parrot.Core/Parrot.Core.csproj" />
   </Folder>
   <Folder Name="/tools/">
@@ -8,6 +12,11 @@
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/Parrot.Cli.Tests/Parrot.Cli.Tests.csproj" />
+    <Project Path="test/Parrot.Common.Tests/Parrot.Common.Tests.csproj" />
+    <Project Path="test/Parrot.Foundation.Tests/Parrot.Foundation.Tests.csproj" />
+    <Project Path="test/Parrot.Tools.Tests/Parrot.Tools.Tests.csproj" />
+    <Project Path="test/Parrot.Infrastructure.Tests/Parrot.Infrastructure.Tests.csproj" />
+    <Project Path="test/Parrot.Llm.Tests/Parrot.Llm.Tests.csproj" />
     <Project Path="test/Parrot.Core.Tests/Parrot.Core.Tests.csproj" />
   </Folder>
 </Solution>

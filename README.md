@@ -20,19 +20,26 @@ the analyzers in `.editorconfig`, not discovered at publish time.
 ```text
 Parrot.slnx
 src/
-  Parrot.Core/        Everything that is not the entry point. Components are
-                      organized as namespaces here (Parrot.Agent, Parrot.Tool,
-                      ...), not separate assemblies.
-  Parrot.Cli/         The `parrot` executable. AOT-published.
+  Parrot.Common/         Domain interfaces, contract types, common utilities,
+                         generated protocol types and build information.
+  Parrot.Foundation/     Configuration and authentication implementations.
+  Parrot.Infrastructure/ Storage, host processes, queues and web infrastructure.
+  Parrot.Llm/            Providers, model routing and wire implementations.
+  Parrot.Core/           Agent orchestration, tools and protocol services.
+  Parrot.Cli/            The `parrot` executable. AOT-published.
 test/
-  Parrot.Cli.Tests/   TUnit. One test project per src project.
+  Parrot.*.Tests/        TUnit projects for each layer, plus Tools and CLI tests.
 docs/
 ```
 
-Assemblies are few on purpose: build time and AOT link time both scale with
-project count, and boundaries between components are enforced by namespace
-discipline and analyzer rules rather than by `ProjectReference` graphs. A new
-assembly should have a clear architectural reason.
+Common is the shared contract layer. Foundation depends on Common;
+Infrastructure and Llm depend on Common and Foundation and can compile in
+parallel. Core composes both branches, and CLI is the entry point. Namespaces
+remain organized by domain rather than assembly. Lower-level tests reference
+their own layers without waiting for Core; Tools and Core tests retain the
+broader session fixtures. Normal solution builds use MSBuild project parallelism.
+This split does not require unrestricted parallel execution of resource-sensitive
+process tests, and Native AOT still links the complete executable.
 
 ## Model Selection
 

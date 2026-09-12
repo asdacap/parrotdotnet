@@ -4,7 +4,7 @@ using Parrot.Store;
 
 namespace Parrot.Context;
 
-internal sealed class ScratchDirectoryProvider(AgentScratchDirectory scratch, PromptTemplateCatalog templates) : ISystemPromptProvider
+internal sealed class ScratchDirectoryProvider(AgentScratchDirectory scratch, IPromptTemplateCatalog templates) : ISystemPromptProvider
 {
     public string Key => "runtime:user-session-context:01-agent-scratch";
 

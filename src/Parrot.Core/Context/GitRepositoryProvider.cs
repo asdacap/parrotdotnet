@@ -4,7 +4,7 @@ using Parrot.Store;
 
 namespace Parrot.Context;
 
-internal sealed class GitRepositoryProvider(ProjectWorkspace workspace, PromptTemplateCatalog templates) : ISystemPromptProvider
+internal sealed class GitRepositoryProvider(ProjectWorkspace workspace, IPromptTemplateCatalog templates) : ISystemPromptProvider
 {
     public string Key => "runtime:system-context:13-git-repository";
 

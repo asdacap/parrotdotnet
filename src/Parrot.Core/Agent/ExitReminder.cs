@@ -4,8 +4,8 @@ using Parrot.Store;
 namespace Parrot.Agent;
 
 internal sealed class ExitReminder(
-    EventRepository repository,
-    PromptTemplateCatalog promptTemplates,
+    IEventRepository repository,
+    IPromptTemplateCatalog promptTemplates,
     string agentSessionId)
 {
     private readonly Lock _gate = new();

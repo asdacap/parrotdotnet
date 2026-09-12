@@ -63,26 +63,26 @@ internal sealed partial class SubagentTests
         _ = await Assert.That(pending.AskingAgentName).IsEqualTo(child.Name);
         _ = await Assert.That(pending.ParentAgentSessionId).IsEqualTo(parent.SessionId);
         _ = await Assert.That(pending.Questions.Single().Options.Single()).IsEqualTo("Blue");
-        _ = await Assert.That(coordinator.Pending(unrelated)).IsEmpty();
+        _ = await Assert.That(coordinator.PendingForParent(unrelated)).IsEmpty();
         _ = await Assert.That(async () =>
             await coordinator.Ask(child, [new QuestionDefinition("Continue", "duplicate", ["Yes"], false, false)], cancellationToken))
             .Throws<QuestionRejectedException>();
-        _ = await Assert.That(() => coordinator.Reply(
+        _ = await Assert.That(() => coordinator.ReplyFromParent(
             TestModels.ScopeOf(unrelated).ParentScope,
             child.SessionId,
             new QuestionReply([new QuestionAnswer("blue")]))).Throws<AgentRegistryException>();
-        _ = await Assert.That(() => coordinator.Reply(
+        _ = await Assert.That(() => coordinator.ReplyFromParent(
             TestModels.ScopeOf(parent).ParentScope,
             child.SessionId,
             new QuestionReply([new QuestionAnswer(string.Empty)]))).Throws<QuestionException>();
-        _ = await Assert.That(coordinator.Pending(parent)).Count().IsEqualTo(1);
+        _ = await Assert.That(coordinator.PendingForParent(parent)).Count().IsEqualTo(1);
 
         var attempts = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ => Task.Run(
             () =>
             {
                 try
                 {
-                    coordinator.Reply(TestModels.ScopeOf(parent).ParentScope, child.SessionId, new QuestionReply([new QuestionAnswer("blue")]));
+                    coordinator.ReplyFromParent(TestModels.ScopeOf(parent).ParentScope, child.SessionId, new QuestionReply([new QuestionAnswer("blue")]));
                     return true;
                 }
                 catch (QuestionRejectedException)
@@ -94,8 +94,8 @@ internal sealed partial class SubagentTests
 
         _ = await Assert.That(attempts.Count(static succeeded => succeeded)).IsEqualTo(1);
         _ = await Assert.That((await asking).Answers.Single().Text).IsEqualTo("blue");
-        _ = await Assert.That(coordinator.Pending(parent)).IsEmpty();
-        _ = await Assert.That(() => coordinator.Reply(
+        _ = await Assert.That(coordinator.PendingForParent(parent)).IsEmpty();
+        _ = await Assert.That(() => coordinator.ReplyFromParent(
             TestModels.ScopeOf(parent).ParentScope,
             child.SessionId,
             new QuestionReply([new QuestionAnswer("blue")]))).Throws<QuestionRejectedException>();
@@ -147,7 +147,7 @@ internal sealed partial class SubagentTests
 
         _ = await Assert.That(unauthorized.Text).StartsWith("error: child agent not found:");
         _ = await Assert.That(invalid.Text).IsEqualTo("error: question answers cannot be empty");
-        _ = await Assert.That(coordinator.Pending(parent)).Count().IsEqualTo(1);
+        _ = await Assert.That(coordinator.PendingForParent(parent)).Count().IsEqualTo(1);
 
         var answered = await new AnswerTool(coordinator, TestModels.ScopeOf(parent).ParentScope).Execute(
             new ToolInvocation("answered", arguments),
@@ -156,7 +156,7 @@ internal sealed partial class SubagentTests
 
         _ = await Assert.That(answered.Text).IsEqualTo($"Answered the pending question from child agent {child.SessionId}.");
         _ = await Assert.That((await asking).Answers.Single().Text).IsEqualTo("yes");
-        _ = await Assert.That(coordinator.Pending(parent)).IsEmpty();
+        _ = await Assert.That(coordinator.PendingForParent(parent)).IsEmpty();
         await provider.Arrived(cancellationToken);
         provider.Release();
         await parent.DisposeAsync();
@@ -227,18 +227,18 @@ internal sealed partial class SubagentTests
 
         await stopping.CancelAsync();
         _ = await Assert.That(cancelled).Throws<OperationCanceledException>();
-        _ = await Assert.That(firstCoordinator.Pending(firstParent)).Count().IsEqualTo(1);
-        _ = await Assert.That(secondCoordinator.Pending(firstParent)).IsEmpty();
+        _ = await Assert.That(firstCoordinator.PendingForParent(firstParent)).Count().IsEqualTo(1);
+        _ = await Assert.That(secondCoordinator.PendingForParent(firstParent)).IsEmpty();
 
         firstCoordinator.Dispose();
         firstCoordinator.Dispose();
         _ = await Assert.That(disposed).Throws<QuestionRejectedException>();
-        _ = await Assert.That(firstCoordinator.Pending(firstParent)).IsEmpty();
+        _ = await Assert.That(firstCoordinator.PendingForParent(firstParent)).IsEmpty();
         _ = await Assert.That(async () =>
             await firstCoordinator.Ask(firstChild, [new QuestionDefinition("Continue", "late", ["Yes"], false, false)], cancellationToken))
             .Throws<ObjectDisposedException>();
 
-        secondCoordinator.Reply(TestModels.ScopeOf(secondParent).ParentScope, secondChild.SessionId, new QuestionReply([new QuestionAnswer("yes")]));
+        secondCoordinator.ReplyFromParent(TestModels.ScopeOf(secondParent).ParentScope, secondChild.SessionId, new QuestionReply([new QuestionAnswer("yes")]));
         _ = await isolated;
 
         await TestModels.ScopeOf(firstParent).DisposeAsync();
@@ -290,10 +290,10 @@ internal sealed partial class SubagentTests
             cancellationToken);
 
         _ = await Assert.That(result.Text).StartsWith("error:");
-        _ = await Assert.That(coordinator.Pending(parent)).HasSingleItem();
-        coordinator.Reply(TestModels.ScopeOf(parent).ParentScope, child.SessionId, new QuestionReply([new QuestionAnswer("yes")]));
+        _ = await Assert.That(coordinator.PendingForParent(parent)).HasSingleItem();
+        coordinator.ReplyFromParent(TestModels.ScopeOf(parent).ParentScope, child.SessionId, new QuestionReply([new QuestionAnswer("yes")]));
         _ = await Assert.That((await asking).Answers.Single().Text).IsEqualTo("yes");
-        _ = await Assert.That(() => coordinator.Reply(TestModels.ScopeOf(parent).ParentScope, child.SessionId, new QuestionReply([new QuestionAnswer("yes")])))
+        _ = await Assert.That(() => coordinator.ReplyFromParent(TestModels.ScopeOf(parent).ParentScope, child.SessionId, new QuestionReply([new QuestionAnswer("yes")])))
             .Throws<QuestionRejectedException>();
         _ = await Assert.That(pending.Id).IsNotEqualTo(string.Empty);
     }
@@ -342,9 +342,9 @@ internal sealed partial class SubagentTests
         _ = await Assert.That(provider.Requests).HasSingleItem();
         _ = await Assert.That(provider.Requests.Single().Messages.Select(message => message.Content))
             .Contains(content => content.Contains(child.SessionId, StringComparison.Ordinal));
-        _ = await Assert.That(coordinator.Pending(root)).IsEmpty();
+        _ = await Assert.That(coordinator.PendingForParent(root)).IsEmpty();
 
-        coordinator.Reply(TestModels.ScopeOf(parent).ParentScope, child.SessionId, new QuestionReply([new QuestionAnswer("yes")]));
+        coordinator.ReplyFromParent(TestModels.ScopeOf(parent).ParentScope, child.SessionId, new QuestionReply([new QuestionAnswer("yes")]));
         provider.Release();
         _ = await Assert.That((await asking).Answers.Single().Text).IsEqualTo("yes");
         await parent.DisposeAsync();
@@ -390,16 +390,16 @@ internal sealed partial class SubagentTests
         var firstAsking = coordinator.Ask(first, [new QuestionDefinition("Continue", "first", ["Yes"], false, false)], cancellationToken);
         var secondAsking = coordinator.Ask(second, [new QuestionDefinition("Continue", "second", ["Yes"], false, false)], cancellationToken);
         _ = await WaitForChildQuestion(coordinator, parent, cancellationToken);
-        _ = await Assert.That(coordinator.Pending(parent)).Count().IsEqualTo(2);
+        _ = await Assert.That(coordinator.PendingForParent(parent)).Count().IsEqualTo(2);
         await provider.Arrived(cancellationToken);
 
-        var reminder = coordinator.BeginCompletion(parent);
+        var reminder = coordinator.BeginParentCompletion(parent);
         _ = await Assert.That(reminder.Reminder).IsNotNull();
         _ = await Assert.That(reminder.Reminder).Contains(first.Name);
         _ = await Assert.That(reminder.Reminder).Contains(second.Name);
         reminder.Dispose();
-        coordinator.Reply(TestModels.ScopeOf(parent).ParentScope, first.SessionId, new QuestionReply([new QuestionAnswer("yes")]));
-        coordinator.Reply(TestModels.ScopeOf(parent).ParentScope, second.SessionId, new QuestionReply([new QuestionAnswer("yes")]));
+        coordinator.ReplyFromParent(TestModels.ScopeOf(parent).ParentScope, first.SessionId, new QuestionReply([new QuestionAnswer("yes")]));
+        coordinator.ReplyFromParent(TestModels.ScopeOf(parent).ParentScope, second.SessionId, new QuestionReply([new QuestionAnswer("yes")]));
         _ = await Task.WhenAll(firstAsking, secondAsking);
         provider.Release();
         await parent.DisposeAsync();
@@ -441,7 +441,7 @@ internal sealed partial class SubagentTests
             new TurnFixture(root, router).Selection,
             cancellationToken);
         _ = await Assert.That(userQuestions.Pending()).HasSingleItem();
-        _ = await Assert.That(childQuestions.Pending(root)).IsEmpty();
+        _ = await Assert.That(childQuestions.PendingForParent(root)).IsEmpty();
         userQuestions.Reply(userQuestions.Pending().Single().Id, new QuestionReply(
             [new QuestionAnswer("yes")]));
         _ = await rootExecution;
@@ -451,11 +451,11 @@ internal sealed partial class SubagentTests
             new ToolInvocation("child-question", request),
             new TurnFixture(child, router).Selection,
             stopping.Token);
-        _ = await Assert.That(childQuestions.Pending(root)).HasSingleItem();
+        _ = await Assert.That(childQuestions.PendingForParent(root)).HasSingleItem();
         _ = await Assert.That(userQuestions.Pending()).IsEmpty();
         await stopping.CancelAsync();
         _ = await Assert.That(childExecution).Throws<OperationCanceledException>();
-        _ = await Assert.That(childQuestions.Pending(root)).IsEmpty();
+        _ = await Assert.That(childQuestions.PendingForParent(root)).IsEmpty();
         provider.Release();
         await root.DisposeAsync();
     }
@@ -486,12 +486,12 @@ internal sealed partial class SubagentTests
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using var reservation = coordinator.BeginCompletion(parent);
+        using var reservation = coordinator.BeginParentCompletion(parent);
         var asking = coordinator.Ask(child, [new QuestionDefinition("Continue", "reserved", ["Yes"], false, false)], stopping.Token);
 
         await stopping.CancelAsync();
         _ = await Assert.That(asking).Throws<OperationCanceledException>();
-        _ = await Assert.That(coordinator.Pending(parent)).IsEmpty();
+        _ = await Assert.That(coordinator.PendingForParent(parent)).IsEmpty();
     }
 
     [Test]
@@ -540,13 +540,13 @@ internal sealed partial class SubagentTests
     }
 
     private static async Task<PendingChildQuestionRequest> WaitForChildQuestion(
-        ChildQuestionCoordinator coordinator,
+        IChildQuestionCoordinator coordinator,
         IAgentSession parent,
         CancellationToken cancellationToken)
     {
         while (true)
         {
-            var pending = coordinator.Pending(parent);
+            var pending = coordinator.PendingForParent(parent);
             if (pending.Count > 0)
             {
                 return pending[0];

@@ -6,11 +6,11 @@ using Parrot.Store;
 namespace Parrot.Core.Tests;
 
 internal sealed class TestCompletionCallbacksFixture(
-    ChildQuestionCoordinator childQuestions,
+    IChildQuestionCoordinator childQuestions,
     ActiveWorkCompletionReminder activeWorkReminder,
     ExitReminder exitReminder,
-    EventRepository eventRepository,
-    EventBroker eventBroker)
+    IEventRepository eventRepository,
+    IEventBroker eventBroker)
 {
     public IReadOnlyList<IAgentTurnCompletionCallback> Callbacks { get; } =
     [

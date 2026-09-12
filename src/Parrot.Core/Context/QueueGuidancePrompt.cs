@@ -3,7 +3,7 @@ using Parrot.Config;
 
 namespace Parrot.Context;
 
-internal sealed class QueueGuidancePrompt(PromptTemplateCatalog templates) : ISystemPrompt
+internal sealed class QueueGuidancePrompt(IPromptTemplateCatalog templates) : ISystemPrompt
 {
     public void RenewEpoch()
     {

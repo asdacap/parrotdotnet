@@ -93,9 +93,9 @@ internal sealed class SessionRoutingDiagnosticsTests
                     first.Registry.InitializeChildHistory(firstScope.Session.SessionId, childIdentity.SessionId, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty")),
                     first.Lifetime);
 
-                _ = await first.Send("private-root-prompt-sentinel https://example.invalid/?token=private-url-sentinel", "first-message", Delivery.Steer, cancellationToken);
+                _ = await first.SendText("private-root-prompt-sentinel https://example.invalid/?token=private-url-sentinel", "first-message", Delivery.Steer, cancellationToken);
                 await provider.Arrived(cancellationToken);
-                _ = await second.Send("private-other-prompt-sentinel", "second-message", Delivery.Steer, cancellationToken);
+                _ = await second.SendText("private-other-prompt-sentinel", "second-message", Delivery.Steer, cancellationToken);
                 await provider.Arrived(cancellationToken);
                 _ = await child.Session.Send([ConversationPart.TextPart("private-child-prompt-sentinel")], "child-message", Delivery.Steer, cancellationToken);
                 await provider.Arrived(cancellationToken);

@@ -3,7 +3,7 @@ using Parrot.Queues;
 
 namespace Parrot.Tools;
 
-internal sealed class QueueInfoToolFactory(AgentQueues queues) : IToolFactory
+internal sealed class QueueInfoToolFactory(IAgentQueues queues) : IToolFactory
 {
     public ITool Create(IAgentSession session) => new QueueInfoTool(queues);
 }

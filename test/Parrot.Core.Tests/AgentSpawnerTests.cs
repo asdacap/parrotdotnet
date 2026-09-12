@@ -90,7 +90,7 @@ internal sealed class AgentSpawnerTests
     private sealed class SpawnerFixture : IAsyncDisposable
     {
         private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
-        private readonly EventBroker _broker = new();
+        private readonly IEventBroker _broker = new EventBroker();
         private readonly SteppedProvider _provider = new();
         private readonly IAgentRegistry _registry;
 

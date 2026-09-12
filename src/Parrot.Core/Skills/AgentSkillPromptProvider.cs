@@ -20,7 +20,7 @@ internal sealed class AgentSkillPromptProvider(AgentSkills skills) : ISystemProm
 
     internal static string Render(
         IReadOnlyList<SkillMetadata> skills,
-        PromptTemplateCatalog promptTemplates)
+        IPromptTemplateCatalog promptTemplates)
     {
         var available = skills.Where(skill => skill.Enabled && skill.PromptVisible).ToArray();
         if (available.Length == 0)

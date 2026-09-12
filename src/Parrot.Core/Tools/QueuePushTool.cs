@@ -6,7 +6,7 @@ using Parrot.Queues;
 
 namespace Parrot.Tools;
 
-internal sealed class QueuePushTool(AgentQueues queues, ToolWorkspace workspace) : ITool
+internal sealed class QueuePushTool(IAgentQueues queues, ToolWorkspace workspace) : ITool
 {
     private const int MaximumSourceFileBytes = 16 << 20;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);

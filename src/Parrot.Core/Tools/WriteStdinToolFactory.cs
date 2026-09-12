@@ -3,7 +3,7 @@ using Parrot.Process;
 
 namespace Parrot.Tools;
 
-internal sealed class WriteStdinToolFactory(ShellProcessOwner processes) : IToolFactory
+internal sealed class WriteStdinToolFactory(IProcessOwner processes) : IToolFactory
 {
     public ITool Create(IAgentSession session) => new WriteStdinTool(processes);
 }

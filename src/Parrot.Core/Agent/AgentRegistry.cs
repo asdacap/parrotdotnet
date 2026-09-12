@@ -10,10 +10,10 @@ namespace Parrot.Agent;
 
 internal sealed class AgentRegistry(
     IAgentSessionFactory agentSessions,
-    EventBroker eventBroker,
-    EventRepository eventRepository,
+    IEventBroker eventBroker,
+    IEventRepository eventRepository,
     ProfileRegistry profiles,
-    PromptTemplateCatalog promptTemplates,
+    IPromptTemplateCatalog promptTemplates,
     RetainedAgentBudget retainedAgents,
     IDiagnosticLog diagnostics,
     CancellationToken lifetime) : IAgentRegistry
@@ -26,12 +26,12 @@ internal sealed class AgentRegistry(
     private readonly Lock _gate = new();
 
     private bool _accepting = true;
-    private RuntimeStatus? _status;
+    private IRuntimeStatus? _status;
     private Task? _shutdown;
 
     public CancellationToken ChildLifetime => _lifetime.Token;
 
-    public PromptTemplateCatalog PromptTemplates => promptTemplates;
+    public IPromptTemplateCatalog PromptTemplates => promptTemplates;
 
     public bool IsAccepting
     {
@@ -44,7 +44,7 @@ internal sealed class AgentRegistry(
         }
     }
 
-    public void AttachStatus(RuntimeStatus status)
+    public void AttachStatus(IRuntimeStatus status)
     {
         ArgumentNullException.ThrowIfNull(status);
 
@@ -160,7 +160,7 @@ internal sealed class AgentRegistry(
         }
     }
 
-    public RuntimeStatus RequireStatus()
+    public IRuntimeStatus RequireStatus()
     {
         lock (_gate)
         {
@@ -209,8 +209,8 @@ internal sealed class AgentRegistry(
         Llm.ModelSelector model,
         IMode mode,
         Security.SecurityProfile securityProfile,
-        RuntimeStatus status,
-        EventRepository childHistory,
+        IRuntimeStatus status,
+        IEventRepository childHistory,
         CancellationToken childLifetime)
     {
         var started = Stopwatch.GetTimestamp();
@@ -255,7 +255,7 @@ internal sealed class AgentRegistry(
         }
     }
 
-    public EventRepository InitializeChildHistory(
+    public IEventRepository InitializeChildHistory(
         string parentSessionId,
         string childSessionId,
         HistoryForkBoundary boundary,

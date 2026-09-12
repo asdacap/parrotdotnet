@@ -104,7 +104,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         _ = await Assert.That(second.CaptureInventory().Processes).HasSingleItem();
         var settlement = first.Settle();
         _ = await Assert.That(ReferenceEquals(first.Settle(), settlement)).IsTrue();
-        _ = await Assert.That(() => first.Start("late", "true", ProcessEnvironmentOverrides.Empty, firstAgent, security, ShellProcessTerminalMode.Pipe))
+        _ = await Assert.That(() => first.StartUnattributed("late", "true", ProcessEnvironmentOverrides.Empty, firstAgent, security, ShellProcessTerminalMode.Pipe))
             .Throws<InvalidOperationException>();
         await settlement.WaitAsync(cancellationToken);
         await first.DisposeAsync();
@@ -204,7 +204,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             TestDiagnosticLog.Instance,
             lifetime.Token);
         var completionMarker = Path.Combine(_workspace, "complete");
-        var process = owner.Start(
+        var process = owner.StartPipe(
             "visible-from-start",
             $"while [ ! -f '{completionMarker}' ]; do sleep 0.01; done",
             "call-id",
@@ -239,7 +239,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         _ = await Assert.That(resumedSnapshot.CompletedProcesses).HasSingleItem();
         _ = await Assert.That(resumedSnapshot.CompletedProcesses[0]).IsEqualTo(completed.CompletedProcesses[0]);
 
-        var laterProcess = owner.Start(
+        var laterProcess = owner.StartPipe(
             "later",
             "sleep 30",
             "later-call",
@@ -288,7 +288,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         var completionMarker = Path.Combine(_workspace, "fault");
         var command = $"while [ ! -f '{completionMarker}' ]; do sleep 0.01; done; "
             + "awk 'BEGIN { for (i = 0; i < 1000000; i++) printf \"x\" }'";
-        var process = owner.Start(
+        var process = owner.StartPipe(
             "faulted",
             command,
             "call-id",
@@ -405,7 +405,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             lifetime.Token);
         if (exitCode == -3)
         {
-            _ = await Assert.That(() => owner.Start(
+            _ = await Assert.That(() => owner.StartUnattributed(
                 "secret-process-name",
                 "secret-command",
                 ProcessEnvironmentOverrides.Empty,
@@ -420,7 +420,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             return;
         }
 
-        var process = owner.Start(
+        var process = owner.StartUnattributed(
             "secret-process-name",
             exitCode < 0 ? "exec sleep 30 # secret-command" : $"sleep 0.2; printf secret-output; exit {exitCode}",
             ProcessEnvironmentOverrides.Empty,
@@ -461,8 +461,8 @@ internal sealed class ShellProcessOwnersTests : IDisposable
     private IAgentSession CreateAgent(
         string sessionId,
         ProviderModel model,
-        EventBroker events,
-        EventRepository repository,
+        IEventBroker events,
+        IEventRepository repository,
         string blobDirectory,
         CancellationToken lifetime)
     {

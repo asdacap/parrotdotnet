@@ -124,7 +124,7 @@ internal partial class Composition
                 routing.Publish(routing.Capture() with { ContextLimit = configuration.ContextLimit });
                 return routing;
             })
-            .Bind().As(Lifetime.Singleton).To(ctx =>
+            .Bind<IModelRouter>().As(Lifetime.Singleton).To(ctx =>
             {
                 ctx.Inject<ProviderRegistry>(out var registry);
                 ctx.Inject<ModelRouting>(out var routing);
@@ -134,7 +134,7 @@ internal partial class Composition
             {
                 ctx.Inject<Configuration>(out var configuration);
                 ctx.Inject<ModelRouting>(out var routing);
-                ctx.Inject<ModelRouter>(out var router);
+                ctx.Inject<IModelRouter>(out var router);
                 return new ModelConfigurationCoordinator(configuration, routing, router);
             })
             .Bind().As(Lifetime.Singleton).To(ctx =>
@@ -195,7 +195,7 @@ internal partial class Composition
                 ctx.Inject<Compactor>(out var compactor);
                 ctx.Inject<WebFetcher>(out var webFetcher);
                 ctx.Inject<Configuration>(out var configuration);
-                ctx.Inject<ModelRouter>(out var router);
+                ctx.Inject<IModelRouter>(out var router);
                 ctx.Inject<ISystemPromptProvider>(out var systemPromptProvider);
 
                 return new AgentSessionFactorySource(
@@ -232,7 +232,7 @@ internal partial class Composition
             {
                 ctx.Inject<StatePaths>(out var paths);
                 ctx.Inject<IUserSessionFactory>(out var userSessions);
-                ctx.Inject<ModelRouter>(out var router);
+                ctx.Inject<IModelRouter>(out var router);
                 ctx.Inject<ModeRegistry>(out var modes);
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
                 ctx.Inject<string>("hostKey", out var hostKey);
@@ -242,7 +242,7 @@ internal partial class Composition
 
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
-                ctx.Inject<ModelRouter>(out var router);
+                ctx.Inject<IModelRouter>(out var router);
                 ctx.Inject<ProviderRegistry>(out var registry);
                 ctx.Inject<ModelAliasConfigurator>(out var aliases);
                 ctx.Inject<ModelConfigurationCoordinator>(out var modelConfiguration);

@@ -14,7 +14,7 @@ namespace Parrot.Core.Tests;
 internal sealed class QueueTestScope : IAgentSessionScope
 {
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
-    private readonly EventBroker _events = new();
+    private readonly IEventBroker _events = new EventBroker();
     private readonly AgentSessionDependencies _dependencies;
     private readonly ChildRegistry _children;
     private readonly QueueTestScope? _parent;
@@ -28,7 +28,7 @@ internal sealed class QueueTestScope : IAgentSessionScope
         var repository = new EventRepository(_database);
         _dependencies = TestModels.Dependencies(identity, _events, repository, CancellationToken.None);
         Processes = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, CancellationToken.None);
-        Queues = new AgentQueues(identity, parent?.Queues, resources, _children, TestDiagnosticLog.Instance);
+        Queues = new AgentQueues(identity, parent?.Queues, resources, _children, static queueIdentity => new QueueInventory(queueIdentity), TestDiagnosticLog.Instance);
         Queues.Initialize();
         ParentScope = parent is null ? AgentSessionParentScope.Root() : AgentSessionParentScope.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly);
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
@@ -41,21 +41,21 @@ internal sealed class QueueTestScope : IAgentSessionScope
 
     public IAgentSession Session { get; }
 
-    public ShellProcessOwner Processes { get; }
+    public IProcessOwner Processes { get; }
 
-    public AgentQueues Queues { get; }
+    public IAgentQueues Queues { get; }
 
-    public AgentTaskRunCatalog AgentTaskRuns { get; }
+    public IAgentTaskRunCatalog AgentTaskRuns { get; }
 
-    public GoalService Goals => throw new NotSupportedException();
+    public IGoalService Goals => throw new NotSupportedException();
 
-    public AgentSpawner AgentSpawner => throw new NotSupportedException();
+    public IAgentSpawner AgentSpawner => throw new NotSupportedException();
 
     public IChildRegistry ChildRegistry => _children;
 
-    public AgentSessionParentScope ParentScope { get; }
+    public IAgentParentScope ParentScope { get; }
 
-    public ChildQuestionCoordinator ChildQuestions => _dependencies.ChildQuestions;
+    public IChildQuestionCoordinator ChildQuestions => _dependencies.ChildQuestions;
 
     public void PublishInventories()
     {

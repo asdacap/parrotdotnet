@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Parrot</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Parrot.Common/Parrot.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" />
+    <PackageReference Include="Scriban" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Config/predefined_config.yaml"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Parrot.Core" />
+    <InternalsVisibleTo Include="Parrot.Llm" />
+    <InternalsVisibleTo Include="Parrot.Infrastructure" />
+    <InternalsVisibleTo Include="parrot" />
+    <InternalsVisibleTo Include="Parrot.Foundation.Tests" />
+    <InternalsVisibleTo Include="Parrot.Llm.Tests" />
+    <InternalsVisibleTo Include="Parrot.Core.Tests" />
+    <InternalsVisibleTo Include="Parrot.Cli.Tests" />
+    <InternalsVisibleTo Include="Parrot.Tools.Tests" />
+  </ItemGroup>
+
+</Project>

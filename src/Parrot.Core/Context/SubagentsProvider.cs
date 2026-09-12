@@ -4,7 +4,7 @@ using Scriban.Runtime;
 
 namespace Parrot.Context;
 
-internal sealed class SubagentsProvider(ProfileRegistry profiles, PromptTemplateCatalog templates) : ISystemPromptProvider
+internal sealed class SubagentsProvider(ProfileRegistry profiles, IPromptTemplateCatalog templates) : ISystemPromptProvider
 {
     public string Key => "runtime:system-context:15-subagents";
 

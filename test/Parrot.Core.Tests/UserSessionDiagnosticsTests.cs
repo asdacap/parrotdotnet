@@ -1,6 +1,7 @@
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Diagnostics;
+using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Questions;
 using Parrot.Skills;
@@ -43,7 +44,8 @@ internal sealed class UserSessionDiagnosticsTests : IDisposable
             new SkillCatalogFactory(configuration, _root, Path.Combine(_root, "skills")),
             false,
             TimeSpan.FromSeconds(30),
-            TimeProvider.System)).Throws<InvalidOperationException>();
+            TimeProvider.System,
+            static () => new EventBroker())).Throws<InvalidOperationException>();
 
         _ = await Assert.That(failure).IsSameReferenceAs(factories.Failure);
         _ = await Assert.That(factories.Lifetime.IsCancellationRequested).IsTrue();
@@ -63,9 +65,9 @@ internal sealed class UserSessionDiagnosticsTests : IDisposable
 
         public CancellationToken Lifetime { get; private set; }
 
-        public QuestionBroker? Questions { get; private set; }
+        public IQuestionBroker? Questions { get; private set; }
 
-        public IAgentSessionFactory Create(UserSession owner)
+        public IAgentSessionFactory Create(IUserSession owner)
         {
             Lifetime = owner.Lifetime;
             Questions = owner.Questions;

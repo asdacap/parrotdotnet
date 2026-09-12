@@ -2,68 +2,28 @@
 
   <PropertyGroup>
     <RootNamespace>Parrot</RootNamespace>
-    <!-- LibraryImport source generation requires it. The only P/Invoke is
-         link(), which the storage layout depends on: unlike O_EXCL it is atomic
-         on NFS, and unlike rename it reports EEXIST instead of overwriting. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
-  <Target Name="GenerateBuildInfo" BeforeTargets="CoreCompile">
-    <WriteLinesToFile File="$(IntermediateOutputPath)BuildInfo.Generated.cs"
-                      Lines="namespace Parrot%3B%0A%0Ainternal static partial class BuildInfo%0A{%0A    public const string Version = &quot;$(Version)&quot;%3B%0A}"
-                      Overwrite="true" />
-    <ItemGroup>
-      <Compile Include="$(IntermediateOutputPath)BuildInfo.Generated.cs" />
-    </ItemGroup>
-  </Target>
-
-  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
-    <PtyAttachSource>$(MSBuildProjectDirectory)/Process/Native/parrot-pty-attach.c</PtyAttachSource>
-    <PtyAttachCompiler Condition="'$(RuntimeIdentifier)' == 'linux-musl-x64'">musl-clang</PtyAttachCompiler>
-    <PtyAttachCompiler Condition="'$(PtyAttachCompiler)' == ''">cc</PtyAttachCompiler>
-    <PtyAttachLinkMode Condition="'$(RuntimeIdentifier)' == 'linux-musl-x64'">-static</PtyAttachLinkMode>
-    <PtyAttachOutput>$(ArtifactsPath)/obj/$(MSBuildProjectName)/pty-attach/$(Configuration)/$(RuntimeIdentifier)/parrot-pty-attach</PtyAttachOutput>
-  </PropertyGroup>
-
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
-    <Content Include="$(PtyAttachOutput)"
-             TargetPath="parrot-pty-attach"
-             CopyToOutputDirectory="PreserveNewest"
-             CopyToPublishDirectory="Never" />
+  <ItemGroup>
+    <ProjectReference Include="../Parrot.Common/Parrot.Common.csproj" />
+    <ProjectReference Include="../Parrot.Foundation/Parrot.Foundation.csproj" />
+    <ProjectReference Include="../Parrot.Infrastructure/Parrot.Infrastructure.csproj" />
+    <ProjectReference Include="../Parrot.Llm/Parrot.Llm.csproj" />
   </ItemGroup>
-
-  <Target Name="BuildPtyAttach"
-          BeforeTargets="GetCopyToOutputDirectoryItems"
-          Inputs="$(PtyAttachSource)"
-          Outputs="$(PtyAttachOutput)"
-          Condition="$([MSBuild]::IsOSPlatform('Linux'))">
-    <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(PtyAttachOutput)'))" />
-    <Exec Command="&quot;$(PtyAttachCompiler)&quot; -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror $(PtyAttachLinkMode) -o &quot;$(PtyAttachOutput)&quot; &quot;$(PtyAttachSource)&quot;" />
-  </Target>
 
   <ItemGroup>
     <PackageReference Include="Google.Protobuf" />
-    <PackageReference Include="Haikunator" />
-    <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Pure.DI" PrivateAssets="all" />
     <PackageReference Include="YamlDotNet" />
     <PackageReference Include="Grpc.Core.Api" />
-    <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
     <PackageReference Include="Scriban" />
-    <PackageReference Include="SixLabors.ImageSharp" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Config/predefined_config.yaml"
-          CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
     <Content Include="skills/**/*"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Protobuf Include="Protocol/parrot.proto" GrpcServices="Both" />
   </ItemGroup>
 
   <ItemGroup>
@@ -71,6 +31,7 @@
     <!-- The CLI's own seams are typed in terms of these, so a test of the CLI
          cannot construct one without them. -->
     <InternalsVisibleTo Include="Parrot.Cli.Tests" />
+    <InternalsVisibleTo Include="Parrot.Tools.Tests" />
     <InternalsVisibleTo Include="parrot" />
   </ItemGroup>
 

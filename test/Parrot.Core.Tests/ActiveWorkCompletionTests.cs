@@ -20,7 +20,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         Path.GetTempPath(), "parrot-active-work-completion-tests", Guid.NewGuid().ToString("n"));
 
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
-    private readonly EventBroker _broker = new();
+    private readonly IEventBroker _broker = new EventBroker();
     private readonly List<IAgentSessionScope> _rootScopes = [];
 
     public ActiveWorkCompletionTests() => Directory.CreateDirectory(_workspace);
@@ -247,8 +247,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             && message.Content.Contains($"second ({secondChild.SessionId})", StringComparison.Ordinal)
             && message.Content.Contains("answer", StringComparison.Ordinal));
 
-        ownedChildQuestions.Reply(TestModels.ScopeOf(parent).ParentScope, firstChild.SessionId, new QuestionReply([new Parrot.Questions.QuestionAnswer("first")]));
-        ownedChildQuestions.Reply(TestModels.ScopeOf(parent).ParentScope, secondChild.SessionId, new QuestionReply([new Parrot.Questions.QuestionAnswer("second")]));
+        ownedChildQuestions.ReplyFromParent(TestModels.ScopeOf(parent).ParentScope, firstChild.SessionId, new QuestionReply([new Parrot.Questions.QuestionAnswer("first")]));
+        ownedChildQuestions.ReplyFromParent(TestModels.ScopeOf(parent).ParentScope, secondChild.SessionId, new QuestionReply([new Parrot.Questions.QuestionAnswer("second")]));
         _ = await Task.WhenAll(firstQuestion, secondQuestion);
         parentProvider.Release();
         _ = await parent.Wait(0, cancellationToken);
@@ -429,7 +429,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             new TestProfileFixture().Mode,
             lifetime.Token);
         var otherProcesses = TestModels.ScopeOf(other).Processes;
-        var process = otherProcesses.Start(
+        var process = otherProcesses.StartPipe(
             "other-work",
             "sleep 30",
             "call",
@@ -500,14 +500,14 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
     }
 
     private static async Task<IReadOnlyList<PendingChildQuestionRequest>> WaitForPendingQuestions(
-        ChildQuestionCoordinator coordinator,
+        IChildQuestionCoordinator coordinator,
         IAgentSession parent,
         int count,
         CancellationToken cancellationToken)
     {
         while (true)
         {
-            var pending = coordinator.Pending(parent);
+            var pending = coordinator.PendingForParent(parent);
             if (pending.Count == count)
             {
                 return pending;
@@ -517,7 +517,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         }
     }
 
-    private static List<Event> Events(EventSubscription subscription)
+    private static List<Event> Events(IEventSubscription subscription)
     {
         var events = new List<Event>();
         while (subscription.Reader.TryRead(out var published))
@@ -533,13 +533,13 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             && published.PayloadCase == Event.PayloadOneofCase.ActiveWorkReminderInjected)];
 
     private static int Payloads(
-        EventRepository repository,
+        IEventRepository repository,
         string sessionId,
         Event.PayloadOneofCase payload) =>
         repository.Replay().Count(published =>
             published.AgentSessionId == sessionId && published.PayloadCase == payload);
 
-    private static ModelRouter Router(params HeldProvider[] providers)
+    private static IModelRouter Router(params HeldProvider[] providers)
     {
         var models = providers.ToDictionary<ILLMProvider, string, IReadOnlyList<LLMModel>>(
             provider => provider.Id,
@@ -553,12 +553,12 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
     private IAgentSession Session(
         string sessionId,
         HeldProvider provider,
-        ModelRouter router,
-        EventRepository repository,
+        IModelRouter router,
+        IEventRepository repository,
         IAgentRegistry registry,
         ProcessRunner runner,
         UserSessionResources resources,
-        RuntimeStatus status,
+        IRuntimeStatus status,
         IMode mode,
         CancellationToken lifetime)
     {
@@ -600,7 +600,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
 
     private sealed class TurnFixture
     {
-        public TurnFixture(IAgentSession session, ModelRouter router)
+        public TurnFixture(IAgentSession session, IModelRouter router)
         {
             var selection = session.CurrentSelection();
             Selection = new AgentTurnSelection(
@@ -643,24 +643,24 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
     }
 
     private sealed class CompletionAgentSessions(
-        ModelRouter router,
+        IModelRouter router,
         ProcessRunner runner,
         UserSessionResources resources,
-        EventBroker broker,
+        IEventBroker broker,
         string workspace) : IAgentSessionFactory
     {
-        public EventRepository PrepareHistory(string agentSessionId, EventRepository repository) =>
+        public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
             repository.BindAgentHistory(new AgentHistoryFile(resources, agentSessionId));
 
         public IAgentSessionScope Create(
             AgentIdentity identity,
             AgentSessionParentLink parentLink,
             ModelSelector model,
-            EventBroker eventBroker,
-            EventRepository eventRepository,
+            IEventBroker eventBroker,
+            IEventRepository eventRepository,
             IMode mode,
             SecurityProfile securityProfile,
-            RuntimeStatus status,
+            IRuntimeStatus status,
             IAgentRegistry registry,
             CancellationToken lifetime)
         {

@@ -17,8 +17,8 @@ namespace Parrot.Core.Tests;
 internal sealed partial class SubagentTests : IAsyncDisposable
 {
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
-    private readonly EventBroker _broker = new();
-    private readonly EventRepository _repository;
+    private readonly IEventBroker _broker = new EventBroker();
+    private readonly IEventRepository _repository;
     private readonly List<IAgentSessionScope> _rootScopes = [];
 
     public SubagentTests() => _repository = new EventRepository(_database);
@@ -2338,7 +2338,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             .And.Contains(first.Session);
     }
 
-    private static AgentSessionParentScope ParentScope(IAgentSession session, IAgentRegistry registry)
+    private static IAgentParentScope ParentScope(IAgentSession session, IAgentRegistry registry)
     {
         if (session.ParentSessionId.Length == 0)
         {
@@ -2392,7 +2392,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
     private sealed class TurnFixture
     {
-        public TurnFixture(IAgentSession session, ModelRouter router)
+        public TurnFixture(IAgentSession session, IModelRouter router)
         {
             var selection = session.CurrentSelection();
             Selection = new AgentTurnSelection(
@@ -2416,7 +2416,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             Router = new ModelRouter(registry, new ModelRouting(new ModelAliasCatalog(registry, aliases), "stepped/model"));
         }
 
-        public ModelRouter Router { get; }
+        public IModelRouter Router { get; }
     }
 
     private sealed class BlockingAgentSessions(IAgentSessionFactory sessions, ManualResetEventSlim release) : IAgentSessionFactory
@@ -2427,18 +2427,18 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
         public Task WaitUntilEntered(CancellationToken cancellationToken) => _entered.Task.WaitAsync(cancellationToken);
 
-        public EventRepository PrepareHistory(string agentSessionId, EventRepository repository) =>
+        public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
             sessions.PrepareHistory(agentSessionId, repository);
 
         public IAgentSessionScope Create(
             AgentIdentity identity,
             AgentSessionParentLink parentLink,
             ModelSelector model,
-            EventBroker eventBroker,
-            EventRepository eventRepository,
+            IEventBroker eventBroker,
+            IEventRepository eventRepository,
             IMode mode,
             SecurityProfile securityProfile,
-            RuntimeStatus status,
+            IRuntimeStatus status,
             IAgentRegistry registry,
             CancellationToken lifetime)
         {
@@ -2461,24 +2461,24 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
     private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory
     {
-        public EventRepository PrepareHistory(string agentSessionId, EventRepository repository) =>
+        public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
             throw new NotSupportedException("This test session does not support spawning subagents.");
 
         public IAgentSessionScope Create(
             AgentIdentity identity,
             AgentSessionParentLink parentLink,
             ModelSelector model,
-            EventBroker eventBroker,
-            EventRepository eventRepository,
+            IEventBroker eventBroker,
+            IEventRepository eventRepository,
             IMode mode,
             SecurityProfile securityProfile,
-            RuntimeStatus status,
+            IRuntimeStatus status,
             IAgentRegistry registry,
             CancellationToken lifetime) =>
             throw new NotSupportedException("This test session does not support spawning subagents.");
     }
 
-    private sealed class TestAgentSessions(ModelRouter router) : IAgentSessionFactory
+    private sealed class TestAgentSessions(IModelRouter router) : IAgentSessionFactory
     {
         private readonly List<AgentIdentity> _identities = [];
         private readonly List<ModelSelector> _models = [];
@@ -2493,20 +2493,20 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
         public List<IAgentSessionScope> Scopes { get; } = [];
 
-        public List<AgentSessionParentScope> ParentScopes { get; } = [];
+        public List<IAgentParentScope> ParentScopes { get; } = [];
 
-        public EventRepository PrepareHistory(string agentSessionId, EventRepository repository) =>
+        public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
             repository;
 
         public IAgentSessionScope Create(
             AgentIdentity identity,
             AgentSessionParentLink parentLink,
             ModelSelector model,
-            EventBroker eventBroker,
-            EventRepository eventRepository,
+            IEventBroker eventBroker,
+            IEventRepository eventRepository,
             IMode mode,
             SecurityProfile securityProfile,
-            RuntimeStatus status,
+            IRuntimeStatus status,
             IAgentRegistry registry,
             CancellationToken lifetime)
         {

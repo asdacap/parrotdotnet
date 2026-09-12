@@ -4,12 +4,12 @@ using Parrot.Diagnostics;
 
 namespace Parrot.Process;
 
-internal sealed class ManagedShellProcess
+internal sealed class ManagedShellProcess : IManagedShellProcess
 {
     private readonly IAgentSession _agent;
     private readonly IDiagnosticLog _diagnostics;
     private readonly Task<ProcessResult> _completion;
-    private readonly ShellProcessExecution _execution;
+    private readonly IProcessExecution _execution;
     private readonly ShellProcessInventory _inventory;
     private readonly CancellationToken _lifetime;
     private readonly Lock _gate = new();
@@ -24,7 +24,7 @@ internal sealed class ManagedShellProcess
     public ManagedShellProcess(
         ActiveShellProcessState state,
         IAgentSession agent,
-        ShellProcessExecution execution,
+        IProcessExecution execution,
         ShellProcessInventory inventory,
         IDiagnosticLog diagnostics,
         CancellationToken lifetime)

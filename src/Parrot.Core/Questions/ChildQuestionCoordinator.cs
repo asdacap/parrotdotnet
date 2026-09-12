@@ -5,8 +5,8 @@ using Parrot.Config;
 namespace Parrot.Questions;
 
 internal sealed class ChildQuestionCoordinator(
-    AgentSessionParentScope ownerScope,
-    PromptTemplateCatalog promptTemplates)
+    IAgentParentScope ownerScope,
+    IPromptTemplateCatalog promptTemplates) : IChildQuestionCoordinator
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<string, PendingRequest> _pending = new(StringComparer.Ordinal);
@@ -93,7 +93,7 @@ internal sealed class ChildQuestionCoordinator(
         }
     }
 
-    public IReadOnlyList<PendingChildQuestionRequest> Pending(IAgentSession parent) =>
+    public IReadOnlyList<PendingChildQuestionRequest> PendingForParent(IAgentSession parent) =>
         string.Equals(parent.SessionId, ownerScope.OwnerSessionId, StringComparison.Ordinal)
             ? Pending()
             : [];
@@ -125,7 +125,7 @@ internal sealed class ChildQuestionCoordinator(
         }
     }
 
-    public ChildQuestionCompletionAttempt BeginCompletion(IAgentSession parent)
+    public ChildQuestionCompletionAttempt BeginParentCompletion(IAgentSession parent)
     {
         if (!string.Equals(parent.SessionId, ownerScope.OwnerSessionId, StringComparison.Ordinal))
         {
@@ -160,7 +160,7 @@ internal sealed class ChildQuestionCoordinator(
         pending.Complete();
     }
 
-    public void Reply(AgentSessionParentScope parentScope, string childSessionId, QuestionReply reply)
+    public void ReplyFromParent(IAgentParentScope parentScope, string childSessionId, QuestionReply reply)
     {
         if (!string.Equals(parentScope.OwnerSessionId, ownerScope.OwnerSessionId, StringComparison.Ordinal))
         {

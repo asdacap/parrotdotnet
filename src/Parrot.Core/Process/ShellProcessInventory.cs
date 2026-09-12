@@ -60,7 +60,7 @@ internal sealed class ShellProcessInventory(AgentIdentity identity) : IDisposabl
         }
     }
 
-    public ShellProcessInventorySubscription Subscribe()
+    public IShellProcessInventorySubscription Subscribe()
     {
         lock (_gate)
         {

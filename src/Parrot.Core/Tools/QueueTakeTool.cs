@@ -7,7 +7,7 @@ using Parrot.Queues;
 
 namespace Parrot.Tools;
 
-internal sealed class QueueTakeTool(AgentQueues queues, IDiagnosticLog diagnostics) : ITool
+internal sealed class QueueTakeTool(IAgentQueues queues, IDiagnosticLog diagnostics) : ITool
 {
     public string Name => "queue_take";
 

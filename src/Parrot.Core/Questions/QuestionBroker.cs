@@ -3,7 +3,7 @@ using Parrot.Diagnostics;
 
 namespace Parrot.Questions;
 
-internal sealed class QuestionBroker : IDisposable
+internal sealed class QuestionBroker : IQuestionBroker
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<string, PendingRequest> _pending = new(StringComparer.Ordinal);

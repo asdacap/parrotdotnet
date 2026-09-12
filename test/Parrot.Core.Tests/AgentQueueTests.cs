@@ -1,5 +1,6 @@
 using Parrot.Agent;
 using Parrot.Config;
+using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Queues;
 using Parrot.Skills;
@@ -236,7 +237,7 @@ internal sealed class AgentQueueTests : IDisposable
     {
         var resources = Resources("stale-cleanup");
         _ = Directory.CreateDirectory(resources.QueueDirectory);
-        using (var persisted = new QueueStore(resources.QueueDirectory))
+        using (IQueueStore persisted = new QueueStore(resources.QueueDirectory))
         {
             _ = persisted.Create("root-work", "persistent");
         }
@@ -266,7 +267,8 @@ internal sealed class AgentQueueTests : IDisposable
             new SkillCatalogFactory(configuration, _root, Path.Combine(_root, "skills")),
             false,
             TimeSpan.FromSeconds(30),
-            TimeProvider.System);
+            TimeProvider.System,
+            static () => new EventBroker());
 
         _ = await Assert.That(Directory.Exists(resources.AgentQueueRootDirectory)).IsFalse();
         _ = await Assert.That(sessions.Queues.Single().Get("root-work").Description).IsEqualTo("persistent");
@@ -335,7 +337,7 @@ internal sealed class AgentQueueTests : IDisposable
 
         _ = await Assert.That(rejected).IsFalse();
         _ = await Assert.That(accepted).IsTrue();
-        _ = await Assert.That(string.Join(',', root.Local.ListenerSessionIds("parent-work")))
+        _ = await Assert.That(string.Join(',', root.Local.ListListenerSessionIds("parent-work")))
             .IsEqualTo("other-agent");
         _ = await Assert.That(root.Get("parent-work").Size).IsEqualTo(0);
     }
@@ -440,7 +442,7 @@ internal sealed class AgentQueueTests : IDisposable
 
         _ = await Assert.That(adopted.Monitored).IsTrue();
         _ = await Assert.That(adopted.Size).IsEqualTo(1);
-        _ = await Assert.That(string.Join(',', root.Local.ListenerSessionIds("legacy-work")))
+        _ = await Assert.That(string.Join(',', root.Local.ListListenerSessionIds("legacy-work")))
             .IsEqualTo("root-agent");
         _ = await Assert.That(persisted).Contains("\"listener_session_ids\":[\"root-agent\"]");
         _ = await Assert.That(persisted).Contains("\"delivery_listener_session_id\":\"root-agent\"");
@@ -461,7 +463,7 @@ internal sealed class AgentQueueTests : IDisposable
         throw new InvalidOperationException("Expected queue lookup to fail.");
     }
 
-    private static bool TryCreate(AgentQueues queues, string name, ManualResetEventSlim start)
+    private static bool TryCreate(IAgentQueues queues, string name, ManualResetEventSlim start)
     {
         start.Wait();
         try

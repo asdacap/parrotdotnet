@@ -3,7 +3,7 @@ using Parrot.Config;
 
 namespace Parrot.Context;
 
-internal sealed class AgentsPrompt(string workingDirectory, string configDirectory, PromptTemplateCatalog templates) : ISystemPrompt
+internal sealed class AgentsPrompt(string workingDirectory, string configDirectory, IPromptTemplateCatalog templates) : ISystemPrompt
 {
     private string _epochContext = string.Empty;
     private bool _renewed;

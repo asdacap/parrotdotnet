@@ -9,7 +9,7 @@ namespace Parrot.Tools;
 internal sealed class RequestWritePermissionTool(
     AgentIdentity identity,
     AgentSessionSecurity security,
-    PermissionBroker broker) : ITool
+    IPermissionBroker broker) : ITool
 {
     public string Name => "request_write_permission";
 

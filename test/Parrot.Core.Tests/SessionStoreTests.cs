@@ -115,7 +115,7 @@ internal sealed class SessionStoreTests : IDisposable
             .And.Contains("duration_ms=").And.Contains(fail ? "outcome=\"failed\"" : "outcome=\"success\"");
         _ = await Assert.That(log).DoesNotContain("private-construction-failure").And.DoesNotContain(workingDirectory);
 
-        async Task<UserSession> OpenSession() => resumedId is null
+        async Task<IUserSession> OpenSession() => resumedId is null
             ? await store.CreateFresh(router.Resolve(model.Selector), Modes().Default, false)
             : (await store.Resume(UserSessionId.Parse(resumedId), false)).Session;
     }
@@ -480,7 +480,7 @@ internal sealed class SessionStoreTests : IDisposable
         return new SkillCatalogFactory(configuration, Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "packaged-skills"));
     }
 
-    private Task<UserSession> Open(string workingDirectory)
+    private Task<IUserSession> Open(string workingDirectory)
     {
         var sessions = new DirectAgentSessions();
         ILLMProvider provider = new UnusedProvider();
@@ -531,12 +531,12 @@ internal sealed class SessionStoreTests : IDisposable
 
     private sealed class PublicationFailureUserSessions(IUserSessionFactory factory) : IUserSessionFactory
     {
-        public UserSession? Session { get; private set; }
+        public IUserSession? Session { get; private set; }
 
         public CancellationToken Lifetime { get; private set; }
 
-        public async Task<UserSession> Create(
-            SessionResourceLease resources,
+        public async Task<IUserSession> Create(
+            ISessionResourceLease resources,
             string id,
             string rootAgentName,
             ResolvedModelSelection model,
@@ -556,8 +556,8 @@ internal sealed class SessionStoreTests : IDisposable
 
         public string SessionId { get; private set; } = string.Empty;
 
-        public async Task<UserSession> Create(
-            SessionResourceLease resources,
+        public async Task<IUserSession> Create(
+            ISessionResourceLease resources,
             string id,
             string rootAgentName,
             ResolvedModelSelection model,
@@ -577,8 +577,8 @@ internal sealed class SessionStoreTests : IDisposable
 
     private sealed class ThrowingUserSessions : IUserSessionFactory
     {
-        public Task<UserSession> Create(
-            SessionResourceLease resources,
+        public Task<IUserSession> Create(
+            ISessionResourceLease resources,
             string id,
             string rootAgentName,
             ResolvedModelSelection model,

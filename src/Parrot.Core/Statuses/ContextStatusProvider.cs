@@ -7,11 +7,11 @@ namespace Parrot.Statuses;
 
 internal sealed class ContextStatusProvider(
     ContextSnapshot snapshot,
-    PromptTemplateCatalog templates) : IStatusProvider
+    IPromptTemplateCatalog templates) : IStatusProvider
 {
     public string Key => "runtime:queues-context";
 
-    public static IStatusProvider Create(ContextSnapshot snapshot, PromptTemplateCatalog templates) =>
+    public static IStatusProvider Create(ContextSnapshot snapshot, IPromptTemplateCatalog templates) =>
         new ContextStatusProvider(snapshot, templates);
 
     public ValueTask<StatusObservation> Observe(StatusQuery query, CancellationToken cancellationToken)

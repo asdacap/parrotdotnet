@@ -7,7 +7,7 @@ namespace Parrot.Cli;
 internal sealed class LocalUserSessionHost : IUserSessionHost
 {
     public async Task<IAsyncDisposable> Host(
-        Agent.UserSession session,
+        Agent.IUserSession session,
         GeneratedParrot.ParrotBase service,
         CancellationToken cancellationToken)
     {

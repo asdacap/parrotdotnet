@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Parrot</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Parrot.Common/Parrot.Common.csproj" />
+    <ProjectReference Include="../Parrot.Foundation/Parrot.Foundation.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SixLabors.ImageSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Parrot.Llm.Tests" />
+    <InternalsVisibleTo Include="Parrot.Core" />
+    <InternalsVisibleTo Include="parrot" />
+    <InternalsVisibleTo Include="Parrot.Cli.Tests" />
+    <InternalsVisibleTo Include="Parrot.Core.Tests" />
+    <InternalsVisibleTo Include="Parrot.Tools.Tests" />
+  </ItemGroup>
+
+</Project>

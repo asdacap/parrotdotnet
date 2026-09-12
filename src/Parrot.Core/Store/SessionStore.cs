@@ -11,11 +11,11 @@ internal sealed class SessionStore(
     string workingDirectory,
     string hostKey,
     IUserSessionFactory userSessions,
-    ModelRouter router,
+    IModelRouter router,
     ModeRegistry modes,
     DiagnosticLogs diagnostics)
 {
-    public static void Publish(UserSession session)
+    public static void Publish(IUserSession session)
     {
         lock (session.Resources.MetadataGate)
         {
@@ -33,7 +33,7 @@ internal sealed class SessionStore(
         }
     }
 
-    public static void RecordOpened(UserSession session)
+    public static void RecordOpened(IUserSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
         lock (session.Resources.MetadataGate)
@@ -58,7 +58,7 @@ internal sealed class SessionStore(
         return Open(null, modes.Default, interactivePermissions, workspace, admission);
     }
 
-    public async Task<UserSession> Open(ResolvedModelSelection model) =>
+    public async Task<IUserSession> Open(ResolvedModelSelection model) =>
         (await Open(model, modes.Default, false).ConfigureAwait(false)).Session;
 
     public Task<OpenedSession> Open(ResolvedModelSelection model, string mode, bool interactivePermissions)
@@ -69,7 +69,7 @@ internal sealed class SessionStore(
         return Open(model, mode, interactivePermissions, workspace, admission);
     }
 
-    public async Task<UserSession> CreateFresh(ResolvedModelSelection model, string mode, bool interactivePermissions)
+    public async Task<IUserSession> CreateFresh(ResolvedModelSelection model, string mode, bool interactivePermissions)
     {
         var workspace = ResolveWorkspace(null);
         var claim = new WorkingDirectoryClaim(paths.State, hostKey);
@@ -199,7 +199,7 @@ internal sealed class SessionStore(
         operation = operation with { Operation = "database" };
         started = Stopwatch.GetTimestamp();
         WriteStage("start", null);
-        SessionResourceLease? lease;
+        ISessionResourceLease? lease;
         try
         {
             lease = SessionResourceLease.Open(resources, activation, sessionDiagnostics);
@@ -214,7 +214,7 @@ internal sealed class SessionStore(
         operation = operation with { Operation = "metadata_read" };
         started = Stopwatch.GetTimestamp();
         WriteStage("start", null);
-        UserSession? session = null;
+        IUserSession? session = null;
         Exception? openingFailure = null;
         try
         {

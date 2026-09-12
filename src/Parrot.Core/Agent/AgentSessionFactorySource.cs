@@ -14,11 +14,11 @@ internal sealed class AgentSessionFactorySource(
     AgentTaskConfig agentTasks,
     RequestLimitsConfig requestLimits,
     IReadOnlyList<string> readOnlyExecCommandPrefixes,
-    Llm.ModelRouter router,
+    Llm.IModelRouter router,
     ISystemPromptProvider systemPromptProvider,
-    PromptTemplateCatalog promptTemplates) : IAgentSessionFactorySource
+    IPromptTemplateCatalog promptTemplates) : IAgentSessionFactorySource
 {
-    public IAgentSessionFactory Create(UserSession owner) =>
+    public IAgentSessionFactory Create(IUserSession owner) =>
         new AgentSessionFactory(
             owner,
             processes,

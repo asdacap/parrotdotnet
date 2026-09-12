@@ -3,7 +3,7 @@ using Parrot.Config;
 
 namespace Parrot.Context;
 
-internal sealed class ModelPromptProvider(IReadOnlyDictionary<string, string> augmentations, PromptTemplateCatalog templates) : ISystemPromptProvider
+internal sealed class ModelPromptProvider(IReadOnlyDictionary<string, string> augmentations, IPromptTemplateCatalog templates) : ISystemPromptProvider
 {
     private readonly Dictionary<string, string> _augmentations = new(augmentations, StringComparer.Ordinal);
 

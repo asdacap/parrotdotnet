@@ -9,13 +9,13 @@ namespace Parrot.Tools;
 // a failure to sandbox is reported to the model rather than run unconfined --
 // the fail-closed property, surfaced as a tool error the model can react to.
 internal sealed class ExecCommandTool(
-    ShellProcessOwner processes,
+    IProcessOwner processes,
     IAgentSession session,
     ReadOnlyExecCommandClassifier readOnlyCommandClassifier) : ITool
 {
     private readonly ReadOnlyExecCommandClassifier _readOnlyCommandClassifier = readOnlyCommandClassifier;
 
-    public ExecCommandTool(ShellProcessOwner processes, IAgentSession session)
+    public ExecCommandTool(IProcessOwner processes, IAgentSession session)
         : this(processes, session, new ReadOnlyExecCommandClassifier([]))
     {
     }

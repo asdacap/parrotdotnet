@@ -2,7 +2,7 @@ namespace Parrot.Agent;
 
 internal sealed class AgentResolver(
     AgentIdentity owner,
-    AgentSessionParentScope parentScope,
+    IAgentParentScope parentScope,
     IAgentSessionScope ownerScope,
     IAgentRegistry authority)
 {

@@ -8,7 +8,7 @@ namespace Parrot.Tools;
 
 internal sealed class AgentSpawnTool(
     IAgentSessionScope ownerScope,
-    ModelRouter router) : ITool
+    IModelRouter router) : ITool
 {
     public string Name => "agent_spawn";
 

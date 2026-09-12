@@ -12,12 +12,12 @@ namespace Parrot.Tools;
 
 internal sealed class RunAgentTasksTool(
     ToolWorkspace workspace,
-    ModelRouter router,
+    IModelRouter router,
     IAgentSessionScope ownerScope,
-    AgentTaskRunCatalog runs,
+    IAgentTaskRunCatalog runs,
     IAgentTaskRunCompletion completion,
-    EventBroker eventBroker,
-    EventRepository eventRepository,
+    IEventBroker eventBroker,
+    IEventRepository eventRepository,
     AgentTaskConfig agentTasks,
     IDiagnosticLog diagnostics) : ITool
 {

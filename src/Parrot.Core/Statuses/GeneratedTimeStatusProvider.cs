@@ -5,7 +5,7 @@ namespace Parrot.Statuses;
 
 internal sealed class GeneratedTimeStatusProvider(
     TimeProvider timeProvider,
-    PromptTemplateCatalog templates) : IStatusProvider
+    IPromptTemplateCatalog templates) : IStatusProvider
 {
     public string Key => "runtime:generated-time";
 

@@ -3,7 +3,7 @@ using Parrot.Config;
 
 namespace Parrot.Context;
 
-internal sealed class AgentsPromptProvider(string workingDirectory, string configDirectory, PromptTemplateCatalog templates) : ISystemPromptProvider
+internal sealed class AgentsPromptProvider(string workingDirectory, string configDirectory, IPromptTemplateCatalog templates) : ISystemPromptProvider
 {
     public string Key => "runtime:system-context:07a-agents";
 

@@ -8,36 +8,36 @@ internal sealed class AgentSessionParentScope(
     Func<IAgentSessionScope>? ownerScopeAccessor,
     IChildRegistry? childRegistry,
     IAgentSessionScope? parent,
-    AgentCompletionDeliveryPolicy deliveryPolicy)
+    AgentCompletionDeliveryPolicy deliveryPolicy) : IAgentParentScope
 {
     public bool HasParent => Parent is not null;
 
-    internal IAgentSessionScope? Parent { get; } = parent;
+    public IAgentSessionScope? Parent { get; } = parent;
 
-    internal AgentCompletionDeliveryPolicy DeliveryPolicy { get; } = deliveryPolicy;
+    public AgentCompletionDeliveryPolicy DeliveryPolicy { get; } = deliveryPolicy;
 
-    internal ChildQuestionCoordinator ChildQuestions => Parent?.ChildQuestions
+    public IChildQuestionCoordinator ChildQuestions => Parent?.ChildQuestions
         ?? throw new AgentRegistryException("child agent identity requires a parent scope");
 
-    internal AgentPolicyLineage PolicyLineage => Parent is { } immediateParent
+    public AgentPolicyLineage PolicyLineage => Parent is { } immediateParent
         ? immediateParent.Session.ResolvePolicyLineage().Link(immediateParent.Session)
         : AgentPolicyLineage.Root();
 
-    internal string OwnerSessionId => owner?.SessionId
+    public string OwnerSessionId => owner?.SessionId
         ?? throw new InvalidOperationException("The parent scope is not bound to an agent scope.");
 
-    public static AgentSessionParentScope Root() =>
-        new(null, null, null, null, null, AgentCompletionDeliveryPolicy.RetainedOnly);
+    public static IAgentParentScope Root() =>
+        new AgentSessionParentScope(null, null, null, null, null, AgentCompletionDeliveryPolicy.RetainedOnly);
 
-    public static AgentSessionParentScope Child(
+    public static IAgentParentScope Child(
         IAgentSessionScope parent,
         AgentCompletionDeliveryPolicy deliveryPolicy)
     {
         ArgumentNullException.ThrowIfNull(parent);
-        return new(null, null, null, null, parent, deliveryPolicy);
+        return new AgentSessionParentScope(null, null, null, null, parent, deliveryPolicy);
     }
 
-    public static AgentSessionParentScope Bind(
+    public static IAgentParentScope Bind(
         AgentIdentity owner,
         IAgentRegistry registry,
         Func<IAgentSessionScope> ownerScopeAccessor,
@@ -49,7 +49,7 @@ internal sealed class AgentSessionParentScope(
         ArgumentNullException.ThrowIfNull(ownerScopeAccessor);
         ArgumentNullException.ThrowIfNull(children);
         ArgumentNullException.ThrowIfNull(link);
-        return new(owner, registry, ownerScopeAccessor, children, link.Parent, link.DeliveryPolicy);
+        return new AgentSessionParentScope(owner, registry, ownerScopeAccessor, children, link.Parent, link.DeliveryPolicy);
     }
 
     public void Validate(AgentIdentity identity)
@@ -88,7 +88,7 @@ internal sealed class AgentSessionParentScope(
         }
     }
 
-    internal IAgentSessionScope AuthorizeDirectChild(string childSessionId)
+    public IAgentSessionScope AuthorizeDirectChild(string childSessionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(childSessionId);
         _ = RequireOwnerScope();
@@ -97,7 +97,7 @@ internal sealed class AgentSessionParentScope(
             ?? throw new AgentRegistryException($"child agent not found: {childSessionId}");
     }
 
-    internal IAgentSessionScope RequireOwnerScope()
+    public IAgentSessionScope RequireOwnerScope()
     {
         var authority = registry
             ?? throw new InvalidOperationException("The parent scope is not bound to an agent scope.");
@@ -119,7 +119,7 @@ internal sealed class AgentSessionParentScope(
             : throw new AgentRegistryException($"parent agent scope not found: {OwnerSessionId}");
     }
 
-    internal void ValidateOwnerScope(IAgentSessionScope scope)
+    public void ValidateOwnerScope(IAgentSessionScope scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
         var ownerScope = ownerScopeAccessor?.Invoke()

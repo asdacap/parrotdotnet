@@ -2,6 +2,7 @@ using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Diagnostics;
+using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Skills;
@@ -146,7 +147,8 @@ internal sealed class StatusDrainTests : IDisposable
             SkillCatalogFactory(),
             false,
             TimeSpan.FromSeconds(30),
-            TimeProvider.System);
+            TimeProvider.System,
+            static () => new EventBroker());
 
         _ = await session.Send([ConversationPart.TextPart("plan")], "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -224,7 +226,8 @@ internal sealed class StatusDrainTests : IDisposable
             SkillCatalogFactory(),
             false,
             TimeSpan.FromSeconds(30),
-            TimeProvider.System);
+            TimeProvider.System,
+            static () => new EventBroker());
 
         _ = await session.Send([ConversationPart.TextPart("plan")], "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -358,15 +361,15 @@ internal sealed class StatusDrainTests : IDisposable
     private static string Roles(LLMRequest request) =>
         string.Join(" | ", request.Messages.Select(message => message.Role));
 
-    private static IReadOnlyList<LLMMessage> StatusMessages(EventRepository repository) =>
+    private static IReadOnlyList<LLMMessage> StatusMessages(IEventRepository repository) =>
         [.. repository.ModelHistory(AgentSessionId(repository)).Where(message =>
             message.Role == LLMRole.System && message.Content.Contains("Active profile:", StringComparison.Ordinal))];
 
-    private static string AgentSessionId(EventRepository repository) =>
+    private static string AgentSessionId(IEventRepository repository) =>
         repository.SessionState("user", ModeRegistry.Build).AgentSessionId;
 
     private static async Task ObserveStatus(
-        Parrot.Agent.UserSession session,
+        Parrot.Agent.IUserSession session,
         CancellationToken cancellationToken)
     {
         await foreach (var published in session.Listen(cancellationToken).ConfigureAwait(false))
@@ -386,7 +389,7 @@ internal sealed class StatusDrainTests : IDisposable
         return new SkillCatalogFactory(configuration, Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "packaged-skills"));
     }
 
-    private static async Task Settled(Parrot.Agent.UserSession session)
+    private static async Task Settled(Parrot.Agent.IUserSession session)
     {
         while (session.History().Count == 0 || !session.History()[^1].StartsWith("assistant:", StringComparison.Ordinal))
         {
@@ -405,13 +408,13 @@ internal sealed class StatusDrainTests : IDisposable
         }
     }
 
-    private Task<Parrot.Agent.UserSession> Session(
+    private Task<Parrot.Agent.IUserSession> Session(
         SteppedProvider provider,
         SessionDatabase database,
         ModeRegistry modes,
         string model) => Session(provider, database, modes, model, false);
 
-    private Task<Parrot.Agent.UserSession> Session(
+    private Task<Parrot.Agent.IUserSession> Session(
         SteppedProvider provider,
         SessionDatabase database,
         ModeRegistry modes,
@@ -440,7 +443,8 @@ internal sealed class StatusDrainTests : IDisposable
             SkillCatalogFactory(),
             false,
             TimeSpan.FromSeconds(30),
-            TimeProvider.System);
+            TimeProvider.System,
+            static () => new EventBroker());
     }
 
     private ModeRegistry Modes()

@@ -9,7 +9,7 @@ namespace Parrot.Tools;
 
 internal sealed class AgentStatusTool(
     AgentResolver resolver,
-    AgentSessionParentScope parentScope) : ITool
+    IAgentParentScope parentScope) : ITool
 {
     public string Name => "agent_status";
 

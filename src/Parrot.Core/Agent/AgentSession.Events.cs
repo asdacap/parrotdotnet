@@ -82,6 +82,6 @@ internal sealed partial class AgentSession
             throw;
         }
 
-        await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+        await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
     }
 }

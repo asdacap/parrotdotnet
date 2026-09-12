@@ -15,10 +15,10 @@ namespace Parrot.Core.Tests;
 internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
 {
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
-    private readonly EventBroker _broker = new();
+    private readonly IEventBroker _broker = new EventBroker();
     private readonly List<IAgentRegistry> _registries = [];
-    private readonly List<ShellProcessOwner> _processOwners = [];
-    private readonly EventRepository _repository;
+    private readonly List<IProcessOwner> _processOwners = [];
+    private readonly IEventRepository _repository;
 
     public AgentTaskRunCatalogTests() => _repository = new EventRepository(_database);
 
@@ -391,11 +391,11 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
     }
 
     private sealed record RuntimeContext(
-        ModelRouter Router,
+        IModelRouter Router,
         IAgentRegistry Registry,
         IAgentSessionScope ParentScope,
         IAgentSession Parent,
-        ShellProcessOwner Processes,
+        IProcessOwner Processes,
         AgentTurnSelection Selection);
 
     private sealed class Completion : IAgentTaskRunCompletion

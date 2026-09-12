@@ -7,27 +7,30 @@ namespace Parrot.Queues;
 
 internal sealed class AgentQueues(
     AgentIdentity identity,
-    AgentQueues? parent,
+    IAgentQueues? parent,
     UserSessionResources resources,
     IChildRegistry children,
-    IDiagnosticLog diagnostics) : IDisposable
+    Func<AgentIdentity, IQueueInventory> createInventory,
+    IDiagnosticLog diagnostics) : IAgentQueues
 {
-    private readonly QueueInventory _inventory = new(identity);
+    private readonly IQueueInventory _inventory = createInventory(identity);
     private readonly SemaphoreSlim _delivery = new(1, 1);
     private IAgentSession? _session;
     private int _disposed;
 
     public string SessionId => Identity.SessionId;
 
-    internal AgentIdentity Identity { get; } = identity;
-
-    internal AgentQueues? Parent { get; } = parent;
-
-    internal QueueStore Local { get; } = new(identity.Depth == 0
+    public IQueueStore Local { get; } = new QueueStore(identity.Depth == 0
         ? resources.QueueDirectory
         : resources.AgentQueueDirectory(identity.SessionId));
 
-    private Lock Gate => children.Gate;
+    public Lock Gate => children.Gate;
+
+    public bool IsDisposed => Volatile.Read(ref _disposed) != 0;
+
+    internal AgentIdentity Identity { get; } = identity;
+
+    internal IAgentQueues? Parent { get; } = parent;
 
     public void Initialize()
     {
@@ -40,7 +43,7 @@ internal sealed class AgentQueues(
 
     public QueueInventorySnapshot CaptureInventory() => _inventory.Capture();
 
-    public QueueInventorySubscription SubscribeInventory() => _inventory.Subscribe();
+    public IQueueInventorySubscription SubscribeInventory() => _inventory.Subscribe();
 
     public QueueOwnerSnapshot Snapshot()
     {
@@ -82,7 +85,7 @@ internal sealed class AgentQueues(
                 ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
                 if (Parent is not null)
                 {
-                    ObjectDisposedException.ThrowIf(Volatile.Read(ref Parent._disposed) != 0, Parent);
+                    ObjectDisposedException.ThrowIf(Parent.IsDisposed, Parent);
                 }
 
                 Parent?.EnsureMissing(name);
@@ -129,7 +132,7 @@ internal sealed class AgentQueues(
         {
             try
             {
-                _ = await Deliver(store, cancellationToken).ConfigureAwait(false);
+                _ = await DeliverFromStore(store, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception)
             {
@@ -170,7 +173,7 @@ internal sealed class AgentQueues(
             }
         }
 
-        return result with { Monitored = store.ListenerSessionIds(name).Contains(SessionId, StringComparer.Ordinal) };
+        return result with { Monitored = store.ListListenerSessionIds(name).Contains(SessionId, StringComparer.Ordinal) };
     }
 
     public QueueTryTakeResult TryTake(string name, int count, QueueDirection direction)
@@ -191,12 +194,12 @@ internal sealed class AgentQueues(
 
     public async Task<bool> Deliver(CancellationToken cancellationToken)
     {
-        if (await Deliver(Local, cancellationToken).ConfigureAwait(false))
+        if (await DeliverFromStore(Local, cancellationToken).ConfigureAwait(false))
         {
             return true;
         }
 
-        return Parent is not null && await Deliver(Parent.Local, cancellationToken).ConfigureAwait(false);
+        return Parent is not null && await DeliverFromStore(Parent.Local, cancellationToken).ConfigureAwait(false);
     }
 
     public void Dispose()
@@ -215,7 +218,7 @@ internal sealed class AgentQueues(
                 {
                     try
                     {
-                        if (Parent is not null && Volatile.Read(ref Parent._disposed) == 0)
+                        if (Parent is not null && !Parent.IsDisposed)
                         {
                             Parent.Local.RemoveListener(SessionId);
                         }
@@ -245,7 +248,7 @@ internal sealed class AgentQueues(
         }
     }
 
-    internal async Task<bool> Deliver(QueueStore store, CancellationToken cancellationToken)
+    public async Task<bool> DeliverFromStore(IQueueStore store, CancellationToken cancellationToken)
     {
         if (Volatile.Read(ref _disposed) != 0 || _session is null)
         {
@@ -297,7 +300,7 @@ internal sealed class AgentQueues(
         }
     }
 
-    private async Task Notify(CancellationToken cancellationToken)
+    public async Task Notify(CancellationToken cancellationToken)
     {
         var candidates = children.SnapshotChildScopes().Select(static child => child.Queues).Prepend(this);
         foreach (var candidate in candidates)
@@ -305,7 +308,7 @@ internal sealed class AgentQueues(
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                if (await candidate.Deliver(Local, cancellationToken).ConfigureAwait(false))
+                if (await candidate.DeliverFromStore(Local, cancellationToken).ConfigureAwait(false))
                 {
                     return;
                 }
@@ -316,7 +319,7 @@ internal sealed class AgentQueues(
         }
     }
 
-    private void EnsureMissing(string name)
+    public void EnsureMissing(string name)
     {
         if (Volatile.Read(ref _disposed) != 0)
         {
@@ -335,10 +338,10 @@ internal sealed class AgentQueues(
         throw new QueueAlreadyExistsException($"queue: '{name}' already exists");
     }
 
-    private QueueInfo WithListeningState(QueueStore store, string name, QueueInfo info) =>
-        info with { Monitored = store.ListenerSessionIds(name).Contains(SessionId, StringComparer.Ordinal) };
+    private QueueInfo WithListeningState(IQueueStore store, string name, QueueInfo info) =>
+        info with { Monitored = store.ListListenerSessionIds(name).Contains(SessionId, StringComparer.Ordinal) };
 
-    private QueueStore Resolve(string name)
+    private IQueueStore Resolve(string name)
     {
         try
         {

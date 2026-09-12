@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Parrot.Core.Tests</RootNamespace>
+    <IsTestProject>true</IsTestProject>
+    <NoWarn>$(NoWarn);CA1859</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Parrot.Common/Parrot.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../Parrot.Core.Tests/ControlledTimeProvider.cs" Link="ControlledTimeProvider.cs" />
+    <Compile Include="../Parrot.Core.Tests/TerminalFailureProvider.cs" Link="TerminalFailureProvider.cs" />
+  </ItemGroup>
+
+</Project>

@@ -3,7 +3,7 @@ namespace Parrot.Protocol;
 internal sealed class UnexposedUserSessionHost : IUserSessionHost
 {
     public Task<IAsyncDisposable> Host(
-        Agent.UserSession session,
+        Agent.IUserSession session,
         Parrot.ParrotBase service,
         CancellationToken cancellationToken)
     {

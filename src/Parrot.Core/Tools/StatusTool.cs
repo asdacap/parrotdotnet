@@ -5,7 +5,7 @@ using Parrot.Statuses;
 namespace Parrot.Tools;
 
 internal sealed class StatusTool(
-    RuntimeStatus status,
+    IRuntimeStatus status,
     IAgentSession session) : ITool
 {
     public string Name => "status";

@@ -4,7 +4,7 @@ using Parrot.Process;
 
 namespace Parrot.Context;
 
-internal sealed class ExpectedCliUtilitiesProvider(CliUtilityAvailability cliUtilities, PromptTemplateCatalog templates) : ISystemPromptProvider
+internal sealed class ExpectedCliUtilitiesProvider(CliUtilityAvailability cliUtilities, IPromptTemplateCatalog templates) : ISystemPromptProvider
 {
     public string Key => "runtime:system-context:06-cli-utilities";
 

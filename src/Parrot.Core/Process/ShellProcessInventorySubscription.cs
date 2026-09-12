@@ -4,7 +4,7 @@ namespace Parrot.Process;
 
 internal sealed class ShellProcessInventorySubscription(
     ShellProcessInventoryFeed owner,
-    Channel<ShellProcessInventorySnapshot> channel) : IDisposable
+    Channel<ShellProcessInventorySnapshot> channel) : IShellProcessInventorySubscription
 {
     private bool _disposed;
 

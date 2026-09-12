@@ -9,7 +9,7 @@ using Parrot.Store;
 
 namespace Parrot.Core.Tests;
 
-internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSessionFactory
+internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentSessionFactory
 {
     private readonly Lock _gate = new();
     private readonly List<AgentIdentity> _identities = [];
@@ -38,17 +38,17 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
         }
     }
 
-    public EventRepository PrepareHistory(string agentSessionId, EventRepository repository) => repository;
+    public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) => repository;
 
     public IAgentSessionScope Create(
         AgentIdentity identity,
         AgentSessionParentLink parentLink,
         ModelSelector model,
-        EventBroker eventBroker,
-        EventRepository eventRepository,
+        IEventBroker eventBroker,
+        IEventRepository eventRepository,
         IMode mode,
         SecurityProfile securityProfile,
-        RuntimeStatus status,
+        IRuntimeStatus status,
         IAgentRegistry registry,
         CancellationToken lifetime)
     {

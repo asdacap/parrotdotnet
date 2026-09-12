@@ -22,7 +22,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "parrot-wait-tool-tests", Guid.NewGuid().ToString("n"));
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
-    private readonly EventBroker _broker = new();
+    private readonly IEventBroker _broker = new EventBroker();
     private readonly List<IAgentRegistry> _registries = [];
 
     public WaitToolTests() => Directory.CreateDirectory(_root);
@@ -53,7 +53,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var queues = scope.Queues;
         _ = queues.Create("work", "queued work");
         _ = await queues.Push("work", ["item"], QueueDirection.Back, false, cancellationToken);
-        _ = scope.Processes.Start("process", "sleep 60", ProcessEnvironmentOverrides.Empty, session, SecurityProfile.Compose(readOnly: false, [], [], []), ShellProcessTerminalMode.Pipe);
+        _ = scope.Processes.StartUnattributed("process", "sleep 60", ProcessEnvironmentOverrides.Empty, session, SecurityProfile.Compose(readOnly: false, [], [], []), ShellProcessTerminalMode.Pipe);
         using var childProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         await using var childScope = BuildSession(childProvider, [], new EventRepository(_database), registry, AgentIdentity.Child("child", "agent", "main", "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(scope, AgentCompletionDeliveryPolicy.RetainedOnly), QueueResources("agent"), TestDiagnosticLog.Instance);
         _ = await childScope.Session.Send([ConversationPart.TextPart("work")], "child-message", Delivery.Steer, cancellationToken);
@@ -478,9 +478,10 @@ internal sealed class WaitToolTests : IAsyncDisposable
             SkillCatalogFactory(),
             interactivePermissions: false,
             TimeSpan.FromSeconds(1),
-            TimeProvider.System);
+            TimeProvider.System,
+            static () => new EventBroker());
 
-        _ = await owner.Send("first", "message", Delivery.Steer, cancellationToken);
+        _ = await owner.SendText("first", "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
         _ = await sessions.WaitForSession(cancellationToken);
         var agentQueues = await sessions.WaitForQueues(cancellationToken);
@@ -563,14 +564,14 @@ internal sealed class WaitToolTests : IAsyncDisposable
     private TestAgentSessionScope Session(
         ILLMProvider provider,
         IReadOnlyList<IToolFactory> tools,
-        EventRepository? selectedRepository,
+        IEventRepository? selectedRepository,
         IAgentRegistry registry) =>
         BuildSession(provider, tools, selectedRepository ?? new EventRepository(_database), registry, AgentIdentity.Main("agent", "main", TestModels.PromptTemplates), AgentSessionParentLink.Root(), QueueResources("agent"), TestDiagnosticLog.Instance);
 
     private TestAgentSessionScope BuildSession(
         ILLMProvider provider,
         IReadOnlyList<IToolFactory> tools,
-        EventRepository repository,
+        IEventRepository repository,
         IAgentRegistry registry,
         AgentIdentity identity,
         AgentSessionParentLink parentLink,
@@ -606,7 +607,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         return scope;
     }
 
-    private IAgentRegistry PrepareRegistry(EventRepository repository)
+    private IAgentRegistry PrepareRegistry(IEventRepository repository)
     {
         IAgentRegistry registry = new AgentRegistry(
             new UnsupportedAgentSessionFactory(),
@@ -646,7 +647,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         public IReadOnlyList<IAgentSessionScope> SnapshotScopes() =>
             throw new InvalidOperationException("Runtime status was observed before timeout.");
 
-        public void AttachStatus(RuntimeStatus status) => registry.AttachStatus(status);
+        public void AttachStatus(IRuntimeStatus status) => registry.AttachStatus(status);
 
         public void RegisterRootScope(IAgentSessionScope scope) => registry.RegisterRootScope(scope);
 
@@ -662,16 +663,16 @@ internal sealed class WaitToolTests : IAsyncDisposable
 
         public RetainedAgentReservation ReserveRetainedAgent() => registry.ReserveRetainedAgent();
 
-        public RuntimeStatus RequireStatus() => registry.RequireStatus();
+        public IRuntimeStatus RequireStatus() => registry.RequireStatus();
 
         public bool ContainsScope(IAgentSessionScope candidate) => registry.ContainsScope(candidate);
 
         public IAgentSessionScope? FindScope(string sessionId) => registry.FindScope(sessionId);
 
-        public IAgentSessionScope CreateChildScope(AgentIdentity identity, AgentSessionParentLink parentLink, ModelSelector model, IMode mode, SecurityProfile securityProfile, RuntimeStatus status, EventRepository childHistory, CancellationToken childLifetime) =>
+        public IAgentSessionScope CreateChildScope(AgentIdentity identity, AgentSessionParentLink parentLink, ModelSelector model, IMode mode, SecurityProfile securityProfile, IRuntimeStatus status, IEventRepository childHistory, CancellationToken childLifetime) =>
             registry.CreateChildScope(identity, parentLink, model, mode, securityProfile, status, childHistory, childLifetime);
 
-        public EventRepository InitializeChildHistory(string parentSessionId, string childSessionId, HistoryForkBoundary boundary, HistoryForkSelection fork) =>
+        public IEventRepository InitializeChildHistory(string parentSessionId, string childSessionId, HistoryForkBoundary boundary, HistoryForkSelection fork) =>
             registry.InitializeChildHistory(parentSessionId, childSessionId, boundary, fork);
 
         public ValueTask DisposeAsync() => registry.DisposeAsync();
@@ -752,55 +753,55 @@ internal sealed class WaitToolTests : IAsyncDisposable
 
     private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory
     {
-        public EventRepository PrepareHistory(string agentSessionId, EventRepository repository) =>
+        public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
             throw new NotSupportedException("This test session does not support spawning subagents.");
 
         public IAgentSessionScope Create(
             AgentIdentity identity,
             AgentSessionParentLink parentLink,
             ModelSelector model,
-            EventBroker eventBroker,
-            EventRepository eventRepository,
+            IEventBroker eventBroker,
+            IEventRepository eventRepository,
             IMode mode,
             SecurityProfile securityProfile,
-            RuntimeStatus status,
+            IRuntimeStatus status,
             IAgentRegistry registry,
             CancellationToken lifetime) =>
             throw new NotSupportedException("This test session does not support spawning subagents.");
     }
 
-    private sealed class WaitAgentSessions(ModelRouter router, TimeProvider timeProvider, string root) : IAgentSessionFactorySource
+    private sealed class WaitAgentSessions(IModelRouter router, TimeProvider timeProvider, string root) : IAgentSessionFactorySource
     {
         private readonly TaskCompletionSource<IAgentSession> _created = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly TaskCompletionSource<AgentQueues> _createdQueues = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<IAgentQueues> _createdQueues = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public IAgentSessionFactory Create(AgentUserSession owner) => new Factory(this, owner, router, timeProvider, root);
+        public IAgentSessionFactory Create(IUserSession owner) => new Factory(this, owner, router, timeProvider, root);
 
         public async Task<IAgentSession> WaitForSession(CancellationToken cancellationToken) =>
             await _created.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
 
-        public async Task<AgentQueues> WaitForQueues(CancellationToken cancellationToken) =>
+        public async Task<IAgentQueues> WaitForQueues(CancellationToken cancellationToken) =>
             await _createdQueues.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         private sealed class Factory(
             WaitAgentSessions source,
-            AgentUserSession owner,
-            ModelRouter router,
+            IUserSession owner,
+            IModelRouter router,
             TimeProvider timeProvider,
             string root) : IAgentSessionFactory
         {
-            public EventRepository PrepareHistory(string agentSessionId, EventRepository repository) =>
+            public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
                 repository.BindAgentHistory(new AgentHistoryFile(owner.Resources, agentSessionId));
 
             public IAgentSessionScope Create(
                 AgentIdentity identity,
                 AgentSessionParentLink parentLink,
                 ModelSelector model,
-                EventBroker eventBroker,
-                EventRepository eventRepository,
+                IEventBroker eventBroker,
+                IEventRepository eventRepository,
                 IMode mode,
                 SecurityProfile securityProfile,
-                Parrot.Statuses.RuntimeStatus status,
+                Parrot.Statuses.IRuntimeStatus status,
                 IAgentRegistry registry,
                 CancellationToken lifetime)
             {

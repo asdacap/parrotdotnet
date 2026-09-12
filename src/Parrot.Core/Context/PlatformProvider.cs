@@ -4,7 +4,7 @@ using Parrot.Config;
 
 namespace Parrot.Context;
 
-internal sealed class PlatformProvider(PromptTemplateCatalog templates) : ISystemPromptProvider
+internal sealed class PlatformProvider(IPromptTemplateCatalog templates) : ISystemPromptProvider
 {
     public string Key => "runtime:system-context:07-platform";
 

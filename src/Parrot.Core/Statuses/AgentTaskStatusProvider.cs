@@ -7,7 +7,7 @@ namespace Parrot.Statuses;
 
 internal sealed class AgentTaskStatusProvider(
     IAgentRegistry agents,
-    PromptTemplateCatalog templates) : IStatusProvider
+    IPromptTemplateCatalog templates) : IStatusProvider
 {
     public string Key => "runtime:agent-tasks";
 

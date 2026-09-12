@@ -4,12 +4,12 @@ using Parrot.Store;
 
 namespace Parrot.Agent;
 
-internal sealed class AgentSpawner : IAsyncDisposable
+internal sealed class AgentSpawner : IAgentSpawner
 {
     private const int MaxDepth = 4;
     private readonly AgentIdentity _owner;
     private readonly IAgentRegistry _authority;
-    private readonly AgentSessionParentScope _parentSessionScope;
+    private readonly IAgentParentScope _parentSessionScope;
     private readonly IChildRegistry _children;
     private readonly CancellationTokenSource _lifetime;
     private readonly Lock _gate = new();
@@ -24,7 +24,7 @@ internal sealed class AgentSpawner : IAsyncDisposable
     internal AgentSpawner(
         AgentIdentity owner,
         IAgentRegistry authority,
-        AgentSessionParentScope parentSessionScope,
+        IAgentParentScope parentSessionScope,
         IChildRegistry children)
     {
         _owner = owner ?? throw new ArgumentNullException(nameof(owner));
@@ -206,7 +206,7 @@ internal sealed class AgentSpawner : IAsyncDisposable
             throw;
         }
 
-        EventRepository? childHistory = null;
+        IEventRepository? childHistory = null;
         IAgentSessionScope? constructedScope = null;
         try
         {
@@ -276,7 +276,7 @@ internal sealed class AgentSpawner : IAsyncDisposable
         string sessionId,
         RetainedAgentReservation reservation,
         IAgentSessionScope? constructedScope,
-        EventRepository? childHistory)
+        IEventRepository? childHistory)
     {
         Reject(sessionId, reservation);
         if (constructedScope is not null)

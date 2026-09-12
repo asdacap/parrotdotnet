@@ -4,7 +4,7 @@ using Parrot.Store;
 
 namespace Parrot.Context;
 
-internal sealed class AgentHistoryProvider(UserSessionResources resources, PromptTemplateCatalog templates) : ISystemPromptProvider
+internal sealed class AgentHistoryProvider(UserSessionResources resources, IPromptTemplateCatalog templates) : ISystemPromptProvider
 {
     public string Key => "runtime:user-session-context:02-agent-history";
 

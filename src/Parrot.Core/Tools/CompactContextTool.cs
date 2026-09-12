@@ -9,7 +9,7 @@ namespace Parrot.Tools;
 
 internal sealed class CompactContextTool(
     IAgentSession session,
-    PromptTemplateCatalog promptTemplates) : ITool
+    IPromptTemplateCatalog promptTemplates) : ITool
 {
     public string Name => "compact_context";
 

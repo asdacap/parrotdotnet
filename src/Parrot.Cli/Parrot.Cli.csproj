@@ -36,6 +36,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../Parrot.Common/Parrot.Common.csproj" />
+    <ProjectReference Include="../Parrot.Foundation/Parrot.Foundation.csproj" />
+    <ProjectReference Include="../Parrot.Infrastructure/Parrot.Infrastructure.csproj" />
+    <ProjectReference Include="../Parrot.Llm/Parrot.Llm.csproj" />
     <ProjectReference Include="../Parrot.Core/Parrot.Core.csproj" />
   </ItemGroup>
 
@@ -52,7 +56,7 @@
 
   <Target Name="BuildPtyAttach"
           BeforeTargets="GetCopyToOutputDirectoryItems;ComputeFilesToPublish"
-          Inputs="$(MSBuildProjectDirectory)/../Parrot.Core/Process/Native/parrot-pty-attach.c"
+          Inputs="$(MSBuildProjectDirectory)/../Parrot.Infrastructure/Process/Native/parrot-pty-attach.c"
           Outputs="$(ArtifactsPath)/obj/$(MSBuildProjectName)/pty-attach/$(Configuration)/$(RuntimeIdentifier)/parrot-pty-attach"
           Condition="$([MSBuild]::IsOSPlatform('Linux'))">
     <PropertyGroup>
@@ -62,7 +66,7 @@
       <PtyAttachOutput>$(ArtifactsPath)/obj/$(MSBuildProjectName)/pty-attach/$(Configuration)/$(RuntimeIdentifier)/parrot-pty-attach</PtyAttachOutput>
     </PropertyGroup>
     <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(PtyAttachOutput)'))" />
-    <Exec Command="&quot;$(PtyAttachCompiler)&quot; -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror $(PtyAttachLinkMode) -o &quot;$(PtyAttachOutput)&quot; &quot;$(MSBuildProjectDirectory)/../Parrot.Core/Process/Native/parrot-pty-attach.c&quot;" />
+    <Exec Command="&quot;$(PtyAttachCompiler)&quot; -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror $(PtyAttachLinkMode) -o &quot;$(PtyAttachOutput)&quot; &quot;$(MSBuildProjectDirectory)/../Parrot.Infrastructure/Process/Native/parrot-pty-attach.c&quot;" />
   </Target>
 
 </Project>

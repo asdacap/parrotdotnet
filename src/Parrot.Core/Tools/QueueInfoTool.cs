@@ -4,7 +4,7 @@ using Parrot.Queues;
 
 namespace Parrot.Tools;
 
-internal sealed class QueueInfoTool(AgentQueues queues) : ITool
+internal sealed class QueueInfoTool(IAgentQueues queues) : ITool
 {
     public string Name => "queue_info";
 

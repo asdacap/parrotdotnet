@@ -5,18 +5,18 @@ using Parrot.Store;
 
 namespace Parrot.Agent;
 
-internal sealed class UserSessionModes(ModeRegistry modes, PromptTemplateCatalog promptTemplates)
+internal sealed class UserSessionModes(ModeRegistry modes, IPromptTemplateCatalog promptTemplates)
 {
     private readonly Lock _planGate = new();
     private readonly ModeRegistry _modes = modes ?? throw new ArgumentNullException(nameof(modes));
-    private readonly PromptTemplateCatalog _promptTemplates = promptTemplates
+    private readonly IPromptTemplateCatalog _promptTemplates = promptTemplates
         ?? throw new ArgumentNullException(nameof(promptTemplates));
 
     private AgentScratchDirectory? _mainScratch;
     private string _planArtifact = string.Empty;
     private string _taskArtifact = string.Empty;
 
-    internal UserSessionModes(ModeRegistry modes, PromptTemplateCatalog promptTemplates, string planDirectory)
+    internal UserSessionModes(ModeRegistry modes, IPromptTemplateCatalog promptTemplates, string planDirectory)
         : this(modes, promptTemplates) =>
         _mainScratch = new AgentScratchDirectory(
             Path.GetDirectoryName(planDirectory)

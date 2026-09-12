@@ -3,13 +3,13 @@ using Parrot.Protocol;
 
 namespace Parrot.Events;
 
-internal sealed class EventBroker : IDisposable
+internal sealed class EventBroker : IEventBroker
 {
     private readonly Lock _gate = new();
-    private readonly List<EventSubscription> _subscribers = [];
+    private readonly List<IEventSubscription> _subscribers = [];
     private bool _disposed;
 
-    public ValueTask Publish(Event published, CancellationToken cancellationToken)
+    public ValueTask PublishWithCancellation(Event published, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         Publish(published);
@@ -37,7 +37,7 @@ internal sealed class EventBroker : IDisposable
         }
     }
 
-    public EventSubscription Subscribe()
+    public IEventSubscription Subscribe()
     {
         var subscription = new EventSubscription(this);
 
@@ -56,7 +56,7 @@ internal sealed class EventBroker : IDisposable
         return subscription;
     }
 
-    public async IAsyncEnumerable<Event> Subscribe(
+    public async IAsyncEnumerable<Event> SubscribeEvents(
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         using var subscription = Subscribe();
@@ -68,7 +68,7 @@ internal sealed class EventBroker : IDisposable
 
     public void Dispose()
     {
-        EventSubscription[] targets;
+        IEventSubscription[] targets;
         lock (_gate)
         {
             if (_disposed)
@@ -87,7 +87,7 @@ internal sealed class EventBroker : IDisposable
         }
     }
 
-    internal void Unsubscribe(EventSubscription subscription)
+    public void Unsubscribe(IEventSubscription subscription)
     {
         lock (_gate)
         {

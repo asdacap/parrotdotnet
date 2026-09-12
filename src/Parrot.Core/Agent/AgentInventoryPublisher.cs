@@ -5,9 +5,9 @@ using Parrot.Queues;
 namespace Parrot.Agent;
 
 internal sealed class AgentInventoryPublisher(
-    ShellProcessOwner processes,
-    AgentQueues queues,
-    EventBroker events,
+    IProcessOwner processes,
+    IAgentQueues queues,
+    IEventBroker events,
     string rootSessionId)
 {
     public Task Run() => Task.WhenAll(PublishQueues(), PublishProcesses());

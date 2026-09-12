@@ -5,7 +5,7 @@ using Parrot.Config;
 
 namespace Parrot.Tools;
 
-internal sealed class SetExitReminderTool(ExitReminder reminder, PromptTemplateCatalog promptTemplates) : ITool
+internal sealed class SetExitReminderTool(ExitReminder reminder, IPromptTemplateCatalog promptTemplates) : ITool
 {
     public string Name => "set_exit_reminder";
 

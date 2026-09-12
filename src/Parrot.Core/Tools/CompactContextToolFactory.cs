@@ -3,7 +3,7 @@ using Parrot.Config;
 
 namespace Parrot.Tools;
 
-internal sealed class CompactContextToolFactory(PromptTemplateCatalog promptTemplates) : IToolFactory
+internal sealed class CompactContextToolFactory(IPromptTemplateCatalog promptTemplates) : IToolFactory
 {
     public ITool Create(IAgentSession session) => new CompactContextTool(session, promptTemplates);
 }

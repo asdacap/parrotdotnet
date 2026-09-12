@@ -4,7 +4,7 @@ namespace Parrot.Skills;
 
 internal sealed class SkillCatalog(
     IReadOnlyList<SkillRoot> roots,
-    Func<(SkillConfiguration Configuration, long Generation)> configuration)
+    Func<(SkillConfiguration Configuration, long Generation)> configuration) : ISkillCatalog
 {
     private readonly Lock _gate = new();
     private Action<string, bool>? _configure;
@@ -59,7 +59,7 @@ internal sealed class SkillCatalog(
         }
     }
 
-    internal SkillCatalog WithConfiguration(Action<string, bool> configure)
+    internal ISkillCatalog WithConfiguration(Action<string, bool> configure)
     {
         _configure = configure ?? throw new ArgumentNullException(nameof(configure));
         return this;
