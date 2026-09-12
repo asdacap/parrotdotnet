@@ -557,13 +557,13 @@ internal sealed class EnhancedCliTests
     public async Task Queued_question_uses_fresh_countdown_instead_of_discovery_snapshot(CancellationToken cancellationToken)
     {
         using var driver = new CliLifecycleDriver(enhanced: true);
-        driver.Invoker.AddPendingQuestion(new QuestionFixture("question-a", "Active choice").Pending);
         var queued = new QuestionFixture("question-b", "Queued choice").Pending;
         queued.RemainingTimeoutMs = 90000;
-        driver.Invoker.AddPendingQuestion(queued);
         var running = driver.Drive(cancellationToken);
         driver.Input.Type("ask twice");
         await driver.Sent(1, cancellationToken);
+        driver.Invoker.AddPendingQuestion(new QuestionFixture("question-a", "Active choice").Pending);
+        driver.Invoker.AddPendingQuestion(queued);
         await PublishQuestionStart(driver);
         await driver.OutputContains("Active choice", cancellationToken);
         driver.Invoker.UpdateQuestionTimeout(queued.Id, 4000);
@@ -644,10 +644,10 @@ internal sealed class EnhancedCliTests
     {
         using var driver = new CliLifecycleDriver(enhanced: true);
         var running = driver.Drive(cancellationToken);
-        driver.Invoker.AddPendingQuestion(new QuestionFixture("question-a", "Active question").Pending);
-        driver.Invoker.AddPendingQuestion(new QuestionFixture("question-b", "Queued question").Pending);
         driver.Input.Type("ask me");
         await driver.Sent(1, cancellationToken);
+        driver.Invoker.AddPendingQuestion(new QuestionFixture("question-a", "Active question").Pending);
+        driver.Invoker.AddPendingQuestion(new QuestionFixture("question-b", "Queued question").Pending);
         await PublishQuestionStart(driver);
 
         await driver.OutputContains("Active question", cancellationToken);

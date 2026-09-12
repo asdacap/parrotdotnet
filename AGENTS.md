@@ -27,7 +27,8 @@ method is already obvious.
 - Lazy materialization. This follows the same spirit as lazy validation. Do not pre-optimize state, only compile them
 right before the information is needed.
 - A user session (and all its component including all agent sessions) data is scoped within that user session. Do not
-read or write other user session data.
+architect the code in a way that conflict with this rules, as in keep user session data in its own directory unless
+otherwise said.
 - Tools or any permission check should check the security profiles rather than specific directory.
 - Do not make unnecessary change in prod for test.
 - No method overload. Use different method name instead.

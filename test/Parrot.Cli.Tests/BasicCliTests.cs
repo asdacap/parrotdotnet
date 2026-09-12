@@ -599,7 +599,7 @@ internal sealed class BasicCliTests
     {
         using var driver = new CliLifecycleDriver(enhanced);
         driver.Invoker.ReplyQuestionNotFound = true;
-        driver.Invoker.PendingQuestions.Add(new PendingQuestion
+        var pending = new PendingQuestion
         {
             Id = "question-1",
             Questions =
@@ -611,11 +611,12 @@ internal sealed class BasicCliTests
                     Options = { "One" },
                 },
             },
-        });
+        };
         var driving = driver.Drive(cancellationToken);
 
         driver.Input.Type("first prompt");
         await driver.Sent(1, cancellationToken);
+        driver.Invoker.AddPendingQuestion(pending);
         await driver.Invoker.Publish(new Event { Id = "start", TurnStarted = new TurnStarted { Model = "model" } });
         await driver.Invoker.Publish(
             new Event { Id = "question", ToolStarted = new ToolStarted { ToolCallId = "call-1", ToolName = "question" } });
