@@ -6,7 +6,7 @@ namespace Parrot.Agent;
 internal sealed class ExitReminder(
     IEventRepository repository,
     IPromptTemplateCatalog promptTemplates,
-    string agentSessionId)
+    string agentSessionId) : IExitReminder
 {
     private readonly Lock _gate = new();
     private string? _current = repository.LatestExitReminder(agentSessionId);

@@ -35,7 +35,7 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
 
     public ActiveWorkCompletionReminder ActiveWorkReminder { get; }
 
-    public ExitReminder ExitReminder { get; }
+    public IExitReminder ExitReminder { get; }
 
     public IMode Profile { get; }
 

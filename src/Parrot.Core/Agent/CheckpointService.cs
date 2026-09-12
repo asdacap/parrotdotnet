@@ -2,7 +2,7 @@ using Parrot.Store;
 
 namespace Parrot.Agent;
 
-internal sealed class CheckpointService(IEventRepository eventRepository, string agentSessionId)
+internal sealed class CheckpointService(IEventRepository eventRepository, string agentSessionId) : ICheckpointService
 {
     public void SetCheckpoint(string title, long assistantSequence, string toolCallId)
     {

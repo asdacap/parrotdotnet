@@ -25,7 +25,8 @@ src/
   Parrot.Foundation/     Configuration and authentication implementations.
   Parrot.Infrastructure/ Storage, host processes, queues and web infrastructure.
   Parrot.Llm/            Providers, model routing and wire implementations.
-  Parrot.Core/           Agent orchestration, tools and protocol services.
+  Parrot.Tools/          Tool implementations, factories and tool-local helpers.
+  Parrot.Core/           Agent orchestration, session composition and protocol services.
   Parrot.Cli/            The `parrot` executable. AOT-published.
 test/
   Parrot.*.Tests/        TUnit projects for each layer, plus Tools and CLI tests.
@@ -34,7 +35,9 @@ docs/
 
 Common is the shared contract layer. Foundation depends on Common;
 Infrastructure and Llm depend on Common and Foundation and can compile in
-parallel. Core composes both branches, and CLI is the entry point. Namespaces
+parallel. Tools consumes those branches; Core composes tools and runtime services,
+and CLI is the entry point. Core depends on Tools, so these two projects do not
+compile in parallel. Namespaces
 remain organized by domain rather than assembly. Lower-level tests reference
 their own layers without waiting for Core; Tools and Core tests retain the
 broader session fixtures. Normal solution builds use MSBuild project parallelism.

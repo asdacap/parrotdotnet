@@ -8,7 +8,7 @@ using Parrot.Statuses;
 namespace Parrot.Tools;
 
 internal sealed class AgentStatusTool(
-    AgentResolver resolver,
+    IAgentResolver resolver,
     IAgentParentScope parentScope) : ITool
 {
     public string Name => "agent_status";

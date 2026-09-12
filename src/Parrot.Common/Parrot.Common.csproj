@@ -29,6 +29,7 @@
     <InternalsVisibleTo Include="Parrot.Infrastructure" />
     <InternalsVisibleTo Include="Parrot.Llm" />
     <InternalsVisibleTo Include="Parrot.Core" />
+    <InternalsVisibleTo Include="Parrot.Tools" />
     <InternalsVisibleTo Include="parrot" />
     <InternalsVisibleTo Include="Parrot.Common.Tests" />
     <InternalsVisibleTo Include="Parrot.Foundation.Tests" />

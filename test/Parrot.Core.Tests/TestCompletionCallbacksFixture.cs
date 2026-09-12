@@ -8,7 +8,7 @@ namespace Parrot.Core.Tests;
 internal sealed class TestCompletionCallbacksFixture(
     IChildQuestionCoordinator childQuestions,
     ActiveWorkCompletionReminder activeWorkReminder,
-    ExitReminder exitReminder,
+    IExitReminder exitReminder,
     IEventRepository eventRepository,
     IEventBroker eventBroker)
 {

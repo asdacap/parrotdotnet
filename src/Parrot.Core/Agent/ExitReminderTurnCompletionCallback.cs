@@ -5,7 +5,7 @@ using Parrot.Store;
 namespace Parrot.Agent;
 
 internal sealed class ExitReminderTurnCompletionCallback(
-    ExitReminder exitReminder,
+    IExitReminder exitReminder,
     IEventRepository eventRepository,
     IEventBroker eventBroker) : IAgentTurnCompletionCallback
 {

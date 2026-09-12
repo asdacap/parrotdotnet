@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Parrot.Core/Parrot.Core.csproj" />
+    <ProjectReference Include="../../src/Parrot.Tools/Parrot.Tools.csproj" />
   </ItemGroup>
 
   <ItemGroup>

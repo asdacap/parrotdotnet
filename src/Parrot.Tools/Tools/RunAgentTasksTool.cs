@@ -3,8 +3,6 @@ using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.AgentTasks;
 using Parrot.Config;
-using Parrot.Diagnostics;
-using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Store;
 
@@ -16,10 +14,9 @@ internal sealed class RunAgentTasksTool(
     IAgentSessionScope ownerScope,
     IAgentTaskRunCatalog runs,
     IAgentTaskRunCompletion completion,
-    IEventBroker eventBroker,
-    IEventRepository eventRepository,
-    AgentTaskConfig agentTasks,
-    IDiagnosticLog diagnostics) : ITool
+    Func<string, AgentTaskArtifact> parseArtifact,
+    Func<string, IAgentTaskProgress> createProgress,
+    AgentTaskConfig agentTasks) : ITool
 {
     public string Name => "run_agent_tasks";
 
@@ -80,14 +77,14 @@ internal sealed class RunAgentTasksTool(
                     return ToolResultFormatter.Error(invocation, "artifact must be an object.");
                 }
 
-                artifact = AgentTaskParser.ParseArtifact(input.Artifact.GetRawText());
+                artifact = parseArtifact(input.Artifact.GetRawText());
             }
             else if (path is { } selectedPath)
             {
                 await using var stream = workspace.OpenRegularReadWithoutLinks(selectedPath, selection.SecurityProfile);
                 using var reader = new StreamReader(stream);
                 var json = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-                artifact = AgentTaskParser.ParseArtifact(json);
+                artifact = parseArtifact(json);
             }
             else
             {
@@ -109,12 +106,7 @@ internal sealed class RunAgentTasksTool(
 
         try
         {
-            var progress = new AgentTaskProgress(
-                eventBroker,
-                eventRepository,
-                ownerScope.Session.SessionId,
-                invocation.CallId,
-                diagnostics);
+            var progress = createProgress(invocation.CallId);
             HistoryForkBoundary rootHistoryBoundary =
                 new HistoryForkBoundary.BeforeToolBatch(invocation.AssistantSequence, invocation.CallId);
             var displayName = artifact.DisplayName;

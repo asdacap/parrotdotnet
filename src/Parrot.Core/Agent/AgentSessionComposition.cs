@@ -221,8 +221,29 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind<EditToolFactory>().As(Lifetime.Scoped).To<EditToolFactory>()
             .Bind<WebFetchToolFactory>().As(Lifetime.Scoped).To<WebFetchToolFactory>()
             .Bind<AgentSpawnToolFactory>().As(Lifetime.Scoped).To<AgentSpawnToolFactory>()
-            .Bind<RunAgentTasksToolFactory>().As(Lifetime.Scoped).To<RunAgentTasksToolFactory>()
-            .Bind<CheckpointService>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<RunAgentTasksToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                ctx.Inject<IAgentSessionScope>(out var scope);
+                ctx.Inject<IAgentTaskRunCatalog>(out var runs);
+                ctx.Inject<ToolOutputBlobStore>(out var outputBlobs);
+                ctx.Inject<AgentTaskConfig>(out var agentTasks);
+                return new RunAgentTasksToolFactory(
+                    arguments.Workspace,
+                    arguments.Router,
+                    scope,
+                    runs,
+                    AgentTaskParser.ParseArtifact,
+                    callId => new AgentTaskProgress(
+                        arguments.EventBroker,
+                        arguments.EventRepository,
+                        scope.Session.SessionId,
+                        callId,
+                        arguments.Diagnostics),
+                    session => new AgentTaskRunCompletion(session, outputBlobs, arguments.PromptTemplates),
+                    agentTasks);
+            })
+            .Bind<ICheckpointService>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new CheckpointService(arguments.EventRepository, arguments.Identity.SessionId);
@@ -231,7 +252,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind<SetExitReminderToolFactory>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                ctx.Inject<ExitReminder>(out var reminder);
+                ctx.Inject<IExitReminder>(out var reminder);
                 return new SetExitReminderToolFactory(reminder, arguments.PromptTemplates);
             })
             .Bind<AgentSendToolFactory>().As(Lifetime.Scoped).To<AgentSendToolFactory>()
@@ -245,7 +266,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind<QueuePushToolFactory>().As(Lifetime.Scoped).To<QueuePushToolFactory>()
             .Bind<QueueTakeToolFactory>().As(Lifetime.Scoped).To<QueueTakeToolFactory>()
             .Bind<RequestWritePermissionToolFactory>().As(Lifetime.Scoped).To<RequestWritePermissionToolFactory>()
-            .Bind<ExitReminder>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<IExitReminder>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new ExitReminder(arguments.EventRepository, arguments.PromptTemplates, arguments.Identity.SessionId);
@@ -350,7 +371,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new AgentSessionActivity(arguments.TimeProvider);
             })
-            .Bind().As(Lifetime.Scoped).To(ctx =>
+            .Bind<IAgentResolver>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<IAgentParentScope>(out var parentScope);

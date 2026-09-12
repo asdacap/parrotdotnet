@@ -597,10 +597,14 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             runtime.ParentScope,
             runtime.Catalog,
             runtime.Completion,
-            broker,
-            runtime.Repository,
-            configuration,
-            TestDiagnosticLog.Instance);
+            AgentTaskParser.ParseArtifact,
+            callId => new AgentTaskProgress(
+                broker,
+                runtime.Repository,
+                runtime.ParentScope.Session.SessionId,
+                callId,
+                TestDiagnosticLog.Instance),
+            configuration);
     }
 
     private sealed class RuntimeContext

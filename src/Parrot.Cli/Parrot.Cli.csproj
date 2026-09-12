@@ -37,6 +37,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Parrot.Common/Parrot.Common.csproj" />
+    <ProjectReference Include="../Parrot.Tools/Parrot.Tools.csproj" />
     <ProjectReference Include="../Parrot.Foundation/Parrot.Foundation.csproj" />
     <ProjectReference Include="../Parrot.Infrastructure/Parrot.Infrastructure.csproj" />
     <ProjectReference Include="../Parrot.Llm/Parrot.Llm.csproj" />
