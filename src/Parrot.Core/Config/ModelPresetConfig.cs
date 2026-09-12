@@ -19,6 +19,8 @@ internal sealed record ModelPresetConfig
         ModelAliases = new ReadOnlyDictionary<string, string>(aliases);
     }
 
+    public ModelPresetContextLimits? ContextLimits { get; init; }
+
     public string Model { get; }
 
     public IReadOnlyDictionary<string, string> ModelAliases { get; }

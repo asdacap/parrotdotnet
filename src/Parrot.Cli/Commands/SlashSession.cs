@@ -75,9 +75,18 @@ internal sealed class SlashSession(
             new SetGoalRequest { UserSessionId = Id, Clear = new ClearGoal() },
             cancellationToken: cancellationToken).ResponseAsync;
 
-    public Task Compact(CancellationToken cancellationToken) =>
+    public Task Compact(string? targetContextSize, CancellationToken cancellationToken) =>
         client.CompactAsync(
-            new CompactRequest { UserSessionId = Id },
+            new CompactRequest
+            {
+                UserSessionId = Id,
+                TargetContextSize = targetContextSize ?? string.Empty,
+            },
+            cancellationToken: cancellationToken).ResponseAsync;
+
+    public Task<SetContextLimitResponse> SetContextLimit(string contextLimit, CancellationToken cancellationToken) =>
+        client.SetContextLimitAsync(
+            new SetContextLimitRequest { UserSessionId = Id, ContextLimit = contextLimit },
             cancellationToken: cancellationToken).ResponseAsync;
 
     public Task<ListSkillsResponse> ListSkills(CancellationToken cancellationToken) =>

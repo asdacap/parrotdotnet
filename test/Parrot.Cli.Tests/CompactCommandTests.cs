@@ -18,6 +18,7 @@ internal sealed class CompactCommandTests
         _ = await Assert.That(activity.Waits).IsEqualTo(1);
         _ = await Assert.That(activity.CancellationToken).IsEqualTo(cancellationToken);
         _ = await Assert.That(session.Compactions).IsEqualTo(1);
+        _ = await Assert.That(session.CompactionTarget).IsNull();
         _ = await Assert.That(session.CompactionCancellationToken).IsEqualTo(cancellationToken);
         _ = await Assert.That(dialog.Errors).IsEmpty();
     }
@@ -25,7 +26,9 @@ internal sealed class CompactCommandTests
     [Test]
     [Arguments("requested history")]
     [Arguments(" ")]
-    public async Task Arguments_are_rejected_without_waiting_or_compacting(string arguments, CancellationToken cancellationToken)
+    [Arguments("0")]
+    [Arguments("101%")]
+    public async Task Invalid_arguments_are_rejected_without_waiting_or_compacting(string arguments, CancellationToken cancellationToken)
     {
         var session = new TestSlashSession("provider/model");
         var activity = new TestSlashActivity();
@@ -37,6 +40,22 @@ internal sealed class CompactCommandTests
         _ = await Assert.That(activity.Waits).IsEqualTo(0);
         _ = await Assert.That(session.Compactions).IsEqualTo(0);
         _ = await Assert.That(dialog.Errors).Contains("usage: /compact");
+    }
+
+    [Test]
+    [Arguments("100k")]
+    [Arguments("20%")]
+    public async Task Explicit_target_is_forwarded(string target, CancellationToken cancellationToken)
+    {
+        var session = new TestSlashSession("provider/model");
+        var activity = new TestSlashActivity();
+        var dialog = new TestSlashDialog();
+
+        await new CompactCommand(session, activity, dialog).Run(target, cancellationToken);
+
+        _ = await Assert.That(session.CompactionTarget).IsEqualTo(target);
+        _ = await Assert.That(activity.Waits).IsEqualTo(1);
+        _ = await Assert.That(dialog.Errors).IsEmpty();
     }
 
     [Test]
@@ -83,12 +102,15 @@ internal sealed class CompactCommandTests
 
         public Task ClearGoal(CancellationToken cancellationToken) => Task.CompletedTask;
 
-        public Task Compact(CancellationToken cancellationToken)
+        public Task Compact(string? targetContextSize, CancellationToken cancellationToken)
         {
             Compactions++;
             return Task.FromException(
                 new InvalidOperationException("The compaction provider did not complete with a summary."));
         }
+
+        public Task<SetContextLimitResponse> SetContextLimit(string contextLimit, CancellationToken cancellationToken) =>
+            Task.FromResult(new SetContextLimitResponse { ContextLimit = contextLimit });
 
         public Task<ListSkillsResponse> ListSkills(CancellationToken cancellationToken) =>
             Task.FromResult(new ListSkillsResponse());

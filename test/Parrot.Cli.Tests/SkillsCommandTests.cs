@@ -113,7 +113,10 @@ internal sealed class SkillsCommandTests
 
         public Task ClearGoal(CancellationToken cancellationToken) => Task.CompletedTask;
 
-        public Task Compact(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task Compact(string? targetContextSize, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task<SetContextLimitResponse> SetContextLimit(string contextLimit, CancellationToken cancellationToken) =>
+            Task.FromResult(new SetContextLimitResponse { ContextLimit = contextLimit });
 
         public Task<ListSkillsResponse> ListSkills(CancellationToken cancellationToken) =>
             Task.FromException<ListSkillsResponse>(new RpcException(new Status(StatusCode.Unavailable, "unavailable")));

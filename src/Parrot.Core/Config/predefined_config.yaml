@@ -192,6 +192,11 @@ prompt_templates:
     template: 'Context: {{ if available }}{{ usage }}% used{{ else }}unavailable{{ end }} ({{ estimated_tokens }} estimated tokens / {{ context_limit }} limit); reminders every {{ cadence }}%; automatic compaction at {{ trigger }}%.'
     allowed_arguments: [available, usage, estimated_tokens, context_limit, cadence, trigger]
     required_arguments: [available, estimated_tokens, context_limit, cadence, trigger]
+  status.context-limit:
+    engine: scriban
+    template: 'Context: {{ if available }}{{ usage }}% used{{ else }}unavailable{{ end }} ({{ estimated_tokens }} estimated tokens / {{ context_limit }} model context window); reminders every {{ cadence }}%; automatic compaction triggers strictly above {{ trigger_tokens }} tokens.'
+    allowed_arguments: [available, usage, estimated_tokens, context_limit, cadence, trigger, trigger_tokens]
+    required_arguments: [available, estimated_tokens, context_limit, cadence, trigger_tokens]
   status.statistics:
     engine: scriban
     template: |-
@@ -282,6 +287,22 @@ prompt_templates:
     template: 'Context compaction is unavailable for this calling agent session because the selected model has no positive context limit ({estimated_tokens} estimated tokens / {context_limit} limit); notifications occur every {notification_interval}%; automatic compaction triggers strictly above {trigger}%.'
     allowed_arguments: [estimated_tokens, context_limit, notification_interval, trigger]
     required_arguments: [estimated_tokens, context_limit, notification_interval, trigger]
+  agent-session.context-limit-reminder:
+    template: 'Context usage entered the {percentage}% notification band ({estimated_tokens} estimated tokens / {context_limit} model context window). Notifications occur every {notification_interval}%; automatic compaction triggers strictly above {trigger_tokens} tokens.'
+    allowed_arguments: [percentage, estimated_tokens, context_limit, notification_interval, trigger, trigger_tokens]
+    required_arguments: [percentage, estimated_tokens, context_limit, notification_interval, trigger_tokens]
+  compact-context-tool.compacted-with-limit:
+    template: 'Compacted this calling agent session. Context is now {usage}% used ({estimated_tokens} estimated tokens / {context_limit} model context window); notifications occur every {notification_interval}%; automatic compaction triggers strictly above {trigger_tokens} tokens.'
+    allowed_arguments: [usage, estimated_tokens, context_limit, notification_interval, trigger, trigger_tokens]
+    required_arguments: [usage, estimated_tokens, context_limit, notification_interval, trigger_tokens]
+  compact-context-tool.no-op-with-limit:
+    template: 'No eligible context was compacted in this calling agent session. Context is {usage}% used ({estimated_tokens} estimated tokens / {context_limit} model context window); notifications occur every {notification_interval}%; automatic compaction triggers strictly above {trigger_tokens} tokens.'
+    allowed_arguments: [usage, estimated_tokens, context_limit, notification_interval, trigger, trigger_tokens]
+    required_arguments: [usage, estimated_tokens, context_limit, notification_interval, trigger_tokens]
+  compact-context-tool.unavailable-with-limit:
+    template: 'Context compaction is unavailable for this calling agent session because the selected model has no positive context window ({estimated_tokens} estimated tokens / {context_limit} model context window); notifications occur every {notification_interval}%; automatic compaction trigger: {trigger_tokens} tokens.'
+    allowed_arguments: [estimated_tokens, context_limit, notification_interval, trigger, trigger_tokens]
+    required_arguments: [estimated_tokens, context_limit, notification_interval, trigger_tokens]
   goal.root-reminder:
     template: 'User set goal is {goal}. Clear exit reminder if end condition met.'
     allowed_arguments: [goal]
@@ -961,10 +982,15 @@ profiles:
 # Parameters use standard JSON Schema represented as YAML.
 tools:
   compact_context:
-    description: Compact only this calling agent session's context without affecting its parent or children, then report the post-operation context status.
+    description: Compact only this calling agent session's context without affecting its parent or children, then report the post-operation context status. An optional target_context_size accepts positive whole tokens, an integer k suffix, or a whole percentage of the model context window.
     parameters:
       type: object
       additionalProperties: false
+      properties:
+        target_context_size:
+          type: string
+          description: Optional compaction target such as 100k or 20%.
+      required: []
   answer:
     description: Answer the pending ordered questions from one direct child agent.
     parameters:

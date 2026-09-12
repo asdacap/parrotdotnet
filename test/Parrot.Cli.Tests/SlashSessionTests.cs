@@ -19,10 +19,11 @@ internal sealed class SlashSessionTests
             false,
             new RecordingSlashSessionBinding());
 
-        await session.Compact(CancellationToken.None);
+        await session.Compact("20%", CancellationToken.None);
 
         _ = await Assert.That(invoker.Compactions).Count().IsEqualTo(1);
         _ = await Assert.That(invoker.Compactions[0].UserSessionId).IsEqualTo("session-7");
+        _ = await Assert.That(invoker.Compactions[0].TargetContextSize).IsEqualTo("20%");
     }
 
     [Test]

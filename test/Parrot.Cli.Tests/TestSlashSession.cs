@@ -20,6 +20,12 @@ internal sealed class TestSlashSession(string model) : ISlashSession
 
     public CancellationToken CompactionCancellationToken { get; private set; }
 
+    public string? CompactionTarget { get; private set; }
+
+    public List<string> ContextLimits { get; } = [];
+
+    public SetContextLimitResponse ContextLimitResponse { get; set; } = new();
+
     public ListSkillsResponse Skills { get; } = new();
 
     public List<ConfigureSkillRequest> ConfiguredSkills { get; } = [];
@@ -89,11 +95,18 @@ internal sealed class TestSlashSession(string model) : ISlashSession
         return Task.CompletedTask;
     }
 
-    public Task Compact(CancellationToken cancellationToken)
+    public Task Compact(string? targetContextSize, CancellationToken cancellationToken)
     {
         Compactions++;
+        CompactionTarget = targetContextSize;
         CompactionCancellationToken = cancellationToken;
         return Task.CompletedTask;
+    }
+
+    public Task<SetContextLimitResponse> SetContextLimit(string contextLimit, CancellationToken cancellationToken)
+    {
+        ContextLimits.Add(contextLimit);
+        return Task.FromResult(ContextLimitResponse.Clone());
     }
 
     public Task<ListSkillsResponse> ListSkills(CancellationToken cancellationToken) =>

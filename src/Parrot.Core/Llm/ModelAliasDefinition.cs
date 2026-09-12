@@ -1,3 +1,5 @@
+using Parrot.Context;
+
 namespace Parrot.Llm;
 
 internal sealed record ModelAliasDefinition(
@@ -5,4 +7,7 @@ internal sealed record ModelAliasDefinition(
     string ModelString,
     string Usage,
     string? AugmentSystemPrompt,
-    ModelAliasIcon? Icon);
+    ModelAliasIcon? Icon)
+{
+    public ContextSize? ContextLimit { get; init; }
+}

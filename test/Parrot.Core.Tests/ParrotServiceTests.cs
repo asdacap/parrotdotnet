@@ -824,6 +824,40 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    public async Task Set_context_limit_resolves_session_before_persisting_and_returns_persistence_response(
+        CancellationToken cancellationToken)
+    {
+        var store = Store();
+        await using var service = Service(store);
+        var context = new InProcessServerCallContext(cancellationToken);
+        var configPath = Path.Combine(_root, "config.yaml");
+        var before = await File.ReadAllTextAsync(configPath, cancellationToken);
+        var beforeRevision = _routing.Capture().Revision;
+
+        var refused = await Assert.That(async () => await service.SetContextLimit(
+            new SetContextLimitRequest { UserSessionId = "missing", ContextLimit = "100k" },
+            context)).Throws<RpcException>();
+
+        _ = await Assert.That(refused?.StatusCode).IsEqualTo(StatusCode.NotFound);
+        _ = await Assert.That(await File.ReadAllTextAsync(configPath, cancellationToken)).IsEqualTo(before);
+        _ = await Assert.That(_configuration.ContextLimit).IsNull();
+        _ = await Assert.That(_routing.Capture().Revision).IsEqualTo(beforeRevision);
+
+        var session = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
+        var applied = await service.SetContextLimit(
+            new SetContextLimitRequest { UserSessionId = session.Id, ContextLimit = "100k" },
+            context);
+        var reloaded = Configuration.Load(configPath, Path.Combine(_root, "predefined_config.yaml"));
+
+        _ = await Assert.That(applied.ContextLimit).IsEqualTo("100000");
+        _ = await Assert.That(applied.AliasOverride).IsFalse();
+        _ = await Assert.That(reloaded.ContextLimit?.ToString()).IsEqualTo("100000");
+        _ = await Assert.That(_routing.Capture().ContextLimit?.ToString()).IsEqualTo("100000");
+        _ = await Assert.That(await File.ReadAllTextAsync(configPath, cancellationToken))
+            .Contains("context_limit: 100000");
+    }
+
+    [Test]
     public async Task Model_presets_are_set_and_selected_through_the_server_contract(
         CancellationToken cancellationToken)
     {

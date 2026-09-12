@@ -110,14 +110,19 @@ internal partial class Composition
                             alias.Value.ModelString,
                             alias.Value.Usage,
                             alias.Value.AugmentSystemPrompt,
-                            icon);
+                            icon)
+                        {
+                            ContextLimit = alias.Value.ContextLimit,
+                        };
                     }));
             })
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
                 ctx.Inject<ModelAliasCatalog>(out var aliases);
                 ctx.Inject<Configuration>(out var configuration);
-                return new ModelRouting(aliases, configuration.Model);
+                var routing = new ModelRouting(aliases, configuration.Model);
+                routing.Publish(routing.Capture() with { ContextLimit = configuration.ContextLimit });
+                return routing;
             })
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {

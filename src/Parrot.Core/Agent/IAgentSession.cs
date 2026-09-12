@@ -45,8 +45,8 @@ internal interface IAgentSession : IAsyncDisposable
     /// <summary>Interrupts current work and waits for the drain to unwind.</summary>
     Task Interrupt(CancellationToken cancellationToken);
 
-    /// <summary>Queues compaction to run within the session drain.</summary>
-    Task Compact(CancellationToken cancellationToken);
+    /// <summary>Queues compaction within the session drain, using a one-off target or the selected policy when null.</summary>
+    Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken);
 
     /// <summary>Waits for the captured drain result without admitting or waking work.</summary>
     Task Settled();
@@ -135,8 +135,9 @@ internal interface IAgentSession : IAsyncDisposable
         string toolCallId,
         string result);
 
-    /// <summary>Compacts context from a tool executing within the drain and reports the resulting estimate.</summary>
+    /// <summary>Compacts inline with a one-off target (null uses selected policy) and reports the resulting estimate.</summary>
     Task<ContextCompactionResult> CompactFromTool(
         AgentTurnSelection selection,
+        ContextSize? targetContextSize,
         CancellationToken cancellationToken);
 }

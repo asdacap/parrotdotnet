@@ -65,6 +65,29 @@ internal sealed class StatusRegistryTests
     }
 
     [Test]
+    [Arguments(100_000L, "100000")]
+    [Arguments(null, "unavailable")]
+    public async Task Context_reports_exact_override_without_replacing_model_window(long? triggerTokens, string expectedTrigger)
+    {
+        var snapshot = new ContextSnapshot(100_000, 1_000_000, 10, 10)
+        {
+            InputLimit = 900_000,
+            TriggerTokens = triggerTokens,
+            HasContextLimitOverride = true,
+        };
+        IStatusProvider provider = new ContextStatusProvider(snapshot, TestModels.PromptTemplates);
+        var observation = await provider.Observe(
+            new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"),
+            CancellationToken.None);
+
+        _ = await Assert.That(observation.Text).Contains("1000000 model context window")
+            .And.Contains($"strictly above {expectedTrigger} tokens");
+        _ = await Assert.That(snapshot.ExceedsTrigger).IsFalse();
+        _ = await Assert.That(snapshot.ExceedsCompactionTrigger(100_001)).IsEqualTo(triggerTokens is not null);
+        _ = await Assert.That(snapshot.ExceedsInputLimit).IsFalse();
+    }
+
+    [Test]
     [Arguments(true, false, "Context: -12% used (-123 estimated tokens / 1000 limit); reminders every 10%; automatic compaction at -90%.")]
     [Arguments(false, false, "Context: unavailable (-123 estimated tokens / -1 limit); reminders every 10%; automatic compaction at -90%.")]
     [Arguments(true, true, "-12|-123|1000|10|-90")]

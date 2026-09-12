@@ -824,10 +824,16 @@ Context status is calculated for the complete request that will be sent: the
 selected instructions, profile-filtered tools, and effective history. The
 estimated-token percentage is floor-rounded as `estimatedTokens * 100 /
 contextLimit` and capped at 100%; a model with no positive context window
-reports an unavailable percentage. The configured context limit is the model's
-context window, and the configured automatic-compaction trigger is strict:
-automatic compaction runs only when estimated tokens are above that percentage,
-not when they merely equal it.
+reports an unavailable percentage. The model's context window is reported separately from the provider's input
+ceiling. The optional `context_limit` setting is a compaction trigger budget,
+not a change to either model/provider limit: a token value is an absolute
+budget, while a percentage is calculated against the selected model's context
+window. The effective budget is capped by a positive provider input ceiling
+when one is known. If the selected model has no positive context window, a
+percentage cannot be resolved and context usage remains unavailable; Parrot
+does not invent a token budget. Automatic compaction is strict: it runs only
+when estimated tokens are above the effective trigger, not when they merely
+equal it.
 
 Context reminders use fixed 5% notification bands. A turn that crosses several
 bands coalesces them into one reminder for the highest crossed band; initial,
@@ -842,11 +848,15 @@ candidate reminder would exceed the model window or the strict automatic
 trigger, Parrot compacts/recomputes first or safely skips the candidate rather
 than persisting an unsafe reminder.
 
-The model-facing `compact_context` tool accepts only `{}`. It is caller-only:
-when invoked inside an active tool drain it awaits the session's in-drain
-compaction core without queueing behind that same drain, preserves the
-incomplete current assistant/tool group, and returns one of reduced, no-op, or
-unavailable results with the caller's post-operation context accounting. It
+The model-facing `compact_context` tool accepts `{}` or an optional
+`target_context_size`, such as `100k` or `20%`. A target is request-local and
+uses the selected model's context window for percentages; it is best effort
+when required prompts or the latest messages cannot fit the requested budget.
+The tool is caller-only: when invoked inside an active tool drain it awaits the
+session's in-drain compaction core without queueing behind that same drain,
+preserves the incomplete current assistant/tool group, and returns one of
+reduced, no-op, or unavailable results with the caller's post-operation context
+accounting. It
 cannot compact a parent or child and is non-parallel. A reduced result means
 eligible history was persisted as a summary; a no-op means there was no eligible
 history to reduce; and an unavailable result means the selected model has no
@@ -928,9 +938,14 @@ model_aliases:
     model_string: provider/model/low
     usage: Low cost or routine work
     augment_system_prompt: null
+    # Optional compaction trigger for this alias; percentages use the model context window.
+    context_limit: 80%
   review_llm:
     model_string: provider/model/high
     usage: Careful code review
+
+# Optional global compaction trigger (an alias context_limit takes precedence).
+context_limit: 100k
 
 model_augment_system_prompts:
   provider/model/low: Additional system guidance
@@ -1087,7 +1102,21 @@ model_presets:
       low_llm: provider/model/low
       medium_llm: provider/model/medium
       xhigh_llm: provider/model/xhigh
+    context_limits:
+      # This mapping is a complete limit snapshot. Omitted alias overrides are cleared on select.
+      default: 100k
+      model_aliases:
+        high_llm: 80%
 ```
+
+`context_limit` is also set interactively with `/set-context-limit <size>`;
+it persists the global default in the server's user configuration. An alias
+`context_limit` overrides that default for the matching requested alias. The
+`context_limits` mapping in a preset saves the global default and alias
+overrides together. Its presence denotes a complete snapshot; its absence in
+an older preset preserves the limits already in effect when that preset is
+selected. To clear an override, save/select a complete preset whose mapping
+omits that alias (or edit the user configuration to `null`).
 
 Preset names must be one nonempty token with no whitespace, `/`, or control
 characters. `/model-preset-select NAME` restores the saved targets and selector.
@@ -1387,12 +1416,21 @@ and then a model, `/model-alias` to configure a predefined or custom alias,
 `/mode` to select a mode, `/clear` to configure a fresh session, or `/auth` to
 manage credentials. The argument-driven `/model-preset-set <name>` snapshots the
 current selector and alias targets, while `/model-preset-select <name>` restores
-one saved snapshot; both require exactly one valid name token. `/compact`
-explicitly compacts the current root session even when it
-is below the automatic threshold. It waits for active work to become idle, sends
-no model prompt, and may complete as a no-op when there is insufficient eligible
-history. Separately, the model-facing `compact_context` tool accepts only `{}` and
-compacts only the calling agent session from inside its active tool round. It does
+one saved snapshot; both require exactly one valid name token. `/compact [size]`
+explicitly compacts the current root session even when it is below the automatic
+threshold. `size` is optional and accepts positive whole tokens (for example
+`100000`), an integer `k` suffix (`100k` means 100,000 tokens), or a whole
+percentage from `1%` to `100%` of the selected model's context window. The
+explicit target is request-local and best effort; it does not change the
+persisted trigger. `/compact` waits for active work to become idle, sends no
+model prompt, and may complete as a no-op when there is insufficient eligible
+history. `/set-context-limit <size>` persists the automatic-compaction trigger
+using the same syntax. With no explicit target, legacy configurations retain
+their existing input-ceiling percentage behavior; a configured limit uses the
+configured target percentage (normally 30%) of the effective trigger.
+Separately, the model-facing `compact_context` tool accepts `{}` or
+`{"target_context_size":"20%"}` and compacts only the calling agent session
+from inside its active tool round. It does
 not compact a parent or child session, and reports the caller's post-operation
 context estimate, percentage or unavailable window, 5% notification interval,
 and automatic trigger. Wizard commands ignore text after the command name because

@@ -66,6 +66,41 @@ internal sealed class Compactor(
         return new ContextSnapshot(estimatedTokens, contextLimit, usagePercent, triggerPercent)
         {
             InputLimit = selectedModel.Model.InputTokenLimit,
+            TriggerTokens = selectedModel.Model.InputTokenLimit > 0
+                ? (long)selectedModel.Model.InputTokenLimit * triggerPercent / 100
+                : null,
+        };
+    }
+
+    public ContextCompactionPolicy ResolvePolicy(ResolvedModelSelection selectedModel, ContextSize? targetContextSize)
+    {
+        ArgumentNullException.ThrowIfNull(selectedModel);
+        return ContextCompactionPolicy.Resolve(
+            selectedModel.ContextLimit,
+            targetContextSize,
+            selectedModel.CanonicalModel.Model.ContextWindow,
+            selectedModel.CanonicalModel.Model.InputTokenLimit,
+            triggerPercent,
+            targetPercent);
+    }
+
+    public ContextSnapshot EstimateSelectedContext(
+        ResolvedModelSelection selectedModel,
+        string instructions,
+        IReadOnlyList<LLMToolDefinition> tools,
+        IReadOnlyList<LLMMessage> history)
+    {
+        var policy = ResolvePolicy(selectedModel, null);
+        var snapshot = EstimateContext(selectedModel.CanonicalModel, instructions, tools, history);
+        var effectiveTriggerPercent = selectedModel.ContextLimit is not null
+            && snapshot.ContextLimit > 0 && policy.TriggerTokens is { } triggerTokens
+            ? (int)Math.Clamp(triggerTokens >= snapshot.ContextLimit ? 100 : triggerTokens * 100 / snapshot.ContextLimit, 0, 100)
+            : triggerPercent;
+        return snapshot with
+        {
+            TriggerTokens = policy.TriggerTokens,
+            TriggerPercent = effectiveTriggerPercent,
+            HasContextLimitOverride = selectedModel.ContextLimit is not null,
         };
     }
 
@@ -101,11 +136,15 @@ internal sealed class Compactor(
                 false,
                 IsComplete(messages)))
             .ToList();
+        var targetBudget = selectedModel.Model.InputTokenLimit > 0
+            ? PercentageBudget(selectedModel.Model.InputTokenLimit, targetPercent)
+            : (long?)null;
         var providerSessions = new ProviderSessions(diagnostics, agentSessionId);
         try
         {
             return await CompactCore(
                 selectedModel,
+                targetBudget,
                 instructions,
                 tools,
                 groups,
@@ -134,11 +173,15 @@ internal sealed class Compactor(
         string agentSessionId,
         CancellationToken cancellationToken)
     {
+        var targetBudget = selectedModel.Model.InputTokenLimit > 0
+            ? PercentageBudget(selectedModel.Model.InputTokenLimit, targetPercent)
+            : (long?)null;
         var providerSessions = new ProviderSessions(diagnostics, agentSessionId);
         try
         {
             return await CompactCore(
                 selectedModel,
+                targetBudget,
                 instructions,
                 tools,
                 groups,
@@ -156,7 +199,8 @@ internal sealed class Compactor(
     }
 
     internal Task<CompactionResult?> CompactWithProviderSessions(
-        ProviderModel selectedModel,
+        ResolvedModelSelection selectedModel,
+        ContextSize? targetContextSize,
         string instructions,
         IReadOnlyList<LLMToolDefinition> tools,
         IReadOnlyList<CompactionGroup> groups,
@@ -167,7 +211,8 @@ internal sealed class Compactor(
         Func<LLMEvent, CancellationToken, ValueTask> emitRetry,
         CancellationToken cancellationToken) =>
         CompactCore(
-            selectedModel,
+            selectedModel.CanonicalModel,
+            ResolvePolicy(selectedModel, targetContextSize).TargetTokens,
             instructions,
             tools,
             groups,
@@ -249,6 +294,7 @@ internal sealed class Compactor(
 
     private async Task<CompactionResult?> CompactCore(
         ProviderModel selectedModel,
+        long? resolvedTargetBudget,
         string instructions,
         IReadOnlyList<LLMToolDefinition> tools,
         IReadOnlyList<CompactionGroup> groups,
@@ -266,13 +312,12 @@ internal sealed class Compactor(
         ArgumentNullException.ThrowIfNull(fixedMessage);
         ArgumentNullException.ThrowIfNull(groupBlobs);
         ArgumentNullException.ThrowIfNull(providerSessions);
-        if (groups.Count < 2)
+        if (groups.Count < 2 || resolvedTargetBudget is not { } targetBudget)
         {
             return null;
         }
 
         var inputTokenLimit = selectedModel.Model.InputTokenLimit;
-        var targetBudget = PercentageBudget(inputTokenLimit, targetPercent);
         var keepGroupFrom = groups.Count - 1;
         var retained = groups[^1].Messages.ToList();
 

@@ -12,6 +12,14 @@ internal sealed record ContextSnapshot(
 
     public bool ExceedsInputLimit => InputLimit > 0 && EstimatedTokens > InputLimit;
 
-    public bool ExceedsTrigger => InputLimit > 0
-        && EstimatedTokens > ((long)InputLimit * TriggerPercent) / 100;
+    public long? TriggerTokens { get; init; } = ContextLimit > 0
+        ? (long)ContextLimit * TriggerPercent / 100
+        : null;
+
+    public bool HasContextLimitOverride { get; init; }
+
+    public bool ExceedsTrigger => ExceedsCompactionTrigger(EstimatedTokens);
+
+    public bool ExceedsCompactionTrigger(long inputTokens) => TriggerTokens is { } triggerTokens
+        && inputTokens > triggerTokens;
 }

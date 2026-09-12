@@ -838,7 +838,10 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    [Arguments(null)]
+    [Arguments("1")]
     public async Task Agent_session_compaction_is_saved_and_restored_without_compacted_prefix(
+        string? targetContextSize,
         CancellationToken cancellationToken)
     {
         using var database = SessionDatabase.Open(":memory:");
@@ -883,7 +886,15 @@ internal sealed class CompactorAndContextTests : IDisposable
             await session.Settled();
         }
 
-        await session.Compact(cancellationToken);
+        var selected = session.CurrentSelection();
+        var selection = new AgentTurnSelection(
+            selected.RequestedModel,
+            TestModels.Resolve(model),
+            selected.Mode,
+            selected.SecurityProfile);
+        var triggerBeforeCompaction = session.EstimateContext(selection).TriggerTokens;
+        await session.Compact(targetContextSize is null ? null : ContextSize.Parse(targetContextSize), cancellationToken);
+        _ = await Assert.That(session.EstimateContext(selection).TriggerTokens).IsEqualTo(triggerBeforeCompaction);
         var snapshot = repository.Compaction("agent")
             ?? throw new InvalidOperationException("Expected a durable compaction snapshot.");
         var lifecycle = repository.Replay()
@@ -988,7 +999,7 @@ internal sealed class CompactorAndContextTests : IDisposable
 
         var eventsBeforeCompaction = repository.Replay().Count;
         var requestsBeforeCompaction = provider.Requests.Count;
-        await session.Compact(cancellationToken);
+        await session.Compact(null, cancellationToken);
 
         var snapshot = repository.Compaction("agent")
             ?? throw new InvalidOperationException("Expected a durable compaction snapshot.");
@@ -1106,7 +1117,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             [],
             string.Empty);
 
-        await session.Compact(cancellationToken);
+        await session.Compact(null, cancellationToken);
 
         var snapshot = repository.Compaction("agent")
             ?? throw new InvalidOperationException("Expected a durable compaction snapshot.");
@@ -1219,7 +1230,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             string.Empty);
 
         var historyBefore = repository.Conversation("agent").ToArray();
-        _ = await Assert.That(async () => await session.Compact(cancellationToken))
+        _ = await Assert.That(async () => await session.Compact(null, cancellationToken))
             .Throws<InvalidOperationException>();
         var lifecycle = repository.Replay()
             .Where(published => published.PayloadCase is Event.PayloadOneofCase.CompactionStarted
@@ -1272,7 +1283,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await session.Send(
             [ConversationPart.TextPart("third")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
-        var compaction = session.Compact(cancellationToken);
+        var compaction = session.Compact(null, cancellationToken);
 
         _ = await Assert.That(compaction.IsCompleted).IsFalse();
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(3);
@@ -1305,7 +1316,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         await provider.Arrived(cancellationToken);
         var eventsBeforeCompaction = repository.Replay().Count;
         using var compactionCancellation = new CancellationTokenSource();
-        var compaction = session.Compact(compactionCancellation.Token);
+        var compaction = session.Compact(null, compactionCancellation.Token);
 
         await compactionCancellation.CancelAsync();
         _ = await Assert.That(async () => await compaction.WaitAsync(TimeSpan.FromSeconds(1)))
@@ -1335,7 +1346,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
         await using IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, cancellationToken);
 
-        await session.Compact(cancellationToken);
+        await session.Compact(null, cancellationToken);
 
         _ = await Assert.That(provider.Requests).IsEmpty();
         _ = await Assert.That(repository.Compaction("agent")).IsNull();
@@ -1370,11 +1381,11 @@ internal sealed class CompactorAndContextTests : IDisposable
         var eventsBeforeCompaction = repository.Replay().Count;
         if (completes)
         {
-            await session.Compact(cancellationToken);
+            await session.Compact(null, cancellationToken);
         }
         else
         {
-            _ = await Assert.That(async () => await session.Compact(cancellationToken))
+            _ = await Assert.That(async () => await session.Compact(null, cancellationToken))
                 .Throws<InvalidOperationException>();
         }
 
@@ -1433,7 +1444,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         }
 
         var eventsBeforeCompaction = repository.Replay().Count;
-        _ = await Assert.That(async () => await session.Compact(cancellationToken))
+        _ = await Assert.That(async () => await session.Compact(null, cancellationToken))
             .Throws<InvalidOperationException>();
 
         var compactedEvents = repository.Replay().Skip(eventsBeforeCompaction).ToArray();
@@ -1627,6 +1638,128 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(after.ContextLimit).IsEqualTo(contextWindow);
         _ = await Assert.That(after.EstimatedTokens).IsLessThanOrEqualTo(300);
         _ = await Assert.That(after.ExceedsInputLimit).IsFalse();
+    }
+
+    [Test]
+    [Arguments(null, "500", 1_000, 800, 500L, 150L)]
+    [Arguments("200", "500", 1_000, 800, 200L, 60L)]
+    [Arguments("90%", "500", 1_000, 800, 800L, 240L)]
+    [Arguments("100k", "500", 1_000_000, 800_000, 100_000L, 30_000L)]
+    public async Task Selected_context_estimate_uses_captured_alias_or_global_limit(
+        string? aliasLimit,
+        string globalLimit,
+        int contextWindow,
+        int inputLimit,
+        long expectedTrigger,
+        long expectedTarget)
+    {
+        var provider = new ScriptedProvider("summary");
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id)
+        {
+            ContextWindow = contextWindow,
+            MaxInputTokens = inputLimit,
+        });
+        var alias = new ModelAliasDefinition("alias", model.Selector, string.Empty, null, null)
+        {
+            ContextLimit = aliasLimit is null ? null : ContextSize.Parse(aliasLimit),
+        };
+        var selection = new ResolvedModelSelection(
+            new ModelSelector("alias"),
+            alias,
+            model,
+            new ModelRoutingSnapshot(model.Selector, new ModelAliasSnapshot([alias]), 0)
+            {
+                ContextLimit = ContextSize.Parse(globalLimit),
+            });
+        var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var snapshot = compactor.EstimateSelectedContext(selection, new string('x', 1_000), [], []);
+
+        _ = await Assert.That(snapshot.TriggerTokens).IsEqualTo(expectedTrigger);
+        _ = await Assert.That(snapshot.TriggerPercent).IsEqualTo((int)(expectedTrigger * 100 / contextWindow));
+        _ = await Assert.That(snapshot.ExceedsTrigger).IsEqualTo(expectedTrigger < 254);
+        _ = await Assert.That(snapshot.ExceedsCompactionTrigger(expectedTrigger)).IsFalse();
+        _ = await Assert.That(snapshot.ExceedsCompactionTrigger(expectedTrigger + 1)).IsTrue();
+        _ = await Assert.That(snapshot.ContextLimit).IsEqualTo(contextWindow);
+        _ = await Assert.That(snapshot.InputLimit).IsEqualTo(inputLimit);
+        _ = await Assert.That(compactor.ResolvePolicy(selection, null).TargetTokens).IsEqualTo(expectedTarget);
+        _ = await Assert.That(compactor.ResolvePolicy(selection, ContextSize.Parse("70%")).TargetTokens).IsEqualTo((long)contextWindow * 70 / 100);
+        _ = await Assert.That(compactor.ResolvePolicy(selection, null).TargetTokens).IsEqualTo(expectedTarget);
+    }
+
+    [Test]
+    public async Task Selected_compaction_targets_are_request_local_and_tiny_targets_are_best_effort(
+        CancellationToken cancellationToken)
+    {
+        var provider = new ScriptedProvider("summary");
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 });
+        var selection = new ResolvedModelSelection(
+            new ModelSelector(model.Selector),
+            null,
+            model,
+            new ModelRoutingSnapshot(model.Selector, new ModelAliasSnapshot([]), 0));
+        var compactor = new Compactor(90, 30, 60_000, 100, TestModels.PromptTemplates);
+        var groups = Enumerable.Range(0, 6)
+            .Select(index => new CompactionGroup(
+                [LLMMessage.User($"message {index} {new string('x', 300)}")], index + 1, false, true))
+            .ToList();
+        var sessions = new ProviderSessions(TestDiagnosticLog.Instance, "agent-test");
+        try
+        {
+            var tiny = await compactor.CompactWithProviderSessions(
+                selection,
+                ContextSize.Parse("1"),
+                string.Empty,
+                [],
+                groups,
+                0,
+                LLMMessage.User("fixed"),
+                _compactionGroupBlobs,
+                sessions,
+                static (_, _) => ValueTask.CompletedTask,
+                cancellationToken)
+                ?? throw new InvalidOperationException("Expected compaction.");
+            var normal = await compactor.CompactWithProviderSessions(
+                selection,
+                null,
+                string.Empty,
+                [],
+                groups,
+                0,
+                LLMMessage.User("fixed"),
+                _compactionGroupBlobs,
+                sessions,
+                static (_, _) => ValueTask.CompletedTask,
+                cancellationToken)
+                ?? throw new InvalidOperationException("Expected compaction.");
+            _ = await Assert.That(tiny.RetainedDurableMessageCount).IsEqualTo(1);
+            _ = await Assert.That(normal.RetainedDurableMessageCount).IsGreaterThan(tiny.RetainedDurableMessageCount);
+            _ = await Assert.That(Compactor.EstimateInputTokens(string.Empty, [], normal.History)).IsLessThanOrEqualTo(300);
+            _ = await Assert.That(Compactor.EstimateInputTokens(string.Empty, [], tiny.History)).IsLessThanOrEqualTo(1_000);
+
+            var unknown = selection with
+            {
+                CanonicalModel = new ProviderModel(provider, new LLMModel("unknown", provider.Id)),
+            };
+            var requestCount = provider.Requests.Count;
+            var unavailable = await compactor.CompactWithProviderSessions(
+                unknown,
+                ContextSize.Parse("50%"),
+                string.Empty,
+                [],
+                groups,
+                0,
+                LLMMessage.User("fixed"),
+                _compactionGroupBlobs,
+                sessions,
+                static (_, _) => ValueTask.CompletedTask,
+                cancellationToken);
+            _ = await Assert.That(unavailable).IsNull();
+            _ = await Assert.That(provider.Requests.Count).IsEqualTo(requestCount);
+        }
+        finally
+        {
+            await sessions.Close();
+        }
     }
 
     [Test]
