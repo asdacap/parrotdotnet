@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Diagnostics;
@@ -12,6 +13,19 @@ namespace Parrot.Agent;
 
 internal sealed partial class AgentSession
 {
+    private static bool IsValidToolCallArguments(string arguments)
+    {
+        try
+        {
+            _ = JsonDocument.Parse(arguments);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     private async Task<string> ObserveStatusForInsertion(
         AgentTurnSelection selection,
         IAgentProfile profile,
@@ -806,6 +820,28 @@ internal sealed partial class AgentSession
                         LLMMessage.System(_truncatedToolCallPrompt),
                         ConversationOrigin.System);
                     _history.Add(LLMMessage.System(_truncatedToolCallPrompt));
+                    await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
+                if (completed.ToolCalls.Count > 0
+                    && completed.ToolCalls.Any(call => !IsValidToolCallArguments(call.ArgumentsJson)))
+                {
+                    var published = new Event
+                    {
+                        Id = Identifier.EventId(),
+                        AgentSessionId = SessionId,
+                        RetryNotice = new RetryNotice
+                        {
+                            Attempt = providerRequests,
+                            Reason = _invalidToolCallPrompt,
+                        },
+                    };
+                    _ = eventRepository.Append(
+                        published,
+                        LLMMessage.System(_invalidToolCallPrompt),
+                        ConversationOrigin.System);
+                    _history.Add(LLMMessage.System(_invalidToolCallPrompt));
                     await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
                     continue;
                 }

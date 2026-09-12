@@ -1252,6 +1252,65 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    public async Task Invalid_tool_call_arguments_are_discarded_and_reissued_before_execution(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed(
+                "stop",
+                10,
+                0,
+                32_768,
+                "partial",
+                [new LLMToolCall("invalid", "settled", "{\"value\":\"")]),
+            Answer(string.Empty, new LLMToolCall("complete", "settled", "{}")),
+            Answer("done"));
+        var repository = new EventRepository(_database);
+        using var subscription = _broker.Subscribe();
+        await using var session = Session(
+            provider,
+            repository,
+            [new TestTool(new SettledTool("settled"))],
+            new DrainProfile(maxTurns: 4).Mode,
+            cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+
+        var correction = provider.Requests[1].Messages.Single(message =>
+            message.Role == LLMRole.System
+            && message.Content.Contains("not valid JSON", StringComparison.Ordinal));
+        _ = await Assert.That(correction.Content).Contains("was not executed").And.Contains("well-formed JSON arguments");
+        _ = await Assert.That(provider.Requests[1].Messages).DoesNotContain(message =>
+            message.ToolCalls.Any(call => call.Id == "invalid"));
+        _ = await Assert.That(repository.ModelHistory("agent")).DoesNotContain(message =>
+            message.ToolCalls.Any(call => call.Id == "invalid"));
+        _ = await Assert.That(ToolLifecycle(repository)).DoesNotContain("invalid");
+
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await session.Settled();
+
+        var published = new List<Event>();
+        while (subscription.Reader.TryRead(out var next))
+        {
+            published.Add(next);
+        }
+
+        var retry = published.Single(item => item.PayloadCase == Event.PayloadOneofCase.RetryNotice).RetryNotice;
+        _ = await Assert.That(retry.Attempt).IsEqualTo(1);
+        _ = await Assert.That(retry.RetryAfterMs).IsEqualTo(0);
+        _ = await Assert.That(retry.Reason).Contains("not valid JSON");
+        _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
+            "started:complete:settled | finished:complete:settled");
+        _ = await Assert.That(Conversation(repository)).IsEqualTo(
+            $"user: prompt | system: {correction.Content} | assistant:  | tool: settled | assistant: done");
+    }
+
+    [Test]
     public async Task Repeated_length_truncated_tool_calls_consume_the_provider_request_limit(
         CancellationToken cancellationToken)
     {
