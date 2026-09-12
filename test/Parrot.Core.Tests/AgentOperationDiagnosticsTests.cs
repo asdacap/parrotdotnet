@@ -80,7 +80,7 @@ internal sealed class AgentOperationDiagnosticsTests : IDisposable
             new ToolOutputBlobStore(_root),
             TestModels.CompactionGroupBlobs(),
             new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates),
-            new ProviderSessions(diagnostics, identity.SessionId),
+            new ProviderSessions(diagnostics, identity.SessionId, null),
             new ContextCadence(),
             TestModels.PromptTemplates,
             dependencies.ChildQuestions,

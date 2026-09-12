@@ -139,7 +139,7 @@ internal sealed class Compactor(
         var targetBudget = selectedModel.Model.InputTokenLimit > 0
             ? PercentageBudget(selectedModel.Model.InputTokenLimit, targetPercent)
             : (long?)null;
-        var providerSessions = new ProviderSessions(diagnostics, agentSessionId);
+        var providerSessions = new ProviderSessions(diagnostics, agentSessionId, null);
         try
         {
             return await CompactCore(
@@ -176,7 +176,7 @@ internal sealed class Compactor(
         var targetBudget = selectedModel.Model.InputTokenLimit > 0
             ? PercentageBudget(selectedModel.Model.InputTokenLimit, targetPercent)
             : (long?)null;
-        var providerSessions = new ProviderSessions(diagnostics, agentSessionId);
+        var providerSessions = new ProviderSessions(diagnostics, agentSessionId, null);
         try
         {
             return await CompactCore(

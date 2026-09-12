@@ -41,7 +41,7 @@ internal sealed class ProviderDiagnosticsTests
                 ? new OperationCanceledException("private-sentinel", cancellation.Token)
                 : new InvalidOperationException("private-sentinel");
             var provider = new DiagnosticTestProvider(behavior, expected);
-            var sessions = new ProviderSessions(log, "agent-provider");
+            var sessions = new ProviderSessions(log, "agent-provider", null);
             Exception? received = null;
             var emitted = new List<LLMEvent>();
             try
@@ -119,8 +119,8 @@ internal sealed class ProviderDiagnosticsTests
             using var firstLog = FileDiagnosticLog.OpenSession(first, "provider-instance", TextWriter.Null, TimeProvider.System);
             using var secondLog = FileDiagnosticLog.OpenSession(second, "provider-instance", TextWriter.Null, TimeProvider.System);
             var provider = new DiagnosticTestProvider("completed", new InvalidOperationException("private-sentinel"));
-            var firstSessions = new ProviderSessions(firstLog, "first-agent");
-            var secondSessions = new ProviderSessions(secondLog, "second-agent");
+            var firstSessions = new ProviderSessions(firstLog, "first-agent", null);
+            var secondSessions = new ProviderSessions(secondLog, "second-agent", null);
             foreach (var sessions in new[] { firstSessions, secondSessions })
             {
                 await foreach (var published in sessions.Get(provider).Call(

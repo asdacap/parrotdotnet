@@ -332,8 +332,10 @@ internal sealed class OpenAICompatibleProviderSession(
         private async IAsyncEnumerable<LLMEvent> Send(ProviderAttemptDiagnostics? attempt, [EnumeratorCancellation] CancellationToken cancellationToken)
         {
             var connection = await getConnection(cancellationToken).ConfigureAwait(false);
+            var body = Prepared.EncodeWebSocket(request.PreviousResponseId, request.Input, getTurnState());
+            diagnostics?.DumpRequest(body);
             await foreach (var published in connection.Send(
-                Prepared.EncodeWebSocket(request.PreviousResponseId, request.Input, getTurnState()),
+                body,
                 Response,
                 attempt,
                 cancellationToken).ConfigureAwait(false))

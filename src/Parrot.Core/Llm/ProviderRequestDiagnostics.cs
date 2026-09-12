@@ -4,8 +4,10 @@ using Parrot.Diagnostics;
 
 namespace Parrot.Llm;
 
-internal sealed class ProviderRequestDiagnostics(IDiagnosticLog diagnostics, DiagnosticEvent call)
+internal sealed class ProviderRequestDiagnostics(IDiagnosticLog diagnostics, DiagnosticEvent call, LastRequestDumper? lastRequestDumper)
 {
+    public void DumpRequest(byte[] body) => lastRequestDumper?.Dump(body);
+
     public async IAsyncEnumerable<LLMEvent> Trace(
         Func<ProviderAttemptDiagnostics?, CancellationToken, IAsyncEnumerable<LLMEvent>> send,
         string transport,
