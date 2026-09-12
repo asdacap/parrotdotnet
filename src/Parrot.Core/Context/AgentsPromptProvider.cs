@@ -5,7 +5,7 @@ namespace Parrot.Context;
 
 internal sealed class AgentsPromptProvider(string workingDirectory, string configDirectory, PromptTemplateCatalog templates) : ISystemPromptProvider
 {
-    public string Key => "runtime:system-context:11-agents";
+    public string Key => "runtime:system-context:07a-agents";
 
     public ISystemPrompt Materialize(AgentIdentity identity)
     {
