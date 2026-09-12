@@ -22,6 +22,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     private readonly IModelListDecoder _decoder;
     private readonly HttpClient _client;
     private readonly TimeSpan _headerTimeout;
+    private readonly TimeSpan _streamIdleTimeout;
     private readonly string _providerPreferences;
     private readonly IResponsesWebSocketConnector _websocketConnector;
     private readonly bool _disableWebSocket;
@@ -46,6 +47,11 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
         }
 
         ArgumentNullException.ThrowIfNull(options.ApiKeySource);
+
+        if (options.StreamIdleTimeout < TimeSpan.Zero)
+        {
+            throw new LLMProviderException("provider: stream idle timeout cannot be negative");
+        }
 
         if (options.HeaderTimeout < TimeSpan.Zero)
         {
@@ -81,6 +87,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
             HttpStreaming.EndpointUrl(options.BaseUrl, "images/edits", options.AllowInsecureLocalhost, options.AllowInsecureRemote),
             AuthHeadersForSession);
         _headerTimeout = options.HeaderTimeout;
+        _streamIdleTimeout = options.StreamIdleTimeout;
         _providerPreferences = options.ProviderPreferences;
         _websocketConnector = websocketConnector;
         _disableWebSocket = options.DisableWebSocket;
@@ -218,7 +225,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
             request.Diagnostics?.DumpRequest(body);
             yield return LLMEvent.HttpRequestStarted();
             var response = await HttpStreaming
-                .OpenStream(_client, _endpoint, body, headers, _headerTimeout, _maximumRequestBytes, attempt, sendCancellationToken)
+                .OpenStream(_client, _endpoint, body, headers, _headerTimeout, _streamIdleTimeout, _maximumRequestBytes, attempt, sendCancellationToken)
                 .ConfigureAwait(false);
             CaptureTurnState(response.Headers, captureTurnState);
 

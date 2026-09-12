@@ -68,6 +68,7 @@ internal sealed class HttpResponseByteTests
                 [],
                 new Dictionary<string, string>(StringComparer.Ordinal),
                 TimeSpan.FromSeconds(1),
+                TimeSpan.FromMinutes(5),
                 10,
                 attempt,
                 cancellationToken);

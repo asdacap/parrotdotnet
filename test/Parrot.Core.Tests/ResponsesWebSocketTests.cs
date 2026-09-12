@@ -250,6 +250,7 @@ internal sealed class ResponsesWebSocketTests
                 Encoding.UTF8.GetBytes("éé"),
                 new Dictionary<string, string>(StringComparer.Ordinal),
                 TimeSpan.FromSeconds(1),
+                TimeSpan.FromMinutes(5),
                 maximumRequestBytes,
                 null,
                 cancellationToken);

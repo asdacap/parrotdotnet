@@ -9,6 +9,78 @@ internal sealed class RetryingProviderTests
     private static readonly LLMRequest Request = new() { Model = "m", Messages = [] };
 
     [Test]
+    [Arguments(false, LLMEventKind.TextDelta)]
+    [Arguments(true, LLMEventKind.TextDelta)]
+    [Arguments(false, LLMEventKind.ReasoningDelta)]
+    [Arguments(true, LLMEventKind.ReasoningDelta)]
+    [Arguments(false, LLMEventKind.ToolCallDelta)]
+    [Arguments(true, LLMEventKind.ToolCallDelta)]
+    public async Task Idle_timeout_after_visible_output_is_not_retried(
+        bool useSession, LLMEventKind kind, CancellationToken cancellationToken)
+    {
+        var failure = new WireProtocolException("provider: idle timeout waiting for HTTP/SSE response bytes");
+        var scripted = new ReplayProvider(() => YieldThenThrow(failure, new LLMEvent { Kind = kind }));
+        ILLMProvider provider = new RetryingProvider(scripted);
+        await using var session = provider.OpenSession();
+        var received = new List<LLMEvent>();
+        async Task Consume()
+        {
+            await foreach (var published in useSession ? session.Call(Request, cancellationToken) : provider.Call(Request, cancellationToken))
+            {
+                received.Add(published);
+            }
+        }
+
+        _ = await Assert.That(Consume).Throws<WireProtocolException>();
+        _ = await Assert.That(scripted.Calls).IsEqualTo(1);
+        _ = await Assert.That(received.Select(item => item.Kind).SequenceEqual([kind])).IsTrue();
+    }
+
+    [Test]
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Arguments(true, true)]
+    [Timeout(30_000)]
+    public async Task Idle_timeout_before_output_retries_with_bounded_exhaustion(
+        bool useSession, bool exhausted, CancellationToken cancellationToken)
+    {
+        var failure = new WireProtocolException("provider: idle timeout waiting for HTTP/SSE response bytes");
+        var attempts = Enumerable.Range(0, exhausted ? 6 : 1)
+            .Select(_ => (Func<IAsyncEnumerable<LLMEvent>>)(() => YieldThenThrow(
+                failure, LLMEvent.HttpRequestStarted(), LLMEvent.HttpResponseHeadersReceived()))).ToList();
+        if (!exhausted)
+        {
+            attempts.Add(() => Yield(LLMEvent.Completed("stop", 1, 0, 1, "answer", [])));
+        }
+
+        var scripted = new ReplayProvider([.. attempts]);
+        ILLMProvider provider = new RetryingProvider(scripted);
+        await using var session = provider.OpenSession();
+        var received = new List<LLMEvent>();
+        async Task Consume()
+        {
+            await foreach (var published in useSession ? session.Call(Request, cancellationToken) : provider.Call(Request, cancellationToken))
+            {
+                received.Add(published);
+            }
+        }
+
+        if (exhausted)
+        {
+            _ = await Assert.That(Consume).Throws<WireProtocolException>();
+        }
+        else
+        {
+            await Consume();
+            _ = await Assert.That(received[^1].Kind).IsEqualTo(LLMEventKind.Completed);
+        }
+
+        _ = await Assert.That(scripted.Calls).IsEqualTo(exhausted ? 6 : 2);
+        _ = await Assert.That(received.Count(item => item.Kind == LLMEventKind.Retry)).IsEqualTo(exhausted ? 5 : 1);
+    }
+
+    [Test]
     [Arguments(false, false)]
     [Arguments(true, false)]
     [Arguments(false, true)]

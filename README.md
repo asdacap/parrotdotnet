@@ -111,6 +111,36 @@ for a bare model selection.
 
 ## Configuration
 
+### Provider HTTP/SSE idle timeout
+
+```yaml
+providers:
+  chatgpt:
+    stream_idle_timeout_ms: 300000
+  openai:
+    stream_idle_timeout_ms: 60000
+```
+
+`stream_idle_timeout_ms` is a per-provider non-negative integer (up to
+2147483647), defaulting to 300000 milliseconds (five minutes). Set it to `0`
+to disable the HTTP/SSE body-read idle timeout; caller cancellation still works.
+It applies to ChatGPT and all OpenAI-compatible streaming protocols, including
+HTTP fallback from WebSocket.
+
+The timeout bounds each wait for body bytes, including the first read. Any
+received bytes count as activity, including heartbeat comments and partial SSE
+events. It is not a total request deadline or a model-progress timeout: active
+streams can continue indefinitely, and time spent processing already-received
+bytes does not consume the next read's allowance.
+
+An idle timeout fails the stream and uses the existing stream-error retry budget
+only before client-visible output. Once text, reasoning, or tool-call deltas have
+been delivered, the failed request is not replayed. Several silent attempts can
+therefore each wait for the full configured interval before retries are exhausted.
+This setting is independent of `header_timeout_ms` and the existing WebSocket
+five-minute idle timeout. It does not change image generation or non-streaming
+request timeouts.
+
 ### Request size limits
 
 ```yaml

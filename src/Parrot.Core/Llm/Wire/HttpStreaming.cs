@@ -90,17 +90,23 @@ internal static class HttpStreaming
     }
 
     // Opens a streaming POST. The header timeout bounds only time-to-headers;
-    // the body read is unbounded in time (SSE stays open) and bounded in size.
+    // each body read has an idle timeout, while active streams have no total deadline.
     public static async Task<StreamingHttpResponse> OpenStream(
         HttpClient client,
         Uri endpoint,
         byte[] body,
         IReadOnlyDictionary<string, string> headers,
         TimeSpan headerTimeout,
+        TimeSpan streamIdleTimeout,
         int maximumRequestBytes,
         ProviderAttemptDiagnostics? attempt,
         CancellationToken cancellationToken)
     {
+        if (streamIdleTimeout < TimeSpan.Zero)
+        {
+            throw new LLMProviderException("provider: stream idle timeout cannot be negative");
+        }
+
         if (body.Length > maximumRequestBytes)
         {
             throw new ProviderHttpException($"provider: request exceeds {maximumRequestBytes} bytes");
@@ -158,7 +164,7 @@ internal static class HttpStreaming
                 header => string.Join(", ", header.Value),
                 StringComparer.OrdinalIgnoreCase);
             transferred = true;
-            return new StreamingHttpResponse(raw, MaxStreamBytes, response, responseHeaders, attempt);
+            return new StreamingHttpResponse(raw, streamIdleTimeout, MaxStreamBytes, response, responseHeaders, attempt);
         }
         finally
         {

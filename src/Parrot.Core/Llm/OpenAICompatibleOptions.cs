@@ -41,6 +41,8 @@ internal sealed record OpenAICompatibleOptions
 
     public IModelListDecoder Decoder { get; init; } = StandardModelDecoder.Instance;
 
+    public TimeSpan StreamIdleTimeout { get; init; } = TimeSpan.FromMinutes(5);
+
     public TimeSpan HeaderTimeout { get; init; } = TimeSpan.FromSeconds(60);
 
     // Forwarded as the top-level "provider" object of each request body. Empty
