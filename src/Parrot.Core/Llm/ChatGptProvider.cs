@@ -247,6 +247,7 @@ internal sealed class ChatGptProvider : ILLMProvider
         async IAsyncEnumerable<LLMEvent> Send(ProviderAttemptDiagnostics? attempt, [EnumeratorCancellation] CancellationToken sendCancellationToken)
         {
             attempt?.RecordRequestBytes(body.Length);
+            request.Diagnostics?.DumpRequest(body);
             yield return LLMEvent.HttpRequestStarted();
             var response = await HttpStreaming
                 .OpenStream(_client, _endpoint, body, headers, HeaderTimeout, MaximumRequestBytes, attempt, sendCancellationToken)

@@ -1453,7 +1453,7 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
             new ToolOutputBlobStore(Path.GetTempPath()),
             TestModels.CompactionGroupBlobs(),
             new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
-            new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"),
+            new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null),
             new Parrot.Context.ContextCadence(),
             TestModels.PromptTemplates,
             childQuestions,

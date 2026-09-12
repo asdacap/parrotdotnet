@@ -210,6 +210,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
         async IAsyncEnumerable<LLMEvent> Send(ProviderAttemptDiagnostics? attempt, [EnumeratorCancellation] CancellationToken sendCancellationToken)
         {
             attempt?.RecordRequestBytes(body.Length);
+            request.Diagnostics?.DumpRequest(body);
             yield return LLMEvent.HttpRequestStarted();
             var response = await HttpStreaming
                 .OpenStream(_client, _endpoint, body, headers, _headerTimeout, _maximumRequestBytes, attempt, sendCancellationToken)

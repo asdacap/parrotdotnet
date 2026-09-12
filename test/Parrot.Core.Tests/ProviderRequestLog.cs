@@ -22,7 +22,7 @@ internal sealed class ProviderRequestLog : IDisposable
         _log = FileDiagnosticLog.OpenSession(_resources, "request-instance", TextWriter.Null, TimeProvider.System);
     }
 
-    public ProviderSessions OpenSessions(string agent) => new(_log, agent);
+    public ProviderSessions OpenSessions(string agent) => new(_log, agent, null);
 
     public async Task AssertAttempts(string agent, string[] transports, string[] outcomes, int calls)
     {

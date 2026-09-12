@@ -2142,7 +2142,7 @@ internal sealed class DrainTests : IDisposable
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
         _dependencies.Add(dependencies);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
     }
 
     private IAgentSession SessionWithSkills(
@@ -2182,7 +2182,7 @@ internal sealed class DrainTests : IDisposable
             new ToolOutputBlobStore(_blobDirectory),
             TestModels.CompactionGroupBlobs(),
             new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates),
-            new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"),
+            new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null),
             new ContextCadence(),
             TestModels.PromptTemplates,
             dependencies.ChildQuestions,
@@ -2229,7 +2229,7 @@ internal sealed class DrainTests : IDisposable
             new ToolOutputBlobStore(_blobDirectory),
             TestModels.CompactionGroupBlobs(),
             new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates),
-            new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"),
+            new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null),
             new ContextCadence(),
             TestModels.PromptTemplates,
             dependencies.ChildQuestions,
@@ -2257,7 +2257,7 @@ internal sealed class DrainTests : IDisposable
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
         _dependencies.Add(dependencies);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile, completionCallbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile, completionCallbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
     }
 
     private IAgentSession Session(
@@ -2284,7 +2284,7 @@ internal sealed class DrainTests : IDisposable
         });
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [.. toolFactories.Select(tool => tool.Factory)], definitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile ?? dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [.. toolFactories.Select(tool => tool.Factory)], definitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile ?? dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
     }
 
     private sealed class DrainProfile

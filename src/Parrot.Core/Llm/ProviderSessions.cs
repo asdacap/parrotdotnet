@@ -2,7 +2,7 @@ using Parrot.Diagnostics;
 
 namespace Parrot.Llm;
 
-internal sealed class ProviderSessions(IDiagnosticLog diagnostics, string agentSessionId)
+internal sealed class ProviderSessions(IDiagnosticLog diagnostics, string agentSessionId, LastRequestDumper? lastRequestDumper)
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<ILLMProvider, ILLMProviderSession> _sessions =
@@ -39,7 +39,7 @@ internal sealed class ProviderSessions(IDiagnosticLog diagnostics, string agentS
 
             session = provider.OpenSession()
                 ?? throw new InvalidOperationException($"Provider \"{provider.Id}\" returned no session.");
-            session = new DiagnosticProviderSession(session, diagnostics, agentSessionId, provider.Id);
+            session = new DiagnosticProviderSession(session, diagnostics, agentSessionId, provider.Id, lastRequestDumper);
             if (_turnOpen)
             {
                 session.BeginTurn();

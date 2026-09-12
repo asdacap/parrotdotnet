@@ -8,7 +8,8 @@ internal sealed class DiagnosticProviderSession(
     ILLMProviderSession providerSession,
     IDiagnosticLog diagnostics,
     string agentSessionId,
-    string providerId) : ILLMProviderSession
+    string providerId,
+    LastRequestDumper? lastRequestDumper) : ILLMProviderSession
 {
     public void BeginTurn() => providerSession.BeginTurn();
 
@@ -37,7 +38,7 @@ internal sealed class DiagnosticProviderSession(
             try
             {
                 enumerator = providerSession.CallWithRetryObservation(
-                        request with { Diagnostics = new ProviderRequestDiagnostics(diagnostics, entry) },
+                        request with { Diagnostics = new ProviderRequestDiagnostics(diagnostics, entry, lastRequestDumper) },
                         ObserveRetry,
                         cancellationToken)
                     .GetAsyncEnumerator(cancellationToken);

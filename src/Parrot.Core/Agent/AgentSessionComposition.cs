@@ -190,7 +190,12 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind<ProviderSessions>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new ProviderSessions(arguments.Diagnostics, arguments.Identity.SessionId);
+                return new ProviderSessions(
+                    arguments.Diagnostics,
+                    arguments.Identity.SessionId,
+                    new LastRequestDumper(
+                        Path.Combine(arguments.Scratch.Root, "last_request.json"),
+                        arguments.Diagnostics));
             })
             .Bind<PermissionBroker>().To(ctx =>
             {
