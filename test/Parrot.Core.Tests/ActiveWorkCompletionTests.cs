@@ -139,7 +139,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce, maxTurns: 3);
         await using var parent = Session("parent", provider, router, repository, registry, runner, resources, status, mode, lifetime.Token);
-        var queues = TestModels.ScopeOf(parent).Queues;
+        var queues = TestModels.ScopeOf(parent).GetService<IAgentQueues>();
         _ = queues.Create("owned-work", string.Empty);
         _ = await queues.Push("owned-work", populated ? ["pending"] : [], QueueDirection.Back, closed, cancellationToken);
         using var subscription = _broker.Subscribe();
@@ -401,7 +401,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
-        var rootQueues = TestModels.ScopeOf(root).Queues;
+        var rootQueues = TestModels.ScopeOf(root).GetService<IAgentQueues>();
         _ = rootQueues.Create("parent-open", string.Empty);
         _ = rootQueues.Create("parent-closed", string.Empty);
         _ = await rootQueues.Push("parent-open", ["pending"], QueueDirection.Back, false, cancellationToken);
@@ -544,7 +544,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
-        var queues = TestModels.ScopeOf(parent).Queues;
+        var queues = TestModels.ScopeOf(parent).GetService<IAgentQueues>();
         _ = queues.Create("owned-work", string.Empty);
         _ = await queues.Push("owned-work", ["pending"], QueueDirection.Back, false, cancellationToken);
         using var subscription = _broker.Subscribe();
@@ -640,7 +640,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             (sessionParentScope, owningScope, children, childQuestions) =>
             {
                 var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
-                return new AgentSession(identity, sessionParentScope, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, owningScope.Processes, owningScope.Queues, TestModels.PromptTemplates, null), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(mode.Profile.SecurityProfile).Security, status, owningScope.Queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
+                return new AgentSession(identity, sessionParentScope, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, owningScope.Processes, owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates, null), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(mode.Profile.SecurityProfile).Security, status, owningScope.GetService<IAgentQueues>(), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
             },
             lifetime);
         TestModels.RegisterScope(rootScope);
@@ -760,10 +760,10 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
                     scopedChildQuestions,
                     exitReminder,
                     mode,
-                    new TestCompletionCallbacksFixture(scopedChildQuestions, new ActiveWorkCompletionReminder(children, owningScope.Processes, owningScope.Queues, TestModels.PromptTemplates, null), exitReminder, eventRepository, eventBroker).Callbacks,
+                    new TestCompletionCallbacksFixture(scopedChildQuestions, new ActiveWorkCompletionReminder(children, owningScope.Processes, owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates, null), exitReminder, eventRepository, eventBroker).Callbacks,
                     new SecurityProfileTestFixture(securityProfile).Security,
                     status,
-                    owningScope.Queues,
+                    owningScope.GetService<IAgentQueues>(),
                     new AgentSessionActivity(TimeProvider.System),
                     TestDiagnosticLog.Instance,
                     lifetime);

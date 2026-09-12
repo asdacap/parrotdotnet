@@ -206,7 +206,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<IChildRegistry>(out var children);
-                return new AgentQueues(arguments.Identity, arguments.ParentLink.Parent?.Queues, arguments.Resources, children, static queueIdentity => new QueueInventory(queueIdentity), arguments.Diagnostics);
+                return new AgentQueues(arguments.Identity, arguments.ParentLink.Parent?.GetService<IAgentQueues>(), arguments.Resources, children, static queueIdentity => new QueueInventory(queueIdentity), arguments.Diagnostics);
             })
             .Bind<ExecCommandToolFactory>().As(Lifetime.Scoped).To<ExecCommandToolFactory>()
             .Bind<WriteStdinToolFactory>().As(Lifetime.Scoped).To<WriteStdinToolFactory>()

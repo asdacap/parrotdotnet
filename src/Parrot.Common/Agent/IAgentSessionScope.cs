@@ -1,7 +1,6 @@
 using Parrot.AgentTasks;
 using Parrot.Process;
 using Parrot.Questions;
-using Parrot.Queues;
 
 namespace Parrot.Agent;
 
@@ -11,8 +10,6 @@ internal interface IAgentSessionScope : IAsyncDisposable
     IAgentSession Session { get; }
 
     IProcessOwner Processes { get; }
-
-    IAgentQueues Queues { get; }
 
     IGoalService Goals { get; }
 
@@ -25,6 +22,13 @@ internal interface IAgentSessionScope : IAsyncDisposable
     IAgentParentScope ParentScope { get; }
 
     IChildQuestionCoordinator ChildQuestions { get; }
+
+    /// <summary>
+    /// Returns the existing service registered under exactly T, or throws InvalidOperationException when absent.
+    /// The caller borrows the instance without taking ownership; lookup remains available during and after shutdown.
+    /// </summary>
+    T GetService<T>()
+        where T : class;
 
     /// <summary>Publishes local inventories after the scope is admitted to its topology.</summary>
     void PublishInventories();

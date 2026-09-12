@@ -324,7 +324,7 @@ internal sealed class UserSession : IUserSession
         _ = Main();
         foreach (var scope in Registry.SnapshotScopes())
         {
-            foreach (var published in QueueInventoryProtocol.Convert(scope.Queues.CaptureInventory(), _mainSessionId))
+            foreach (var published in QueueInventoryProtocol.Convert(scope.GetService<IAgentQueues>().CaptureInventory(), _mainSessionId))
             {
                 yield return published;
             }

@@ -6,6 +6,7 @@ using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
+using Parrot.Queues;
 using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -180,7 +181,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
         var reminder = new ActiveWorkCompletionReminder(
             runtime.ParentScope.ChildRegistry,
             runtime.Processes,
-            runtime.ParentScope.Queues,
+            runtime.ParentScope.GetService<IAgentQueues>(),
             TestModels.PromptTemplates,
             catalog).Build();
         _ = await Assert.That(reminder).Contains("Running AgentTask graphs:");

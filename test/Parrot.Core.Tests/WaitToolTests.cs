@@ -50,7 +50,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var registry = PrepareRegistry(new EventRepository(_database));
         await using var scope = Session(provider, [], selectedRepository: null, registry);
         var session = scope.Session;
-        var queues = scope.Queues;
+        var queues = scope.GetService<IAgentQueues>();
         _ = queues.Create("work", "queued work");
         _ = await queues.Push("work", ["item"], QueueDirection.Back, false, cancellationToken);
         _ = scope.Processes.StartUnattributed("process", "sleep 60", ProcessEnvironmentOverrides.Empty, session, SecurityProfile.Compose(readOnly: false, [], [], []), ShellProcessTerminalMode.Pipe);
@@ -322,10 +322,10 @@ internal sealed class WaitToolTests : IAsyncDisposable
         using var diagnostics = FileDiagnosticLog.OpenSession(resources, "test", TextWriter.Null, TimeProvider.System);
         var registry = PrepareRegistry(repository);
         await using var parent = BuildSession(new UnusedProvider(), [], repository, registry, AgentIdentity.Main("parent", "parent", TestModels.PromptTemplates), AgentSessionParentLink.Root(), resources, diagnostics);
-        var parentQueues = parent.Queues;
+        var parentQueues = parent.GetService<IAgentQueues>();
         await using var childScope = BuildSession(provider, [], repository, registry, AgentIdentity.Child("child", "parent", "parent", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly), resources, diagnostics);
         var child = childScope.Session;
-        var childQueues = childScope.Queues;
+        var childQueues = childScope.GetService<IAgentQueues>();
         _ = parentQueues.Create("parent-work", string.Empty);
         _ = await childQueues.Listen("parent-work", true, cancellationToken);
         var waiting = child.WaitForIncomingInput(TimeSpan.FromMinutes(1), TimeProvider.System, cancellationToken);
@@ -354,13 +354,13 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var resources = QueueResources("competing-listener-queues");
         var registry = PrepareRegistry(repository);
         await using var parent = BuildSession(new UnusedProvider(), [], repository, registry, AgentIdentity.Main("parent", "parent", TestModels.PromptTemplates), AgentSessionParentLink.Root(), resources, TestDiagnosticLog.Instance);
-        var parentQueues = parent.Queues;
+        var parentQueues = parent.GetService<IAgentQueues>();
         await using var firstScope = BuildSession(firstProvider, [], repository, registry, AgentIdentity.Child("first-child", "parent", "parent", "first", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly), resources, TestDiagnosticLog.Instance);
         var first = firstScope.Session;
-        var firstQueues = firstScope.Queues;
+        var firstQueues = firstScope.GetService<IAgentQueues>();
         await using var secondScope = BuildSession(secondProvider, [], repository, registry, AgentIdentity.Child("second-child", "parent", "parent", "second", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly), resources, TestDiagnosticLog.Instance);
         var second = secondScope.Session;
-        var secondQueues = secondScope.Queues;
+        var secondQueues = secondScope.GetService<IAgentQueues>();
         _ = parentQueues.Create("shared-work", string.Empty);
         _ = await firstQueues.Listen("shared-work", true, cancellationToken);
         _ = await secondQueues.Listen("shared-work", true, cancellationToken);
@@ -419,13 +419,13 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var resources = QueueResources("disabled-listener-queues");
         var registry = PrepareRegistry(repository);
         await using var parent = BuildSession(new UnusedProvider(), [], repository, registry, AgentIdentity.Main("parent", "parent", TestModels.PromptTemplates), AgentSessionParentLink.Root(), resources, TestDiagnosticLog.Instance);
-        var parentQueues = parent.Queues;
+        var parentQueues = parent.GetService<IAgentQueues>();
         await using var disabledScope = BuildSession(disabledProvider, [], repository, registry, AgentIdentity.Child("disabled-child", "parent", "parent", "disabled", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly), resources, TestDiagnosticLog.Instance);
         var disabled = disabledScope.Session;
-        var disabledQueues = disabledScope.Queues;
+        var disabledQueues = disabledScope.GetService<IAgentQueues>();
         await using var activeScope = BuildSession(activeProvider, [], repository, registry, AgentIdentity.Child("active-child", "parent", "parent", "active", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly), resources, TestDiagnosticLog.Instance);
         var active = activeScope.Session;
-        var activeQueues = activeScope.Queues;
+        var activeQueues = activeScope.GetService<IAgentQueues>();
         _ = parentQueues.Create("shared-work", string.Empty);
         _ = await disabledQueues.Listen("shared-work", true, cancellationToken);
         _ = await activeQueues.Listen("shared-work", true, cancellationToken);
@@ -591,7 +591,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             (sessionParentScope, owningScope, children, childQuestions) =>
             {
                 var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
-                IAgentSession session = new AgentSession(identity, sessionParentScope, new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : new TestToolDefinitionsFixture("wait").Definitions, TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, new TestProfileFixture().Mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, owningScope.Processes, owningScope.Queues, TestModels.PromptTemplates, null), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, status, owningScope.Queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
+                IAgentSession session = new AgentSession(identity, sessionParentScope, new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : new TestToolDefinitionsFixture("wait").Definitions, TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, new TestProfileFixture().Mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, owningScope.Processes, owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates, null), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, status, owningScope.GetService<IAgentQueues>(), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
                 return session;
             },
             CancellationToken.None);
@@ -816,8 +816,8 @@ internal sealed class WaitToolTests : IAsyncDisposable
                     (sessionParentScope, owningScope, children, childQuestions) =>
                     {
                         var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
-                        IAgentSession session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [new WaitToolFactory(status, timeProvider)], new TestToolDefinitionsFixture("wait").Definitions, TestModels.MaterializePrompt(identity, root, root), new ToolOutputBlobStore(Path.Combine(root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, owningScope.Processes, owningScope.Queues, TestModels.PromptTemplates, null), exitReminder, eventRepository, eventBroker).Callbacks, new SecurityProfileTestFixture(securityProfile).Security, status, owningScope.Queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
-                        _ = source._createdQueues.TrySetResult(owningScope.Queues);
+                        IAgentSession session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [new WaitToolFactory(status, timeProvider)], new TestToolDefinitionsFixture("wait").Definitions, TestModels.MaterializePrompt(identity, root, root), new ToolOutputBlobStore(Path.Combine(root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, owningScope.Processes, owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates, null), exitReminder, eventRepository, eventBroker).Callbacks, new SecurityProfileTestFixture(securityProfile).Security, status, owningScope.GetService<IAgentQueues>(), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
+                        _ = source._createdQueues.TrySetResult(owningScope.GetService<IAgentQueues>());
                         _ = source._created.TrySetResult(session);
                         return session;
                     },

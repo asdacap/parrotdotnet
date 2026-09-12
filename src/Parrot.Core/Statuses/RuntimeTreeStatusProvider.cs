@@ -19,7 +19,7 @@ internal sealed class RuntimeTreeStatusProvider(
         cancellationToken.ThrowIfCancellationRequested();
 
         var scopes = agents.SnapshotScopes();
-        var queueOwners = scopes.Select(static scope => scope.Queues.Snapshot()).ToArray();
+        var queueOwners = scopes.Select(static scope => scope.GetService<IAgentQueues>().Snapshot()).ToArray();
         var activeAgents = agents.ActiveSnapshot();
         var activeProcesses = scopes.SelectMany(static scope => scope.Processes.Snapshot()).ToArray();
         var nodes = BuildNodes(query.SessionId, queueOwners, activeAgents, activeProcesses);

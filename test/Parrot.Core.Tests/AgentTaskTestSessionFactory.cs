@@ -2,6 +2,7 @@ using Parrot.Agent;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
+using Parrot.Queues;
 using Parrot.Security;
 using Parrot.State;
 using Parrot.Statuses;
@@ -75,7 +76,7 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
             (sessionParentScope, owningScope, children, childQuestions) =>
         {
             var processes = owningScope.Processes;
-            var agentQueues = owningScope.Queues;
+            var agentQueues = owningScope.GetService<IAgentQueues>();
             var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
             var completionCallbacks = new TestCompletionCallbacksFixture(
                 childQuestions,

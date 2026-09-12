@@ -6,6 +6,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
+using Parrot.Queues;
 using Parrot.Security;
 using Parrot.State;
 using Parrot.Statuses;
@@ -275,8 +276,8 @@ internal sealed class StatusRegistryTests
         var child = fixture.Build(AgentIdentity.Child("child", "root", "main", "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(root, AgentCompletionDeliveryPolicy.RetainedOnly));
         _ = await child.Session.SendTextMessage("work", cancellationToken);
         await fixture.Provider.Arrived(cancellationToken);
-        _ = root.Queues.Create("work", "queued work\n{{ hostile }}");
-        _ = child.Queues.Create("results", string.Empty);
+        _ = root.GetService<IAgentQueues>().Create("work", "queued work\n{{ hostile }}");
+        _ = child.GetService<IAgentQueues>().Create("results", string.Empty);
         _ = child.Processes.StartPipe("fetch", "sleep 30", "call", ProcessEnvironmentOverrides.Empty, child.Session, SecurityProfile.Compose(readOnly: false, [], [], []));
         _ = root.Processes.StartPipe("build", "sleep 30", "call", ProcessEnvironmentOverrides.Empty, root.Session, SecurityProfile.Compose(readOnly: false, [], [], []));
         IStatusProvider provider = new RuntimeTreeStatusProvider(fixture.Registry, TestModels.PromptTemplates);
@@ -393,7 +394,7 @@ internal sealed class StatusRegistryTests
                 {
                     var exitReminder = new ExitReminder(_repository, TestModels.PromptTemplates, identity.SessionId);
                     var mode = new TestProfileFixture().Mode;
-                    return new AgentSession(identity, parentScope, _router.Resolve(string.Empty).RequestedSelector, _router, _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(_root), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "status-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, owningScope.Processes, owningScope.Queues, TestModels.PromptTemplates, null), exitReminder, _repository, _broker).Callbacks, new SecurityProfileTestFixture(mode.Profile.SecurityProfile).Security, Registry.RequireStatus(), owningScope.Queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
+                    return new AgentSession(identity, parentScope, _router.Resolve(string.Empty).RequestedSelector, _router, _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(_root), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "status-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, owningScope.Processes, owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates, null), exitReminder, _repository, _broker).Callbacks, new SecurityProfileTestFixture(mode.Profile.SecurityProfile).Security, Registry.RequireStatus(), owningScope.GetService<IAgentQueues>(), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
                 },
                 CancellationToken.None);
             if (parentLink.Parent is { } parent)

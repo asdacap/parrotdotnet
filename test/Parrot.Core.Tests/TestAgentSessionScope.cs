@@ -13,6 +13,8 @@ namespace Parrot.Core.Tests;
 internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
 {
     private readonly Lock _gate = new();
+    private readonly AgentSessionServices _services = new();
+    private readonly IAgentQueues _queues;
     private readonly IPromptTemplateCatalog _promptTemplates;
     private IAgentSession? _session;
     private Task? _shutdown;
@@ -31,8 +33,9 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         ChildRegistry = new ChildRegistry(owner);
         AgentTaskRuns = new AgentTaskRunCatalog(owner.SessionId, diagnostics, lifetime);
         Processes = new ShellProcessOwner(owner, resources, new AgentPathEnvironment(resources, resources.AgentScratch(owner.SessionId)), runner, diagnostics, lifetime);
-        Queues = new AgentQueues(owner, parentLink.Parent?.Queues, resources, ChildRegistry, static queueIdentity => new QueueInventory(queueIdentity), diagnostics);
-        Queues.Initialize();
+        _queues = new AgentQueues(owner, parentLink.Parent?.GetService<IAgentQueues>(), resources, ChildRegistry, static queueIdentity => new QueueInventory(queueIdentity), diagnostics);
+        _services.Register<IAgentQueues>(_queues);
+        _queues.Initialize();
         ParentScope = AgentSessionParentScope.Bind(owner, registry, () => this, ChildRegistry, parentLink);
         AgentSpawner = new AgentSpawner(owner, registry, ParentScope, ChildRegistry);
         ChildQuestions = new ChildQuestionCoordinator(ParentScope, promptTemplates);
@@ -50,8 +53,6 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
     }
 
     public IProcessOwner Processes { get; }
-
-    public IAgentQueues Queues { get; }
 
     public IAgentTaskRunCatalog AgentTaskRuns { get; }
 
@@ -99,6 +100,9 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         }
     }
 
+    public T GetService<T>()
+        where T : class => _services.GetService<T>();
+
     public void AttachSession(IAgentSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -115,7 +119,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
             _session = session;
             ParentScope.ValidateOwnerScope(this);
             GoalsState = new GoalService(session, _promptTemplates);
-            Queues.Attach(session);
+            _queues.Attach(session);
         }
     }
 
@@ -193,7 +197,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
             failure ??= exception;
         }
 
-        Queues.Dispose();
+        _queues.Dispose();
         if (failure is not null)
         {
             ExceptionDispatchInfo.Capture(failure).Throw();

@@ -27,9 +27,9 @@ internal sealed class AgentQueueTests : IDisposable
     {
         var resources = Resources("direct-access");
         await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
-        var root = rootScope.Queues;
+        var root = rootScope.GetService<IAgentQueues>();
         await using var childScope = new QueueTestScope(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
-        var child = childScope.Queues;
+        var child = childScope.GetService<IAgentQueues>();
         var parentQueue = root.Create("parent-work", "parent owned");
         var childQueue = child.Create("child-work", "child owned");
 
@@ -58,9 +58,9 @@ internal sealed class AgentQueueTests : IDisposable
     {
         var resources = Resources("child-close");
         await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
-        var root = rootScope.Queues;
+        var root = rootScope.GetService<IAgentQueues>();
         await using var childScope = new QueueTestScope(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
-        var child = childScope.Queues;
+        var child = childScope.GetService<IAgentQueues>();
         _ = root.Create("parent-work", "shared");
         _ = await root.Push("parent-work", ["final-item"], QueueDirection.Back, false, cancellationToken);
         _ = await child.Listen("parent-work", true, cancellationToken);
@@ -87,13 +87,13 @@ internal sealed class AgentQueueTests : IDisposable
     {
         var resources = Resources("denied-access");
         await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
-        var root = rootScope.Queues;
+        var root = rootScope.GetService<IAgentQueues>();
         await using var leftScope = new QueueTestScope(AgentIdentity.Child("left-agent", "root-agent", "root", "left", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
-        var left = leftScope.Queues;
+        var left = leftScope.GetService<IAgentQueues>();
         await using var rightScope = new QueueTestScope(AgentIdentity.Child("right-agent", "root-agent", "root", "right", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
-        var right = rightScope.Queues;
+        var right = rightScope.GetService<IAgentQueues>();
         await using var grandchildScope = new QueueTestScope(AgentIdentity.Child("grandchild-agent", "left-agent", "left", "grandchild", 2, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), leftScope, resources);
-        var grandchild = grandchildScope.Queues;
+        var grandchild = grandchildScope.GetService<IAgentQueues>();
         _ = root.Create("root-secret", string.Empty);
         _ = left.Create("left-secret", string.Empty);
         _ = grandchild.Create("grandchild-secret", string.Empty);
@@ -120,9 +120,9 @@ internal sealed class AgentQueueTests : IDisposable
     {
         var resources = Resources("collision-orders");
         await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
-        var root = rootScope.Queues;
+        var root = rootScope.GetService<IAgentQueues>();
         await using var childScope = new QueueTestScope(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
-        var child = childScope.Queues;
+        var child = childScope.GetService<IAgentQueues>();
 
         _ = root.Create("parent-first", string.Empty);
         _ = await Assert.That(() => child.Create("parent-first", string.Empty))
@@ -141,9 +141,9 @@ internal sealed class AgentQueueTests : IDisposable
     {
         var resources = Resources("concurrent-collision");
         await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
-        var root = rootScope.Queues;
+        var root = rootScope.GetService<IAgentQueues>();
         await using var childScope = new QueueTestScope(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
-        var child = childScope.Queues;
+        var child = childScope.GetService<IAgentQueues>();
         using var start = new ManualResetEventSlim();
         var parentAttempt = Task.Run(() => TryCreate(root, "same-name", start));
         var childAttempt = Task.Run(() => TryCreate(child, "same-name", start));
@@ -163,7 +163,7 @@ internal sealed class AgentQueueTests : IDisposable
     {
         var resources = Resources("attach-created");
         await using var scope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
-        var queues = scope.Queues;
+        var queues = scope.GetService<IAgentQueues>();
         _ = queues.Create("work", "created before attachment");
         _ = await queues.Push("work", ["item"], QueueDirection.Back, false, cancellationToken);
         using var subscription = queues.SubscribeInventory();
@@ -187,11 +187,11 @@ internal sealed class AgentQueueTests : IDisposable
     {
         var resources = Resources("sibling-isolation");
         await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
-        var root = rootScope.Queues;
+        var root = rootScope.GetService<IAgentQueues>();
         await using var leftScope = new QueueTestScope(AgentIdentity.Child("left-agent", "root-agent", "root", "left", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
-        var left = leftScope.Queues;
+        var left = leftScope.GetService<IAgentQueues>();
         await using var rightScope = new QueueTestScope(AgentIdentity.Child("right-agent", "root-agent", "root", "right", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
-        var right = rightScope.Queues;
+        var right = rightScope.GetService<IAgentQueues>();
         var leftInfo = left.Create("shared-name", "left queue");
         var rightInfo = right.Create("shared-name", "right queue");
 
@@ -213,9 +213,9 @@ internal sealed class AgentQueueTests : IDisposable
     {
         var resources = Resources("child-cleanup");
         await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
-        var root = rootScope.Queues;
+        var root = rootScope.GetService<IAgentQueues>();
         await using var childScope = new QueueTestScope(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
-        var child = childScope.Queues;
+        var child = childScope.GetService<IAgentQueues>();
         var childDirectory = resources.AgentQueueDirectory("child-agent");
         _ = child.Create("temporary-work", string.Empty);
         _ = root.Create("root-work", string.Empty);
@@ -225,7 +225,7 @@ internal sealed class AgentQueueTests : IDisposable
         _ = await Assert.That(Directory.Exists(childDirectory)).IsFalse();
         _ = await Assert.That(File.Exists(root.Get("root-work").Path)).IsTrue();
         await using var replacementScope = new QueueTestScope(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
-        var replacement = replacementScope.Queues;
+        var replacement = replacementScope.GetService<IAgentQueues>();
         _ = await Assert.That(string.Join(',', replacement.List().Select(static queue => queue.Name)))
             .IsEqualTo("root-work");
         _ = replacement.Create("fresh-work", string.Empty);
@@ -280,13 +280,13 @@ internal sealed class AgentQueueTests : IDisposable
         var resources = Resources("root-persistence");
         await using (var firstScope = new QueueTestScope(AgentIdentity.Main("first-root", "root", TestModels.PromptTemplates), null, resources))
         {
-            var firstRoot = firstScope.Queues;
+            var firstRoot = firstScope.GetService<IAgentQueues>();
             _ = firstRoot.Create("persistent-work", "survives");
             _ = await firstRoot.Push("persistent-work", ["item"], QueueDirection.Back, false, cancellationToken);
         }
 
         await using var secondScope = new QueueTestScope(AgentIdentity.Main("second-root", "root", TestModels.PromptTemplates), null, resources);
-        var secondRoot = secondScope.Queues;
+        var secondRoot = secondScope.GetService<IAgentQueues>();
         var restored = secondRoot.Get("persistent-work");
 
         _ = await Assert.That(restored.Description).IsEqualTo("survives");
@@ -317,9 +317,9 @@ internal sealed class AgentQueueTests : IDisposable
     {
         var resources = Resources("listener-cleanup");
         await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
-        var root = rootScope.Queues;
+        var root = rootScope.GetService<IAgentQueues>();
         await using var childScope = new QueueTestScope(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
-        var child = childScope.Queues;
+        var child = childScope.GetService<IAgentQueues>();
         _ = root.Create("parent-work", string.Empty);
         _ = root.Local.Monitor("parent-work", child.SessionId, true);
         _ = root.Local.Monitor("parent-work", "other-agent", true);
@@ -347,7 +347,7 @@ internal sealed class AgentQueueTests : IDisposable
     {
         var resources = Resources("empty-listener");
         await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
-        var root = rootScope.Queues;
+        var root = rootScope.GetService<IAgentQueues>();
         _ = root.Create("empty-work", string.Empty);
         _ = await root.Listen("empty-work", true, cancellationToken);
 
@@ -370,7 +370,7 @@ internal sealed class AgentQueueTests : IDisposable
     {
         var resources = Resources("canceled-push");
         await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
-        var root = rootScope.Queues;
+        var root = rootScope.GetService<IAgentQueues>();
         _ = root.Create("work", string.Empty);
         using var canceled = new CancellationTokenSource();
         await canceled.CancelAsync();
@@ -387,9 +387,9 @@ internal sealed class AgentQueueTests : IDisposable
         await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
         await using var leftScope = new QueueTestScope(AgentIdentity.Child("left-agent", "root-agent", "root", "left", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
         await using var rightScope = new QueueTestScope(AgentIdentity.Child("right-agent", "root-agent", "root", "right", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
-        var root = rootScope.Queues;
-        var left = leftScope.Queues;
-        var right = rightScope.Queues;
+        var root = rootScope.GetService<IAgentQueues>();
+        var left = leftScope.GetService<IAgentQueues>();
+        var right = rightScope.GetService<IAgentQueues>();
         _ = root.Create("root-work", "root");
         _ = left.Create("shared-name", "left");
         _ = right.Create("shared-name", "right");
@@ -436,7 +436,7 @@ internal sealed class AgentQueueTests : IDisposable
             cancellationToken);
 
         await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
-        var root = rootScope.Queues;
+        var root = rootScope.GetService<IAgentQueues>();
         var adopted = root.Get("legacy-work");
         var persisted = await File.ReadAllTextAsync(path, cancellationToken);
 

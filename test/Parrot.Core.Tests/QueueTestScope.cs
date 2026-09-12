@@ -18,6 +18,8 @@ internal sealed class QueueTestScope : IAgentSessionScope
     private readonly AgentSessionDependencies _dependencies;
     private readonly ChildRegistry _children;
     private readonly QueueTestScope? _parent;
+    private readonly AgentSessionServices _services = new();
+    private readonly IAgentQueues _queues;
     private bool _disposed;
 
     public QueueTestScope(AgentIdentity identity, QueueTestScope? parent, UserSessionResources resources)
@@ -28,11 +30,12 @@ internal sealed class QueueTestScope : IAgentSessionScope
         var repository = new EventRepository(_database);
         _dependencies = TestModels.Dependencies(identity, _events, repository, CancellationToken.None);
         Processes = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, CancellationToken.None);
-        Queues = new AgentQueues(identity, parent?.Queues, resources, _children, static queueIdentity => new QueueInventory(queueIdentity), TestDiagnosticLog.Instance);
-        Queues.Initialize();
+        _queues = new AgentQueues(identity, parent?.GetService<IAgentQueues>(), resources, _children, static queueIdentity => new QueueInventory(queueIdentity), TestDiagnosticLog.Instance);
+        _services.Register<IAgentQueues>(_queues);
+        _queues.Initialize();
         ParentScope = parent is null ? AgentSessionParentScope.Root() : AgentSessionParentScope.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly);
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
-        Session = new AgentSession(identity, ParentScope, new ModelSelector(model.Selector), TestModels.Route(model), _events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(resources.AgentScratch(identity.SessionId).Root), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, identity.SessionId, null), new ContextCadence(), TestModels.PromptTemplates, ChildQuestions, _dependencies.ExitReminder, _dependencies.Profile, [], new SecurityProfileTestFixture(SecurityProfile.Compose(false, [], [], [])).Security, _dependencies.Status, Queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
+        Session = new AgentSession(identity, ParentScope, new ModelSelector(model.Selector), TestModels.Route(model), _events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(resources.AgentScratch(identity.SessionId).Root), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, identity.SessionId, null), new ContextCadence(), TestModels.PromptTemplates, ChildQuestions, _dependencies.ExitReminder, _dependencies.Profile, [], new SecurityProfileTestFixture(SecurityProfile.Compose(false, [], [], [])).Security, _dependencies.Status, _queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
         if (parent is not null && !parent.ChildRegistry.TryAdd(this))
         {
             throw new InvalidOperationException("The parent is no longer accepting children.");
@@ -42,8 +45,6 @@ internal sealed class QueueTestScope : IAgentSessionScope
     public IAgentSession Session { get; }
 
     public IProcessOwner Processes { get; }
-
-    public IAgentQueues Queues { get; }
 
     public IAgentTaskRunCatalog AgentTaskRuns { get; }
 
@@ -56,6 +57,9 @@ internal sealed class QueueTestScope : IAgentSessionScope
     public IAgentParentScope ParentScope { get; }
 
     public IChildQuestionCoordinator ChildQuestions => _dependencies.ChildQuestions;
+
+    public T GetService<T>()
+        where T : class => _services.GetService<T>();
 
     public void PublishInventories()
     {
@@ -77,7 +81,7 @@ internal sealed class QueueTestScope : IAgentSessionScope
         await AgentTaskRuns.DisposeAsync().ConfigureAwait(false);
         await _children.DisposeAsync().ConfigureAwait(false);
         await Session.DisposeAsync().ConfigureAwait(false);
-        Queues.Dispose();
+        _queues.Dispose();
         await Processes.DisposeAsync().ConfigureAwait(false);
         await _dependencies.DisposeAsync().ConfigureAwait(false);
         _events.Dispose();

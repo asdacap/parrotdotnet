@@ -29,17 +29,17 @@ internal sealed class AgentInventoryStreamTests
         await using var fixture = await InventoryFixture.Create(directory, diagnostics, false);
         var session = fixture.Session;
         var root = session.Registry.SnapshotScopes().Single();
-        _ = root.Queues.Create("root-queue", "root");
-        _ = await root.Queues.Push("root-queue", ["item"], QueueDirection.Back, false, timeout.Token);
+        _ = root.GetService<IAgentQueues>().Create("root-queue", "root");
+        _ = await root.GetService<IAgentQueues>().Push("root-queue", ["item"], QueueDirection.Back, false, timeout.Token);
         await using var sibling = fixture.CreateChild(root, "sibling");
-        _ = sibling.Queues.Create("sibling-queue", "sibling");
-        _ = await sibling.Queues.Push("sibling-queue", ["item"], QueueDirection.Back, false, timeout.Token);
+        _ = sibling.GetService<IAgentQueues>().Create("sibling-queue", "sibling");
+        _ = await sibling.GetService<IAgentQueues>().Push("sibling-queue", ["item"], QueueDirection.Back, false, timeout.Token);
         _ = await Assert.That(root.ChildRegistry.TryAdd(sibling)).IsTrue();
         var earlyChild = createBeforeListening ? fixture.CreateChild(root, "later") : null;
         if (earlyChild is not null)
         {
-            _ = earlyChild.Queues.Create("child-queue", "child");
-            _ = await earlyChild.Queues.Push("child-queue", ["item"], QueueDirection.Back, false, timeout.Token);
+            _ = earlyChild.GetService<IAgentQueues>().Create("child-queue", "child");
+            _ = await earlyChild.GetService<IAgentQueues>().Push("child-queue", ["item"], QueueDirection.Back, false, timeout.Token);
         }
 
         await using var listener = session.Listen(timeout.Token).GetAsyncEnumerator(timeout.Token);
@@ -56,8 +56,8 @@ internal sealed class AgentInventoryStreamTests
         await using var child = earlyChild ?? fixture.CreateChild(root, "later");
         if (earlyChild is null)
         {
-            _ = child.Queues.Create("child-queue", "child");
-            _ = await child.Queues.Push("child-queue", ["item"], QueueDirection.Back, false, timeout.Token);
+            _ = child.GetService<IAgentQueues>().Create("child-queue", "child");
+            _ = await child.GetService<IAgentQueues>().Push("child-queue", ["item"], QueueDirection.Back, false, timeout.Token);
         }
 
         _ = await Assert.That(root.ChildRegistry.TryAdd(child)).IsTrue();
@@ -83,8 +83,8 @@ internal sealed class AgentInventoryStreamTests
         _ = await Assert.That(removedProcesses.CompletedProcesses).IsEmpty();
 
         await listener.DisposeAsync();
-        _ = sibling.Queues.Create("after-disconnect", "reconnect");
-        _ = await sibling.Queues.Push("after-disconnect", ["item"], QueueDirection.Back, false, timeout.Token);
+        _ = sibling.GetService<IAgentQueues>().Create("after-disconnect", "reconnect");
+        _ = await sibling.GetService<IAgentQueues>().Push("after-disconnect", ["item"], QueueDirection.Back, false, timeout.Token);
         using var reconnectCancellation = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
         await using var reconnected = session.Listen(reconnectCancellation.Token).GetAsyncEnumerator(reconnectCancellation.Token);
         var refreshed = await ReadInitial(reconnected);
@@ -127,12 +127,12 @@ internal sealed class AgentInventoryStreamTests
         await using var child = fixture.CreateChild(root, "held-claim");
         _ = await Assert.That(root.ChildRegistry.TryAdd(child)).IsTrue();
         var owner = disposeRoot ? root : child;
-        _ = owner.Queues.Create("queued", "held claim");
-        _ = await owner.Queues.Push("queued", ["item"], QueueDirection.Back, false, timeout.Token);
+        _ = owner.GetService<IAgentQueues>().Create("queued", "held claim");
+        _ = await owner.GetService<IAgentQueues>().Push("queued", ["item"], QueueDirection.Back, false, timeout.Token);
         var processOwner = owner.Processes;
-        var queueOwner = owner.Queues;
+        var queueOwner = owner.GetService<IAgentQueues>();
         var process = processOwner.StartUnattributed("held", "sleep 300", ProcessEnvironmentOverrides.Empty, owner.Session, fixture.Session.Mode.Profile.SecurityProfile, ShellProcessTerminalMode.Pipe);
-        using var queues = owner.Queues.SubscribeInventory();
+        using var queues = owner.GetService<IAgentQueues>().SubscribeInventory();
         using var processes = owner.Processes.SubscribeInventory();
         var initialQueues = await queues.Reader.ReadAsync(timeout.Token);
         var initialProcesses = await processes.Reader.ReadAsync(timeout.Token);
@@ -163,17 +163,17 @@ internal sealed class AgentInventoryStreamTests
 
         _ = await Assert.That(process.Completed).IsTrue();
         _ = await Assert.That(ReferenceEquals(owner.Processes, processOwner)).IsTrue();
-        _ = await Assert.That(ReferenceEquals(owner.Queues, queueOwner)).IsTrue();
+        _ = await Assert.That(ReferenceEquals(owner.GetService<IAgentQueues>(), queueOwner)).IsTrue();
         _ = await Assert.That(queueRevisions.Last().Removed).IsTrue();
         _ = await Assert.That(queueRevisions.Last().Queues).IsEmpty();
         _ = await Assert.That(queueRevisions.Last().InventoryInstanceId).IsEqualTo(initialQueues.InventoryInstanceId);
         _ = await Assert.That(processRevisions.Last().Removed).IsTrue();
         _ = await Assert.That(processRevisions.Last().Processes).IsEmpty();
         _ = await Assert.That(processRevisions.Last().InventoryInstanceId).IsEqualTo(initialProcesses.InventoryInstanceId);
-        _ = await Assert.That(owner.Queues.CaptureInventory().Removed).IsTrue();
+        _ = await Assert.That(owner.GetService<IAgentQueues>().CaptureInventory().Removed).IsTrue();
         _ = await Assert.That(owner.Processes.CaptureInventory().Removed).IsTrue();
         _ = await Assert.That(child.Processes.CaptureInventory().Removed).IsTrue();
-        _ = await Assert.That(child.Queues.CaptureInventory().Removed).IsTrue();
+        _ = await Assert.That(child.GetService<IAgentQueues>().CaptureInventory().Removed).IsTrue();
         _ = await Assert.That(() => owner.Processes.StartUnattributed("late", "true", ProcessEnvironmentOverrides.Empty, owner.Session, fixture.Session.Mode.Profile.SecurityProfile, ShellProcessTerminalMode.Pipe))
             .Throws<InvalidOperationException>();
     }

@@ -2,6 +2,7 @@ using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Queues;
 using Parrot.Security;
 using Parrot.Skills;
 using Parrot.Statuses;
@@ -94,8 +95,8 @@ internal sealed class AgentSessionFactory(
         var scope = new AgentSessionScope(arguments);
         try
         {
-            scope.Queues.Initialize();
-            scope.Queues.Attach(scope.Session);
+            scope.GetService<IAgentQueues>().Initialize();
+            scope.GetService<IAgentQueues>().Attach(scope.Session);
             return scope;
         }
         catch

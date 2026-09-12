@@ -12,6 +12,8 @@ internal sealed class AgentSessionScope : IAgentSessionScope
     private readonly string _sessionId;
     private readonly AgentSessionScopeArguments _arguments;
     private readonly Lock _gate = new();
+    private readonly AgentSessionServices _services = new();
+    private readonly IAgentQueues _queues;
     private Task? _publication;
     private Task? _disposal;
 
@@ -26,7 +28,8 @@ internal sealed class AgentSessionScope : IAgentSessionScope
         {
             Session = _composition.Session;
             Processes = _composition.Processes;
-            Queues = _composition.Queues;
+            _queues = _composition.Queues;
+            _services.Register<IAgentQueues>(_queues);
             ChildRegistry = _composition.ChildRegistry;
             ParentScope = _composition.ParentScope;
             ChildQuestions = _composition.ChildQuestions;
@@ -61,9 +64,10 @@ internal sealed class AgentSessionScope : IAgentSessionScope
 
     public IProcessOwner Processes { get; }
 
-    public IAgentQueues Queues { get; }
-
     public IAgentTaskRunCatalog AgentTaskRuns { get; }
+
+    public T GetService<T>()
+        where T : class => _services.GetService<T>();
 
     public ValueTask DisposeAsync()
     {
@@ -85,7 +89,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposal is not null, this);
-            _publication ??= new AgentInventoryPublisher(Processes, Queues, _arguments.EventBroker, root.Session.SessionId).Run();
+            _publication ??= new AgentInventoryPublisher(Processes, _queues, _arguments.EventBroker, root.Session.SessionId).Run();
         }
     }
 
@@ -134,7 +138,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
                     }
                     finally
                     {
-                        Queues.Dispose();
+                        _queues.Dispose();
                         await Processes.DisposeAsync().ConfigureAwait(false);
                         await (_publication ?? Task.CompletedTask).WaitAsync(CancellationToken.None).ConfigureAwait(false);
                     }

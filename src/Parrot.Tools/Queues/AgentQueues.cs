@@ -91,7 +91,7 @@ internal sealed class AgentQueues(
                 Parent?.EnsureMissing(name);
                 foreach (var child in children.SnapshotChildScopes())
                 {
-                    child.Queues.EnsureMissing(name);
+                    child.GetService<IAgentQueues>().EnsureMissing(name);
                 }
 
                 created = Local.Create(name, description);
@@ -302,7 +302,7 @@ internal sealed class AgentQueues(
 
     public async Task Notify(CancellationToken cancellationToken)
     {
-        var candidates = children.SnapshotChildScopes().Select(static child => child.Queues).Prepend(this);
+        var candidates = children.SnapshotChildScopes().Select(static child => child.GetService<IAgentQueues>()).Prepend(this);
         foreach (var candidate in candidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
