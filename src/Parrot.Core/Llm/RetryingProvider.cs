@@ -23,6 +23,9 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
 
     public IUsageReporter? UsageReporter => inner.UsageReporter;
 
+    public long CalculateImageTokens(LLMModel model, LLMContent image) =>
+        inner.CalculateImageTokens(model, image);
+
     public Task<ImageGenerationResult> GenerateImage(ImageGenerationRequest request, CancellationToken cancellationToken) =>
         inner.GenerateImage(request, cancellationToken);
 

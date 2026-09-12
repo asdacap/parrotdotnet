@@ -7,6 +7,8 @@ internal sealed record OpenAICompatibleOptions
 {
     public int MaximumRequestBytes { get; init; } = new RequestLimitsConfig().ProviderRequestBytes;
 
+    public IImageTokenCalculator ImageTokenCalculator { get; init; } = FallbackImageTokenCalculator.Instance;
+
     public required string Id { get; init; }
 
     public required string BaseUrl { get; init; }

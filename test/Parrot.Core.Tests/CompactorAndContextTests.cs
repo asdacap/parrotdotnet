@@ -6,6 +6,8 @@ using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Security;
 using Parrot.Store;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace Parrot.Core.Tests;
 
@@ -701,6 +703,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var history = repository.ModelHistory("agent");
         var targetTokens = ((long)model.Model.ContextWindow * 99 / 100) - 10;
         var baselineTokens = Compactor.EstimateInputTokens(
+            model,
             instructions,
             [],
             [.. history, LLMMessage.User(string.Empty)]);
@@ -1733,8 +1736,8 @@ internal sealed class CompactorAndContextTests : IDisposable
                 ?? throw new InvalidOperationException("Expected compaction.");
             _ = await Assert.That(tiny.RetainedDurableMessageCount).IsEqualTo(1);
             _ = await Assert.That(normal.RetainedDurableMessageCount).IsGreaterThan(tiny.RetainedDurableMessageCount);
-            _ = await Assert.That(Compactor.EstimateInputTokens(string.Empty, [], normal.History)).IsLessThanOrEqualTo(300);
-            _ = await Assert.That(Compactor.EstimateInputTokens(string.Empty, [], tiny.History)).IsLessThanOrEqualTo(1_000);
+            _ = await Assert.That(Compactor.EstimateInputTokens(selection.CanonicalModel, string.Empty, [], normal.History)).IsLessThanOrEqualTo(300);
+            _ = await Assert.That(Compactor.EstimateInputTokens(selection.CanonicalModel, string.Empty, [], tiny.History)).IsLessThanOrEqualTo(1_000);
 
             var unknown = selection with
             {
@@ -1776,7 +1779,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var result = await compactor.Compact(model, "instructions", [], history, LLMMessage.User("fixed"), _compactionGroupBlobs, TestDiagnosticLog.Instance, "agent-test", cancellationToken)
             ?? throw new InvalidOperationException("Expected compaction.");
 
-        _ = await Assert.That(Compactor.EstimateInputTokens("instructions", [], result.History))
+        _ = await Assert.That(Compactor.EstimateInputTokens(model, "instructions", [], result.History))
             .IsLessThanOrEqualTo(300);
         _ = await Assert.That(result.History[^1].Content).IsEqualTo(history[^1].Content);
         _ = await Assert.That(result.RetainedDurableMessageCount).IsGreaterThan(0);
@@ -1789,7 +1792,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             immediatelyPreceding,
             .. result.History.Skip(2),
         ];
-        _ = await Assert.That(Compactor.EstimateInputTokens("instructions", [], withOneMore)).IsGreaterThan(300);
+        _ = await Assert.That(Compactor.EstimateInputTokens(model, "instructions", [], withOneMore)).IsGreaterThan(300);
     }
 
     [Test]
@@ -1801,15 +1804,15 @@ internal sealed class CompactorAndContextTests : IDisposable
         var image = LLMContent.ImagePart(new byte[byteLength], "image/png");
         var referenceImage = LLMContent.ImagePart(new byte[4096], "image/png");
         var imageMessage = LLMMessage.User([image]);
-        var imageTokens = Compactor.EstimateTokens([imageMessage]);
         var provider = new ScriptedProvider("SUMMARY");
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_050_000 });
         var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
         var history = Enumerable.Range(0, 4).Select(_ => imageMessage).ToArray();
+        var imageTokens = Compactor.EstimateTokens(model, [imageMessage]);
 
-        _ = await Assert.That(imageTokens).IsEqualTo(Compactor.EstimateTokens([LLMMessage.User([referenceImage])]));
+        _ = await Assert.That(imageTokens).IsEqualTo(Compactor.EstimateTokens(model, [LLMMessage.User([referenceImage])]));
         _ = await Assert.That(imageTokens).IsGreaterThan(1000);
-        _ = await Assert.That(Compactor.EstimateTokens(history)).IsEqualTo(4 * imageTokens);
+        _ = await Assert.That(Compactor.EstimateTokens(model, history)).IsEqualTo(4 * imageTokens);
         _ = await Assert.That(compactor.ShouldCompact(model, string.Empty, [], history)).IsFalse();
     }
 
@@ -1825,8 +1828,9 @@ internal sealed class CompactorAndContextTests : IDisposable
         var provider = new ScriptedProvider("SUMMARY");
         var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
 
-        _ = await Assert.That(Compactor.EstimateTokens([LLMMessage.User([image])])).IsGreaterThan(1000);
-        _ = await compactor.Compact(new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 100_000 }), string.Empty, [], history, LLMMessage.User("fixed"), _compactionGroupBlobs, TestDiagnosticLog.Instance, "agent-test", cancellationToken);
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 100_000 });
+        _ = await Assert.That(Compactor.EstimateTokens(model, [LLMMessage.User([image])])).IsGreaterThan(1000);
+        _ = await compactor.Compact(model, string.Empty, [], history, LLMMessage.User("fixed"), _compactionGroupBlobs, TestDiagnosticLog.Instance, "agent-test", cancellationToken);
 
         var request = provider.Requests.Single();
         _ = await Assert.That(request.Messages[1].Contents.Any(content => content.Kind == LLMContentKind.Image)).IsTrue();
@@ -1879,7 +1883,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(provider.Requests)
             .All(request => request.MaxTokens is > 0 and <= 137);
         _ = await Assert.That(provider.Requests)
-            .All(request => Compactor.EstimateTokens(request.Messages) <= 500);
+            .All(request => Compactor.EstimateTokens(model, request.Messages) <= 500);
         _ = await Assert.That(provider.Requests[1].Messages)
             .Contains(message => message.Content.Contains("summary", StringComparison.Ordinal));
     }
@@ -1889,6 +1893,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("summary");
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 10_000 });
         var groups = new List<CompactionGroup>
         {
             new(
@@ -1915,7 +1920,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             .ToHashSet(StringComparer.Ordinal);
 
         var result = await new Compactor(90, 5, 500, 100, TestModels.PromptTemplates).Compact(
-            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 10_000 }),
+            model,
             string.Empty,
             [],
             groups,
@@ -1957,7 +1962,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(new HashSet<string?> { firstToolName, secondToolName }.SetEquals(["first", "second"]))
             .IsTrue();
         _ = await Assert.That(providerMessages.Any(message => message.Role is LLMRole.Assistant or LLMRole.Tool)).IsFalse();
-        _ = await Assert.That(provider.Requests.All(candidate => Compactor.EstimateTokens(candidate.Messages) <= 500)).IsTrue();
+        _ = await Assert.That(provider.Requests.All(candidate => Compactor.EstimateTokens(model, candidate.Messages) <= 500)).IsTrue();
         _ = await Assert.That(result.History[^1].Content).IsEqualTo("retained tail");
         _ = await Assert.That(result.Watermark).IsEqualTo(2);
     }
@@ -1967,6 +1972,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("preceding summary");
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 10_000 });
         var groups = new List<CompactionGroup>
         {
             new([LLMMessage.User(new string('a', 1_700))], 1, false, true),
@@ -1986,7 +1992,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             .ToHashSet(StringComparer.Ordinal);
 
         _ = await new Compactor(90, 5, 500, 100, TestModels.PromptTemplates).Compact(
-            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 10_000 }),
+            model,
             string.Empty,
             [],
             groups,
@@ -2008,7 +2014,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(provider.Requests[1].Messages).Contains(message => message.Content == "Summary of the earlier conversation:\npreceding summary");
         _ = await Assert.That(provider.Requests[1].Messages).Contains(message => message.Content == notice);
         _ = await Assert.That(provider.Requests[1].Messages.Any(message => message.Role is LLMRole.Assistant or LLMRole.Tool)).IsFalse();
-        _ = await Assert.That(provider.Requests.All(request => Compactor.EstimateTokens(request.Messages) <= 500)).IsTrue();
+        _ = await Assert.That(provider.Requests.All(request => Compactor.EstimateTokens(model, request.Messages) <= 500)).IsTrue();
     }
 
     [Test]
@@ -2236,11 +2242,12 @@ internal sealed class CompactorAndContextTests : IDisposable
         CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("summary");
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 });
         var groups = Enumerable.Range(0, 7).Select(index => new CompactionGroup(
             [LLMMessage.User($"message {index} {new string('x', 260)}")], 200 + index, index == 1, true)).ToList();
 
         var result = await new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates).Compact(
-            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 }),
+            model,
             string.Empty,
             [],
             groups,
@@ -2253,23 +2260,112 @@ internal sealed class CompactorAndContextTests : IDisposable
             ?? throw new InvalidOperationException("Expected compaction.");
 
         _ = await Assert.That(result.Watermark).IsNotEqualTo(200);
-        _ = await Assert.That(Compactor.EstimateInputTokens(string.Empty, [], result.History)).IsLessThanOrEqualTo(300);
+        _ = await Assert.That(Compactor.EstimateInputTokens(model, string.Empty, [], result.History)).IsLessThanOrEqualTo(300);
     }
 
     [Test]
     public async Task Compaction_counts_tool_call_payloads()
     {
-        var withoutToolCall = Compactor.EstimateTokens([LLMMessage.Assistant(string.Empty, [])]);
+        var model = new ProviderModel(new ScriptedProvider(string.Empty), new LLMModel("model", "scripted"));
+        var withoutToolCall = Compactor.EstimateTokens(model, [LLMMessage.Assistant(string.Empty, [])]);
         var withToolCall = Compactor.EstimateTokens(
+            model,
             [LLMMessage.Assistant(string.Empty, [new LLMToolCall("identifier", "tool-name", new string('x', 400))])]);
 
         _ = await Assert.That(withToolCall).IsGreaterThan(withoutToolCall + 100);
+    }
+
+    [Test]
+    public async Task Image_context_uses_selected_model_and_preserves_absolute_trigger(CancellationToken cancellationToken)
+    {
+        using var image = new Image<Rgba32>(1200, 1200);
+        using var stream = new MemoryStream();
+        await image.SaveAsPngAsync(stream, cancellationToken);
+        var content = LLMContent.ImagePart(stream.ToArray(), "image/png");
+        var history = Enumerable.Range(0, 56).Select(_ => LLMMessage.User([content])).ToArray();
+        var provider = new ScriptedProvider("summary") { ImageTokenCalculator = OpenAiImageTokenCalculator.Instance };
+        var model = new ProviderModel(provider, new LLMModel("gpt-6-astra", provider.Id) { ContextWindow = 1_050_000 });
+        var resolved = TestModels.Resolve(model);
+        var selection = resolved with { RoutingSnapshot = resolved.RoutingSnapshot with { ContextLimit = ContextSize.Parse("250000") } };
+        var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var snapshot = compactor.EstimateSelectedContext(selection, string.Empty, [], history);
+
+        _ = await Assert.That(snapshot.EstimatedTokens - (56 * 8) - 4).IsEqualTo(97_048L);
+        _ = await Assert.That(snapshot.ExceedsTrigger).IsFalse();
+        var expanded = Enumerable.Range(0, 150).Select(_ => LLMMessage.User([content])).ToArray();
+        _ = await Assert.That(compactor.EstimateSelectedContext(selection, string.Empty, [], expanded).ExceedsTrigger).IsTrue();
+        var unknown = new ProviderModel(provider, model.Model with { Id = "unknown" });
+        _ = await Assert.That(Compactor.EstimateTokens(unknown, history) - (56 * 8)).IsEqualTo(229_376L);
+        var fallback = new ProviderModel(new ScriptedProvider(string.Empty), model.Model);
+        _ = await Assert.That(Compactor.EstimateTokens(fallback, history)).IsEqualTo(Compactor.EstimateTokens(unknown, history));
+    }
+
+    [Test]
+    public async Task Context_dispatches_image_calculation_and_preserves_text_arithmetic()
+    {
+        var calculator = new SelectedModelImageTokenCalculator();
+        var provider = new ScriptedProvider(string.Empty) { ImageTokenCalculator = calculator };
+        var first = new ProviderModel(provider, new LLMModel("first", provider.Id) { ContextWindow = 1_000 });
+        var second = new ProviderModel(provider, new LLMModel("second", provider.Id) { ContextWindow = 2_000 });
+        var image = LLMContent.ImagePart([1], "image/png");
+        IReadOnlyList<LLMMessage> messages = [LLMMessage.User([LLMContent.TextPart("12345"), image])];
+
+        _ = await Assert.That(Compactor.EstimateInputTokens(first, "12345", [], messages)).IsEqualTo(1_016L);
+        _ = await Assert.That(Compactor.EstimateInputTokens(second, "12345", [], messages)).IsEqualTo(2_016L);
+        _ = await Assert.That(calculator.Models.SequenceEqual([first.Model, second.Model])).IsTrue();
+        IReadOnlyList<LLMMessage> text = [LLMMessage.User("12345")];
+        _ = await Assert.That(Compactor.EstimateInputTokens(first, "12345", [], text)).IsEqualTo(16L);
+        _ = await Assert.That(Compactor.EstimateInputTokens(second, "12345", [], text)).IsEqualTo(16L);
+        _ = await Assert.That(calculator.Models.Count).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task Compaction_uses_provider_image_cost_for_retention_and_summary_chunks(CancellationToken cancellationToken)
+    {
+        using var image = new Image<Rgba32>(400, 400);
+        using var stream = new MemoryStream();
+        await image.SaveAsPngAsync(stream, cancellationToken);
+        var content = LLMContent.ImagePart(stream.ToArray(), "image/png");
+        var provider = new ScriptedProvider("summary") { ImageTokenCalculator = OpenAiImageTokenCalculator.Instance };
+        var model = new ProviderModel(provider, new LLMModel("gpt-6-astra", provider.Id) { ContextWindow = 10_000 });
+        var compactor = new Compactor(90, 5, 600, 100, TestModels.PromptTemplates);
+        var history = Enumerable.Range(0, 8).Select(_ => LLMMessage.User([content])).ToArray();
+        var result = await compactor.Compact(
+            model,
+            string.Empty,
+            [],
+            history,
+            LLMMessage.User("fixed"),
+            _compactionGroupBlobs,
+            TestDiagnosticLog.Instance,
+            "agent-test",
+            cancellationToken)
+            ?? throw new InvalidOperationException("Expected compaction.");
+
+        _ = await Assert.That(result.RetainedDurableMessageCount).IsEqualTo(2);
+        _ = await Assert.That(Compactor.EstimateInputTokens(model, string.Empty, [], result.History)).IsLessThanOrEqualTo(500);
+        _ = await Assert.That(provider.Requests.Count).IsGreaterThan(1);
+        _ = await Assert.That(provider.Requests).All(request => Compactor.EstimateTokens(model, request.Messages) <= 600);
+        _ = await Assert.That(provider.Requests.SelectMany(request => request.Messages)
+            .SelectMany(message => message.Contents).Count(part => part.Kind == LLMContentKind.Image)).IsEqualTo(6);
+        _ = await Assert.That(provider.Requests).All(request => request.Model == model.ModelId);
     }
 
     private static Parrot.Process.CliUtilityAvailability EmptyCliUtilities() =>
         Parrot.Process.CliUtilityAvailability.Inspect(
             new Parrot.Config.CliUtilityCandidates([], []),
             new Parrot.Process.ExecutableLocator(string.Empty, string.Empty));
+
+    private sealed class SelectedModelImageTokenCalculator : IImageTokenCalculator
+    {
+        public List<LLMModel> Models { get; } = [];
+
+        public long CalculateImageTokens(LLMModel model, LLMContent image)
+        {
+            Models.Add(model);
+            return model.ContextWindow;
+        }
+    }
 
     private sealed class SystemContextFixture(string workspace, string configDirectory)
     {

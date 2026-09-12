@@ -62,6 +62,9 @@ internal sealed class ChatGptProvider : ILLMProvider
 
     public string Id => ProviderId;
 
+    public long CalculateImageTokens(LLMModel model, LLMContent image) =>
+        OpenAiImageTokenCalculator.Instance.CalculateImageTokens(model, image);
+
     public Task<ImageGenerationResult> GenerateImage(ImageGenerationRequest request, CancellationToken cancellationToken) =>
         _images.GenerateImage(request, cancellationToken);
 

@@ -370,7 +370,7 @@ internal sealed partial class AgentSession
                 cancellationToken).ConfigureAwait(false);
             var currentWatermark = effective.Snapshot?.Watermark ?? 0;
             if ((compacted is null || compacted.Watermark <= currentWatermark)
-                && Compactor.EstimateInputTokens(instructions, tools, _history) > selectedModel.Model.InputTokenLimit)
+                && Compactor.EstimateInputTokens(selectedModel, instructions, tools, _history) > selectedModel.Model.InputTokenLimit)
             {
                 throw new InvalidOperationException("The conversation has no safe compaction boundary before the input limit.");
             }

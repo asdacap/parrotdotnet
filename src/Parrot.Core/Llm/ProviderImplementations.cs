@@ -14,6 +14,11 @@ internal static class ProviderImplementations
     private static readonly IReadOnlyDictionary<string, IProviderImplementation> Known =
         new Dictionary<string, IProviderImplementation>(StringComparer.Ordinal)
         {
+            ["openai"] = new CompatibleProviderImplementation(
+                StandardModelDecoder.Instance,
+                supportsProviderPreferences: false,
+                static (options, client) => new OpenAICompatibleProvider(
+                    options with { ImageTokenCalculator = OpenAiImageTokenCalculator.Instance }, client)),
             [ChatGptProvider.ProviderId] = new ChatGptProviderImplementation(),
             ["openrouter"] = new CompatibleProviderImplementation(
                 OpenRouterModelDecoder.Instance,

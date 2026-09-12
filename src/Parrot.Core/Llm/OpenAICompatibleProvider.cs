@@ -9,6 +9,7 @@ namespace Parrot.Llm;
 internal sealed class OpenAICompatibleProvider : ILLMProvider
 {
     private readonly ImageGenerationClient _images;
+    private readonly IImageTokenCalculator _imageTokenCalculator;
     private readonly Uri _endpoint;
     private readonly Uri _modelsEndpoint;
     private readonly Uri _modelInfoEndpoint;
@@ -59,6 +60,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
         };
 
         Id = options.Id;
+        _imageTokenCalculator = options.ImageTokenCalculator;
         _protocol = options.Protocol;
         _apiKeySource = options.ApiKeySource;
         _endpoint = HttpStreaming.EndpointUrl(
@@ -86,6 +88,9 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     }
 
     public string Id { get; }
+
+    public long CalculateImageTokens(LLMModel model, LLMContent image) =>
+        _imageTokenCalculator.CalculateImageTokens(model, image);
 
     public Task<ImageGenerationResult> GenerateImage(ImageGenerationRequest request, CancellationToken cancellationToken) =>
         _images.GenerateImage(request, cancellationToken);

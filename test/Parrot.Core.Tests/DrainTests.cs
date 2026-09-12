@@ -88,6 +88,7 @@ internal sealed class DrainTests : IDisposable
 
         var request = provider.Requests.Single();
         var estimatedInputTokens = Compactor.EstimateInputTokens(
+            new ProviderModel(provider, new LLMModel(request.Model, provider.Id)),
             request.Instructions,
             request.Tools,
             request.Messages);
