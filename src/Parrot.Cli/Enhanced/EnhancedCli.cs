@@ -162,31 +162,25 @@ internal sealed class EnhancedCli(
         var pendingSubmit = (PendingSubmit?)null;
         var binding = (EnhancedListenBinding?)null;
         var planRequests = Channel.CreateUnbounded<PlanCompletionRequest>();
-        var questionRequests = Channel.CreateUnbounded<(string UserSessionId, PendingQuestion Pending)>();
-        var discoveredQuestionRequests = new HashSet<string>(StringComparer.Ordinal);
+        var questionRequests = new QuestionInteractionPresenter(client);
         var permissions = new PermissionInteractionPresenter(client);
         var skillCompletion = new SkillCompletion(client);
         PermissionInteractionPresenter.Session? permissionSession = null;
         var reconcilingPermissions = Task.CompletedTask;
+        var questionReconciliationCancellation = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
+        var questionSession = questionRequests.Attach(activeSession.Id);
+        var reconcilingQuestions = questionRequests.Reconcile(questionSession, questionReconciliationCancellation.Token);
 
-        async Task ObserveRenderingEvent(Event published, CancellationToken eventToken)
+        Task ObserveRenderingEvent(Event published, CancellationToken eventToken)
         {
-            var discoverQuestions = published.PayloadCase == Event.PayloadOneofCase.ToolStarted
-                && string.Equals(published.ToolStarted.ToolName, "question", StringComparison.Ordinal);
-            if (discoverQuestions)
-            {
-                await DiscoverQuestions(
-                    activeSession.Id,
-                    questionRequests.Writer,
-                    discoveredQuestionRequests,
-                    eventToken).ConfigureAwait(false);
-            }
-
+            eventToken.ThrowIfCancellationRequested();
             if (published.PayloadCase == Event.PayloadOneofCase.PermissionPending
                 && permissionSession is { } attached)
             {
                 permissions.Observe(attached, published.PermissionPending);
             }
+
+            return Task.CompletedTask;
         }
 
         Task StartRenderingTurn(CancellationToken eventToken)
@@ -271,12 +265,13 @@ internal sealed class EnhancedCli(
             await renderingSession.StopSpinner().ConfigureAwait(false);
             await binding.DisposeAsync().ConfigureAwait(false);
             await renderingSession.ResetForSession(CancellationToken.None).ConfigureAwait(false);
-            discoveredQuestionRequests.Clear();
-            while (questionRequests.Reader.TryRead(out _))
-            {
-            }
-
+            await questionReconciliationCancellation.CancelAsync().ConfigureAwait(false);
+            await reconcilingQuestions.ConfigureAwait(false);
+            questionReconciliationCancellation.Dispose();
             activeSession = replacement;
+            questionReconciliationCancellation = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
+            questionSession = questionRequests.Attach(replacement.Id);
+            reconcilingQuestions = questionRequests.Reconcile(questionSession, questionReconciliationCancellation.Token);
             permissionSession = permissions.Attach(replacement.Id);
             await skillCompletion.RefreshCatalog(replacement.Id, token).ConfigureAwait(false);
             binding = EnhancedListenBinding.Open(client, replacement.Id, StartRendering, listening.Token);
@@ -511,10 +506,10 @@ internal sealed class EnhancedCli(
                     continue;
                 }
 
-                if (questionRequests.Reader.TryRead(out var questionRequest))
+                if (questionRequests.Read() is { } questionRequest)
                 {
                     await CompleteQuestion(
-                        questionRequest.UserSessionId,
+                        questionRequest.Session.UserSessionId,
                         questionRequest.Pending,
                         dialog,
                         renderingSession.UpdateQuestionCountdown,
@@ -526,7 +521,7 @@ internal sealed class EnhancedCli(
                 using var reading = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var keyTask = liveInput.ReadKey(reading.Token).AsTask();
                 var planTask = planRequests.Reader.WaitToReadAsync(cancellationToken).AsTask();
-                var questionTask = questionRequests.Reader.WaitToReadAsync(cancellationToken).AsTask();
+                var questionTask = questionRequests.WaitToRead(cancellationToken).AsTask();
                 var permissionTask = permissions.WaitToRead(cancellationToken).AsTask();
                 var completionTask = exitOnFirstCompletion ? rendering : Task.Delay(Timeout.Infinite, cancellationToken);
                 var submitTask = pendingSubmit?.Task ?? Task.Delay(Timeout.Infinite, cancellationToken);
@@ -634,7 +629,9 @@ internal sealed class EnhancedCli(
                     }
                     finally
                     {
-                        await Task.WhenAll(interrupting, reconcilingPermissions).ConfigureAwait(false);
+                        await questionReconciliationCancellation.CancelAsync().ConfigureAwait(false);
+                        await Task.WhenAll(interrupting, reconcilingPermissions, reconcilingQuestions).ConfigureAwait(false);
+                        questionReconciliationCancellation.Dispose();
                     }
                 }
             }
@@ -653,36 +650,6 @@ internal sealed class EnhancedCli(
         return exitOnFirstCompletion && !firstTurnCompleted
             ? CommandDispatcher.ExitFailure
             : CommandDispatcher.ExitSuccess;
-    }
-
-    private async Task DiscoverQuestions(
-        string userSessionId,
-        ChannelWriter<(string UserSessionId, PendingQuestion Pending)> writer,
-        HashSet<string> discovered,
-        CancellationToken cancellationToken)
-    {
-        for (var attempts = 0; attempts < 20; attempts++)
-        {
-            var listed = await client.ListPendingQuestionsAsync(
-                new ListPendingQuestionsRequest { UserSessionId = userSessionId },
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-            var added = false;
-            foreach (var pending in listed.Questions)
-            {
-                if (discovered.Add(pending.Id))
-                {
-                    added = true;
-                    await writer.WriteAsync((userSessionId, pending), cancellationToken).ConfigureAwait(false);
-                }
-            }
-
-            if (added)
-            {
-                return;
-            }
-
-            await Task.Delay(25, cancellationToken).ConfigureAwait(false);
-        }
     }
 
     private async Task CompleteQuestion(

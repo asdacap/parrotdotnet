@@ -31,10 +31,12 @@ internal sealed class BasicCli(
     private readonly Channel<bool> _interrupts =
         Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
 
-    private readonly Channel<(string UserSessionId, PendingQuestion Pending)> _questions =
-        Channel.CreateUnbounded<(string UserSessionId, PendingQuestion Pending)>();
+    private readonly QuestionInteractionPresenter _questions = new(client);
 
     private readonly PermissionInteractionPresenter _permissions = new(client);
+    private QuestionInteractionPresenter.Session? _questionSession;
+    private CancellationTokenSource? _questionReconciliationCancellation;
+    private Task _reconcilingQuestions = Task.CompletedTask;
 
     private volatile bool _busy;
     private volatile bool _interruptRequested;
@@ -402,6 +404,9 @@ internal sealed class BasicCli(
             client, initialSession, configuration, true, new CliSlashSessionBinding(binding.Replace));
         _session = session;
         _permissionSession = _permissions.Attach(initialSession.Id);
+        _questionSession = _questions.Attach(initialSession.Id);
+        _questionReconciliationCancellation = CancellationTokenSource.CreateLinkedTokenSource(application.Token);
+        _reconcilingQuestions = _questions.Reconcile(_questionSession, _questionReconciliationCancellation.Token);
         var reconcilingPermissions = _permissions.Reconcile(application.Token);
         ISlashDialog dialog = new BasicSlashDialog(input, output, error);
         var commands = SlashCommands.Create(
@@ -433,10 +438,10 @@ internal sealed class BasicCli(
                     continue;
                 }
 
-                if (_questions.Reader.TryRead(out var question))
+                if (_questions.Read() is { } question)
                 {
                     await CompleteQuestion(
-                        question.UserSessionId,
+                        question.Session.UserSessionId,
                         question.Pending,
                         input,
                         output,
@@ -446,7 +451,7 @@ internal sealed class BasicCli(
                     continue;
                 }
 
-                var questionTask = _questions.Reader.WaitToReadAsync(application.Token).AsTask();
+                var questionTask = _questions.WaitToRead(application.Token).AsTask();
                 var permissionTask = _permissions.WaitToRead(application.Token).AsTask();
                 var (completed, line) = await ReadLine(input, application.Token, questionTask, permissionTask).ConfigureAwait(false);
                 if (!completed)
@@ -496,7 +501,16 @@ internal sealed class BasicCli(
             interrupts.Remove();
             _ = _interrupts.Writer.TryComplete();
             await application.CancelAsync().ConfigureAwait(false);
-            await Task.WhenAll(interrupting, reconcilingPermissions).ConfigureAwait(false);
+            if (_questionReconciliationCancellation is { } questionCancellation)
+            {
+                await questionCancellation.CancelAsync().ConfigureAwait(false);
+                await Task.WhenAll(interrupting, reconcilingPermissions, _reconcilingQuestions).ConfigureAwait(false);
+                questionCancellation.Dispose();
+            }
+            else
+            {
+                await Task.WhenAll(interrupting, reconcilingPermissions).ConfigureAwait(false);
+            }
         }
 
         return CommandDispatcher.ExitSuccess;
@@ -522,12 +536,6 @@ internal sealed class BasicCli(
                     else if (published.PayloadCase == Event.PayloadOneofCase.PlanCompleted)
                     {
                         plan = published.PlanCompleted;
-                    }
-                    else if (published.PayloadCase == Event.PayloadOneofCase.ToolStarted
-                             && string.Equals(published.ToolStarted.ToolName, "question", StringComparison.Ordinal)
-                             && _session is not null)
-                    {
-                        return DiscoverQuestions(_session.Id, _questions.Writer, cancellationToken);
                     }
                     else if (published.PayloadCase == Event.PayloadOneofCase.PermissionPending
                              && _permissionSession is { } permissionSession)
@@ -603,30 +611,6 @@ internal sealed class BasicCli(
         _ = await client.SendMessageAsync(new SendMessageRequest { UserSessionId = _session.Id, Text = selected, Delivery = Delivery.Steer }, cancellationToken: cancellationToken);
     }
 
-    private async Task DiscoverQuestions(
-        string userSessionId,
-        ChannelWriter<(string UserSessionId, PendingQuestion Pending)> writer,
-        CancellationToken cancellationToken)
-    {
-        for (var attempts = 0; attempts < 20; attempts++)
-        {
-            var listed = await client.ListPendingQuestionsAsync(
-                new ListPendingQuestionsRequest { UserSessionId = userSessionId },
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-            if (listed.Questions.Count > 0)
-            {
-                foreach (var pending in listed.Questions)
-                {
-                    await writer.WriteAsync((userSessionId, pending), cancellationToken).ConfigureAwait(false);
-                }
-
-                return;
-            }
-
-            await Task.Delay(25, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
     private async Task CompleteQuestion(
         string userSessionId,
         PendingQuestion pending,
@@ -682,11 +666,28 @@ internal sealed class BasicCli(
         catch (RpcException failure) when (failure.StatusCode == StatusCode.InvalidArgument)
         {
             await error.WriteLineAsync($"parrot: {failure.Status.Detail}".AsMemory(), cancellationToken).ConfigureAwait(false);
-            await _questions.Writer.WriteAsync((userSessionId, pending), cancellationToken).ConfigureAwait(false);
+            if (_questionSession is { } questionSession)
+            {
+                _questions.Retry(questionSession, pending);
+            }
         }
         catch (RpcException failure) when (failure.StatusCode == StatusCode.NotFound)
         {
         }
+    }
+
+    private async Task ReplaceQuestionSession(string userSessionId, CancellationToken cancellationToken)
+    {
+        if (_questionReconciliationCancellation is { } previousCancellation)
+        {
+            await previousCancellation.CancelAsync().ConfigureAwait(false);
+            await _reconcilingQuestions.ConfigureAwait(false);
+            previousCancellation.Dispose();
+        }
+
+        _questionSession = _questions.Attach(userSessionId);
+        _questionReconciliationCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _reconcilingQuestions = _questions.Reconcile(_questionSession, _questionReconciliationCancellation.Token);
     }
 
     private async Task Interrupting(ISlashSession session, CancellationToken cancellationToken)
@@ -742,6 +743,7 @@ internal sealed class BasicCli(
             _rendering = Task.CompletedTask;
             cli._busy = false;
             cli._permissionSession = cli._permissions.Attach(session.Id);
+            await cli.ReplaceQuestionSession(session.Id, cancellationToken).ConfigureAwait(false);
         }
 
         public void RenderIfCompleted()
