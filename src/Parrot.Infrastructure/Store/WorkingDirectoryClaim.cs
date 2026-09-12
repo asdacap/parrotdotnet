@@ -457,7 +457,8 @@ internal sealed partial class WorkingDirectoryClaim
             return ActivationStatus.Uncertain;
         }
 
-        if (record.BootIdentity is not null
+        if (RuntimeIdentityCapture.IsBootIdentityAvailable(record.BootIdentity)
+            && RuntimeIdentityCapture.IsBootIdentityAvailable(_runtime.BootIdentity)
             && !string.Equals(record.BootIdentity, _runtime.BootIdentity, StringComparison.Ordinal))
         {
             return ActivationStatus.Uncertain;
@@ -479,10 +480,19 @@ internal sealed partial class WorkingDirectoryClaim
             return ActivationStatus.Inactive;
         }
 
-        return record.ProcessStartToken is null
-            || string.Equals(record.ProcessStartToken, process.ProcessStartToken, StringComparison.Ordinal)
-                ? ActivationStatus.Active
-                : ActivationStatus.Inactive;
+        if (string.IsNullOrWhiteSpace(record.ProcessStartToken))
+        {
+            return ActivationStatus.Active;
+        }
+
+        if (string.IsNullOrWhiteSpace(process.ProcessStartToken))
+        {
+            return ActivationStatus.Uncertain;
+        }
+
+        return string.Equals(record.ProcessStartToken, process.ProcessStartToken, StringComparison.Ordinal)
+            ? ActivationStatus.Active
+            : ActivationStatus.Inactive;
     }
 
     private string WorkspaceDirectory(string canonical) =>
