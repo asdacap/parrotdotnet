@@ -14,7 +14,7 @@ internal sealed class QueueTakeToolPresenterTests
     {
         IToolPresenter presenter = new QueueTakeToolPresenter();
         var call = new ToolCallPresentation("worker", "queue_take", "{\"name\":\"work\",\"count\":5}");
-        var result = "{\"path\":\"/ignored\",\"name\":\"work\",\"description\":\"release tasks\",\"size\":2,\"closed\":true,\"monitored\":true,\"items\":[\"first\",\"second\"]}";
+        var result = "{\"path\":\"/ignored\",\"name\":\"work\",\"description\":\"release tasks\",\"size\":2,\"closed\":true,\"items\":[\"first\",\"second\"]}";
 
         var terminal = (presenter.PresentTerminal(
             call,

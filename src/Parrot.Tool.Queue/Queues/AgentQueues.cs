@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Parrot.Agent;
 using Parrot.Diagnostics;
 using Parrot.Store;
@@ -14,8 +13,6 @@ internal sealed class AgentQueues(
     IDiagnosticLog diagnostics) : IAgentQueues
 {
     private readonly IQueueInventory _inventory = createInventory(identity);
-    private readonly SemaphoreSlim _delivery = new(1, 1);
-    private IAgentSession? _session;
     private int _disposed;
 
     public string SessionId => Identity.SessionId;
@@ -32,14 +29,7 @@ internal sealed class AgentQueues(
 
     internal IAgentQueues? Parent { get; } = parent;
 
-    public void Initialize()
-    {
-        Local.AttachInventory(Identity, _inventory);
-        if (Identity.Depth == 0)
-        {
-            Local.AdoptRootListener(SessionId);
-        }
-    }
+    public void Initialize() => Local.AttachInventory(Identity, _inventory);
 
     public QueueInventorySnapshot CaptureInventory() => _inventory.Capture();
 
@@ -49,7 +39,7 @@ internal sealed class AgentQueues(
     {
         lock (Gate)
         {
-            return new(Identity, Volatile.Read(ref _disposed) == 0 ? Local.List(SessionId) : []);
+            return new(Identity, Volatile.Read(ref _disposed) == 0 ? Local.List() : []);
         }
     }
 
@@ -60,7 +50,7 @@ internal sealed class AgentQueues(
             return;
         }
 
-        foreach (var queue in Local.List(SessionId))
+        foreach (var queue in Local.List())
         {
             Parent.EnsureMissing(queue.Name);
         }
@@ -70,9 +60,6 @@ internal sealed class AgentQueues(
     {
         ArgumentNullException.ThrowIfNull(session);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        _session = _session is null
-            ? session
-            : throw new InvalidOperationException("The queue owner already has an agent session.");
     }
 
     public QueueInfo Create(string name, string description)
@@ -109,37 +96,18 @@ internal sealed class AgentQueues(
     public QueueInfo Get(string name)
     {
         var store = Resolve(name);
-        return store.Get(name, SessionId);
+        return store.Get(name);
     }
 
     public IReadOnlyList<QueueInfo> List()
     {
-        var own = Local.List(SessionId);
+        var own = Local.List();
         if (Parent is null)
         {
             return own;
         }
 
-        return [.. own.Concat(Parent.Local.List(SessionId)).OrderBy(queue => queue.Name, StringComparer.Ordinal)];
-    }
-
-    public async Task<QueueInfo> Listen(string name, bool enabled, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var store = Resolve(name);
-        var result = store.Monitor(name, SessionId, enabled);
-        if (enabled)
-        {
-            try
-            {
-                _ = await DeliverFromStore(store, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception)
-            {
-            }
-        }
-
-        return result;
+        return [.. own.Concat(Parent.Local.List()).OrderBy(queue => queue.Name, StringComparer.Ordinal)];
     }
 
     public async Task<QueueInfo> Push(
@@ -161,45 +129,13 @@ internal sealed class AgentQueues(
             });
         }
 
-        if (items.Count > 0)
-        {
-            try
-            {
-                await (ReferenceEquals(store, Local) ? this : Parent
-                    ?? throw new InvalidOperationException("Queue store owner is missing.")).Notify(cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception)
-            {
-            }
-        }
-
-        return result with { Monitored = store.ListListenerSessionIds(name).Contains(SessionId, StringComparer.Ordinal) };
+        return result;
     }
 
     public QueueTryTakeResult TryTake(string name, int count, QueueDirection direction)
     {
         var store = Resolve(name);
-        try
-        {
-            var result = store.TryTake(name, count, direction);
-            return result.Info is null
-                ? result
-                : result with { Info = WithListeningState(store, name, result.Info) };
-        }
-        catch (QueueEmptyException failure) when (failure.Info is not null)
-        {
-            throw new QueueEmptyException(WithListeningState(store, name, failure.Info));
-        }
-    }
-
-    public async Task<bool> Deliver(CancellationToken cancellationToken)
-    {
-        if (await DeliverFromStore(Local, cancellationToken).ConfigureAwait(false))
-        {
-            return true;
-        }
-
-        return Parent is not null && await DeliverFromStore(Parent.Local, cancellationToken).ConfigureAwait(false);
+        return store.TryTake(name, count, direction);
     }
 
     public void Dispose()
@@ -209,113 +145,18 @@ internal sealed class AgentQueues(
             return;
         }
 
-        _delivery.Wait();
-        try
+        lock (Parent?.Gate ?? Gate)
         {
-            lock (Parent?.Gate ?? Gate)
+            lock (Gate)
             {
-                lock (Gate)
-                {
-                    try
-                    {
-                        if (Parent is not null && !Parent.IsDisposed)
-                        {
-                            Parent.Local.RemoveListener(SessionId);
-                        }
-                    }
-                    finally
-                    {
-                        try
-                        {
-                            Local.Dispose();
-                        }
-                        finally
-                        {
-                            _inventory.Dispose();
-                        }
-                    }
-                }
-            }
-
-            if (Identity.Depth > 0 && System.IO.Directory.Exists(Local.Directory))
-            {
-                System.IO.Directory.Delete(Local.Directory, recursive: true);
+                Local.Dispose();
+                _inventory.Dispose();
             }
         }
-        finally
-        {
-            _delivery.Dispose();
-        }
-    }
 
-    public async Task<bool> DeliverFromStore(IQueueStore store, CancellationToken cancellationToken)
-    {
-        if (Volatile.Read(ref _disposed) != 0 || _session is null)
+        if (Identity.Depth > 0 && System.IO.Directory.Exists(Local.Directory))
         {
-            return false;
-        }
-
-        var session = _session;
-        await _delivery.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (Volatile.Read(ref _disposed) != 0
-                || (!session.IsIdle() && !session.IsWaitingForIncomingInput()))
-            {
-                return false;
-            }
-
-            var started = Stopwatch.GetTimestamp();
-            try
-            {
-                var delivered = await store.DeliverMonitored(SessionId, session.ReceiveQueueNotification, cancellationToken)
-                    .ConfigureAwait(false);
-                if (delivered)
-                {
-                    diagnostics.Write(new DiagnosticEvent("queue", "delivery_completed", DiagnosticSeverity.Information)
-                    {
-                        AgentSessionId = SessionId,
-                        DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-                        Outcome = "delivered",
-                    });
-                }
-
-                return delivered;
-            }
-            catch (Exception failure)
-            {
-                diagnostics.Write(new DiagnosticEvent("queue", "delivery_completed", failure is OperationCanceledException ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
-                {
-                    AgentSessionId = SessionId,
-                    DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-                    Outcome = failure is OperationCanceledException ? "cancelled" : "failed",
-                    ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
-                });
-                throw;
-            }
-        }
-        finally
-        {
-            _ = _delivery.Release();
-        }
-    }
-
-    public async Task Notify(CancellationToken cancellationToken)
-    {
-        var candidates = children.SnapshotChildScopes().Select(static child => child.GetService<IAgentQueues>()).Prepend(this);
-        foreach (var candidate in candidates)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                if (await candidate.DeliverFromStore(Local, cancellationToken).ConfigureAwait(false))
-                {
-                    return;
-                }
-            }
-            catch (Exception) when (!cancellationToken.IsCancellationRequested)
-            {
-            }
+            System.IO.Directory.Delete(Local.Directory, recursive: true);
         }
     }
 
@@ -328,7 +169,7 @@ internal sealed class AgentQueues(
 
         try
         {
-            _ = Local.Get(name, SessionId);
+            _ = Local.Get(name);
         }
         catch (QueueNotFoundException)
         {
@@ -338,21 +179,18 @@ internal sealed class AgentQueues(
         throw new QueueAlreadyExistsException($"queue: '{name}' already exists");
     }
 
-    private QueueInfo WithListeningState(IQueueStore store, string name, QueueInfo info) =>
-        info with { Monitored = store.ListListenerSessionIds(name).Contains(SessionId, StringComparer.Ordinal) };
-
     private IQueueStore Resolve(string name)
     {
         try
         {
-            _ = Local.Get(name, SessionId);
+            _ = Local.Get(name);
             return Local;
         }
         catch (QueueNotFoundException) when (Parent is not null)
         {
             try
             {
-                _ = Parent.Local.Get(name, SessionId);
+                _ = Parent.Local.Get(name);
                 return Parent.Local;
             }
             catch (QueueNotFoundException)

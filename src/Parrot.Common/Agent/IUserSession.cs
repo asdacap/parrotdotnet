@@ -52,7 +52,7 @@ internal interface IUserSession : IAsyncDisposable
     /// <summary>Updates the foreground model and mode without replacing its agent session.</summary>
     void Update(ResolvedModelSelection? model, IMode? mode);
 
-    /// <summary>Streams current inventory and subsequent events until listening is cancelled or the session closes.</summary>
+    /// <summary>Streams current inventory and subsequent events until cancelled or the session closes.</summary>
     IAsyncEnumerable<Event> Listen(CancellationToken cancellationToken);
 
     /// <summary>Durably admits text for the foreground agent without waiting for its turn to finish.</summary>

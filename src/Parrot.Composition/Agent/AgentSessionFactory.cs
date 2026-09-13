@@ -97,7 +97,6 @@ internal sealed class AgentSessionFactory(
         try
         {
             scope.GetService<IAgentQueues>().Initialize();
-            scope.GetService<IAgentQueues>().Attach(scope.Session);
             return scope;
         }
         catch

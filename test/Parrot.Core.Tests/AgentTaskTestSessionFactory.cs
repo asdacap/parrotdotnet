@@ -106,7 +106,6 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
             completionCallbacks,
             new SecurityProfileTestFixture(securityProfile).Security,
             status,
-            agentQueues,
             new AgentSessionActivity(TimeProvider.System),
             TestDiagnosticLog.Instance,
             lifetime);

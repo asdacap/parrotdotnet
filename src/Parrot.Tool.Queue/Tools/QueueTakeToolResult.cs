@@ -20,10 +20,6 @@ internal sealed class QueueTakeToolResult
     [JsonPropertyName("closed")]
     public required bool Closed { get; init; }
 
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    [JsonPropertyName("monitored")]
-    public bool? Monitored { get; init; }
-
     [JsonPropertyName("items")]
     public required string[] Items { get; init; }
 }

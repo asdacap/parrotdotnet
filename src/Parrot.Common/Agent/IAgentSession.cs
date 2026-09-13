@@ -1,7 +1,6 @@
 using Parrot.Context;
 using Parrot.Llm;
 using Parrot.Protocol;
-using Parrot.Queues;
 using Parrot.Store;
 
 namespace Parrot.Agent;
@@ -61,8 +60,6 @@ internal interface IAgentSession : IAsyncDisposable
 
     bool IsActive();
 
-    bool IsWaitingForIncomingInput();
-
     /// <summary>Waits for incoming activity up to the supplied duration, returning null on timeout.</summary>
     Task<IncomingActivity?> WaitForIncomingInput(
         TimeSpan duration,
@@ -77,11 +74,6 @@ internal interface IAgentSession : IAsyncDisposable
         CancellationToken cancellationToken);
 
     void SetExitReminder(string? reminder);
-
-    /// <summary>Admits a queue notification only while idle and reports whether it was accepted.</summary>
-    Task<bool> ReceiveQueueNotification(
-        QueueNotification notification,
-        CancellationToken cancellationToken);
 
     Task<AgentSendResult> SendTextMessage(string message, CancellationToken cancellationToken);
 

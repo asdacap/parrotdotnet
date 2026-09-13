@@ -89,7 +89,6 @@ internal sealed class AgentOperationDiagnosticsTests : IDisposable
             new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks,
             new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security,
             dependencies.Status,
-            dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),
             diagnostics,
             cancellationToken);

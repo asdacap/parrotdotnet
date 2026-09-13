@@ -86,7 +86,7 @@ internal sealed class ActiveWorkBlockerTests
     }
 
     [Test]
-    public async Task Queue_blocker_ignores_empty_queues_and_unmonitored_state_but_blocks_nonempty_queues()
+    public async Task Queue_blocker_ignores_empty_queues_but_blocks_nonempty_queues()
     {
         var identity = AgentIdentity.Main("queue-owner", "owner", TestModels.PromptTemplates);
         await using var fixture = new AgentQueueTestFixture(identity);
