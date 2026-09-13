@@ -27,7 +27,7 @@ src/
   Parrot.Llm/            Providers, model routing and wire implementations.
   Parrot.Tools/          Tool implementations, factories and tool-local helpers.
   Parrot.Core/           Agent orchestration, session lifecycle and protocol services.
-  Parrot.Composition/    Per-agent dependency wiring and generated composition.
+  Parrot.Composition/    Per-agent wiring, session factories and scope lifecycle.
   Parrot.Cli/            The `parrot` executable. AOT-published.
 test/
   Parrot.*.Tests/        TUnit projects for each layer, plus Tools and CLI tests.
