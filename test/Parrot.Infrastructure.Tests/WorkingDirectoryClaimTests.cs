@@ -110,6 +110,116 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
     }
 
     [Test]
+    [Arguments("unavailable", "unavailable")]
+    [Arguments("unavailable-123", "unavailable")]
+    [Arguments("unavailable-123", "unavailable-456")]
+    [Arguments("unavailable--123", "unavailable")]
+    [Arguments("boot", "unavailable")]
+    [Arguments("unavailable", "boot")]
+    [Arguments(null, "unavailable")]
+    public async Task Unavailable_boot_identity_uses_process_liveness(string? recordedBoot, string currentBoot)
+    {
+        (ProcessIdentityStatus Status, string? Start, ClaimDisposition Expected)[] observations =
+        [
+            (ProcessIdentityStatus.Missing, null, ClaimDisposition.Resumed),
+            (ProcessIdentityStatus.Found, "old-start", ClaimDisposition.Live),
+            (ProcessIdentityStatus.Found, "new-start", ClaimDisposition.Resumed),
+            (ProcessIdentityStatus.Unreadable, null, ClaimDisposition.Live),
+            (ProcessIdentityStatus.Found, null, ClaimDisposition.Live),
+            (ProcessIdentityStatus.Found, string.Empty, ClaimDisposition.Live),
+            (ProcessIdentityStatus.Found, " ", ClaimDisposition.Live),
+        ];
+        foreach (var recordedStart in new[] { "old-start", null })
+        {
+            foreach (var (status, start, expectedDisposition) in observations)
+            {
+                var root = Path.Combine(_root, Guid.NewGuid().ToString("n"));
+                var owner = new OwnerRecord
+                {
+                    Version = 1,
+                    SessionId = "user-session-recovery",
+                    WorkingDirectory = _workspace,
+                    HostKey = "host",
+                    BootIdentity = recordedBoot,
+                    ProcessId = 4312,
+                    ProcessStartToken = recordedStart,
+                };
+                var directory = Directory.CreateDirectory(Path.Combine(
+                    root, "owners", WorkingDirectoryClaim.Fingerprint(WorkingDirectoryClaim.Canonicalize(_workspace))));
+                await File.WriteAllTextAsync(
+                    Path.Combine(directory.FullName, "v1.json"),
+                    JsonSerializer.Serialize(owner, StoreJsonContext.Default.OwnerRecord));
+                var inspected = false;
+                var runtime = new RuntimeIdentity(
+                    RuntimeIdentityCapture.FingerprintHost("host"),
+                    currentBoot,
+                    4312,
+                    "new-start",
+                    "runtime",
+                    _ =>
+                    {
+                        inspected = true;
+                        return new ProcessIdentity(status, start);
+                    });
+                var claim = new WorkingDirectoryClaim(root, runtime);
+
+                var result = claim.OpenDefault(_workspace);
+
+                var expected = recordedStart is null && status == ProcessIdentityStatus.Found
+                    ? ClaimDisposition.Live : expectedDisposition;
+                _ = await Assert.That(inspected).IsTrue();
+                _ = await Assert.That(result.Disposition).IsEqualTo(expected);
+                _ = await Assert.That(result.SessionId?.Value).IsEqualTo(owner.SessionId);
+                _ = await Assert.That(result.ActivationLease is not null).IsEqualTo(expected == ClaimDisposition.Resumed);
+                await ReleaseAsync(result.ActivationLease);
+            }
+        }
+    }
+
+    [Test]
+    [Arguments("other-boot")]
+    [Arguments("unavailable-")]
+    [Arguments("unavailable-not-a-tick")]
+    [Arguments("unavailable-123suffix")]
+    [Arguments("unavailable-+123")]
+    [Arguments("unavailable- 123")]
+    [Arguments("unavailable-123 ")]
+    [Arguments("unavailable-0123")]
+    [Arguments("unavailable-9223372036854775808")]
+    public async Task Available_boot_mismatch_fails_closed_without_inspecting_process(string recordedBoot)
+    {
+        var ownerRuntime = new RuntimeIdentity(
+            RuntimeIdentityCapture.FingerprintHost("host"),
+            recordedBoot,
+            4312,
+            "old-start",
+            "owner-runtime",
+            static _ => new ProcessIdentity(ProcessIdentityStatus.Found, "old-start"));
+        var owner = new WorkingDirectoryClaim(_root, ownerRuntime);
+        var activation = owner.CreateFresh(_workspace, "user-session-other-boot");
+        var inspected = false;
+        var currentRuntime = new RuntimeIdentity(
+            RuntimeIdentityCapture.FingerprintHost("host"),
+            "boot",
+            4312,
+            "new-start",
+            "current-runtime",
+            _ =>
+            {
+                inspected = true;
+                return new ProcessIdentity(ProcessIdentityStatus.Missing, null);
+            });
+        var claim = new WorkingDirectoryClaim(_root, currentRuntime);
+
+        var result = claim.OpenDefault(_workspace);
+
+        _ = await Assert.That(inspected).IsFalse();
+        _ = await Assert.That(result.Disposition).IsEqualTo(ClaimDisposition.Live);
+        _ = await Assert.That(result.ActivationLease).IsNull();
+        await ReleaseAsync(activation.ActivationLease);
+    }
+
+    [Test]
     public async Task Canonical_workspace_identity_matches_a_symbolic_link()
     {
         var alias = Path.Combine(_root, "workspace-alias");
