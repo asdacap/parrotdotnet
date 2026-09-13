@@ -2,7 +2,7 @@ using Parrot.Agent;
 
 namespace Parrot.Queues;
 
-/// <summary>Persists queues and listener state, serializing access and publishing attached inventory changes.</summary>
+/// <summary>Persists queues, serializing access and publishing attached inventory changes.</summary>
 internal interface IQueueStore : IDisposable
 {
     string Directory { get; }
@@ -21,28 +21,9 @@ internal interface IQueueStore : IDisposable
     /// <summary>Attempts to acquire the queue lock without waiting and removes available items.</summary>
     QueueTryTakeResult TryTake(string name, int count, QueueDirection direction);
 
-    /// <summary>Reads queue metadata with the specified listener's monitoring state.</summary>
-    QueueInfo Get(string name, string listenerSessionId);
+    /// <summary>Reads queue metadata.</summary>
+    QueueInfo Get(string name);
 
-    /// <summary>Lists queue metadata with the specified listener's monitoring state.</summary>
-    IReadOnlyList<QueueInfo> List(string listenerSessionId);
-
-    /// <summary>Enables or disables the named listener while preserving other listeners.</summary>
-    QueueInfo Monitor(string name, string listenerSessionId, bool enabled);
-
-    /// <summary>Restores root listening state, migrating legacy monitoring and removing stale listeners.</summary>
-    void AdoptRootListener(string listenerSessionId);
-
-    /// <summary>Removes a listener and its reserved deliveries from every owned queue.</summary>
-    void RemoveListener(string listenerSessionId);
-
-    IReadOnlyList<string> ListListenerSessionIds(string name);
-
-    IReadOnlyList<string> ListAllListenerSessionIds();
-
-    /// <summary>Delivers at most one monitored item, removing it only after the recipient accepts it.</summary>
-    Task<bool> DeliverMonitored(
-        string listenerSessionId,
-        Func<QueueNotification, CancellationToken, Task<bool>> deliver,
-        CancellationToken cancellationToken);
+    /// <summary>Lists queue metadata.</summary>
+    IReadOnlyList<QueueInfo> List();
 }

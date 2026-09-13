@@ -561,7 +561,6 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             new TestCompletionCallbacksFixture(childQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks,
             new SecurityProfileTestFixture(SecurityProfile.Compose(false, [], [], [])).Security,
             dependencies.Status,
-            dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),
             TestDiagnosticLog.Instance,
             cancellationToken));

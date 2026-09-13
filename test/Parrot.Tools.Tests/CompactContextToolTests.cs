@@ -196,7 +196,6 @@ internal sealed class CompactContextToolTests : IDisposable
             new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker).Callbacks,
             new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security,
             dependencies.Status,
-            dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),
             TestDiagnosticLog.Instance,
             cancellationToken);

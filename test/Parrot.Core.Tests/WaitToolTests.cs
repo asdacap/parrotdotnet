@@ -1,6 +1,5 @@
 using Parrot.Agent;
 using Parrot.AgentTasks;
-using Parrot.Config;
 using Parrot.Context;
 using Parrot.Diagnostics;
 using Parrot.Events;
@@ -9,12 +8,9 @@ using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Queues;
 using Parrot.Security;
-using Parrot.Skills;
 using Parrot.State;
 using Parrot.Statuses;
 using Parrot.Store;
-using Parrot.Tools;
-using AgentUserSession = Parrot.Agent.UserSession;
 
 namespace Parrot.Core.Tests;
 
@@ -59,7 +55,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         _ = await childScope.Session.Send([ConversationPart.TextPart("work")], "child-message", Delivery.Steer, cancellationToken);
         await childProvider.Arrived(cancellationToken);
         var selection = new SelectionFixture(provider).Selection;
-        ITool tool = new WaitTool(
+        Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
             new RuntimeStatus(registry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(registry, TestModels.PromptTemplates)),
             session,
             time);
@@ -77,10 +73,10 @@ internal sealed class WaitToolTests : IAsyncDisposable
 
         foreach (var arguments in invalid)
         {
-            _ = await Assert.That((await tool.Execute(new ToolInvocation("test-call", arguments), new SelectionFixture(provider).Selection, cancellationToken)).Text).StartsWith("error:");
+            _ = await Assert.That((await tool.Execute(new Parrot.Tools.ToolInvocation("test-call", arguments), new SelectionFixture(provider).Selection, cancellationToken)).Text).StartsWith("error:");
         }
 
-        var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), selection, cancellationToken);
+        var waiting = tool.Execute(new Parrot.Tools.ToolInvocation("test-call", "{}"), selection, cancellationToken);
         await time.WaitForTimer(cancellationToken);
         time.Advance(TimeSpan.FromSeconds(10));
         var estimatedTokens = session.EstimateContext(selection).EstimatedTokens;
@@ -107,7 +103,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         await using var scope = Session(provider, [], repository, registry);
         var session = scope.Session;
         await using var unobservedRegistry = new UnobservedRegistry(registry);
-        ITool tool = new WaitTool(
+        Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
             new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(unobservedRegistry, TestModels.PromptTemplates)),
             session,
             TimeProvider.System);
@@ -123,7 +119,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
                 InputAdmitted = new InputAdmitted { InputId = input.Id, MessageId = input.MessageId },
             });
 
-        _ = await Assert.That((await tool.Execute(new ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken)).Text).IsEqualTo("wait interrupted");
+        _ = await Assert.That((await tool.Execute(new Parrot.Tools.ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken)).Text).IsEqualTo("wait interrupted");
     }
 
     [Test]
@@ -134,12 +130,11 @@ internal sealed class WaitToolTests : IAsyncDisposable
         await using var scope = Session(provider, [], selectedRepository: null, registry);
         var session = scope.Session;
         await using var unobservedRegistry = new UnobservedRegistry(registry);
-        ITool tool = new WaitTool(
+        Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
             new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(unobservedRegistry, TestModels.PromptTemplates)),
             session,
             TimeProvider.System);
-        var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken);
-        await WaitUntil(session.IsWaitingForIncomingInput, cancellationToken);
+        var waiting = tool.Execute(new Parrot.Tools.ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken);
 
         await session.ReceiveAgentCompletion("researcher", "completed", cancellationToken);
 
@@ -156,12 +151,11 @@ internal sealed class WaitToolTests : IAsyncDisposable
         await using var scope = Session(provider, [], repository, registry);
         var session = scope.Session;
         await using var unobservedRegistry = new UnobservedRegistry(registry);
-        ITool tool = new WaitTool(
+        Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
             new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(unobservedRegistry, TestModels.PromptTemplates)),
             session,
             TimeProvider.System);
-        var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken);
-        await WaitUntil(session.IsWaitingForIncomingInput, cancellationToken);
+        var waiting = tool.Execute(new Parrot.Tools.ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken);
 
         await session.ReceiveAgentTaskCompletion(
             "graph-call",
@@ -232,12 +226,11 @@ internal sealed class WaitToolTests : IAsyncDisposable
         await using var scope = Session(provider, [], selectedRepository: null, registry);
         var session = scope.Session;
         await using var unobservedRegistry = new UnobservedRegistry(registry);
-        ITool tool = new WaitTool(
+        Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
             new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(unobservedRegistry, TestModels.PromptTemplates)),
             session,
             TimeProvider.System);
-        var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken);
-        await WaitUntil(session.IsWaitingForIncomingInput, cancellationToken);
+        var waiting = tool.Execute(new Parrot.Tools.ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken);
 
         await session.ReceiveProcessCompletion(
             "compiler",
@@ -257,18 +250,20 @@ internal sealed class WaitToolTests : IAsyncDisposable
         await using var scope = Session(provider, [], selectedRepository: null, registry);
         var session = scope.Session;
         await using var unobservedRegistry = new UnobservedRegistry(registry);
-        ITool tool = new WaitTool(
+        Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
             new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(unobservedRegistry, TestModels.PromptTemplates)),
             session,
             TimeProvider.System);
         using var canceled = new CancellationTokenSource();
-        var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, canceled.Token);
-        await WaitUntil(session.IsWaitingForIncomingInput, cancellationToken);
-
+        var waiting = tool.Execute(new Parrot.Tools.ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, canceled.Token);
         await canceled.CancelAsync();
 
         _ = await Assert.That(waiting).Throws<OperationCanceledException>();
-        _ = await Assert.That(session.IsWaitingForIncomingInput()).IsFalse();
+        var afterCancel = await session.WaitForIncomingInput(
+            TimeSpan.FromSeconds(1),
+            TimeProvider.System,
+            cancellationToken);
+        _ = await Assert.That(afterCancel is null).IsTrue();
     }
 
     [Test]
@@ -279,7 +274,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         var repository = new EventRepository(_database);
         var registry = PrepareRegistry(new EventRepository(_database));
-        var factory = new WaitToolFactory(new RuntimeStatus(registry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(registry, TestModels.PromptTemplates)), TimeProvider.System);
+        var factory = new Parrot.Tools.WaitToolFactory(new RuntimeStatus(registry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(registry, TestModels.PromptTemplates)), TimeProvider.System);
         await using var scope = Session(provider, [factory], repository, registry);
         var session = scope.Session;
 
@@ -287,11 +282,11 @@ internal sealed class WaitToolTests : IAsyncDisposable
             [ConversationPart.TextPart("first")], "message-1", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
-        await WaitUntil(session.IsWaitingForIncomingInput, cancellationToken);
+        await WaitUntil(() => IsWaiting(session), cancellationToken);
         _ = await session.Send(
             [ConversationPart.TextPart("first")], "message-1", Delivery.Steer, cancellationToken);
         await Task.Delay(20, cancellationToken);
-        _ = await Assert.That(session.IsWaitingForIncomingInput()).IsTrue();
+        _ = await Assert.That(IsWaiting(session)).IsTrue();
         _ = await session.Send(
             [ConversationPart.TextPart("wakeup")], "message-2", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -310,231 +305,13 @@ internal sealed class WaitToolTests : IAsyncDisposable
         _ = await Assert.That(lifecycle.Length).IsEqualTo(2);
     }
 
-    [Test]
-    public async Task Child_listener_wakes_and_drains_a_direct_parents_queue(CancellationToken cancellationToken)
-    {
-        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
-        var repository = new EventRepository(_database);
-        var resources = new UserSessionResources(
-            new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
-            UserSessionId.Parse("parent-listener-queues"),
-            ProjectWorkspace.FromLaunchDirectory(_root));
-        using var diagnostics = FileDiagnosticLog.OpenSession(resources, "test", TextWriter.Null, TimeProvider.System);
-        var registry = PrepareRegistry(repository);
-        await using var parent = BuildSession(new UnusedProvider(), [], repository, registry, AgentIdentity.Main("parent", "parent", TestModels.PromptTemplates), AgentSessionParentLink.Root(), resources, diagnostics);
-        var parentQueues = parent.GetService<IAgentQueues>();
-        await using var childScope = BuildSession(provider, [], repository, registry, AgentIdentity.Child("child", "parent", "parent", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly), resources, diagnostics);
-        var child = childScope.Session;
-        var childQueues = childScope.GetService<IAgentQueues>();
-        _ = parentQueues.Create("parent-work", string.Empty);
-        _ = await childQueues.Listen("parent-work", true, cancellationToken);
-        var waiting = child.WaitForIncomingInput(TimeSpan.FromMinutes(1), TimeProvider.System, cancellationToken);
-        await WaitUntil(child.IsWaitingForIncomingInput, cancellationToken);
-
-        _ = await parentQueues.Push("parent-work", ["from-parent"], QueueDirection.Back, false, cancellationToken);
-
-        _ = await Assert.That((await waiting)?.Kind).IsEqualTo(IncomingActivityKind.Input);
-        await provider.Arrived(cancellationToken);
-        _ = await Assert.That(string.Join('\n', provider.Requests.Single().Messages.Select(message => message.Content)))
-            .Contains("Queue notification from \"parent-work\":\n\nfrom-parent");
-        _ = await Assert.That(parentQueues.Get("parent-work").Size).IsEqualTo(0);
-        provider.Release();
-        await child.DisposeAsync();
-        var log = await File.ReadAllTextAsync(resources.LogPath, cancellationToken);
-        _ = await Assert.That(log).Contains("event=\"delivery_completed\"").And.Contains("outcome=\"delivered\"")
-            .And.Contains("agent=\"child\"").And.DoesNotContain("parent-work").And.DoesNotContain("from-parent");
-    }
-
-    [Test]
-    public async Task Competing_listeners_deliver_one_item_to_only_one_wait(CancellationToken cancellationToken)
-    {
-        using var firstProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
-        using var secondProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
-        var repository = new EventRepository(_database);
-        var resources = QueueResources("competing-listener-queues");
-        var registry = PrepareRegistry(repository);
-        await using var parent = BuildSession(new UnusedProvider(), [], repository, registry, AgentIdentity.Main("parent", "parent", TestModels.PromptTemplates), AgentSessionParentLink.Root(), resources, TestDiagnosticLog.Instance);
-        var parentQueues = parent.GetService<IAgentQueues>();
-        await using var firstScope = BuildSession(firstProvider, [], repository, registry, AgentIdentity.Child("first-child", "parent", "parent", "first", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly), resources, TestDiagnosticLog.Instance);
-        var first = firstScope.Session;
-        var firstQueues = firstScope.GetService<IAgentQueues>();
-        await using var secondScope = BuildSession(secondProvider, [], repository, registry, AgentIdentity.Child("second-child", "parent", "parent", "second", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly), resources, TestDiagnosticLog.Instance);
-        var second = secondScope.Session;
-        var secondQueues = secondScope.GetService<IAgentQueues>();
-        _ = parentQueues.Create("shared-work", string.Empty);
-        _ = await firstQueues.Listen("shared-work", true, cancellationToken);
-        _ = await secondQueues.Listen("shared-work", true, cancellationToken);
-        using var firstWaitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using var secondWaitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var firstWaiting = first.WaitForIncomingInput(
-            TimeSpan.FromMinutes(1), TimeProvider.System, firstWaitCancellation.Token);
-        var secondWaiting = second.WaitForIncomingInput(
-            TimeSpan.FromMinutes(1), TimeProvider.System, secondWaitCancellation.Token);
-        await WaitUntil(
-            () => first.IsWaitingForIncomingInput() && second.IsWaitingForIncomingInput(),
-            cancellationToken);
-
-        _ = await parentQueues.Push("shared-work", ["single-item"], QueueDirection.Back, false, cancellationToken);
-        _ = await Task.WhenAll(
-            firstQueues.Deliver(cancellationToken),
-            secondQueues.Deliver(cancellationToken));
-
-        _ = await Assert.That(firstWaiting.IsCompleted ^ secondWaiting.IsCompleted).IsTrue();
-        if (firstWaiting.IsCompleted)
-        {
-            await firstProvider.Arrived(cancellationToken);
-        }
-        else
-        {
-            await secondProvider.Arrived(cancellationToken);
-        }
-
-        _ = await Assert.That(firstProvider.Requests.Count + secondProvider.Requests.Count).IsEqualTo(1);
-        _ = await Assert.That(parentQueues.Get("shared-work").Size).IsEqualTo(0);
-
-        if (firstWaiting.IsCompleted)
-        {
-            _ = await Assert.That((await firstWaiting)?.Kind).IsEqualTo(IncomingActivityKind.Input);
-            await secondWaitCancellation.CancelAsync();
-            _ = await Assert.That(secondWaiting).Throws<OperationCanceledException>();
-            firstProvider.Release();
-            await first.DisposeAsync();
-        }
-        else
-        {
-            _ = await Assert.That((await secondWaiting)?.Kind).IsEqualTo(IncomingActivityKind.Input);
-            await firstWaitCancellation.CancelAsync();
-            _ = await Assert.That(firstWaiting).Throws<OperationCanceledException>();
-            secondProvider.Release();
-            await second.DisposeAsync();
-        }
-    }
-
-    [Test]
-    public async Task Disabling_one_listener_leaves_another_listener_active(CancellationToken cancellationToken)
-    {
-        using var disabledProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
-        using var activeProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
-        var repository = new EventRepository(_database);
-        var resources = QueueResources("disabled-listener-queues");
-        var registry = PrepareRegistry(repository);
-        await using var parent = BuildSession(new UnusedProvider(), [], repository, registry, AgentIdentity.Main("parent", "parent", TestModels.PromptTemplates), AgentSessionParentLink.Root(), resources, TestDiagnosticLog.Instance);
-        var parentQueues = parent.GetService<IAgentQueues>();
-        await using var disabledScope = BuildSession(disabledProvider, [], repository, registry, AgentIdentity.Child("disabled-child", "parent", "parent", "disabled", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly), resources, TestDiagnosticLog.Instance);
-        var disabled = disabledScope.Session;
-        var disabledQueues = disabledScope.GetService<IAgentQueues>();
-        await using var activeScope = BuildSession(activeProvider, [], repository, registry, AgentIdentity.Child("active-child", "parent", "parent", "active", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly), resources, TestDiagnosticLog.Instance);
-        var active = activeScope.Session;
-        var activeQueues = activeScope.GetService<IAgentQueues>();
-        _ = parentQueues.Create("shared-work", string.Empty);
-        _ = await disabledQueues.Listen("shared-work", true, cancellationToken);
-        _ = await activeQueues.Listen("shared-work", true, cancellationToken);
-        _ = await disabledQueues.Listen("shared-work", false, cancellationToken);
-        using var disabledWaitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var disabledWaiting = disabled.WaitForIncomingInput(
-            TimeSpan.FromMinutes(1), TimeProvider.System, disabledWaitCancellation.Token);
-        var activeWaiting = active.WaitForIncomingInput(TimeSpan.FromMinutes(1), TimeProvider.System, cancellationToken);
-        await WaitUntil(
-            () => disabled.IsWaitingForIncomingInput() && active.IsWaitingForIncomingInput(),
-            cancellationToken);
-
-        _ = await parentQueues.Push("shared-work", ["active-item"], QueueDirection.Back, false, cancellationToken);
-        _ = await activeQueues.Deliver(cancellationToken);
-
-        _ = await Assert.That((await activeWaiting)?.Kind).IsEqualTo(IncomingActivityKind.Input);
-        await activeProvider.Arrived(cancellationToken);
-        _ = await Assert.That(disabledWaiting.IsCompleted).IsFalse();
-        _ = await Assert.That(disabledProvider.Requests).IsEmpty();
-        _ = await Assert.That(string.Join('\n', activeProvider.Requests.Single().Messages.Select(message => message.Content)))
-            .Contains("Queue notification from \"shared-work\":\n\nactive-item");
-        _ = await Assert.That(parentQueues.Get("shared-work").Size).IsEqualTo(0);
-        await disabledWaitCancellation.CancelAsync();
-        _ = await Assert.That(disabledWaiting).Throws<OperationCanceledException>();
-        activeProvider.Release();
-        await active.DisposeAsync();
-    }
-
-    [Test]
-    public async Task Listened_queue_wakes_wait_but_unlistened_queue_does_not(CancellationToken cancellationToken)
-    {
-        using var provider = new SteppedProvider(
-            LLMEvent.Completed("tool_calls", 1, 0, 1, string.Empty, [new LLMToolCall("wait-call", "wait", "{}")]),
-            LLMEvent.Completed("stop", 1, 0, 1, "done", []));
-        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        var router = TestModels.Route(model);
-        var sessions = new WaitAgentSessions(router, TimeProvider.System, _root);
-        var profiles = new TestProfileFixture().Registry;
-        var modes = new ModeRegistry(profiles, ModeRegistry.Build);
-        await using var owner = await AgentUserSession.Create(
-            "user",
-            "main",
-            router.Resolve(model.Selector),
-            "build",
-            Resources("user"),
-            sessions,
-            new UserSessionModes(modes, TestModels.PromptTemplates, Path.Combine(_root, "plans")),
-            TestModels.PromptTemplates,
-            profiles,
-            SkillCatalogFactory(),
-            interactivePermissions: false,
-            TimeSpan.FromSeconds(1),
-            TimeProvider.System,
-            static () => new EventBroker(),
-            static (agents, templates) => new RuntimeTreeStatusProvider(agents, templates));
-
-        _ = await owner.SendText("first", "message", Delivery.Steer, cancellationToken);
-        await provider.Arrived(cancellationToken);
-        _ = await sessions.WaitForSession(cancellationToken);
-        var agentQueues = await sessions.WaitForQueues(cancellationToken);
-        _ = agentQueues.Create("ignored", string.Empty);
-        _ = await agentQueues.Push("ignored", ["no wake"], QueueDirection.Back, false, cancellationToken);
-        _ = agentQueues.Create("work", string.Empty);
-        _ = await agentQueues.Listen("work", true, cancellationToken);
-        _ = await agentQueues.Push("work", ["queued"], QueueDirection.Back, false, cancellationToken);
-        _ = await Assert.That(agentQueues.Get("work").Size).IsEqualTo(1);
-
-        provider.Release();
-        await provider.Arrived(cancellationToken);
-
-        _ = await Assert.That(string.Join('\n', provider.Requests[1].Messages.Select(message => message.Content)))
-            .Contains("Queue notification from \"work\":\n\nqueued");
-        _ = await Assert.That(agentQueues.Get("work").Size).IsEqualTo(0);
-        _ = await Assert.That(agentQueues.Get("ignored").Size).IsEqualTo(1);
-        provider.Release();
-    }
+    private static bool IsWaiting(IAgentSession session) => session.Activity.Capture().State != DrainState.Idle;
 
     private static async Task WaitUntil(Func<bool> predicate, CancellationToken cancellationToken)
     {
         while (!predicate())
         {
             await Task.Delay(1, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private static SkillCatalogFactory SkillCatalogFactory()
-    {
-        var configuration = Configuration.Load(
-            Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"), "config.yaml"),
-            Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"), "predefined.yaml"));
-        return new SkillCatalogFactory(configuration, Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "packaged-skills"));
-    }
-
-    private SessionResourceLease Resources(string ownerId)
-    {
-        var resources = new UserSessionResources(
-            new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
-            UserSessionId.Parse(ownerId),
-            ProjectWorkspace.FromLaunchDirectory(_root));
-        var diagnostics = (IDiagnosticLog?)FileDiagnosticLog.OpenSession(resources, "test", TextWriter.Null, TimeProvider.System);
-        try
-        {
-            var lease = SessionResourceLease.Own(resources, _database, diagnostics ?? throw new InvalidOperationException("Missing diagnostics"));
-            diagnostics = null;
-            return lease;
-        }
-        finally
-        {
-            diagnostics?.Dispose();
         }
     }
 
@@ -564,14 +341,14 @@ internal sealed class WaitToolTests : IAsyncDisposable
 
     private TestAgentSessionScope Session(
         ILLMProvider provider,
-        IReadOnlyList<IToolFactory> tools,
+        IReadOnlyList<Parrot.Tools.IToolFactory> tools,
         IEventRepository? selectedRepository,
         IAgentRegistry registry) =>
         BuildSession(provider, tools, selectedRepository ?? new EventRepository(_database), registry, AgentIdentity.Main("agent", "main", TestModels.PromptTemplates), AgentSessionParentLink.Root(), QueueResources("agent"), TestDiagnosticLog.Instance);
 
     private TestAgentSessionScope BuildSession(
         ILLMProvider provider,
-        IReadOnlyList<IToolFactory> tools,
+        IReadOnlyList<Parrot.Tools.IToolFactory> tools,
         IEventRepository repository,
         IAgentRegistry registry,
         AgentIdentity identity,
@@ -592,7 +369,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             (sessionParentScope, owningScope, children, childQuestions) =>
             {
                 var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
-                IAgentSession session = new AgentSession(identity, sessionParentScope, new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : new TestToolDefinitionsFixture("wait").Definitions, TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, new TestProfileFixture().Mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.Processes), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, status, owningScope.GetService<IAgentQueues>(), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
+                IAgentSession session = new AgentSession(identity, sessionParentScope, new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : new TestToolDefinitionsFixture("wait").Definitions, TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, new TestProfileFixture().Mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.Processes), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
                 return session;
             },
             CancellationToken.None);
@@ -769,61 +546,5 @@ internal sealed class WaitToolTests : IAsyncDisposable
             IAgentRegistry registry,
             CancellationToken lifetime) =>
             throw new NotSupportedException("This test session does not support spawning subagents.");
-    }
-
-    private sealed class WaitAgentSessions(IModelRouter router, TimeProvider timeProvider, string root) : IAgentSessionFactorySource
-    {
-        private readonly TaskCompletionSource<IAgentSession> _created = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly TaskCompletionSource<IAgentQueues> _createdQueues = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public IAgentSessionFactory Create(IUserSession owner) => new Factory(this, owner, router, timeProvider, root);
-
-        public async Task<IAgentSession> WaitForSession(CancellationToken cancellationToken) =>
-            await _created.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-
-        public async Task<IAgentQueues> WaitForQueues(CancellationToken cancellationToken) =>
-            await _createdQueues.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-
-        private sealed class Factory(
-            WaitAgentSessions source,
-            IUserSession owner,
-            IModelRouter router,
-            TimeProvider timeProvider,
-            string root) : IAgentSessionFactory
-        {
-            public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
-                repository.BindAgentHistory(new AgentHistoryFile(owner.Resources, agentSessionId));
-
-            public IAgentSessionScope Create(
-                AgentIdentity identity,
-                AgentSessionParentLink parentLink,
-                ModelSelector model,
-                IEventBroker eventBroker,
-                IEventRepository eventRepository,
-                IMode mode,
-                SecurityProfile securityProfile,
-                Parrot.Statuses.IRuntimeStatus status,
-                IAgentRegistry registry,
-                CancellationToken lifetime)
-            {
-                return TestAgentSessionScope.BuildWithResources(
-                    identity,
-                    parentLink,
-                    registry,
-                    TestModels.PromptTemplates,
-                    owner.Resources,
-                    new ProcessRunner(string.Empty),
-                    owner.Diagnostics,
-                    (sessionParentScope, owningScope, children, childQuestions) =>
-                    {
-                        var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
-                        IAgentSession session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [new WaitToolFactory(status, timeProvider)], new TestToolDefinitionsFixture("wait").Definitions, TestModels.MaterializePrompt(identity, root, root), new ToolOutputBlobStore(Path.Combine(root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.Processes), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker).Callbacks, new SecurityProfileTestFixture(securityProfile).Security, status, owningScope.GetService<IAgentQueues>(), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
-                        _ = source._createdQueues.TrySetResult(owningScope.GetService<IAgentQueues>());
-                        _ = source._created.TrySetResult(session);
-                        return session;
-                    },
-                    lifetime);
-            }
-        }
     }
 }

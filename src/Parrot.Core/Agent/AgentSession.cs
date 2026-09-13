@@ -7,7 +7,6 @@ using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Questions;
-using Parrot.Queues;
 using Parrot.Skills;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -48,7 +47,6 @@ internal sealed partial class AgentSession(
     AgentSkills skills,
     RequestLimitsConfig requestLimits,
     IRuntimeStatus status,
-    IAgentQueues queues,
     AgentSessionActivity activity,
     IDiagnosticLog diagnostics,
     CancellationToken lifetime) : IAgentSession
@@ -126,7 +124,6 @@ internal sealed partial class AgentSession(
         IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
         AgentSessionSecurity security,
         IRuntimeStatus status,
-        IAgentQueues queues,
         AgentSessionActivity activity,
         IDiagnosticLog diagnostics,
         CancellationToken lifetime)
@@ -155,7 +152,6 @@ internal sealed partial class AgentSession(
             new AgentSkills(new SkillCatalog([], () => (SkillConfiguration.Default, 0L)), promptTemplates),
             new RequestLimitsConfig(),
             status,
-            queues,
             activity,
             diagnostics,
             lifetime)
@@ -346,14 +342,6 @@ internal sealed partial class AgentSession(
         }
     }
 
-    public bool IsWaitingForIncomingInput()
-    {
-        lock (_drainLifecycle.Gate)
-        {
-            return _incomingInputWait is not null;
-        }
-    }
-
     public async Task<IncomingActivity?> WaitForIncomingInput(
         TimeSpan duration,
         TimeProvider timeProvider,
@@ -382,18 +370,6 @@ internal sealed partial class AgentSession(
         {
             using var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var delay = Task.Delay(duration, timeProvider, wait.Token);
-            Task<bool>? delivery = null;
-
-            if (!incoming.Task.IsCompleted)
-            {
-                delivery = queues.Deliver(wait.Token);
-                var first = await Task.WhenAny(incoming.Task, delay, delivery).ConfigureAwait(false);
-
-                if (first == delivery)
-                {
-                    _ = await delivery.ConfigureAwait(false);
-                }
-            }
 
             if (!incoming.Task.IsCompleted && !delay.IsCompleted)
             {
@@ -404,17 +380,6 @@ internal sealed partial class AgentSession(
                 ? await incoming.Task.ConfigureAwait(false)
                 : null;
             await wait.CancelAsync().ConfigureAwait(false);
-
-            if (delivery is not null && !delivery.IsCompleted)
-            {
-                try
-                {
-                    _ = await delivery.ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                {
-                }
-            }
 
             cancellationToken.ThrowIfCancellationRequested();
             return activity;
@@ -447,46 +412,6 @@ internal sealed partial class AgentSession(
     }
 
     public void SetExitReminder(string? reminder) => exitReminder.Set(reminder);
-
-    public async Task<bool> ReceiveQueueNotification(
-        QueueNotification notification,
-        CancellationToken cancellationToken)
-    {
-        var content = $"Queue notification from \"{notification.Name}\":\n\n{notification.Item}";
-        var admission = eventRepository.AdmitSteerIfIdle(
-            SessionId,
-            notification.Id,
-            content,
-            input => new Event
-            {
-                Id = Identifier.EventId(),
-                AgentSessionId = SessionId,
-                InputAdmitted = new InputAdmitted
-                {
-                    InputId = input.Id,
-                    MessageId = input.MessageId,
-                    Content = input.Content,
-                    Delivery = input.Delivery,
-                },
-            });
-
-        if (admission is null)
-        {
-            return false;
-        }
-
-        if (admission.Published is not null)
-        {
-            await eventBroker.PublishWithCancellation(admission.Published, cancellationToken).ConfigureAwait(false);
-        }
-
-        if (admission.Created || eventRepository.HasPendingInputs(SessionId))
-        {
-            _ = Wake(new IncomingActivity(IncomingActivityKind.Input, string.Empty));
-        }
-
-        return true;
-    }
 
     public async Task<AgentSendResult> SendTextMessage(string message, CancellationToken cancellationToken)
     {

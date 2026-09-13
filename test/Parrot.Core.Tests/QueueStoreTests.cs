@@ -31,73 +31,9 @@ internal sealed class QueueStoreTests : IDisposable
 
         _ = await Assert.That(string.Join(",", back.Items)).IsEqualTo("three,one");
         _ = await Assert.That(string.Join(",", front.Items)).IsEqualTo("two,zero");
-        _ = await Assert.That(store.Get("build-work-now", "agent-a").Size).IsEqualTo(0);
+        _ = await Assert.That(store.Get("build-work-now").Size).IsEqualTo(0);
         _ = await Assert.That(() => store.TryTake("build-work-now", 1, QueueDirection.Front))
             .Throws<QueueEmptyException>();
-    }
-
-    [Test]
-    public async Task Monitored_delivery_retries_with_the_same_id_and_removes_only_when_accepted(
-        CancellationToken cancellationToken)
-    {
-        using IQueueStore store = new QueueStore(_directory);
-        _ = store.Create("alpha-work", string.Empty);
-        _ = store.Push("alpha-work", ["first", "second"], QueueDirection.Back, false);
-        _ = store.Monitor("alpha-work", "agent-a", true);
-        _ = store.Monitor("alpha-work", "agent-b", true);
-        var ids = new List<string>();
-
-        var rejected = await store.DeliverMonitored(
-            "agent-a",
-            (notification, _) =>
-            {
-                ids.Add(notification.Id);
-                return Task.FromResult(false);
-            },
-            cancellationToken);
-        var wrongListener = await store.DeliverMonitored(
-            "agent-b",
-            (_, _) => Task.FromResult(true),
-            cancellationToken);
-        var accepted = await store.DeliverMonitored(
-            "agent-a",
-            (notification, _) =>
-            {
-                ids.Add(notification.Id);
-                return Task.FromResult(true);
-            },
-            cancellationToken);
-
-        _ = await Assert.That(rejected).IsFalse();
-        _ = await Assert.That(wrongListener).IsFalse();
-        _ = await Assert.That(accepted).IsTrue();
-        _ = await Assert.That(ids[0]).IsEqualTo(ids[1]);
-        _ = await Assert.That(ids[0]).StartsWith("qnt-");
-        _ = await Assert.That(store.Get("alpha-work", "agent-a").Size).IsEqualTo(1);
-        _ = await Assert.That(store.Get("alpha-work", "agent-a").Monitored).IsTrue();
-        _ = await Assert.That(store.Get("alpha-work", "agent-c").Monitored).IsFalse();
-    }
-
-    [Test]
-    public async Task Listener_queries_are_distinct_sorted_and_persisted()
-    {
-        using (IQueueStore store = new QueueStore(_directory))
-        {
-            _ = store.Create("alpha-work", string.Empty);
-            _ = store.Create("beta-work", string.Empty);
-            _ = store.Monitor("alpha-work", "agent-b", true);
-            _ = store.Monitor("alpha-work", "agent-a", true);
-            _ = store.Monitor("beta-work", "agent-b", true);
-            _ = store.Monitor("alpha-work", "agent-b", false);
-        }
-
-        using IQueueStore restored = new QueueStore(_directory);
-        _ = await Assert.That(string.Join(',', restored.ListListenerSessionIds("alpha-work"))).IsEqualTo("agent-a");
-        _ = await Assert.That(string.Join(',', restored.ListAllListenerSessionIds())).IsEqualTo("agent-a,agent-b");
-        _ = await Assert.That(restored.List("agent-a").Single(queue => queue.Name == "alpha-work").Monitored)
-            .IsTrue();
-        _ = await Assert.That(restored.List("agent-b").Single(queue => queue.Name == "alpha-work").Monitored)
-            .IsFalse();
     }
 
     [Test]
@@ -149,13 +85,12 @@ internal sealed class QueueStoreTests : IDisposable
     }
 
     [Test]
-    public async Task Close_is_persistent_idempotent_and_preserves_items_and_listeners(
+    public async Task Close_is_persistent_idempotent_and_preserves_items(
         CancellationToken cancellationToken)
     {
         using (IQueueStore store = new QueueStore(_directory))
         {
             _ = store.Create("closing-work", "finish it");
-            _ = store.Monitor("closing-work", "agent-a", true);
 
             var closed = store.Push("closing-work", ["one", "two"], QueueDirection.Back, true);
             var closedAgain = store.Push("closing-work", [], QueueDirection.Back, true);
@@ -163,7 +98,6 @@ internal sealed class QueueStoreTests : IDisposable
             _ = await Assert.That(closed.Closed).IsTrue();
             _ = await Assert.That(closed.Size).IsEqualTo(2);
             _ = await Assert.That(closedAgain).IsEqualTo(closed);
-            _ = await Assert.That(store.Get("closing-work", "agent-a").Monitored).IsTrue();
             var persisted = await File.ReadAllTextAsync(closed.Path, cancellationToken);
             _ = await Assert.That(() => store.Push("closing-work", ["late"], QueueDirection.Back, false))
                 .Throws<QueueClosedException>()
@@ -177,12 +111,11 @@ internal sealed class QueueStoreTests : IDisposable
         }
 
         using IQueueStore restored = new QueueStore(_directory);
-        var info = restored.Get("closing-work", "agent-a");
+        var info = restored.Get("closing-work");
         var taken = await restored.Take("closing-work", 5, QueueDirection.Front, cancellationToken);
         var completed = restored.TryTake("closing-work", 1, QueueDirection.Front);
 
         _ = await Assert.That(info.Closed).IsTrue();
-        _ = await Assert.That(info.Monitored).IsTrue();
         _ = await Assert.That(string.Join(',', taken.Items)).IsEqualTo("one,two");
         _ = await Assert.That(taken.Info.Closed).IsTrue();
         _ = await Assert.That(completed.Acquired).IsTrue();
@@ -201,11 +134,11 @@ internal sealed class QueueStoreTests : IDisposable
             cancellationToken);
         using IQueueStore store = new QueueStore(_directory);
 
-        var info = store.Get("legacy-work", "agent-a");
+        var info = store.Get("legacy-work");
         _ = store.Push("legacy-work", ["accepted"], QueueDirection.Back, false);
 
         _ = await Assert.That(info.Closed).IsFalse();
-        _ = await Assert.That(store.Get("legacy-work", "agent-a").Size).IsEqualTo(1);
+        _ = await Assert.That(store.Get("legacy-work").Size).IsEqualTo(1);
     }
 
     [Test]
@@ -217,8 +150,7 @@ internal sealed class QueueStoreTests : IDisposable
 
         _ = await Assert.That(() => store.Push("work", ["late"], QueueDirection.Back, false))
             .Throws<ObjectDisposedException>();
-        _ = await Assert.That(() => store.List("agent-owner"))
-            .Throws<ObjectDisposedException>();
+        _ = await Assert.That(store.List).Throws<ObjectDisposedException>();
     }
 
     [Test]

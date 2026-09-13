@@ -623,18 +623,6 @@ internal sealed partial class AgentSession
                     Activity.ChangeState(DrainState.Idle);
                 }
 
-                if (completed.Status == AgentExecutionStatus.Succeeded
-                    && !cancellationToken.IsCancellationRequested)
-                {
-                    try
-                    {
-                        _ = await queues.Deliver(cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                    {
-                    }
-                }
-
                 return completed;
             }
         }

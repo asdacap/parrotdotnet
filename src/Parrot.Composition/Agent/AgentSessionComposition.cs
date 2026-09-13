@@ -262,7 +262,6 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind<CompactContextToolFactory>().As(Lifetime.Scoped).To<CompactContextToolFactory>()
             .Bind<QueueCreateToolFactory>().As(Lifetime.Scoped).To<QueueCreateToolFactory>()
             .Bind<QueueInfoToolFactory>().As(Lifetime.Scoped).To<QueueInfoToolFactory>()
-            .Bind<QueueListenToolFactory>().As(Lifetime.Scoped).To<QueueListenToolFactory>()
             .Bind<QueuePushToolFactory>().As(Lifetime.Scoped).To<QueuePushToolFactory>()
             .Bind<QueueTakeToolFactory>().As(Lifetime.Scoped).To<QueueTakeToolFactory>()
             .Bind<RequestWritePermissionToolFactory>().As(Lifetime.Scoped).To<RequestWritePermissionToolFactory>()
@@ -314,7 +313,6 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<CompactContextToolFactory>(out var compactContext);
                 ctx.Inject<QueueCreateToolFactory>(out var queueCreate);
                 ctx.Inject<QueueInfoToolFactory>(out var queueInfo);
-                ctx.Inject<QueueListenToolFactory>(out var queueListen);
                 ctx.Inject<QueuePushToolFactory>(out var queuePush);
                 ctx.Inject<QueueTakeToolFactory>(out var queueTake);
                 ctx.Inject<RequestWritePermissionToolFactory>(out var requestWritePermission);
@@ -343,7 +341,6 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                     compactContext,
                     queueCreate,
                     queueInfo,
-                    queueListen,
                     queuePush,
                     queueTake,
                     requestWritePermission,

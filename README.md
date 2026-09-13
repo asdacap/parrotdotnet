@@ -929,8 +929,7 @@ apply to the complete loaded list. A producer declares that no more items will
 arrive by calling `queue_push(close:true)`; inline `items` may be empty when
 closing, and a source file may yield no items after filtering. A repeated empty
 closing push is idempotent; any other later push is rejected. Closing retains
-existing items for draining and allows polling `queue_take` calls to
-finish promptly without waking `queue_listen` or `wait`. `queue_take` always
+existing items for draining. `queue_take` always
 reports whether the queue is closed,
 so an open empty timeout is distinguishable from completion. Live
 clients receive a complete non-empty queue
@@ -1042,13 +1041,10 @@ prompt; it is informational only and does not change permissions, session
 ownership, or tool access.
 
 The generic `wait` tool pauses for incoming activity and returns early for a new
-message, direct-child completion, unclaimed yielded-process completion, or an
-item in an accessible queue the invoking agent enabled with `queue_listen`.
-Listening state belongs to that invoker, not to the queue, so another consumer
-must enable listening independently. A successful wake result remains short.
-Timeout output inventories only that agent's accessible queues, alongside its
-active processes and direct subagents; `queue_listen` controls wake eligibility,
-not inclusion in this agent-facing status. The external client inventory spans
+message, direct-child completion, unclaimed yielded-process completion. A
+successful wake result remains short. Timeout output inventories only that
+agent's accessible queues, alongside its active processes and direct subagents.
+The external client inventory spans
 the user session and identifies each queue's owning agent, without changing
 which agents can access that queue.
 When `exec_command` yields, its result carries the

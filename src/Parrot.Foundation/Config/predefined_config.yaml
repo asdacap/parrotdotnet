@@ -31,7 +31,6 @@ system_prompts:
     Do not give different consumer prompts for the same queue; its items should have one type.
     Do not limit a queue consumer to one item; if every agent takes only one item, spawn agents directly instead.
     An agent can only access its own queues or its parent's queue.
-    Prefer queue_listen+wait over polling. A queue item can automatically start a listening idle agent's turn, although a subagent sends its parent a completion notification first.
     Producers close a queue with queue_push(close:true) when no more items will arrive; items may be empty when closing. Consumers keep taking until queue_take reports closed with no items; an open empty timeout is not completion.
 
     ## Agent Tasks
@@ -582,12 +581,12 @@ prompt_templates:
     allowed_arguments: [aliases]
     required_arguments: [aliases]
   context.queue-guidance:
-    template: 'When a task has many work items, use a parent-owned queue and multiple worker subagents. Each agent resolves its own queues first and can also access only its direct parent''s queues; queue names must be unique across that edge in either creation order, while siblings may reuse a name. Queue listening is configured independently for each invoking agent. Root queues persist with the user session, but child-owned queues last only for that child''s lifetime.'
+    template: 'When a task has many work items, use a parent-owned queue and multiple worker subagents. Each agent resolves its own queues first and can also access only its direct parent''s queues; queue names must be unique across that edge in either creation order, while siblings may reuse a name. Root queues persist with the user session, but child-owned queues last only for that child''s lifetime.'
     allowed_arguments: []
     required_arguments: []
   context.queue-guidance-with-close:
     template: |-
-      When a task has many work items, use a parent-owned queue and multiple worker subagents. Each agent resolves its own queues first and can also access only its direct parent's queues; queue names must be unique across that edge in either creation order, while siblings may reuse a name. Queue listening is configured independently for each invoking agent. Root queues persist with the user session, but child-owned queues last only for that child's lifetime. Producers close a queue with queue_push(close:true) when no more items will arrive; items may be empty when closing. Consumers drain until queue_take reports closed with no items rather than guessing from an empty timeout.
+      When a task has many work items, use a parent-owned queue and multiple worker subagents. Each agent resolves its own queues first and can also access only its direct parent's queues; queue names must be unique across that edge in either creation order, while siblings may reuse a name. Root queues persist with the user session, but child-owned queues last only for that child's lifetime. Producers close a queue with queue_push(close:true) when no more items will arrive; items may be empty when closing. Consumers drain until queue_take reports closed with no items rather than guessing from an empty timeout.
     allowed_arguments: []
     required_arguments: []
   context.security-profile:
@@ -1246,23 +1245,6 @@ tools:
       required:
       - name
       additionalProperties: false
-  queue_listen:
-    description: Enable or disable idle notification delivery for the invoking agent from an accessible queue. Listening remains
-      enabled after each FIFO delivery.
-    parameters:
-      type: object
-      properties:
-        name:
-          type: string
-          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
-          description: Name of the queue whose idle notifications to configure.
-        enabled:
-          type: boolean
-          default: true
-          description: Whether idle notification delivery is enabled.
-      required:
-      - name
-      additionalProperties: false
   queue_push:
     description: Push strings onto an accessible queue owned by the invoking agent or its direct parent, then optionally close
       it. Exactly one of items or source_file is required. Items may be empty to close without adding data. A source file
@@ -1529,7 +1511,7 @@ tools:
           - acceptance_criteria
           additionalProperties: false
   wait:
-    description: Wait for incoming activity. Returns early for a new message, direct child-agent completion, AgentTask graph completion, unclaimed yielded-shell completion, or an item from a queue enabled with queue_listen. A timeout reports an agent tree containing queues and active processes. Use this rather than `sleep` cli.
+    description: Wait for incoming activity. Returns early for a new message, direct child-agent completion, AgentTask graph completion, unclaimed yielded-shell completion. A timeout reports an agent tree containing queues and active processes. Use this rather than `sleep` cli.
     parameters:
       type: object
       properties:

@@ -115,9 +115,9 @@ internal sealed class QueueChildAdmissionTests
 
             _ = await Assert.That(outcomes.Count(static outcome => outcome)).IsEqualTo(1);
             var admissionSucceeded = outcomes[0];
-            var parentOwnsQueue = source.GetService<IAgentQueues>().Local.List(source.Session.SessionId)
+            var parentOwnsQueue = source.GetService<IAgentQueues>().Local.List()
                 .Any(queue => queue.Name == "racing");
-            var childHasQueue = child.GetService<IAgentQueues>().Local.List(child.Session.SessionId)
+            var childHasQueue = child.GetService<IAgentQueues>().Local.List()
                 .Any(queue => queue.Name == "racing");
             var childIsAdmitted = source.ChildRegistry.FindDirectChildScope(child.Session.SessionId) is not null;
             _ = await Assert.That(childHasQueue).IsTrue();

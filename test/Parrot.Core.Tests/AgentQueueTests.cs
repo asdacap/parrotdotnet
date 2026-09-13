@@ -37,13 +37,10 @@ internal sealed class AgentQueueTests : IDisposable
         _ = await root.Push("parent-work", ["parent-item"], QueueDirection.Back, false, cancellationToken);
         _ = await child.Push("child-work", ["child-item"], QueueDirection.Back, false, cancellationToken);
         _ = await child.Push("parent-work", ["from-child"], QueueDirection.Back, false, cancellationToken);
-        _ = await child.Listen("parent-work", enabled: true, cancellationToken);
 
         _ = await Assert.That(child.Get("child-work").Path).IsEqualTo(childQueue.Path);
         _ = await Assert.That(child.Get("parent-work").Path).IsEqualTo(parentQueue.Path);
         _ = await Assert.That(child.Get("parent-work").Size).IsEqualTo(2);
-        _ = await Assert.That(child.Get("parent-work").Monitored).IsTrue();
-        _ = await Assert.That(root.Get("parent-work").Monitored).IsFalse();
         _ = await Assert.That(string.Join(',', child.List().Select(static queue => queue.Name)))
             .IsEqualTo("child-work,parent-work");
 
@@ -64,14 +61,12 @@ internal sealed class AgentQueueTests : IDisposable
         var child = childScope.GetService<IAgentQueues>();
         _ = root.Create("parent-work", "shared");
         _ = await root.Push("parent-work", ["final-item"], QueueDirection.Back, false, cancellationToken);
-        _ = await child.Listen("parent-work", true, cancellationToken);
 
         var closed = await child.Push("parent-work", [], QueueDirection.Back, true, cancellationToken);
         var taken = child.TryTake("parent-work", 1, QueueDirection.Front);
         var completed = child.TryTake("parent-work", 1, QueueDirection.Front);
 
         _ = await Assert.That(closed.Closed).IsTrue();
-        _ = await Assert.That(closed.Monitored).IsTrue();
         _ = await Assert.That(root.Get("parent-work").Closed).IsTrue();
         _ = await Assert.That(root.Push("parent-work", ["late"], QueueDirection.Back, false, cancellationToken))
             .Throws<QueueClosedException>()
@@ -80,7 +75,6 @@ internal sealed class AgentQueueTests : IDisposable
         _ = await Assert.That(taken.Info?.Closed).IsTrue();
         _ = await Assert.That(completed.Acquired).IsTrue();
         _ = await Assert.That(completed.Items).IsEmpty();
-        _ = await Assert.That(completed.Info?.Monitored).IsTrue();
     }
 
     [Test]
@@ -176,7 +170,6 @@ internal sealed class AgentQueueTests : IDisposable
         _ = await Assert.That(queues.CaptureInventory().Revision).IsEqualTo(before.Revision);
         _ = await Assert.That(queues.CaptureInventory().InventoryInstanceId).IsEqualTo(before.InventoryInstanceId);
         _ = await Assert.That(subscription.Reader.TryRead(out _)).IsFalse();
-        _ = await Assert.That(() => queues.Attach(scope.Session)).Throws<InvalidOperationException>();
         _ = await Assert.That(queues.Snapshot().Queues).Count().IsEqualTo(1);
         await scope.DisposeAsync();
         _ = await Assert.That(() => queues.Attach(scope.Session)).Throws<ObjectDisposedException>();
@@ -314,60 +307,6 @@ internal sealed class AgentQueueTests : IDisposable
     }
 
     [Test]
-    public async Task Disposing_a_child_releases_its_parent_listener_and_delivery_reservation(
-        CancellationToken cancellationToken)
-    {
-        var resources = Resources("listener-cleanup");
-        await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
-        var root = rootScope.GetService<IAgentQueues>();
-        await using var childScope = new QueueTestScope(AgentIdentity.Child("child-agent", "root-agent", "root", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), rootScope, resources);
-        var child = childScope.GetService<IAgentQueues>();
-        _ = root.Create("parent-work", string.Empty);
-        _ = root.Local.Monitor("parent-work", child.SessionId, true);
-        _ = root.Local.Monitor("parent-work", "other-agent", true);
-        _ = root.Local.Push("parent-work", ["item"], QueueDirection.Back, false);
-        var rejected = await root.Local.DeliverMonitored(
-            child.SessionId,
-            static (_, _) => Task.FromResult(false),
-            cancellationToken);
-
-        await childScope.DisposeAsync();
-        var accepted = await root.Local.DeliverMonitored(
-            "other-agent",
-            static (_, _) => Task.FromResult(true),
-            cancellationToken);
-
-        _ = await Assert.That(rejected).IsFalse();
-        _ = await Assert.That(accepted).IsTrue();
-        _ = await Assert.That(string.Join(',', root.Local.ListListenerSessionIds("parent-work")))
-            .IsEqualTo("other-agent");
-        _ = await Assert.That(root.Get("parent-work").Size).IsEqualTo(0);
-    }
-
-    [Test]
-    public async Task Empty_take_preserves_the_invoking_agents_listener_state(CancellationToken cancellationToken)
-    {
-        var resources = Resources("empty-listener");
-        await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
-        var root = rootScope.GetService<IAgentQueues>();
-        _ = root.Create("empty-work", string.Empty);
-        _ = await root.Listen("empty-work", true, cancellationToken);
-
-        QueueEmptyException? empty = null;
-        try
-        {
-            _ = root.TryTake("empty-work", 1, QueueDirection.Front);
-        }
-        catch (QueueEmptyException failure)
-        {
-            empty = failure;
-        }
-
-        _ = await Assert.That(empty).IsNotNull();
-        _ = await Assert.That(empty?.Info?.Monitored).IsTrue();
-    }
-
-    [Test]
     public async Task A_canceled_push_does_not_mutate_the_queue()
     {
         var resources = Resources("canceled-push");
@@ -424,31 +363,6 @@ internal sealed class AgentQueueTests : IDisposable
         _ = await Assert.That(right.CaptureInventory().Revision).IsEqualTo(rightInventory.Revision);
         _ = await Assert.That(root.Get("root-work").Size).IsEqualTo(1);
         _ = await Assert.That(right.Get("shared-name").Size).IsEqualTo(1);
-    }
-
-    [Test]
-    public async Task Root_registration_adopts_legacy_monitored_queues(CancellationToken cancellationToken)
-    {
-        var resources = Resources("legacy-adoption");
-        _ = Directory.CreateDirectory(resources.QueueDirectory);
-        var path = Path.Combine(resources.QueueDirectory, "legacy-work.jsonl");
-        await File.WriteAllTextAsync(
-            path,
-            "{\"name\":\"legacy-work\",\"description\":\"legacy\",\"monitored\":true,\"delivery_id\":\"legacy-delivery\"}\n\"item\"\n",
-            cancellationToken);
-
-        await using var rootScope = new QueueTestScope(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates), null, resources);
-        var root = rootScope.GetService<IAgentQueues>();
-        var adopted = root.Get("legacy-work");
-        var persisted = await File.ReadAllTextAsync(path, cancellationToken);
-
-        _ = await Assert.That(adopted.Monitored).IsTrue();
-        _ = await Assert.That(adopted.Size).IsEqualTo(1);
-        _ = await Assert.That(string.Join(',', root.Local.ListListenerSessionIds("legacy-work")))
-            .IsEqualTo("root-agent");
-        _ = await Assert.That(persisted).Contains("\"listener_session_ids\":[\"root-agent\"]");
-        _ = await Assert.That(persisted).Contains("\"delivery_listener_session_id\":\"root-agent\"");
-        _ = await Assert.That(persisted).DoesNotContain("\"monitored\":true");
     }
 
     private static QueueNotFoundException CaptureNotFound(Action action)
