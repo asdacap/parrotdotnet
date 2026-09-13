@@ -12,6 +12,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Parrot.Composition" />
     <InternalsVisibleTo Include="Parrot.Tools.Tests" />
+    <InternalsVisibleTo Include="Parrot.Core.Tests" />
   </ItemGroup>
 
 </Project>

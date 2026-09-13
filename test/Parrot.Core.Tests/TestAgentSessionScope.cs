@@ -30,7 +30,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         CancellationToken lifetime)
     {
         _promptTemplates = promptTemplates;
-        ChildRegistry = new ChildRegistry(owner);
+        ChildRegistry = new ChildRegistry(owner, QueueChildAdmissionValidator.Validate);
         AgentTaskRuns = new AgentTaskRunCatalog(owner.SessionId, diagnostics, lifetime);
         Processes = new ShellProcessOwner(owner, resources, new AgentPathEnvironment(resources, resources.AgentScratch(owner.SessionId)), runner, diagnostics, lifetime);
         _queues = new AgentQueues(owner, parentLink.Parent?.GetService<IAgentQueues>(), resources, ChildRegistry, static queueIdentity => new QueueInventory(queueIdentity), diagnostics);

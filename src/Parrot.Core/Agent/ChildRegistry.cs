@@ -1,8 +1,6 @@
-using Parrot.Queues;
-
 namespace Parrot.Agent;
 
-internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyncDisposable
+internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionScope> validateChildAdmission) : IChildRegistry, IAsyncDisposable
 {
     private readonly Dictionary<string, IAgentSessionScope> _entries = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _names = new(StringComparer.Ordinal);
@@ -203,7 +201,7 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
                 throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
             }
 
-            scope.GetService<IAgentQueues>().ValidateParent();
+            validateChildAdmission(scope);
             _entries.Add(scope.Session.SessionId, scope);
             try
             {

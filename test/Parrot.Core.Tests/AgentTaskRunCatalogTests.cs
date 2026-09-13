@@ -178,12 +178,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
             .IsEqualTo(1);
         _ = await Assert.That(otherOwner.Snapshot()).IsEmpty();
         _ = await Assert.That(catalog.Active()).Count().IsEqualTo(2);
-        var reminder = new ActiveWorkCompletionReminder(
-            runtime.ParentScope.ChildRegistry,
-            runtime.Processes,
-            runtime.ParentScope.GetService<IAgentQueues>(),
-            TestModels.PromptTemplates,
-            catalog).Build();
+        var reminder = new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(runtime.ParentScope.ChildRegistry, runtime.Parent.Identity), new ProcessActiveWorkBlocker(runtime.Processes), new AgentTaskActiveWorkBlocker(catalog, TestModels.PromptTemplates), new QueueActiveWorkBlocker(runtime.ParentScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates).Build();
         _ = await Assert.That(reminder).Contains("Running AgentTask graphs:");
         _ = await Assert.That(reminder).Contains($"{runtime.Parent.SessionId}/first (name: first)");
         _ = await Assert.That(reminder).Contains($"{runtime.Parent.SessionId}/second (name: second)");

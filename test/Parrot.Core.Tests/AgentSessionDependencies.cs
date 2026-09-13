@@ -23,7 +23,7 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
         _children = children;
         _processOwner = processOwner;
         ChildQuestions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), TestModels.PromptTemplates);
-        ActiveWorkReminder = new ActiveWorkCompletionReminder(_children, processOwner, queues, TestModels.PromptTemplates, null);
+        ActiveWorkReminder = new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(_children, identity), new ProcessActiveWorkBlocker(processOwner), new QueueActiveWorkBlocker(queues, TestModels.PromptTemplates)], TestModels.PromptTemplates);
         ExitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
         Profile = new TestProfileFixture().Mode;
         Status = status;

@@ -131,7 +131,7 @@ internal sealed class BrokerDiagnosticsTests : IDisposable
         var resources = PrepareResources();
         using var diagnostics = FileDiagnosticLog.OpenSession(resources, "test", TextWriter.Null, TimeProvider.System);
         var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
-        await using var children = new ChildRegistry(identity);
+        await using var children = new ChildRegistry(identity, QueueChildAdmissionValidator.Validate);
         using IAgentQueues queues = new AgentQueues(identity, null, resources, children, static queueIdentity => new QueueInventory(queueIdentity), diagnostics);
         queues.Initialize();
         _ = queues.Create("private-sentinel", "private-sentinel");

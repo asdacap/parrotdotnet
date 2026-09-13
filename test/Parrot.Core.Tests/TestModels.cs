@@ -197,7 +197,7 @@ internal static class TestModels
     {
         var resources = Resources();
         var owner = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime);
-        var children = new ChildRegistry(identity);
+        var children = new ChildRegistry(identity, QueueChildAdmissionValidator.Validate);
         IAgentQueues queues = new AgentQueues(identity, null, resources, children, static queueIdentity => new QueueInventory(queueIdentity), TestDiagnosticLog.Instance);
         queues.Initialize();
         IAgentRegistry registry = new AgentRegistry(

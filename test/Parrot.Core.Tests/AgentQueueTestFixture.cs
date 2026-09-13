@@ -9,7 +9,7 @@ internal sealed class AgentQueueTestFixture : IAsyncDisposable
 
     public AgentQueueTestFixture(AgentIdentity identity)
     {
-        _children = new ChildRegistry(identity);
+        _children = new ChildRegistry(identity, QueueChildAdmissionValidator.Validate);
         Queues = new AgentQueues(identity, null, TestModels.Resources(), _children, static queueIdentity => new QueueInventory(queueIdentity), TestDiagnosticLog.Instance);
         Queues.Initialize();
     }

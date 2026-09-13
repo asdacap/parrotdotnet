@@ -66,7 +66,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
         var status = new RuntimeStatus(registry, templates, TimeProvider.System);
         registry.AttachStatus(status);
         var resources = new UserSessionResources(new StatePaths(_root, _root, _root), UserSessionId.Parse("request-integration"), ProjectWorkspace.FromLaunchDirectory(_root));
-        await using var children = new ChildRegistry(identity);
+        await using var children = new ChildRegistry(identity, QueueChildAdmissionValidator.Validate);
         using IAgentQueues queues = new AgentQueues(identity, null, resources, children, static queueIdentity => new QueueInventory(queueIdentity), diagnostics.Log);
         queues.Initialize();
         var questions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), templates);

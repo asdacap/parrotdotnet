@@ -44,7 +44,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind<ChildRegistry>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new ChildRegistry(arguments.Identity);
+                return new ChildRegistry(arguments.Identity, QueueChildAdmissionValidator.Validate);
             })
             .Bind<IChildRegistry>().As(Lifetime.Scoped).To(ctx =>
             {
@@ -349,19 +349,26 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                     requestWritePermission,
                 };
             })
-            .Bind().As(Lifetime.Scoped).To(ctx =>
+            .Bind<IReadOnlyList<IActiveWorkBlocker>>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<IProcessOwner>(out var processes);
                 ctx.Inject<IAgentTaskRunCatalog>(out var agentTasks);
                 ctx.Inject<IChildRegistry>(out var children);
                 ctx.Inject<IAgentQueues>(out var queues);
-                return new ActiveWorkCompletionReminder(
-                    children,
-                    processes,
-                    queues,
-                    arguments.PromptTemplates,
-                    agentTasks);
+                return new IActiveWorkBlocker[]
+                {
+                    new ChildAgentActiveWorkBlocker(children, arguments.Identity),
+                    new ProcessActiveWorkBlocker(processes),
+                    new AgentTaskActiveWorkBlocker(agentTasks, arguments.PromptTemplates),
+                    new QueueActiveWorkBlocker(queues, arguments.PromptTemplates),
+                };
+            })
+            .Bind().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                ctx.Inject<IReadOnlyList<IActiveWorkBlocker>>(out var blockers);
+                return new ActiveWorkCompletionReminder(blockers, arguments.PromptTemplates);
             })
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {

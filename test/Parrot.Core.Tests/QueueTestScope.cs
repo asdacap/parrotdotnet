@@ -25,7 +25,7 @@ internal sealed class QueueTestScope : IAgentSessionScope
     public QueueTestScope(AgentIdentity identity, QueueTestScope? parent, UserSessionResources resources)
     {
         _parent = parent;
-        _children = new ChildRegistry(identity);
+        _children = new ChildRegistry(identity, QueueChildAdmissionValidator.Validate);
         AgentTaskRuns = new AgentTaskRunCatalog(identity.SessionId, TestDiagnosticLog.Instance, CancellationToken.None);
         var repository = new EventRepository(_database);
         _dependencies = TestModels.Dependencies(identity, _events, repository, CancellationToken.None);
