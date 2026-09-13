@@ -4,6 +4,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
+using Parrot.Protocol;
 using Parrot.Questions;
 using Parrot.Queues;
 using Parrot.Security;
@@ -20,6 +21,8 @@ internal sealed class QueueTestScope : IAgentSessionScope
     private readonly QueueTestScope? _parent;
     private readonly AgentSessionServices _services = new();
     private readonly IAgentQueues _queues;
+    private readonly QueueSnapshotPublisher _queuePublisher;
+    private readonly ProcessSnapshotPublisher _processPublisher;
     private bool _disposed;
 
     public QueueTestScope(AgentIdentity identity, QueueTestScope? parent, UserSessionResources resources)
@@ -31,6 +34,8 @@ internal sealed class QueueTestScope : IAgentSessionScope
         _dependencies = TestModels.Dependencies(identity, _events, repository, CancellationToken.None);
         Processes = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, CancellationToken.None);
         _queues = new AgentQueues(identity, parent?.GetService<IAgentQueues>(), resources, _children, static queueIdentity => new QueueInventory(queueIdentity), TestDiagnosticLog.Instance);
+        _queuePublisher = new QueueSnapshotPublisher(_queues, _events);
+        _processPublisher = new ProcessSnapshotPublisher(Processes, _events);
         _services.Register<IAgentQueues>(_queues);
         _queues.Initialize();
         ParentScope = parent is null ? AgentSessionParentScope.Root() : AgentSessionParentScope.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly);
@@ -61,9 +66,26 @@ internal sealed class QueueTestScope : IAgentSessionScope
     public T GetService<T>()
         where T : class => _services.GetService<T>();
 
-    public void PublishInventories()
+    public void PublishQueueSnapshots()
     {
     }
+
+    public void PublishProcessSnapshots()
+    {
+    }
+
+    public IReadOnlyList<Event> CaptureQueueSnapshotEvents()
+    {
+        var root = (IAgentSessionScope)this;
+        while (root.ParentScope.Parent is { } parent)
+        {
+            root = parent;
+        }
+
+        return _queuePublisher.CaptureSnapshotEvents(root.Session.SessionId);
+    }
+
+    public IReadOnlyList<Event> CaptureProcessSnapshotEvents() => _processPublisher.CaptureSnapshotEvents();
 
     public async ValueTask DisposeAsync()
     {

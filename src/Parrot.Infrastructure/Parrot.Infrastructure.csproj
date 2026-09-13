@@ -43,6 +43,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Parrot.Composition" />
     <InternalsVisibleTo Include="Parrot.Tool.Queue" />
+    <InternalsVisibleTo Include="Parrot.Tool.Process" />
     <InternalsVisibleTo Include="Parrot.Core" />
     <InternalsVisibleTo Include="Parrot.Tools" />
     <InternalsVisibleTo Include="parrot" />

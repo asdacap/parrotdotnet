@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
@@ -6,6 +7,7 @@ using Parrot.Process;
 using Parrot.Security;
 using Parrot.State;
 using Parrot.Store;
+using Parrot.Tools;
 
 namespace Parrot.Core.Tests;
 
@@ -22,6 +24,44 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         {
             Directory.Delete(_workspace, recursive: true);
         }
+    }
+
+    [Test]
+    [Arguments("{\"name\":\"process\",\"input\":\"hello\",\"unexpected\":true}", "process", "hello", null)]
+    [Arguments("{\"name\":\"process\",\"input\":\"hello\",\"yield_after_ms\":125,\"future\":\"value\"}", "process", "hello", 125L)]
+    public async Task Write_stdin_context_preserves_known_fields_with_unknown_fields(
+        string argumentsJson,
+        string expectedName,
+        string expectedInput,
+        long? expectedYieldAfterMilliseconds)
+    {
+        var input = JsonSerializer.Deserialize(
+            argumentsJson,
+            OmittedAgentProcessToolJsonContext.Default.WriteStdinToolInput)
+            ?? throw new InvalidOperationException("Expected stdin input.");
+
+        _ = await Assert.That(input).IsNotNull();
+        _ = await Assert.That(input.Name).IsEqualTo(expectedName);
+        _ = await Assert.That(input.Text).IsEqualTo(expectedInput);
+        _ = await Assert.That(input.YieldAfterMilliseconds).IsEqualTo(expectedYieldAfterMilliseconds);
+    }
+
+    [Test]
+    [Arguments("{\"name\":\"process\",\"unknown\":true}", "process", null)]
+    [Arguments("{\"name\":\"process\",\"signal\":17,\"future\":\"value\"}", "process", 17)]
+    public async Task Interrupt_context_preserves_known_fields_with_unknown_fields(
+        string argumentsJson,
+        string expectedName,
+        int? expectedSignal)
+    {
+        var input = JsonSerializer.Deserialize(
+            argumentsJson,
+            OmittedAgentProcessToolJsonContext.Default.InterruptProcessToolInput)
+            ?? throw new InvalidOperationException("Expected interrupt input.");
+
+        _ = await Assert.That(input).IsNotNull();
+        _ = await Assert.That(input.Name).IsEqualTo(expectedName);
+        _ = await Assert.That(input.Signal).IsEqualTo(expectedSignal);
     }
 
     [Test]

@@ -3,7 +3,7 @@ using Parrot.Store;
 
 namespace Parrot.Agent;
 
-internal sealed class AgentPathEnvironment(UserSessionResources resources, AgentScratchDirectory scratch)
+internal sealed class AgentPathEnvironment(UserSessionResources resources, AgentScratchDirectory scratch) : IAgentPathEnvironment
 {
     private readonly ProcessEnvironmentOverrides _defaults = new(new Dictionary<string, string>(StringComparer.Ordinal)
     {

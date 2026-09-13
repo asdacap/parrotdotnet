@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
@@ -23,6 +24,17 @@ internal sealed class ExecCommandToolTests : IDisposable
         {
             Directory.Delete(_workspace, recursive: true);
         }
+    }
+
+    [Test]
+    [Arguments("{\"command\":\"true\",\"unexpected\":true}")]
+    [Arguments("{\"command\":\"true\",\"name\":\"process\",\"extra\":\"value\"}")]
+    public async Task Unknown_wire_properties_are_rejected(string argumentsJson)
+    {
+        _ = await Assert.That(() => JsonSerializer.Deserialize(
+                argumentsJson,
+                ExecCommandToolJsonContext.Default.ExecCommandToolInput))
+            .Throws<JsonException>();
     }
 
     [Test]

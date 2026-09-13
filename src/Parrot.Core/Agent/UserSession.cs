@@ -4,10 +4,8 @@ using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Permissions;
-using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Questions;
-using Parrot.Queues;
 using Parrot.Skills;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -328,12 +326,12 @@ internal sealed class UserSession : IUserSession
         _ = Main();
         foreach (var scope in Registry.SnapshotScopes())
         {
-            foreach (var published in QueueInventoryProtocol.Convert(scope.GetService<IAgentQueues>().CaptureInventory(), _mainSessionId))
+            foreach (var published in scope.CaptureQueueSnapshotEvents())
             {
                 yield return published;
             }
 
-            foreach (var published in ShellProcessInventoryProtocol.Convert(scope.Processes.CaptureInventory()))
+            foreach (var published in scope.CaptureProcessSnapshotEvents())
             {
                 yield return published;
             }

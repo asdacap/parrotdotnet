@@ -2,6 +2,7 @@ using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Diagnostics;
+using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
@@ -19,6 +20,139 @@ internal sealed class AgentInventoryStreamTests
     [Test]
     [Arguments(true)]
     [Arguments(false)]
+    public async Task Domain_publisher_captures_without_subscription_and_publishes_lifecycle_snapshots(
+        bool queueDomain,
+        CancellationToken cancellationToken)
+    {
+        if (!queueDomain && !OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"));
+        using var diagnostics = InventoryFixture.CreateDiagnostics(directory);
+        await using var fixture = await InventoryFixture.Create(directory, diagnostics, true);
+        var root = fixture.Session.Registry.SnapshotScopes().Single();
+        using var broker = new EventBroker();
+        using var listener = broker.Subscribe();
+
+        Task publication;
+        IReadOnlyList<Event> captured;
+        if (queueDomain)
+        {
+            var publisher = new QueueSnapshotPublisher(root.GetService<IAgentQueues>(), broker);
+            captured = publisher.CaptureSnapshotEvents(root.Session.SessionId);
+            _ = await Assert.That(listener.Reader.TryRead(out _)).IsFalse();
+            publication = publisher.Run(root.Session.SessionId);
+            var initial = await listener.Reader.ReadAsync(timeout.Token);
+            _ = await Assert.That(initial.QueueSnapshot).IsNotNull();
+            _ = await Assert.That(initial.QueueSnapshot.Queues).IsEmpty();
+            _ = await Assert.That(listener.Reader.TryRead(out _)).IsFalse();
+
+            _ = root.GetService<IAgentQueues>().Create("first", "first queue");
+            _ = await root.GetService<IAgentQueues>().Push("first", ["item"], QueueDirection.Back, false, timeout.Token);
+            var first = await ReadQueueBatch(listener, timeout.Token);
+            _ = await Assert.That(first.SelectMany(item => item.QueueSnapshot.Queues).Select(queue => queue.Name).SequenceEqual(["first"])).IsTrue();
+            _ = root.GetService<IAgentQueues>().Create("second", "second queue");
+            _ = await root.GetService<IAgentQueues>().Push("second", ["item"], QueueDirection.Back, false, timeout.Token);
+            var update = await ReadQueueBatch(listener, timeout.Token);
+            _ = await Assert.That(update.SelectMany(item => item.QueueSnapshot.Queues).Select(queue => queue.Name).SequenceEqual(["first", "second"])).IsTrue();
+        }
+        else
+        {
+            var publisher = new ProcessSnapshotPublisher(root.Processes, broker);
+            captured = publisher.CaptureSnapshotEvents();
+            _ = await Assert.That(listener.Reader.TryRead(out _)).IsFalse();
+            publication = publisher.Run();
+            var initial = await listener.Reader.ReadAsync(timeout.Token);
+            _ = await Assert.That(initial.ShellProcessSnapshot).IsNotNull();
+            _ = await Assert.That(initial.ShellProcessSnapshot.Processes).IsEmpty();
+            _ = await Assert.That(listener.Reader.TryRead(out _)).IsFalse();
+
+            var security = fixture.Session.Mode.Profile.SecurityProfile;
+            _ = root.Processes.StartUnattributed("first", "sleep 30", ProcessEnvironmentOverrides.Empty, root.Session, security, ShellProcessTerminalMode.Pipe);
+            var first = await ReadProcessBatch(listener, timeout.Token);
+            _ = await Assert.That(first.SelectMany(item => item.ShellProcessSnapshot.Processes)).HasSingleItem();
+            _ = root.Processes.StartUnattributed("second", "sleep 30", ProcessEnvironmentOverrides.Empty, root.Session, security, ShellProcessTerminalMode.Pipe);
+            var update = await ReadProcessBatch(listener, timeout.Token);
+            _ = await Assert.That(update.SelectMany(item => item.ShellProcessSnapshot.Processes)).Count().IsEqualTo(2);
+        }
+
+        _ = await Assert.That(captured).HasSingleItem();
+        _ = await Assert.That(listener.Reader.TryRead(out _)).IsFalse();
+        await fixture.Session.DisposeAsync().AsTask().WaitAsync(timeout.Token);
+        await publication.WaitAsync(timeout.Token);
+        Event removed;
+        do
+        {
+            removed = await listener.Reader.ReadAsync(timeout.Token);
+        }
+        while (queueDomain
+            ? !removed.QueueSnapshot.Removed
+            : !removed.ShellProcessSnapshot.Removed);
+
+        if (queueDomain)
+        {
+            _ = await Assert.That(removed.QueueSnapshot.Queues).IsEmpty();
+        }
+        else
+        {
+            _ = await Assert.That(removed.ShellProcessSnapshot.Processes).IsEmpty();
+        }
+    }
+
+    [Test]
+    public async Task Listener_observes_updates_during_initial_capture_without_announcing_rejected_scopes(
+        CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"));
+        using var diagnostics = InventoryFixture.CreateDiagnostics(directory);
+        await using var fixture = await InventoryFixture.Create(directory, diagnostics, false);
+        var session = fixture.Session;
+        var root = session.Registry.SnapshotScopes().Single();
+        await using var rejected = fixture.CreateChild(root, "rejected");
+        await root.ChildRegistry.DisposeChildren();
+        _ = await Assert.That(root.ChildRegistry.TryAdd(rejected)).IsFalse();
+
+        await using var listener = session.Listen(timeout.Token).GetAsyncEnumerator(timeout.Token);
+        _ = await Assert.That(await listener.MoveNextAsync()).IsTrue();
+        _ = await Assert.That(listener.Current.PayloadCase).IsEqualTo(Event.PayloadOneofCase.QueueSnapshot);
+        var initialRevision = listener.Current.QueueSnapshot.Revision;
+        _ = rejected.GetService<IAgentQueues>().Create("hidden", "rejected");
+        _ = await rejected.GetService<IAgentQueues>().Push("hidden", ["item"], QueueDirection.Back, false, timeout.Token);
+        await rejected.DisposeAsync();
+        _ = root.GetService<IAgentQueues>().Create("during-capture", "race");
+        _ = await root.GetService<IAgentQueues>().Push("during-capture", ["item"], QueueDirection.Back, false, timeout.Token);
+        var latest = root.CaptureQueueSnapshotEvents().Single().QueueSnapshot;
+        _ = await Assert.That(latest.Revision).IsGreaterThan(initialRevision);
+        _ = await Assert.That(await listener.MoveNextAsync()).IsTrue();
+        _ = await Assert.That(listener.Current.PayloadCase).IsEqualTo(Event.PayloadOneofCase.ShellProcessSnapshot);
+        _ = await Assert.That(await listener.MoveNextAsync()).IsTrue();
+        _ = await Assert.That(listener.Current.PayloadCase).IsEqualTo(Event.PayloadOneofCase.SessionUsageSnapshot);
+
+        while (await listener.MoveNextAsync())
+        {
+            _ = await Assert.That(listener.Current.QueueSnapshot?.OwnerAgentSessionId).IsNotEqualTo(rejected.Session.SessionId);
+            _ = await Assert.That(listener.Current.ShellProcessSnapshot?.OwnerAgentSessionId).IsNotEqualTo(rejected.Session.SessionId);
+            if (listener.Current.QueueSnapshot?.Revision == latest.Revision)
+            {
+                _ = await Assert.That(listener.Current.QueueSnapshot).IsEqualTo(latest);
+                break;
+            }
+        }
+
+        await using var reconnected = session.Listen(timeout.Token).GetAsyncEnumerator(timeout.Token);
+        _ = await Assert.That(await reconnected.MoveNextAsync()).IsTrue();
+        _ = await Assert.That(reconnected.Current.QueueSnapshot).IsEqualTo(latest);
+    }
+
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
     public async Task Listener_captures_admitted_owners_and_observes_later_admission_removal_and_reconnection(
         bool createBeforeListening,
         CancellationToken cancellationToken)
@@ -30,6 +164,10 @@ internal sealed class AgentInventoryStreamTests
         await using var fixture = await InventoryFixture.Create(directory, diagnostics, false);
         var session = fixture.Session;
         var root = session.Registry.SnapshotScopes().Single();
+        root.PublishQueueSnapshots();
+        root.PublishQueueSnapshots();
+        root.PublishProcessSnapshots();
+        root.PublishProcessSnapshots();
         _ = root.GetService<IAgentQueues>().Create("root-queue", "root");
         _ = await root.GetService<IAgentQueues>().Push("root-queue", ["item"], QueueDirection.Back, false, timeout.Token);
         await using var sibling = fixture.CreateChild(root, "sibling");
@@ -177,6 +315,29 @@ internal sealed class AgentInventoryStreamTests
         _ = await Assert.That(child.GetService<IAgentQueues>().CaptureInventory().Removed).IsTrue();
         _ = await Assert.That(() => owner.Processes.StartUnattributed("late", "true", ProcessEnvironmentOverrides.Empty, owner.Session, fixture.Session.Mode.Profile.SecurityProfile, ShellProcessTerminalMode.Pipe))
             .Throws<InvalidOperationException>();
+    }
+
+    private static async Task<List<Event>> ReadQueueBatch(IEventSubscription listener, CancellationToken cancellationToken)
+    {
+        var batch = new List<Event> { await listener.Reader.ReadAsync(cancellationToken) };
+        while (batch[^1].QueueSnapshot.FinalChunk is false)
+        {
+            batch.Add(await listener.Reader.ReadAsync(cancellationToken));
+        }
+
+        return batch;
+    }
+
+    private static async Task<List<Event>> ReadProcessBatch(IEventSubscription listener, CancellationToken cancellationToken)
+    {
+        var first = await listener.Reader.ReadAsync(cancellationToken);
+        var batch = new List<Event> { first };
+        while (batch.Count < first.ShellProcessSnapshot.ChunkCount)
+        {
+            batch.Add(await listener.Reader.ReadAsync(cancellationToken));
+        }
+
+        return batch;
     }
 
     private static async Task<List<Event>> ReadInitial(IAsyncEnumerator<Event> listener)

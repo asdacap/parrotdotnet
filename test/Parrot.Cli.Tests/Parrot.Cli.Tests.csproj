@@ -15,6 +15,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Parrot.StatusProviders/Parrot.StatusProviders.csproj" />
     <ProjectReference Include="../../src/Parrot.Tool.Queue/Parrot.Tool.Queue.csproj" />
+    <ProjectReference Include="../../src/Parrot.Tool.Process/Parrot.Tool.Process.csproj" />
     <ProjectReference Include="../../src/Parrot.Composition/Parrot.Composition.csproj" />
     <ProjectReference Include="../../src/Parrot.Cli/Parrot.Cli.csproj" />
   </ItemGroup>

@@ -26,7 +26,8 @@ src/
   Parrot.Infrastructure/ Storage, host processes, queues and web infrastructure.
   Parrot.Llm/            Providers, model routing and wire implementations.
   Parrot.Tools/          Shared tool helpers and remaining tool implementations.
-  Parrot.Tool.Queue/     Queue tools, factories and per-agent queue service.
+  Parrot.Tool.Queue/     Queue tools, factories, per-agent queue service and snapshot publisher.
+  Parrot.Tool.Process/   Process tools, owners and snapshot publisher.
   Parrot.Tool.AgentTask/ AgentTask tool, factory and input serialization.
   Parrot.Core/           Agent orchestration, session lifecycle and protocol services.
   Parrot.StatusProviders/ Runtime-tree status rendering from Common contracts.

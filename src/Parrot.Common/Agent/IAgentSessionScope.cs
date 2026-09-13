@@ -30,6 +30,15 @@ internal interface IAgentSessionScope : IAsyncDisposable
     T GetService<T>()
         where T : class;
 
-    /// <summary>Publishes local inventories after the scope is admitted to its topology.</summary>
-    void PublishInventories();
+    /// <summary>Starts queue snapshot publication once, after the scope is admitted to its topology.</summary>
+    void PublishQueueSnapshots();
+
+    /// <summary>Starts process snapshot publication once, after the scope is admitted to its topology.</summary>
+    void PublishProcessSnapshots();
+
+    /// <summary>Captures queue snapshot events without creating services or subscribing to updates.</summary>
+    IReadOnlyList<Protocol.Event> CaptureQueueSnapshotEvents();
+
+    /// <summary>Captures process snapshot events without creating services or subscribing to updates.</summary>
+    IReadOnlyList<Protocol.Event> CaptureProcessSnapshotEvents();
 }

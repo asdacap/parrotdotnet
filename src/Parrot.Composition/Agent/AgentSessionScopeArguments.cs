@@ -31,7 +31,7 @@ internal sealed record AgentSessionScopeArguments(
     UserSessionResources Resources,
     ISystemPromptProvider SystemPromptProvider,
     AgentScratchDirectory Scratch,
-    AgentPathEnvironment PathEnvironment,
+    IAgentPathEnvironment PathEnvironment,
     Compactor Compactor,
     IPromptTemplateCatalog PromptTemplates,
     IMode Mode,

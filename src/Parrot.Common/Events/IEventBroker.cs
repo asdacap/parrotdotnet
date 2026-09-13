@@ -11,7 +11,11 @@ internal interface IEventBroker : IDisposable
 
     void PublishTransient(Event published);
 
-    void PublishInventory(IReadOnlyList<Event> chunks);
+    /// <summary>Publishes a complete queue snapshot batch; every event must contain a queue snapshot.</summary>
+    void PublishQueueSnapshot(IReadOnlyList<Event> chunks);
+
+    /// <summary>Publishes a complete process snapshot batch; every event must contain a shell process snapshot.</summary>
+    void PublishProcessSnapshot(IReadOnlyList<Event> chunks);
 
     IEventSubscription Subscribe();
 

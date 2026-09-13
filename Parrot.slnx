@@ -10,6 +10,7 @@
     <Project Path="src/Parrot.StatusProviders/Parrot.StatusProviders.csproj" />
     <Project Path="src/Parrot.Tools/Parrot.Tools.csproj" />
     <Project Path="src/Parrot.Tool.Queue/Parrot.Tool.Queue.csproj" />
+    <Project Path="src/Parrot.Tool.Process/Parrot.Tool.Process.csproj" />
     <Project Path="src/Parrot.Tool.AgentTask/Parrot.Tool.AgentTask.csproj" />
   </Folder>
   <Folder Name="/tools/">

@@ -10,7 +10,7 @@ namespace Parrot.Process;
 internal sealed class ShellProcessOwner(
     AgentIdentity identity,
     UserSessionResources resources,
-    AgentPathEnvironment pathEnvironment,
+    IAgentPathEnvironment pathEnvironment,
     ProcessRunner runner,
     IDiagnosticLog diagnostics,
     CancellationToken lifetime) : IProcessOwner

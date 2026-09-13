@@ -4,7 +4,7 @@ using Scriban.Runtime;
 
 namespace Parrot.Context;
 
-internal sealed class AgentPathEnvironmentProvider(AgentPathEnvironment environment, IPromptTemplateCatalog templates) : ISystemPromptProvider
+internal sealed class AgentPathEnvironmentProvider(IAgentPathEnvironment environment, IPromptTemplateCatalog templates) : ISystemPromptProvider
 {
     public string Key => "runtime:agent-session-path-environment";
 

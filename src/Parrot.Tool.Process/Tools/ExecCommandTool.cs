@@ -29,7 +29,7 @@ internal sealed class ExecCommandTool(
         try
         {
             ToolInputConversion.RequireObject(invocation.ArgumentsJson, "command");
-            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, AgentProcessToolJsonContext.Default.ExecCommandToolInput)
+            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, ExecCommandToolJsonContext.Default.ExecCommandToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
             var command = input.Command ?? throw new FormatException("Tool arguments require a string 'command'.");
             _ = input.Environment is null
@@ -64,7 +64,7 @@ internal sealed class ExecCommandTool(
         try
         {
             ToolInputConversion.RequireObject(argumentsJson, "command");
-            var input = JsonSerializer.Deserialize(argumentsJson, AgentProcessToolJsonContext.Default.ExecCommandToolInput)
+            var input = JsonSerializer.Deserialize(argumentsJson, ExecCommandToolJsonContext.Default.ExecCommandToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
             command = input.Command ?? throw new FormatException("Tool arguments require a string 'command'.");
             environment = input.Environment is null
