@@ -14,7 +14,7 @@ internal sealed class ExitReminder(
 
     public void Set(string? reminder)
     {
-        var normalized = reminder is { Length: > 0 } ? reminder : null;
+        var normalized = reminder is null or "" or "null" or "undefined" ? null : reminder;
         lock (_gate)
         {
             if (normalized != _current)

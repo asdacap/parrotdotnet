@@ -27,6 +27,11 @@ internal sealed class SetExitReminderToolTests
             ("{\"reminder\":\"\"}", null, "Exit reminder cleared."),
             ("{\"reminder\":null}", null, "Exit reminder cleared."),
             ("{}", null, "Exit reminder cleared."),
+            ("{\"reminder\":\"alpha\"}", "alpha", "Exit reminder set: alpha"),
+            ("{\"reminder\":\"null\"}", null, "Exit reminder cleared."),
+            ("{\"reminder\":\"beta\"}", "beta", "Exit reminder set: beta"),
+            ("{\"reminder\":\"undefined\"}", null, "Exit reminder cleared."),
+            ("{\"reminder\":\"check null or undefined\"}", "check null or undefined", "Exit reminder set: check null or undefined"),
         };
 
         foreach (var testCase in cases)
@@ -53,6 +58,10 @@ internal sealed class SetExitReminderToolTests
             ("Y", false, "An exit reminder was set: Y"),
             (null, false, "This is the 2nd exit reminder: Y"),
             (null, true, null),
+            ("Z", false, "An exit reminder was set: Z"),
+            ("null", false, null),
+            ("Z", false, "An exit reminder was set: Z"),
+            ("undefined", false, null),
             ("Z", false, "An exit reminder was set: Z"),
         };
 

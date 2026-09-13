@@ -20,7 +20,7 @@ internal sealed class SetExitReminderTool(IExitReminder reminder, IPromptTemplat
                 invocation.ArgumentsJson,
                 AgentProcessToolJsonContext.Default.SetExitReminderToolInput);
             reminder.Set(input?.Reminder);
-            var response = string.IsNullOrEmpty(input?.Reminder)
+            var response = input?.Reminder is null or "" or "null" or "undefined"
                 ? promptTemplates.Render("set-exit-reminder-tool.cleared", [])
                 : promptTemplates.Render(
                     "set-exit-reminder-tool.set",
