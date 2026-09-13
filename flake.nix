@@ -31,6 +31,11 @@
 
           nativeBuildInputs = [pkgs.stdenv.cc];
 
+          env = {
+            PROTOBUF_PROTOC = "${pkgs.protobuf_29}/bin/protoc";
+            GRPC_PROTOC_PLUGIN = "${pkgs.grpc}/bin/grpc_csharp_plugin";
+          };
+
           postInstall = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
             install -Dm755 "$out/lib/parrot/parrot-pty-attach" "$out/bin/parrot-pty-attach"
           '';
@@ -109,6 +114,8 @@
             ++ lib.optionals (system == "x86_64-linux") [muslToolchain muslLinker];
 
           env = {
+            PROTOBUF_PROTOC = "${pkgs.protobuf_29}/bin/protoc";
+            GRPC_PROTOC_PLUGIN = "${pkgs.grpc}/bin/grpc_csharp_plugin";
             DOTNET_ROOT = "${sdk}/share/dotnet";
             DOTNET_CLI_TELEMETRY_OPTOUT = "1";
             DOTNET_NOLOGO = "1";
