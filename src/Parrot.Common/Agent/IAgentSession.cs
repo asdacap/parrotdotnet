@@ -22,6 +22,9 @@ internal interface IAgentSession : IAsyncDisposable
 
     AgentSessionActivity Activity { get; }
 
+    /// <summary>Gets the signal that requests the drain to enter its final phase the way the turn limit does.</summary>
+    TurnInterruptionRequest TurnInterruption { get; }
+
     /// <summary>Captures immutable own and subtree usage, including model/effort buckets and costs.</summary>
     AgentSessionStatisticsSnapshot CaptureStatistics();
 

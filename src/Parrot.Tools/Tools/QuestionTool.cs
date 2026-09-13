@@ -9,6 +9,8 @@ internal sealed class QuestionTool(IQuestionRequester requester) : ITool
 {
     public string Name => "question";
 
+    public bool IsEnabledAfterInterruption => true;
+
     public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken)
     {
         try

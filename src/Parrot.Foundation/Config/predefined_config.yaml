@@ -343,7 +343,7 @@ prompt_templates:
     allowed_arguments: []
     required_arguments: []
   agent-session.final-request:
-    template: 'This is the final provider request allowed for the current turn. Tools are unavailable for this request. Do not request or invoke tools. Provide the best possible final answer using the information already available.'
+    template: 'This is the final provider request allowed for the current turn. Tools are unavailable except the settlement tools (wait, agent_send, interrupt_process, agent_status, answer, question). Do not start new work. Settle anything still running if needed, then provide the best possible final answer using the information already available.'
     allowed_arguments: []
     required_arguments: []
   agent-session.tools-restored:
@@ -1058,6 +1058,11 @@ tools:
           description: Exact canonical session ID or friendly name of this agent's direct child.
       required:
       - session_id
+      additionalProperties: false
+  agent_interrupt:
+    description: Interrupt this agent's current turn the same way the turn limit does. The in-flight tool calls settle, then the next provider request is final and offers only the settlement tools.
+    parameters:
+      type: object
       additionalProperties: false
   agent_spawn:
     description: Start a child agent in an isolated session and return its session ID immediately. Friendly names are unique

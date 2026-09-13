@@ -14,6 +14,8 @@ internal sealed class WaitTool(
 
     public string Name => "wait";
 
+    public bool IsEnabledAfterInterruption => true;
+
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
         AgentTurnSelection selection,

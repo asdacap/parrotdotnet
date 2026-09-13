@@ -256,6 +256,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 return new SetExitReminderToolFactory(reminder, arguments.PromptTemplates);
             })
             .Bind<AgentSendToolFactory>().As(Lifetime.Scoped).To<AgentSendToolFactory>()
+            .Bind<AgentInterruptToolFactory>().As(Lifetime.Scoped).To<AgentInterruptToolFactory>()
             .Bind<AgentStatusToolFactory>().As(Lifetime.Scoped).To<AgentStatusToolFactory>()
             .Bind<WaitToolFactory>().As(Lifetime.Scoped).To<WaitToolFactory>()
             .Bind<StatusToolFactory>().As(Lifetime.Scoped).To<StatusToolFactory>()
@@ -307,6 +308,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<SetCheckpointToolFactory>(out var setCheckpoint);
                 ctx.Inject<SetExitReminderToolFactory>(out var setExitReminder);
                 ctx.Inject<AgentSendToolFactory>(out var agentSend);
+                ctx.Inject<AgentInterruptToolFactory>(out var agentInterrupt);
                 ctx.Inject<AgentStatusToolFactory>(out var agentStatus);
                 ctx.Inject<WaitToolFactory>(out var wait);
                 ctx.Inject<StatusToolFactory>(out var status);
@@ -335,6 +337,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                     setCheckpoint,
                     setExitReminder,
                     agentSend,
+                    agentInterrupt,
                     agentStatus,
                     wait,
                     status,

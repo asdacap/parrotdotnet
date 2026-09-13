@@ -54,6 +54,7 @@ internal sealed partial class AgentSession(
     private const string InterruptedFinish = "interrupted";
     private const int MaxAgentMessageBytes = 1024 * 1024;
     private const int MaxAgentResultBytes = 1024 * 1024;
+    private const int MaxSettlementExtensions = 4;
 
     private readonly string _runawayMessage = promptTemplates.Render("agent-session.runaway", []);
     private readonly string _truncatedToolCallPrompt = promptTemplates.Render("agent-session.truncated-tool-call", []);
@@ -71,7 +72,6 @@ internal sealed partial class AgentSession(
     // The conversation, carried across turns so the agent remembers. The system
     // context is sampled once per epoch and prefixed at each turn.
     private readonly List<LLMMessage> _history = RestoreHistory(eventRepository, identity.SessionId);
-
     private readonly DrainLifecycle _drainLifecycle = new();
 
     private readonly EpochContext _epochContext = new(identity.Depth > 0);
@@ -173,6 +173,9 @@ internal sealed partial class AgentSession(
     // Status reporting observes this session-scoped, synchronized activity log.
     public AgentSessionActivity Activity { get; } = activity
         ?? throw new ArgumentNullException(nameof(activity));
+
+    /// <summary>Gets the signal that requests the drain to enter its final phase the way the turn limit does.</summary>
+    public TurnInterruptionRequest TurnInterruption { get; } = new();
 
     public AgentSelection CurrentSelection()
     {
