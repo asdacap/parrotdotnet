@@ -25,7 +25,9 @@ src/
   Parrot.Foundation/     Configuration and authentication implementations.
   Parrot.Infrastructure/ Storage, host processes, queues and web infrastructure.
   Parrot.Llm/            Providers, model routing and wire implementations.
-  Parrot.Tools/          Tool implementations, factories and tool-local helpers.
+  Parrot.Tools/          Shared tool helpers and remaining tool implementations.
+  Parrot.Tool.Queue/     Queue tools, factories and per-agent queue service.
+  Parrot.Tool.AgentTask/ AgentTask tool, factory and input serialization.
   Parrot.Core/           Agent orchestration, session lifecycle and protocol services.
   Parrot.Composition/    Per-agent wiring, session factories and scope lifecycle.
   Parrot.Cli/            The `parrot` executable. AOT-published.
@@ -36,8 +38,10 @@ docs/
 
 Common is the shared contract layer. Foundation depends on Common;
 Infrastructure and Llm depend on Common and Foundation and can compile in
-parallel. Tools consumes those branches; Core owns runtime orchestration. Composition
-wires per-agent services and depends on Core; CLI supplies that composition
+parallel. Tools consumes those branches; Queue and AgentTask tool families depend
+on Tools without reverse references. Core owns runtime orchestration, including
+AgentTask execution. Composition wires per-agent services and depends on Core and
+the tool families; CLI supplies that composition
 through an injected factory and remains the application entry point. Core depends on Tools, so these two projects do not
 compile in parallel. Namespaces
 remain organized by domain rather than assembly. Lower-level tests reference

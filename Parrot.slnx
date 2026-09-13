@@ -8,6 +8,8 @@
     <Project Path="src/Parrot.Composition/Parrot.Composition.csproj" />
     <Project Path="src/Parrot.Core/Parrot.Core.csproj" />
     <Project Path="src/Parrot.Tools/Parrot.Tools.csproj" />
+    <Project Path="src/Parrot.Tool.Queue/Parrot.Tool.Queue.csproj" />
+    <Project Path="src/Parrot.Tool.AgentTask/Parrot.Tool.AgentTask.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Parrot.Analyzers/Parrot.Analyzers.csproj" />

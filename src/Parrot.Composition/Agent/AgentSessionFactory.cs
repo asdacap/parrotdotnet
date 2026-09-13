@@ -25,7 +25,7 @@ internal sealed class AgentSessionFactory(
     IModelRouter router,
     ISystemPromptProvider systemPromptProvider,
     IPromptTemplateCatalog promptTemplates,
-    Func<AgentSessionScopeArguments, IAgentSessionScope, IAgentSessionComposition> composeSession) : IAgentSessionFactory
+    Func<AgentSessionScopeArguments, IAgentSessionScope, AgentSessionComposition> composeSession) : IAgentSessionFactory
 {
     private readonly IImageArtifactRepository _images = owner.Images;
 

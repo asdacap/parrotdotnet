@@ -17,7 +17,7 @@ internal sealed class AgentSessionFactorySource(
     Llm.IModelRouter router,
     ISystemPromptProvider systemPromptProvider,
     IPromptTemplateCatalog promptTemplates,
-    Func<AgentSessionScopeArguments, IAgentSessionScope, IAgentSessionComposition> composeSession) : IAgentSessionFactorySource
+    Func<AgentSessionScopeArguments, IAgentSessionScope, AgentSessionComposition> composeSession) : IAgentSessionFactorySource
 {
     public IAgentSessionFactory Create(IUserSession owner) =>
         new AgentSessionFactory(

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Parrot</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Parrot.Common/Parrot.Common.csproj" />
+    <ProjectReference Include="../Parrot.Tools/Parrot.Tools.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Parrot.Composition" />
+    <InternalsVisibleTo Include="Parrot.Tools.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -17,7 +17,7 @@ using Pure.DI;
 
 namespace Parrot.Agent;
 
-internal partial class AgentSessionComposition : IAgentSessionComposition
+internal partial class AgentSessionComposition : IAsyncDisposable
 {
     internal static void Setup() =>
         DI.Setup(nameof(AgentSessionComposition))
