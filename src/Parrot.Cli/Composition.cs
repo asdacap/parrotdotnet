@@ -7,6 +7,7 @@ using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Skills;
 using Parrot.State;
+using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Web;
 using Pure.DI;
@@ -226,7 +227,8 @@ internal partial class Composition
                     profiles,
                     skillCatalogFactory,
                     configuration.UserInputTimeout,
-                    TimeProvider.System);
+                    TimeProvider.System,
+                    static (agents, templates) => new RuntimeTreeStatusProvider(agents, templates));
             })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>

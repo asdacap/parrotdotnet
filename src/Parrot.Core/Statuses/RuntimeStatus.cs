@@ -14,14 +14,14 @@ internal sealed class RuntimeStatus : IRuntimeStatus
     public RuntimeStatus(
         IAgentRegistry agents,
         IPromptTemplateCatalog templates,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IStatusProvider runtimeTreeStatus)
     {
         _templates = templates ?? throw new ArgumentNullException(nameof(templates));
         var generatedTime = new GeneratedTimeStatusProvider(timeProvider, templates);
-        var runtime = new RuntimeTreeStatusProvider(agents, templates);
         var agentTasks = new AgentTaskStatusProvider(agents, templates);
-        _activity = new StatusRegistry(runtime, agentTasks);
-        _full = new StatusRegistry(generatedTime, new SelectionStatusProvider(templates), runtime, agentTasks);
+        _activity = new StatusRegistry(runtimeTreeStatus, agentTasks);
+        _full = new StatusRegistry(generatedTime, new SelectionStatusProvider(templates), runtimeTreeStatus, agentTasks);
     }
 
     public Task<string> ObserveWithTools(

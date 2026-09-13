@@ -5,6 +5,7 @@ using Parrot.Llm;
 using Parrot.Queues;
 using Parrot.Skills;
 using Parrot.State;
+using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -268,7 +269,8 @@ internal sealed class AgentQueueTests : IDisposable
             false,
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
-            static () => new EventBroker());
+            static () => new EventBroker(),
+            static (agents, templates) => new RuntimeTreeStatusProvider(agents, templates));
 
         _ = await Assert.That(Directory.Exists(resources.AgentQueueRootDirectory)).IsFalse();
         _ = await Assert.That(sessions.Queues.Single().Get("root-work").Description).IsEqualTo("persistent");

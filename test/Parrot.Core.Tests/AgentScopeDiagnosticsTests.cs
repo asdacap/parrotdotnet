@@ -6,6 +6,7 @@ using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Skills;
 using Parrot.State;
+using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Web;
 
@@ -49,7 +50,8 @@ internal sealed class AgentScopeDiagnosticsTests
                 profiles,
                 new SkillCatalogFactory(configuration, root, Path.Combine(root, "skills")),
                 TimeSpan.FromSeconds(30),
-                TimeProvider.System);
+                TimeProvider.System,
+                static (agents, templates) => new RuntimeTreeStatusProvider(agents, templates));
             var store = new SessionStore(paths, root, "host", factory, router, modes, diagnostics);
             string logPath;
             await using (var session = await store.Open(router.Resolve(model.Selector)))

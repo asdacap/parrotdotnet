@@ -29,6 +29,7 @@ src/
   Parrot.Tool.Queue/     Queue tools, factories and per-agent queue service.
   Parrot.Tool.AgentTask/ AgentTask tool, factory and input serialization.
   Parrot.Core/           Agent orchestration, session lifecycle and protocol services.
+  Parrot.StatusProviders/ Runtime-tree status rendering from Common contracts.
   Parrot.Composition/    Per-agent wiring, session factories and scope lifecycle.
   Parrot.Cli/            The `parrot` executable. AOT-published.
 test/

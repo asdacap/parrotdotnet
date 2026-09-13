@@ -60,7 +60,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         await childProvider.Arrived(cancellationToken);
         var selection = new SelectionFixture(provider).Selection;
         ITool tool = new WaitTool(
-            new RuntimeStatus(registry, TestModels.PromptTemplates, TimeProvider.System),
+            new RuntimeStatus(registry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(registry, TestModels.PromptTemplates)),
             session,
             time);
 
@@ -108,7 +108,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var session = scope.Session;
         await using var unobservedRegistry = new UnobservedRegistry(registry);
         ITool tool = new WaitTool(
-            new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System),
+            new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(unobservedRegistry, TestModels.PromptTemplates)),
             session,
             TimeProvider.System);
         _ = repository.Admit(
@@ -135,7 +135,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var session = scope.Session;
         await using var unobservedRegistry = new UnobservedRegistry(registry);
         ITool tool = new WaitTool(
-            new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System),
+            new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(unobservedRegistry, TestModels.PromptTemplates)),
             session,
             TimeProvider.System);
         var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken);
@@ -157,7 +157,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var session = scope.Session;
         await using var unobservedRegistry = new UnobservedRegistry(registry);
         ITool tool = new WaitTool(
-            new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System),
+            new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(unobservedRegistry, TestModels.PromptTemplates)),
             session,
             TimeProvider.System);
         var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken);
@@ -233,7 +233,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var session = scope.Session;
         await using var unobservedRegistry = new UnobservedRegistry(registry);
         ITool tool = new WaitTool(
-            new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System),
+            new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(unobservedRegistry, TestModels.PromptTemplates)),
             session,
             TimeProvider.System);
         var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken);
@@ -258,7 +258,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var session = scope.Session;
         await using var unobservedRegistry = new UnobservedRegistry(registry);
         ITool tool = new WaitTool(
-            new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System),
+            new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(unobservedRegistry, TestModels.PromptTemplates)),
             session,
             TimeProvider.System);
         using var canceled = new CancellationTokenSource();
@@ -279,7 +279,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         var repository = new EventRepository(_database);
         var registry = PrepareRegistry(new EventRepository(_database));
-        var factory = new WaitToolFactory(new RuntimeStatus(registry, TestModels.PromptTemplates, TimeProvider.System), TimeProvider.System);
+        var factory = new WaitToolFactory(new RuntimeStatus(registry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(registry, TestModels.PromptTemplates)), TimeProvider.System);
         await using var scope = Session(provider, [factory], repository, registry);
         var session = scope.Session;
 
@@ -479,7 +479,8 @@ internal sealed class WaitToolTests : IAsyncDisposable
             interactivePermissions: false,
             TimeSpan.FromSeconds(1),
             TimeProvider.System,
-            static () => new EventBroker());
+            static () => new EventBroker(),
+            static (agents, templates) => new RuntimeTreeStatusProvider(agents, templates));
 
         _ = await owner.SendText("first", "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -618,7 +619,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             new RetainedAgentBudget(1024),
             TestDiagnosticLog.Instance,
             CancellationToken.None);
-        registry.AttachStatus(new RuntimeStatus(registry, TestModels.PromptTemplates, TimeProvider.System));
+        registry.AttachStatus(new RuntimeStatus(registry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(registry, TestModels.PromptTemplates)));
         _registries.Add(registry);
         return registry;
     }

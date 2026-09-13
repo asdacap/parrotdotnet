@@ -8,6 +8,7 @@ using Parrot.Protocol;
 using Parrot.Queues;
 using Parrot.Skills;
 using Parrot.State;
+using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Web;
 
@@ -266,7 +267,7 @@ internal sealed class AgentInventoryStreamTests
                     new CompositeSystemPromptProvider("test:inventory", []),
                     configuration.PromptTemplates,
                     static (arguments, scope) => new AgentSessionComposition(arguments, scope));
-                var factory = new UserSessionFactory(source, modes, configuration.PromptTemplates, profiles, new SkillCatalogFactory(configuration, directory, Path.Combine(directory, "skills")), TimeSpan.FromSeconds(30), TimeProvider.System);
+                var factory = new UserSessionFactory(source, modes, configuration.PromptTemplates, profiles, new SkillCatalogFactory(configuration, directory, Path.Combine(directory, "skills")), TimeSpan.FromSeconds(30), TimeProvider.System, static (agents, templates) => new RuntimeTreeStatusProvider(agents, templates));
                 var store = new SessionStore(paths, directory, "host", factory, router, modes, diagnostics);
                 return new InventoryFixture(directory, configuration, model, await store.Open(router.Resolve(model.Selector)));
             }
