@@ -321,6 +321,7 @@ internal sealed class LocalSessionIntegrationTests
                 new SessionCatalog(workspace.Paths),
                 modes,
                 reachable ? new LocalUserSessionHost() : new UnexposedUserSessionHost(),
+                new SandboxGate(enabled: true),
                 _diagnostics.Global);
             Client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(_service));
         }

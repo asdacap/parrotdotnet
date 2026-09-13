@@ -358,6 +358,20 @@ Predefined shared write grants cover `/dev/null`, `/tmp`,
 grants apply even to `read_only`
 profiles. Filesystem access does not grant network access.
 
+The OS process sandbox can be turned off globally with `sandbox.enabled`:
+
+```yaml
+sandbox:
+  enabled: false
+```
+
+The value is read once at startup. When it is `false`, shell commands run
+unconfined; filesystem permission checks for the file tools are unaffected.
+`/sandbox_enable <true|false>` flips the same switch at runtime, for the whole
+host process, without persisting it; the config file remains the persistent
+knob. Disabling the sandbox also removes read-only shell confinement, because
+that confinement is the sandbox itself.
+
 Each agent receives an individually owned scratch directory beneath its user
 session. It is automatically created for that agent's history projection,
 process and tool output blobs, and plan artifacts. Every agent in the same user

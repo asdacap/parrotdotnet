@@ -26,7 +26,7 @@ internal sealed class SlashCommandTests
             diagnostics.Log);
 
         _ = await Assert.That(string.Join('|', registry.Commands.Select(command => command.Name)))
-            .IsEqualTo("/auth|/clear|/compact|/effort|/exit|/goal|/help|/mode|/model|/model-alias|/model-preset-select|/model-preset-set|/models|/modes|/sessions|/set-context-limit|/skills|/version");
+            .IsEqualTo("/auth|/clear|/compact|/effort|/exit|/goal|/help|/mode|/model|/model-alias|/model-preset-select|/model-preset-set|/models|/modes|/sessions|/sandbox_enable|/set-context-limit|/skills|/version");
         _ = await Assert.That(registry.Commands.All(command => command.Summary.Length > 0)).IsTrue();
 
         _ = dialog.Select((string?)null);

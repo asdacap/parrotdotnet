@@ -26,6 +26,10 @@ internal sealed class TestSlashSession(string model) : ISlashSession
 
     public SetContextLimitResponse ContextLimitResponse { get; set; } = new();
 
+    public List<bool> SandboxToggles { get; } = [];
+
+    public bool? SandboxEnabledResponse { get; set; }
+
     public ListSkillsResponse Skills { get; } = new();
 
     public List<ConfigureSkillRequest> ConfiguredSkills { get; } = [];
@@ -107,6 +111,12 @@ internal sealed class TestSlashSession(string model) : ISlashSession
     {
         ContextLimits.Add(contextLimit);
         return Task.FromResult(ContextLimitResponse.Clone());
+    }
+
+    public Task<SandboxEnableResponse> SandboxEnable(bool enabled, CancellationToken cancellationToken)
+    {
+        SandboxToggles.Add(enabled);
+        return Task.FromResult(new SandboxEnableResponse { Enabled = SandboxEnabledResponse ?? enabled });
     }
 
     public Task<ListSkillsResponse> ListSkills(CancellationToken cancellationToken) =>

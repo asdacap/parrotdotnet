@@ -20,7 +20,7 @@ internal sealed class TestSystemPromptFixture(string workingDirectory, string co
             new SessionIdentityProvider(),
             new SubagentsProvider(new TestProfileFixture().Registry, TestModels.PromptTemplates),
             new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal), TestModels.PromptTemplates),
-            new SecurityProfileProvider([], TestModels.PromptTemplates),
+            new SecurityProfileProvider([], new SandboxGate(enabled: true), TestModels.PromptTemplates),
         ]);
 
     private static CliUtilityAvailability EmptyCliUtilities() =>

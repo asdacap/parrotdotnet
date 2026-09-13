@@ -39,6 +39,9 @@ internal interface ISlashSession
     /// <summary>Persists the default context compaction trigger and returns whether an alias masks it.</summary>
     Task<SetContextLimitResponse> SetContextLimit(string contextLimit, CancellationToken cancellationToken);
 
+    /// <summary>Sets the host process sandbox switch and returns the resulting state.</summary>
+    Task<SandboxEnableResponse> SandboxEnable(bool enabled, CancellationToken cancellationToken);
+
     Task<ListSkillsResponse> ListSkills(CancellationToken cancellationToken);
 
     /// <summary>Sets whether the skill at the supplied path is enabled and returns its updated description.</summary>
