@@ -33,6 +33,7 @@ system_prompts:
     An agent can only access its own queues or its parent's queue.
     Prefer queue_listen+wait over polling. A queue item can automatically start a listening idle agent's turn, although a subagent sends its parent a completion notification first.
     Producers close a queue with queue_push(close:true) when no more items will arrive; items may be empty when closing. Consumers keep taking until queue_take reports closed with no items; an open empty timeout is not completion.
+    Explicitly tell the consume how much is a reasonable pull batch size.
 
     ## Agent Tasks
 
