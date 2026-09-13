@@ -80,6 +80,8 @@ internal sealed partial class Configuration(string path)
 
     public IReadOnlyList<SandboxRule> SandboxRules { get; private set; } = [];
 
+    public bool SandboxEnabled { get; private set; } = true;
+
     public IReadOnlySet<string> DisabledTools { get; private set; } = new HashSet<string>(StringComparer.Ordinal);
 
     public IReadOnlyDictionary<string, ProfileConfig> Profiles { get; private set; } =
@@ -247,6 +249,7 @@ internal sealed partial class Configuration(string path)
             WebFetch = ReadWebFetch(root),
             RequestLimits = ReadRequestLimits(root),
             SandboxRules = ReadSandboxRules(root, "sandbox_rules", environmentTemplates, directories),
+            SandboxEnabled = ReadSandboxEnabled(root),
             DisabledTools = ReadDisabledTools(root),
             Profiles = profiles,
             DefaultProfile = ReadDefaultProfile(root, profiles),
@@ -272,6 +275,7 @@ internal sealed partial class Configuration(string path)
         {
             ContextLimit = ReadContextLimit(root, "context_limit", "context_limit"),
             Model = Scalar(root, ModelKey),
+            SandboxEnabled = ReadSandboxEnabled(root),
             ModelAliases = ReadModelAliases(root),
             ModelPresets = ReadModelPresets(root),
         };
@@ -1354,6 +1358,22 @@ internal sealed partial class Configuration(string path)
         "deny_write" => SandboxRuleAction.DenyWrite,
         _ => throw new InvalidDataException($"{path} has invalid action {action}"),
     };
+
+    private static bool ReadSandboxEnabled(YamlMappingNode root)
+    {
+        if (!Child(root, "sandbox", out var node))
+        {
+            return true;
+        }
+
+        if (node is not YamlMappingNode sandbox)
+        {
+            throw new InvalidDataException("sandbox must be a mapping");
+        }
+
+        ValidateKeys(sandbox, "sandbox", "enabled");
+        return ReadBoolean(sandbox, "enabled", "sandbox.enabled");
+    }
 
     private static bool ReadInlineDiff(YamlMappingNode root)
     {

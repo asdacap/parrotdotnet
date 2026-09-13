@@ -6,7 +6,10 @@ using Scriban.Runtime;
 
 namespace Parrot.Context;
 
-internal sealed class SecurityProfilePrompt(IReadOnlyList<SandboxRule> rules, IPromptTemplateCatalog templates) : ISystemPrompt
+internal sealed class SecurityProfilePrompt(
+    IReadOnlyList<SandboxRule> rules,
+    bool sandboxEnabled,
+    IPromptTemplateCatalog templates) : ISystemPrompt
 {
     private readonly SandboxRule[] _rules = [.. rules];
 
@@ -29,7 +32,13 @@ internal sealed class SecurityProfilePrompt(IReadOnlyList<SandboxRule> rules, IP
         }
 
         return templates.RenderStructured(
-            "context.security-profile", new ScriptObject { ["rules"] = rules }, CancellationToken.None);
+            "context.security-profile",
+            new ScriptObject
+            {
+                ["rules"] = rules,
+                ["sandbox_enabled"] = sandboxEnabled,
+            },
+            CancellationToken.None);
     }
 
     private static string Escape(string value)

@@ -72,8 +72,22 @@ internal partial class Composition
             })
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
+                ctx.Inject<Configuration>(out var configuration);
+                ctx.Inject<DiagnosticLogs>(out var diagnostics);
+                if (!configuration.SandboxEnabled)
+                {
+                    diagnostics.Global.Write(
+                        new DiagnosticEvent("sandbox", "disabled", DiagnosticSeverity.Warning));
+                }
+
+                return new SandboxGate(configuration.SandboxEnabled);
+            })
+            .Bind().As(Lifetime.Singleton).To(ctx =>
+            {
+                ctx.Inject<Configuration>(out var configuration);
                 ctx.Inject<ExecutableLocator>(out var locator);
-                return ProcessRunner.Locate(locator);
+                ctx.Inject<SandboxGate>(out var sandboxGate);
+                return ProcessRunner.Locate(locator, sandboxGate);
             })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>
@@ -159,6 +173,7 @@ internal partial class Composition
                 ctx.Inject<StatePaths>(out var paths);
                 ctx.Inject<ProfileRegistry>(out var profiles);
                 ctx.Inject<CliUtilityAvailability>(out var cliUtilities);
+                ctx.Inject<SandboxGate>(out var sandboxGate);
                 List<ISystemPromptProvider> systemPromptProviders =
                 [
                     .. configuration.SystemPrompts.Select(
@@ -173,7 +188,10 @@ internal partial class Composition
                     new SubagentsProvider(profiles, configuration.PromptTemplates),
                     new ModelPromptProvider(configuration.ModelAugmentSystemPrompts, configuration.PromptTemplates),
                     new QueueGuidanceProvider(configuration.PromptTemplates),
-                    new SecurityProfileProvider(configuration.SandboxRules, configuration.PromptTemplates),
+                    new SecurityProfileProvider(
+                        configuration.SandboxRules,
+                        sandboxGate,
+                        configuration.PromptTemplates),
                 ];
                 return new CompositeSystemPromptProvider("runtime:system-prompt", systemPromptProviders);
             })
@@ -254,7 +272,18 @@ internal partial class Composition
                 ctx.Inject<ModeRegistry>(out var modes);
                 ctx.Inject<IUserSessionHost>(out var userSessionHost);
                 ctx.Inject<DiagnosticLogs>(out var diagnostics);
-                return new ParrotService(router, registry, aliases, modelConfiguration, store, sessionCatalog, modes, userSessionHost, diagnostics.Global);
+                ctx.Inject<SandboxGate>(out var sandboxGate);
+                return new ParrotService(
+                    router,
+                    registry,
+                    aliases,
+                    modelConfiguration,
+                    store,
+                    sessionCatalog,
+                    modes,
+                    userSessionHost,
+                    sandboxGate,
+                    diagnostics.Global);
             })
 
             .Root<StatePaths>("Paths")

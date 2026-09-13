@@ -4,6 +4,7 @@ using Parrot.Config;
 using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Permissions;
+using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Queues;
 using Parrot.Security;
@@ -859,6 +860,36 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    public async Task Sandbox_enable_flips_the_gate_and_reports_the_state(
+        CancellationToken cancellationToken)
+    {
+        var gate = new SandboxGate(enabled: true);
+        var store = Store();
+        await using var service = ServiceWithGate(store, gate);
+        var context = new InProcessServerCallContext(cancellationToken);
+        var session = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
+
+        var refused = await Assert.That(async () => await service.SandboxEnable(
+            new SandboxEnableRequest { UserSessionId = "missing", Enabled = false },
+            context)).Throws<RpcException>();
+
+        _ = await Assert.That(refused?.StatusCode).IsEqualTo(StatusCode.NotFound);
+        _ = await Assert.That(gate.Enabled).IsTrue();
+
+        var disabled = await service.SandboxEnable(
+            new SandboxEnableRequest { UserSessionId = session.Id, Enabled = false },
+            context);
+        _ = await Assert.That(disabled.Enabled).IsFalse();
+        _ = await Assert.That(gate.Enabled).IsFalse();
+
+        var enabled = await service.SandboxEnable(
+            new SandboxEnableRequest { UserSessionId = session.Id, Enabled = true },
+            context);
+        _ = await Assert.That(enabled.Enabled).IsTrue();
+        _ = await Assert.That(gate.Enabled).IsTrue();
+    }
+
+    [Test]
     public async Task Model_presets_are_set_and_selected_through_the_server_contract(
         CancellationToken cancellationToken)
     {
@@ -1297,7 +1328,15 @@ internal sealed class ParrotServiceTests : IDisposable
                 _configuration.DisabledTools),
             _configuration.DefaultProfile));
 
-    private ParrotService ServiceWithModes(SessionStore store, ModeRegistry modes) => new(
+    private ParrotService ServiceWithGate(SessionStore store, SandboxGate gate) => ServiceWithGate(store, gate, new ModeRegistry(
+        new ProfileRegistry(
+            _configuration.Profiles,
+            _configuration.SandboxRules,
+            [],
+            _configuration.DisabledTools),
+        _configuration.DefaultProfile));
+
+    private ParrotService ServiceWithGate(SessionStore store, SandboxGate gate, ModeRegistry modes) => new(
         _router,
         _registry,
         new ModelAliasConfigurator(_models),
@@ -1306,7 +1345,11 @@ internal sealed class ParrotServiceTests : IDisposable
         new SessionCatalog(new StatePaths(_root, _root, _root)),
         modes,
         new UnexposedUserSessionHost(),
+        gate,
         _diagnostics.Global);
+
+    private ParrotService ServiceWithModes(SessionStore store, ModeRegistry modes) =>
+        ServiceWithGate(store, new SandboxGate(enabled: true), modes);
 
     private SessionStore Store() => Store(new DirectAgentSessions());
 

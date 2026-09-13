@@ -446,6 +446,29 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task Sandbox_enabled_defaults_to_true_and_accepts_boolean_configuration()
+    {
+        var missing = Load(Path.Combine(_directory, "missing.yaml"));
+        var enabled = Load(Write("sandbox:\n  enabled: true\n"));
+        var disabled = Load(Write("sandbox:\n  enabled: false\n"));
+
+        _ = await Assert.That(missing.SandboxEnabled).IsTrue();
+        _ = await Assert.That(enabled.SandboxEnabled).IsTrue();
+        _ = await Assert.That(disabled.SandboxEnabled).IsFalse();
+    }
+
+    [Test]
+    [Arguments("sandbox:\n  enabled: yes\n")]
+    [Arguments("sandbox:\n  enabled: 1\n")]
+    [Arguments("sandbox:\n  unknown_key: true\n")]
+    public async Task Sandbox_configuration_rejects_invalid_values(string content)
+    {
+        var path = Write(content);
+
+        _ = await Assert.That(() => Load(path)).Throws<InvalidDataException>();
+    }
+
+    [Test]
     [Arguments(1)]
     [Arguments(25)]
     public async Task Live_buffer_rows_accepts_positive_user_configuration(int rows)

@@ -6,6 +6,7 @@ using Parrot.Context;
 using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Permissions;
+using Parrot.Process;
 using Parrot.Questions;
 using Parrot.Security;
 using Parrot.Skills;
@@ -33,6 +34,7 @@ internal sealed class ParrotService(
     SessionCatalog sessionCatalog,
     ModeRegistry modes,
     IUserSessionHost sessionHost,
+    SandboxGate sandboxGate,
     IDiagnosticLog diagnostics) : GeneratedParrot.ParrotBase, IAsyncDisposable
 {
     private readonly UserSessionRegistry _userSessions = new();
@@ -804,6 +806,26 @@ internal sealed class ParrotService(
             ContextLimit = limit.ToString(),
             AliasOverride = aliasOverride,
         });
+    }
+
+    public override Task<SandboxEnableResponse> SandboxEnable(
+        SandboxEnableRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+        context.CancellationToken.ThrowIfCancellationRequested();
+        _ = Find(request.UserSessionId);
+        sandboxGate.SetEnabled(request.Enabled);
+        if (!sandboxGate.Enabled)
+        {
+            diagnostics.Write(new DiagnosticEvent("sandbox", "disabled", DiagnosticSeverity.Warning)
+            {
+                UserSessionId = request.UserSessionId,
+            });
+        }
+
+        return Task.FromResult(new SandboxEnableResponse { Enabled = sandboxGate.Enabled });
     }
 
     public override Task<ListPendingQuestionsResponse> ListPendingQuestions(

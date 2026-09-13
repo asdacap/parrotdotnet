@@ -89,6 +89,11 @@ internal sealed class SlashSession(
             new SetContextLimitRequest { UserSessionId = Id, ContextLimit = contextLimit },
             cancellationToken: cancellationToken).ResponseAsync;
 
+    public Task<SandboxEnableResponse> SandboxEnable(bool enabled, CancellationToken cancellationToken) =>
+        client.SandboxEnableAsync(
+            new SandboxEnableRequest { UserSessionId = Id, Enabled = enabled },
+            cancellationToken: cancellationToken).ResponseAsync;
+
     public Task<ListSkillsResponse> ListSkills(CancellationToken cancellationToken) =>
         client.ListSkillsAsync(
             new ListSkillsRequest { UserSessionId = Id },

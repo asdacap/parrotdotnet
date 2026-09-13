@@ -50,6 +50,85 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
+    public async Task Gate_off_runs_commands_without_the_sandbox(CancellationToken cancellationToken)
+    {
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
+        var argumentsPath = Path.Combine(_workspace, "gate-off-arguments");
+        var gate = new SandboxGate(enabled: false);
+        var runner = new ProcessRunner(
+            CreateArgumentCapturingSandbox(_workspace, argumentsPath),
+            requireTrustedPath: false,
+            gate);
+        var marker = Path.Combine(_workspace, "gate-off-marker");
+
+        _ = await runner.Run(
+            $"printf gate-off > '{marker}'",
+            ProcessEnvironmentOverrides.Empty,
+            resources,
+            Scratch(resources),
+            WritableProfile(resources),
+            cancellationToken);
+
+        _ = await Assert.That(File.Exists(argumentsPath)).IsFalse();
+        _ = await Assert.That(await File.ReadAllTextAsync(marker, cancellationToken)).IsEqualTo("gate-off");
+
+        gate.SetEnabled(true);
+
+        _ = await runner.Run(
+            "true",
+            ProcessEnvironmentOverrides.Empty,
+            resources,
+            Scratch(resources),
+            WritableProfile(resources),
+            cancellationToken);
+
+        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        _ = await Assert.That(arguments.Length).IsGreaterThan(0);
+    }
+
+    [Test]
+    public async Task Gate_off_pty_runs_without_bwrap(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
+        var runner = new ProcessRunner(string.Empty, requireTrustedPath: false, new SandboxGate(enabled: false));
+
+        if (!runner.SandboxAvailable)
+        {
+            return;
+        }
+
+        await using var execution = runner.Start(
+            "printf pty-unconfined",
+            ProcessEnvironmentOverrides.Empty,
+            resources,
+            Scratch(resources),
+            WritableProfile(resources),
+            ShellProcessTerminalMode.PseudoTerminal,
+            cancellationToken);
+        var result = await execution.Result;
+
+        _ = await Assert.That(result.ExitCode).IsEqualTo(0);
+        _ = await Assert.That(result.Stdout).Contains("pty-unconfined");
+    }
+
+    [Test]
     public async Task Oversized_output_is_spilled_completely(
         CancellationToken cancellationToken)
     {

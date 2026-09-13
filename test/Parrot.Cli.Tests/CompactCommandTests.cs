@@ -112,6 +112,9 @@ internal sealed class CompactCommandTests
         public Task<SetContextLimitResponse> SetContextLimit(string contextLimit, CancellationToken cancellationToken) =>
             Task.FromResult(new SetContextLimitResponse { ContextLimit = contextLimit });
 
+        public Task<SandboxEnableResponse> SandboxEnable(bool enabled, CancellationToken cancellationToken) =>
+            Task.FromResult(new SandboxEnableResponse { Enabled = enabled });
+
         public Task<ListSkillsResponse> ListSkills(CancellationToken cancellationToken) =>
             Task.FromResult(new ListSkillsResponse());
 

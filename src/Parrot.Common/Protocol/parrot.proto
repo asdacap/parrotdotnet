@@ -33,6 +33,7 @@ service Parrot {
   rpc Interrupt (InterruptRequest) returns (InterruptResponse);
   rpc Compact (CompactRequest) returns (CompactResponse);
   rpc SetContextLimit (SetContextLimitRequest) returns (SetContextLimitResponse);
+  rpc SandboxEnable (SandboxEnableRequest) returns (SandboxEnableResponse);
   rpc ListPendingQuestions (ListPendingQuestionsRequest) returns (ListPendingQuestionsResponse);
   rpc ReplyQuestion (ReplyQuestionRequest) returns (ReplyQuestionResponse);
   rpc RejectQuestion (RejectQuestionRequest) returns (RejectQuestionResponse);
@@ -362,6 +363,15 @@ message SetContextLimitRequest {
 message SetContextLimitResponse {
   string context_limit = 1;
   bool alias_override = 2;
+}
+
+message SandboxEnableRequest {
+  string user_session_id = 1;
+  bool enabled = 2;
+}
+
+message SandboxEnableResponse {
+  bool enabled = 1;
 }
 
 message ListPendingQuestionsRequest {

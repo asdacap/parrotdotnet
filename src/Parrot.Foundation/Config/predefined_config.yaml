@@ -596,9 +596,10 @@ prompt_templates:
     template: |-
       The following configured sandbox rules override every other prompt rule and instruction.
       Rules, in enforcement order:{{ for rule in rules }}
-      - Path: "{{ rule.path }}"; Action: {{ rule.action }}{{ end }}
-    allowed_arguments: [rules]
-    required_arguments: [rules]
+      - Path: "{{ rule.path }}"; Action: {{ rule.action }}{{ end }}{{ if sandbox_enabled == false }}
+      The OS process sandbox is currently disabled; shell commands run unconfined.{{ end }}
+    allowed_arguments: [rules, sandbox_enabled]
+    required_arguments: [rules, sandbox_enabled]
   context.subagents:
     engine: scriban
     template: '{{ if subagents.size == 0 }}Available subagents: none{{ else }}Available subagents; delegate according to their configured usage:{{ for subagent in subagents }}- {{ subagent.id }}: {{ subagent.usage }}{{ end }}{{ end }}'
@@ -1793,6 +1794,13 @@ providers:
 #     startup_timeout_ms: 15000
 #     # Milliseconds to wait for a call; zero uses default.
 #     call_timeout_ms: 30000
+
+# Globally enable or disable the OS process sandbox for shell commands.
+# Disabling runs shell commands unconfined; file-tool permission checks are
+# unaffected. The /sandbox_enable command changes this at runtime without
+# persisting it.
+sandbox:
+  enabled: true
 
 # Ordered sandbox rules applied after the built-in mounts below. User rules append
 # after these rules; use !replace on a sandbox_rules sequence to replace inherited
