@@ -25,6 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Parrot.Composition" />
     <InternalsVisibleTo Include="Parrot.Foundation" />
     <InternalsVisibleTo Include="Parrot.Infrastructure" />
     <InternalsVisibleTo Include="Parrot.Llm" />

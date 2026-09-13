@@ -12,6 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/Parrot.Composition/Parrot.Composition.csproj" />
     <ProjectReference Include="../../src/Parrot.Core/Parrot.Core.csproj" />
   </ItemGroup>
 

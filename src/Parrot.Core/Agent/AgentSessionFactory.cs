@@ -24,7 +24,8 @@ internal sealed class AgentSessionFactory(
     IReadOnlyList<string> readOnlyExecCommandPrefixes,
     IModelRouter router,
     ISystemPromptProvider systemPromptProvider,
-    IPromptTemplateCatalog promptTemplates) : IAgentSessionFactory
+    IPromptTemplateCatalog promptTemplates,
+    Func<AgentSessionScopeArguments, IAgentSessionScope, IAgentSessionComposition> composeSession) : IAgentSessionFactory
 {
     private readonly IImageArtifactRepository _images = owner.Images;
 
@@ -92,7 +93,7 @@ internal sealed class AgentSessionFactory(
             owner.TimeProvider,
             owner.Diagnostics,
             lifetime);
-        var scope = new AgentSessionScope(arguments);
+        var scope = new AgentSessionScope(arguments, composeSession);
         try
         {
             scope.GetService<IAgentQueues>().Initialize();

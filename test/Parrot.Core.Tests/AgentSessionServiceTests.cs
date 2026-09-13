@@ -42,7 +42,8 @@ internal sealed class AgentSessionServiceTests
                 configuration.ReadOnlyExecCommandPrefixes,
                 router,
                 new CompositeSystemPromptProvider("test:session-services", []),
-                configuration.PromptTemplates);
+                configuration.PromptTemplates,
+                static (arguments, scope) => new AgentSessionComposition(arguments, scope));
             var factory = new UserSessionFactory(
                 source,
                 modes,

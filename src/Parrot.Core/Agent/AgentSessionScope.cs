@@ -7,7 +7,7 @@ namespace Parrot.Agent;
 
 internal sealed class AgentSessionScope : IAgentSessionScope
 {
-    private readonly AgentSessionComposition _composition;
+    private readonly IAgentSessionComposition _composition;
     private readonly Parrot.Diagnostics.IDiagnosticLog _diagnostics;
     private readonly string _sessionId;
     private readonly AgentSessionScopeArguments _arguments;
@@ -17,13 +17,15 @@ internal sealed class AgentSessionScope : IAgentSessionScope
     private Task? _publication;
     private Task? _disposal;
 
-    internal AgentSessionScope(AgentSessionScopeArguments arguments)
+    internal AgentSessionScope(
+        AgentSessionScopeArguments arguments,
+        Func<AgentSessionScopeArguments, IAgentSessionScope, IAgentSessionComposition> composeSession)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         _arguments = arguments;
         _diagnostics = arguments.Diagnostics;
         _sessionId = arguments.Identity.SessionId;
-        _composition = new AgentSessionComposition(arguments, this);
+        _composition = composeSession(arguments, this);
         try
         {
             Session = _composition.Session;

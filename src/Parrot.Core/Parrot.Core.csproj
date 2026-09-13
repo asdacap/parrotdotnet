@@ -15,7 +15,6 @@
 
   <ItemGroup>
     <PackageReference Include="Google.Protobuf" />
-    <PackageReference Include="Pure.DI" PrivateAssets="all" />
     <PackageReference Include="YamlDotNet" />
     <PackageReference Include="Grpc.Core.Api" />
     <PackageReference Include="Scriban" />
@@ -28,6 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Parrot.Composition" />
     <InternalsVisibleTo Include="Parrot.Core.Tests" />
     <!-- The CLI's own seams are typed in terms of these, so a test of the CLI
          cannot construct one without them. -->

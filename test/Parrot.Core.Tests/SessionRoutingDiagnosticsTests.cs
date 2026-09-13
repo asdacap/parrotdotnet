@@ -47,7 +47,8 @@ internal sealed class SessionRoutingDiagnosticsTests
                 configuration.ReadOnlyExecCommandPrefixes,
                 router,
                 new CompositeSystemPromptProvider("test:routing", []),
-                configuration.PromptTemplates);
+                configuration.PromptTemplates,
+                static (arguments, scope) => new AgentSessionComposition(arguments, scope));
             var factory = new UserSessionFactory(
                 source,
                 modes,

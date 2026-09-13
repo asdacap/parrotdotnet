@@ -19,7 +19,7 @@ namespace Parrot.Cli;
 // AGENTS.md says "not IoC container"; this is a bounded exception, and the
 // bounds are here. Hint.Resolve is Off, so no runtime Resolve<T>() exists and a
 // missing binding is a build error rather than a startup one. Pure.DI is
-// also used by Parrot.Core for the per-agent composition; each composition is
+// also used by Parrot.Composition for the per-agent composition; each composition is
 // compile-time generated and remains bounded to its assembly-owned graph.
 //
 // Three things stay hand-written on purpose. SlashCommandRegistry is a cycle
@@ -208,7 +208,8 @@ internal partial class Composition
                     configuration.ReadOnlyExecCommandPrefixes,
                     router,
                     systemPromptProvider,
-                    configuration.PromptTemplates);
+                    configuration.PromptTemplates,
+                    static (arguments, scope) => new AgentSessionComposition(arguments, scope));
             })
 
             .Bind().As(Lifetime.Singleton).To<IUserSessionFactory>(ctx =>
