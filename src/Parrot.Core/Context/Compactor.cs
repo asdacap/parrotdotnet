@@ -597,7 +597,7 @@ internal sealed class Compactor(
         var request = new LLMRequest
         {
             Model = selectedModel.ModelId,
-            MaxTokens = maximumOutputTokens,
+            MaxOutputTokens = maximumOutputTokens,
             Messages = RequestMessages(precedingSummary, chunk, []),
             Reasoning = selectedModel.Reasoning,
         };
