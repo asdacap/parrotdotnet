@@ -392,9 +392,14 @@ message QuestionDefinition {
   reserved 1;
   string header = 2;
   string prompt = 3;
-  repeated string options = 4;
+  repeated QuestionOption options = 4;
   bool multiple = 5;
   bool custom = 6;
+}
+
+message QuestionOption {
+  string label = 1;
+  string description = 2;
 }
 
 message QuestionAnswer {

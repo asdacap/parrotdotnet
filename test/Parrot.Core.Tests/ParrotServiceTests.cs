@@ -587,7 +587,7 @@ internal sealed class ParrotServiceTests : IDisposable
             [new Parrot.Questions.QuestionDefinition(
                 "Decision",
                 "Pick colours",
-                ["One", "Two", "Three"],
+                [new Parrot.Questions.QuestionOption("One", string.Empty), new Parrot.Questions.QuestionOption("Two", string.Empty), new Parrot.Questions.QuestionOption("Three", string.Empty)],
                 true,
                 false)],
             cancellationToken);
@@ -600,7 +600,8 @@ internal sealed class ParrotServiceTests : IDisposable
 
         _ = await Assert.That(question.Header).IsEqualTo("Decision");
         _ = await Assert.That(question.Prompt).IsEqualTo("Pick colours");
-        _ = await Assert.That(string.Join('|', question.Options)).IsEqualTo("One|Two|Three");
+        _ = await Assert.That(string.Join('|', question.Options.Select(option => option.Label)))
+            .IsEqualTo("One|Two|Three");
         _ = await Assert.That(question.Multiple).IsTrue();
         _ = await Assert.That(question.Custom).IsFalse();
 
@@ -631,7 +632,7 @@ internal sealed class ParrotServiceTests : IDisposable
         var session = await client.CreateSessionAsync(
             new CreateSessionRequest { Model = Selection }, cancellationToken: cancellationToken);
         var asking = sessions.Owners.Single().Questions.Ask(
-            [new Parrot.Questions.QuestionDefinition("Decision", "Pick a colour", ["Blue"], false, false)],
+            [new Parrot.Questions.QuestionDefinition("Decision", "Pick a colour", [new Parrot.Questions.QuestionOption("Blue", string.Empty)], false, false)],
             cancellationToken);
 
         time.AdvanceClock(TimeSpan.FromMilliseconds(elapsedMilliseconds));

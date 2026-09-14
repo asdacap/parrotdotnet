@@ -30,14 +30,14 @@ internal static class QuestionValidation
             var options = new HashSet<string>(StringComparer.Ordinal);
             foreach (var option in question.Options)
             {
-                if (string.IsNullOrWhiteSpace(option))
+                if (string.IsNullOrWhiteSpace(option.Label))
                 {
                     throw new QuestionException("question options cannot be empty");
                 }
 
-                if (!options.Add(option))
+                if (!options.Add(option.Label))
                 {
-                    throw new QuestionException($"duplicate question option: {option}");
+                    throw new QuestionException($"duplicate question option: {option.Label}");
                 }
             }
 

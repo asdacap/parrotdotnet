@@ -19,7 +19,7 @@ internal sealed class QuestionTool(IQuestionRequester requester) : ITool
             QuestionDefinition[] questions = [.. wireQuestions.Select(question => new QuestionDefinition(
                 question.Header ?? string.Empty,
                 question.Prompt ?? string.Empty,
-                question.Options ?? [],
+                [.. (question.Options ?? []).Select(option => new Parrot.Questions.QuestionOption(option.Label, option.Description))],
                 question.Multiple,
                 question.Custom))];
             var reply = await requester.Ask(questions, cancellationToken).ConfigureAwait(false);
@@ -51,7 +51,7 @@ internal sealed class QuestionTool(IQuestionRequester requester) : ITool
             public string? Prompt { get; init; }
 
             [JsonPropertyName("options")]
-            public string[]? Options { get; init; }
+            public QuestionOption[]? Options { get; init; }
 
             [JsonPropertyName("multiple")]
             public bool Multiple { get; init; }

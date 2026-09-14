@@ -425,7 +425,7 @@ internal sealed class EnhancedCliTests
         {
             Header = "Question",
             Prompt = "Pick a colour",
-            Options = { "Blue" },
+            Options = { new Parrot.Protocol.QuestionOption { Label = "Blue", Description = string.Empty } },
         });
         driver.Invoker.AddPendingQuestion(pending);
 
@@ -462,7 +462,7 @@ internal sealed class EnhancedCliTests
         {
             Header = "Question",
             Prompt = "Pick colours",
-            Options = { "One", "Two", "Three" },
+            Options = { new Parrot.Protocol.QuestionOption { Label = "One", Description = string.Empty }, new Parrot.Protocol.QuestionOption { Label = "Two", Description = string.Empty }, new Parrot.Protocol.QuestionOption { Label = "Three", Description = string.Empty } },
             Multiple = true,
         });
         if (timed)
@@ -517,7 +517,7 @@ internal sealed class EnhancedCliTests
         {
             Header = "Question",
             Prompt = "Second choice",
-            Options = { "Two" },
+            Options = { new Parrot.Protocol.QuestionOption { Label = "Two", Description = string.Empty } },
             Custom = custom,
         });
         driver.Invoker.AddPendingQuestion(pending);
@@ -621,7 +621,7 @@ internal sealed class EnhancedCliTests
         {
             Header = "Question",
             Prompt = "Second choice",
-            Options = { "Two" },
+            Options = { new Parrot.Protocol.QuestionOption { Label = "Two", Description = string.Empty } },
         });
         driver.Invoker.AddPendingQuestion(pending);
 
@@ -720,7 +720,7 @@ internal sealed class EnhancedCliTests
         };
         if (!optionless)
         {
-            question.Options.Add("Blue");
+            question.Options.Add(new Parrot.Protocol.QuestionOption { Label = "Blue", Description = string.Empty });
         }
 
         pending.Questions.Add(question);
@@ -1645,7 +1645,7 @@ internal sealed class EnhancedCliTests
             {
                 Header = "Question",
                 Prompt = prompt,
-                Options = { "One" },
+                Options = { new Parrot.Protocol.QuestionOption { Label = "One", Description = string.Empty } },
             });
             Pending = pending;
         }

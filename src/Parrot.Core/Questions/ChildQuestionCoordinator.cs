@@ -254,7 +254,9 @@ internal sealed class ChildQuestionCoordinator(
             _ = questions.AppendLine("Options:");
             foreach (var option in question.Options)
             {
-                _ = questions.AppendLine($"- {option}");
+                _ = questions.AppendLine(option.Description.Length == 0
+                    ? $"- {option.Label}"
+                    : $"- {option.Label} — {option.Description}");
             }
         }
 

@@ -1201,9 +1201,23 @@ tools:
               options:
                 type: array
                 items:
-                  type: string
-                  minLength: 1
-                description: Plain-text selectable answers offered to the user.
+                  oneOf:
+                  - type: string
+                    minLength: 1
+                    description: Plain answer text shown verbatim to the user.
+                  - type: object
+                    properties:
+                      label:
+                        type: string
+                        minLength: 1
+                        description: The answer text; this is what gets returned when selected.
+                      description:
+                        type: string
+                        description: Short explanation of the option shown to the user alongside the label.
+                    required:
+                    - label
+                    additionalProperties: false
+                description: Selectable answers offered to the user; a string is a plain answer, an object adds a short explanation shown to the user.
               multiple:
                 type: boolean
                 description: Whether the user may select more than one answer.

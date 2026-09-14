@@ -29,7 +29,7 @@ internal sealed class QuestionDiscoveryTests
         var pending = new PendingQuestion
         {
             Id = "pending-question",
-            Questions = { new QuestionDefinition { Header = "Decision", Prompt = "Discover this question", Options = { "One" } } },
+            Questions = { new QuestionDefinition { Header = "Decision", Prompt = "Discover this question", Options = { new Parrot.Protocol.QuestionOption { Label = "One", Description = string.Empty } } } },
         };
         if (scenario == "attach")
         {
