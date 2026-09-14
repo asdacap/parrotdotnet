@@ -2,7 +2,6 @@
 
   <PropertyGroup>
     <RootNamespace>Parrot</RootNamespace>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

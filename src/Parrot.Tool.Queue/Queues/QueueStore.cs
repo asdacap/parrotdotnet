@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Text.Json;
 using Parrot.Agent;
 
@@ -7,11 +6,6 @@ namespace Parrot.Queues;
 internal sealed class QueueStore(string directory) : IQueueStore
 {
     private const int MaximumFileBytes = 16 << 20;
-    private const int LockPollMilliseconds = 10;
-    private const int LockTimeoutSeconds = 10;
-    private const int ErrorFileNotFound = 2;
-    private const int ErrorAlreadyExists = 17;
-    private const int ErrorWindowsAlreadyExists = 183;
     private const UnixFileMode DirectoryPermissions =
         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
 
@@ -153,8 +147,6 @@ internal sealed class QueueStore(string directory) : IQueueStore
         try
         {
             ThrowIfDisposedLocked();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(LockTimeoutSeconds));
-            using var held = AcquireFileLockSynchronously(path, timeout.Token);
             var (metadata, stored) = Read(path, name);
             if (metadata.Closed)
             {
@@ -191,10 +183,6 @@ internal sealed class QueueStore(string directory) : IQueueStore
             PublishInventoryLocked(metadata, stored.Count);
             return QueueInfo.FromMetadata(path, metadata, stored.Count);
         }
-        catch (OperationCanceledException failure)
-        {
-            throw new QueueException("queue: timed out acquiring lock", failure);
-        }
         finally
         {
             _gate.Release();
@@ -215,7 +203,6 @@ internal sealed class QueueStore(string directory) : IQueueStore
         try
         {
             ThrowIfDisposedLocked();
-            using var held = await AcquireFileLockAsync(path, cancellationToken).ConfigureAwait(false);
             var taken = TakeLocked(path, name, count, direction);
             PublishInventoryLocked(taken.Info);
             return taken;
@@ -239,13 +226,6 @@ internal sealed class QueueStore(string directory) : IQueueStore
         try
         {
             ThrowIfDisposedLocked();
-            using var held = TryAcquireFileLock(path);
-
-            if (held is null)
-            {
-                return new QueueTryTakeResult(false, [], null);
-            }
-
             var taken = TakeLocked(path, name, count, direction);
             PublishInventoryLocked(taken.Info);
             return new QueueTryTakeResult(true, taken.Items, taken.Info);
@@ -586,32 +566,14 @@ internal sealed class QueueStore(string directory) : IQueueStore
         {
             WriteTemporary(temporary, data);
 
-            if (OperatingSystem.IsWindows())
+            try
             {
-                try
-                {
-                    File.Move(temporary, path, overwrite: false);
-                    return;
-                }
-                catch (IOException) when (File.Exists(path))
-                {
-                    throw new QueueAlreadyExistsException($"queue: '{name}' already exists");
-                }
+                File.Move(temporary, path, overwrite: false);
             }
-
-            if (QueueNative.Link(temporary, path) == 0)
-            {
-                return;
-            }
-
-            var error = System.Runtime.InteropServices.Marshal.GetLastPInvokeError();
-
-            if (error == ErrorAlreadyExists)
+            catch (IOException) when (File.Exists(path))
             {
                 throw new QueueAlreadyExistsException($"queue: '{name}' already exists");
             }
-
-            throw new QueueException("queue: could not publish queue", new Win32Exception(error));
         }
         finally
         {
@@ -666,76 +628,6 @@ internal sealed class QueueStore(string directory) : IQueueStore
 
     private static string TemporaryPath(string path) =>
         Path.Combine(Path.GetDirectoryName(path) ?? string.Empty, $".{Path.GetFileName(path)}-{Guid.NewGuid():n}");
-
-    private static QueueFileLock AcquireFileLockSynchronously(
-        string path,
-        CancellationToken cancellationToken)
-    {
-        while (true)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var held = TryAcquireFileLock(path);
-
-            if (held is not null)
-            {
-                return held;
-            }
-
-            _ = cancellationToken.WaitHandle.WaitOne(LockPollMilliseconds);
-        }
-    }
-
-    private static async Task<QueueFileLock> AcquireFileLockAsync(
-        string path,
-        CancellationToken cancellationToken)
-    {
-        while (true)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var held = TryAcquireFileLock(path);
-
-            if (held is not null)
-            {
-                return held;
-            }
-
-            await Task.Delay(LockPollMilliseconds, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private static QueueFileLock? TryAcquireFileLock(string path)
-    {
-        var lockPath = path + ".lock";
-
-        if (OperatingSystem.IsWindows())
-        {
-            if (QueueNative.CreateDirectory(lockPath, 0))
-            {
-                return new QueueFileLock(lockPath);
-            }
-
-            var windowsError = System.Runtime.InteropServices.Marshal.GetLastPInvokeError();
-
-            return windowsError == ErrorWindowsAlreadyExists
-                ? null
-                : throw new QueueException(
-                    "queue: could not acquire lock", new Win32Exception(windowsError));
-        }
-
-        if (QueueNative.MakeDirectory(lockPath, Convert.ToUInt32(448)) == 0)
-        {
-            return new QueueFileLock(lockPath);
-        }
-
-        var error = System.Runtime.InteropServices.Marshal.GetLastPInvokeError();
-
-        return error switch
-        {
-            ErrorAlreadyExists => null,
-            ErrorFileNotFound => new QueueFileLock(string.Empty),
-            _ => throw new QueueException("queue: could not acquire lock", new Win32Exception(error)),
-        };
-    }
 
     private List<QueueState> ReadInventoryLocked(AgentIdentity owner)
     {
