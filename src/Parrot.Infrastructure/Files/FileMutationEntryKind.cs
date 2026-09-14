@@ -1,4 +1,4 @@
-namespace Parrot.Tools;
+namespace Parrot.Files;
 
 internal enum FileMutationEntryKind
 {

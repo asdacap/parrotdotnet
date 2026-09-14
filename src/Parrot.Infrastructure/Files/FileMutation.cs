@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
-namespace Parrot.Tools;
+namespace Parrot.Files;
 
 internal static partial class FileMutation
 {

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
+using Parrot.Files;
 using Parrot.Llm;
 
 namespace Parrot.Tools;

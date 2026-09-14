@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
+using Parrot.Files;
 
 namespace Parrot.Tools;
 
