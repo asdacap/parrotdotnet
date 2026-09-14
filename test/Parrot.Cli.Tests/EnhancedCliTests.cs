@@ -1268,8 +1268,17 @@ internal sealed class EnhancedCliTests
         terminal.Type("/m");
         await OutputContains(terminal, "Switch the mode for this session", cancellationToken);
         await OutputContains(terminal, "Switch the model for this session", cancellationToken);
-        var filtered = terminal.Output.ToString() ?? throw new InvalidOperationException("terminal output is unavailable");
+        var filtered = string.Empty;
+        try
+        {
+            filtered = terminal.Output.ToString() ?? throw new InvalidOperationException("terminal output is unavailable");
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+        }
+
         var filteredAt = filtered.LastIndexOf("Switch the mode for this session", StringComparison.Ordinal);
+        _ = await Assert.That(filteredAt).IsGreaterThanOrEqualTo(0);
         _ = await Assert.That(filtered[filteredAt..]).DoesNotContain("Leave the session");
 
         terminal.Type("\u001b[B\t");
@@ -1622,8 +1631,25 @@ internal sealed class EnhancedCliTests
     private static async Task OutputContains(
         ScriptedTerminal terminal, string text, CancellationToken cancellationToken)
     {
-        while (!(terminal.Output.ToString() ?? string.Empty).Contains(text, StringComparison.Ordinal))
+        while (true)
         {
+            string output;
+            try
+            {
+                output = terminal.Output.ToString() ?? string.Empty;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                // The renderer appends to the same writer concurrently; a torn
+                // read is transient and the next poll re-reads a settled state.
+                output = string.Empty;
+            }
+
+            if (output.Contains(text, StringComparison.Ordinal))
+            {
+                return;
+            }
+
             await Task.Delay(5, cancellationToken);
         }
     }

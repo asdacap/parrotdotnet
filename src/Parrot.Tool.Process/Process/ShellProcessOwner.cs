@@ -224,20 +224,18 @@ internal sealed class ShellProcessOwner(
     private async Task DisposeResources(Task settlement)
     {
         await Task.Yield();
+
+        // Ending every process-snapshot publication loop must not depend on
+        // settlement: the loop's only exit signal is inventory disposal, and a
+        // settlement that stalls would otherwise wedge the scope's dispose.
+        _inventory.Dispose();
         try
         {
             await settlement.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         }
         finally
         {
-            try
-            {
-                _inventory.Dispose();
-            }
-            finally
-            {
-                _lifetime.Dispose();
-            }
+            _lifetime.Dispose();
         }
     }
 

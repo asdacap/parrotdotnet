@@ -400,7 +400,6 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
                     }
 
                     await ObserveRenderingEvent(published, token).ConfigureAwait(false);
-                    await _observeEvent(published, token).ConfigureAwait(false);
                     await StopSpinner().ConfigureAwait(false);
                     await activity.Prepare(published, token).ConfigureAwait(false);
                 }
@@ -408,6 +407,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
                 async Task Render(Event published, CancellationToken token)
                 {
                     await activity.Render(published, token).ConfigureAwait(false);
+                    await _observeEvent(published, token).ConfigureAwait(false);
                     _ = _updates.Invalidate();
                 }
 
