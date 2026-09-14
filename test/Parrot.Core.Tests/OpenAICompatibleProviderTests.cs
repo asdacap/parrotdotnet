@@ -110,6 +110,23 @@ internal sealed class OpenAICompatibleProviderTests
     }
 
     [Test]
+    public async Task Encode_writes_the_output_budget_as_max_completion_tokens()
+    {
+        var request = new LLMRequest
+        {
+            Model = "vendor/model",
+            Messages = [LLMMessage.User("hello")],
+            MaxOutputTokens = 4096,
+        };
+        using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request));
+        var root = document.RootElement;
+
+        _ = await Assert.That(root.TryGetProperty("max_completion_tokens", out var maxCompletionTokens)).IsTrue();
+        _ = await Assert.That(root.TryGetProperty("max_tokens", out _)).IsFalse();
+        _ = await Assert.That(maxCompletionTokens.GetInt32()).IsEqualTo(4096);
+    }
+
+    [Test]
     [Arguments("xhigh", true)]
     [Arguments("", false)]
     public async Task Encode_writes_or_omits_top_level_reasoning_effort(

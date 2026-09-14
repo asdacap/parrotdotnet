@@ -346,7 +346,7 @@ internal sealed class ProviderRegistryTests
         var request = new LLMRequest
         {
             Model = "gpt-5.6-sol",
-            MaxTokens = 4096,
+            MaxOutputTokens = 4096,
             Messages = [LLMMessage.User("hello")],
         };
 

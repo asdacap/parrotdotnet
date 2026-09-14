@@ -314,7 +314,7 @@ internal sealed class RetryingProviderTests
                 : Yield(LLMEvent.Completed("stop", 147746, 0, 1, "reply", [])));
         ILLMProvider provider = new RetryingProvider(scripted);
         await using var session = provider.OpenSession();
-        var request = Request with { MaxTokens = 32768, Instructions = "preserve", IncludeRouterMetadata = true };
+        var request = Request with { MaxOutputTokens = 32768, Instructions = "preserve", IncludeRouterMetadata = true };
         var events = new List<LLMEvent>();
 
         async Task Consume()
@@ -348,8 +348,8 @@ internal sealed class RetryingProviderTests
         _ = await Assert.That(scripted.Calls).IsEqualTo(2);
         _ = await Assert.That(events[0]).IsEqualTo(LLMEvent.Retry(1, TimeSpan.Zero, "Context limit exceeded. Retrying with a reduced output token budget."));
         _ = await Assert.That(scripted.Requests[0]).IsEqualTo(request);
-        _ = await Assert.That(scripted.Requests[1]).IsEqualTo(request with { MaxTokens = 24866 });
-        _ = await Assert.That(request.MaxTokens).IsEqualTo(32768);
+        _ = await Assert.That(scripted.Requests[1]).IsEqualTo(request with { MaxOutputTokens = 24866 });
+        _ = await Assert.That(request.MaxOutputTokens).IsEqualTo(32768);
     }
 
     [Test]
@@ -368,7 +368,7 @@ internal sealed class RetryingProviderTests
         var scripted = new ReplayProvider(() => ThrowImmediately(failure));
         ILLMProvider provider = new RetryingProvider(scripted);
         await using var session = provider.OpenSession();
-        var request = Request with { MaxTokens = 32768 };
+        var request = Request with { MaxOutputTokens = 32768 };
 
         async Task Consume()
         {
@@ -403,7 +403,7 @@ internal sealed class RetryingProviderTests
         var scripted = new ReplayProvider(() => YieldThenThrow(failure, new LLMEvent { Kind = kind }));
         ILLMProvider provider = new RetryingProvider(scripted);
         await using var session = provider.OpenSession();
-        var request = Request with { MaxTokens = 32768 };
+        var request = Request with { MaxOutputTokens = 32768 };
 
         async Task Consume()
         {

@@ -1329,7 +1329,7 @@ internal sealed partial class AgentSession
         var request = new LLMRequest
         {
             Model = selectedModel.ModelId,
-            MaxTokens = maximumOutputTokens,
+            MaxOutputTokens = maximumOutputTokens,
             Instructions = instructions,
             Messages = messages,
             Tools = snapshot.Definitions,

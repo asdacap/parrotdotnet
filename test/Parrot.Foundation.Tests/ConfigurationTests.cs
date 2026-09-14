@@ -287,7 +287,7 @@ internal sealed class ConfigurationTests : IDisposable
                   seeded:
                     name: Seeded
                     context: 128
-                    max_tokens: 32
+                    max_output_tokens: 32
                     input_price: 0.000001
                     cached_input_price: 0.0000001
                     output_price: 0.000002
@@ -298,7 +298,7 @@ internal sealed class ConfigurationTests : IDisposable
                   declared:
                     name: Declared
                     context: 256
-                    max_tokens: 64
+                    max_output_tokens: 64
                     tools: false
                     reasoning: true
                     output: [text]
