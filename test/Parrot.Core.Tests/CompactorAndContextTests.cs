@@ -5,6 +5,7 @@ using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
+using Parrot.Queues;
 using Parrot.Security;
 using Parrot.Store;
 using SixLabors.ImageSharp;

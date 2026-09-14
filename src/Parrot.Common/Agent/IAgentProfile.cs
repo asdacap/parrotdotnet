@@ -37,4 +37,7 @@ internal interface IAgentProfile
 
     /// <summary>Gets the security policy supplied by the profile or its mode projection.</summary>
     SecurityProfile SecurityProfile { get; }
+
+    /// <summary>True when the tool survives both the allowlist and the disabled list.</summary>
+    bool IsToolPermitted(string toolName);
 }

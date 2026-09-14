@@ -1,7 +1,8 @@
 using Parrot.Agent;
 using Parrot.Config;
+using Parrot.Context;
 
-namespace Parrot.Context;
+namespace Parrot.Queues;
 
 internal sealed class QueueGuidanceProvider(IPromptTemplateCatalog templates) : ISystemPromptProvider
 {

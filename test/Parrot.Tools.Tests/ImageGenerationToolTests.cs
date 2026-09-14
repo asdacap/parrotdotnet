@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Security;
 using Parrot.Tools;
@@ -311,9 +312,9 @@ internal sealed class ImageGenerationToolTests : IDisposable
         ITool tool = new ImageGenerationTool(new ToolWorkspace(_root));
         var snapshot = ToolSnapshot.Document([tool], [true], new TestToolDefinitionsFixture("imagegen").Definitions);
         _ = await Assert.That(snapshot.Find("imagegen")).IsSameReferenceAs(tool);
-        _ = await Assert.That(snapshot.Only(["imagegen"]).Definitions).HasSingleItem();
-        _ = await Assert.That(snapshot.Only(["read"]).Tools).IsEmpty();
-        _ = await Assert.That(snapshot.Without(["imagegen"]).Tools).IsEmpty();
+        _ = await Assert.That(snapshot.PermittedBy(BuildProfile(["imagegen"], [])).Definitions).HasSingleItem();
+        _ = await Assert.That(snapshot.PermittedBy(BuildProfile(["read"], [])).Tools).IsEmpty();
+        _ = await Assert.That(snapshot.PermittedBy(BuildProfile(null, ["imagegen"])).Tools).IsEmpty();
     }
 
     [Test]
@@ -365,6 +366,9 @@ internal sealed class ImageGenerationToolTests : IDisposable
         _ = await Assert.That(await File.ReadAllTextAsync(target, cancellationToken)).IsEqualTo("private target");
         _ = await Assert.That(new FileInfo(output).LinkTarget).IsEqualTo(target);
     }
+
+    private static AgentProfile BuildProfile(IReadOnlyList<string>? allowedTools, string[] disabledTools) =>
+        new("test", new ProfileConfig("Test prompt", "Test profile.", allowedTools, 2, 3, false, true, false, true, []), [], [], new HashSet<string>(disabledTools, StringComparer.Ordinal));
 
     private static byte[] Png() => Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==");
 

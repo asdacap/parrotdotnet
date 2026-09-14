@@ -5,6 +5,7 @@ using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
+using Parrot.Queues;
 using Parrot.Skills;
 using Parrot.State;
 using Parrot.Statuses;

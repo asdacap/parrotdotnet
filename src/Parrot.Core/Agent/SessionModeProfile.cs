@@ -28,4 +28,6 @@ internal sealed class SessionModeProfile(
     public bool IsAgentSelectable => profile.IsAgentSelectable;
 
     public SecurityProfile SecurityProfile { get; } = securityProfile;
+
+    public bool IsToolPermitted(string toolName) => profile.IsToolPermitted(toolName);
 }

@@ -1,3 +1,4 @@
+using Parrot.Agent;
 using Parrot.Llm;
 
 namespace Parrot.Tools;
@@ -44,16 +45,10 @@ internal sealed class ToolSnapshot
     public ITool? Find(string name) =>
         _entries.FirstOrDefault(entry => string.Equals(entry.Tool.Name, name, StringComparison.Ordinal))?.Tool;
 
-    public ToolSnapshot Only(IReadOnlyList<string>? allowedTools) => allowedTools is null
-        ? this
-        : new ToolSnapshot([.. _entries.Where(entry => allowedTools.Contains(entry.Tool.Name, StringComparer.Ordinal))]);
-
-    public ToolSnapshot Without(IReadOnlyList<string> disabledTools)
+    public ToolSnapshot PermittedBy(IAgentProfile profile)
     {
-        ArgumentNullException.ThrowIfNull(disabledTools);
-        return disabledTools.Count == 0
-            ? this
-            : new ToolSnapshot([.. _entries.Where(entry => !disabledTools.Contains(entry.Tool.Name, StringComparer.Ordinal))]);
+        ArgumentNullException.ThrowIfNull(profile);
+        return new ToolSnapshot([.. _entries.Where(entry => profile.IsToolPermitted(entry.Tool.Name))]);
     }
 
     public ToolSnapshot EnabledAfterInterruption() =>

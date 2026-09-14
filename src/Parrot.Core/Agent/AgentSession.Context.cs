@@ -22,8 +22,7 @@ internal sealed partial class AgentSession
         }
 
         var tools = MaterializeTools()
-            .Without(selection.Profile.DisabledTools)
-            .Only(selection.Profile.AllowedTools);
+            .PermittedBy(selection.Profile);
         return EstimateContextForHistory(selection, _systemPrompt.Build(selection), tools.Definitions, [.. _history]);
     }
 
@@ -31,8 +30,7 @@ internal sealed partial class AgentSession
     {
         ArgumentNullException.ThrowIfNull(selection);
         return MaterializeTools()
-            .Without(selection.Profile.DisabledTools)
-            .Only(selection.Profile.AllowedTools)
+            .PermittedBy(selection.Profile)
             .Definitions;
     }
 
@@ -55,8 +53,7 @@ internal sealed partial class AgentSession
         ArgumentNullException.ThrowIfNull(result);
 
         var tools = MaterializeTools()
-            .Without(selection.Profile.DisabledTools)
-            .Only(selection.Profile.AllowedTools);
+            .PermittedBy(selection.Profile);
         var history = RestoreHistory(eventRepository, SessionId);
         var formattedResult = promptTemplates.Render(
             "tool-result.text",
@@ -78,8 +75,7 @@ internal sealed partial class AgentSession
         cancellationToken.ThrowIfCancellationRequested();
 
         var tools = MaterializeTools()
-            .Without(selection.Profile.DisabledTools)
-            .Only(selection.Profile.AllowedTools);
+            .PermittedBy(selection.Profile);
         if (!_epochContext.EpochInitialized)
         {
             _systemPrompt.RenewEpoch();
@@ -154,8 +150,7 @@ internal sealed partial class AgentSession
                     captured.Mode,
                     captured.SecurityProfile);
                 var tools = MaterializeTools()
-                    .Without(selection.Profile.DisabledTools)
-                    .Only(selection.Profile.AllowedTools);
+                    .PermittedBy(selection.Profile);
                 if (!_epochContext.EpochInitialized)
                 {
                     _systemPrompt.RenewEpoch();

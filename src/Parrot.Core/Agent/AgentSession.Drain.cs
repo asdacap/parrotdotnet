@@ -748,8 +748,7 @@ internal sealed partial class AgentSession
                     activeSelection = await InjectStatus(activeSelection, cancellationToken).ConfigureAwait(false);
                     _skills.BeginTurn();
                     activeTools = MaterializeTools()
-                        .Without(activeSelection.Profile.DisabledTools)
-                        .Only(activeSelection.Profile.AllowedTools);
+                        .PermittedBy(activeSelection.Profile);
                     await RestoreToolAvailability(cancellationToken).ConfigureAwait(false);
                 }
 
@@ -1143,8 +1142,7 @@ internal sealed partial class AgentSession
             captured.Mode,
             captured.SecurityProfile);
         var tools = MaterializeTools()
-            .Without(captured.Profile.DisabledTools)
-            .Only(captured.Profile.AllowedTools);
+            .PermittedBy(captured.Profile);
         await ReconcileToolBatches(selection, tools, cancellationToken).ConfigureAwait(false);
     }
 

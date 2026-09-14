@@ -58,4 +58,8 @@ internal sealed class AgentProfile : IAgentProfile
     public bool IsAgentSelectable { get; }
 
     public SecurityProfile SecurityProfile { get; }
+
+    public bool IsToolPermitted(string toolName) =>
+        (_allowedTools is null || _allowedTools.Contains(toolName, StringComparer.Ordinal))
+        && !_disabledTools.Contains(toolName, StringComparer.Ordinal);
 }
