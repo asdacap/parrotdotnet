@@ -482,15 +482,15 @@ internal sealed partial class AgentSession
         }
     }
 
-    private async Task InjectFinalProviderRequestPrompt(CancellationToken cancellationToken)
+    private async Task InjectFinalProviderRequestPrompt(string content, CancellationToken cancellationToken)
     {
         var published = new Event
         {
             Id = Identifier.EventId(),
             AgentSessionId = SessionId,
         };
-        eventRepository.AppendFinalProviderRequestPrompt(published, _finalProviderRequestPrompt);
-        _history.Add(LLMMessage.System(_finalProviderRequestPrompt));
+        eventRepository.AppendFinalProviderRequestPrompt(published, content);
+        _history.Add(LLMMessage.System(content));
         await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
     }
 

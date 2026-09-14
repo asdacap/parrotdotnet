@@ -13,6 +13,8 @@ internal sealed class AgentStatusTool(
 {
     public string Name => "agent_status";
 
+    public bool IsEnabledAfterInterruption => true;
+
     public Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
         AgentTurnSelection selection,

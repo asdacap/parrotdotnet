@@ -656,6 +656,9 @@ internal sealed partial class AgentSession
         var answer = string.Empty;
         var providerRequests = 0;
         var completionRetryPending = false;
+        var interrupted = false;
+        var finalPhaseActive = false;
+        var settlementExtensions = 0;
         ToolSnapshot? activeTools = null;
         string? turnId = null;
         var turnStarted = Stopwatch.GetTimestamp();
@@ -754,20 +757,28 @@ internal sealed partial class AgentSession
                 }
 
                 var maxTurns = activeSelection.Profile.MaxTurns;
-                if (providerRequests >= maxTurns)
+                interrupted |= TurnInterruption.Consume();
+                if (providerRequests >= maxTurns + settlementExtensions && !interrupted)
                 {
                     await Fail(_runawayMessage, string.Empty, cancellationToken).ConfigureAwait(false);
                     FinishTurn("failed", "runaway");
                     return AgentExecution.Failed(_runawayMessage);
                 }
 
-                var finalProviderRequest = providerRequests + 1 == maxTurns;
-                var snapshot = finalProviderRequest
-                    ? ToolSnapshot.Empty
+                // Final phase: the budget ran out or the model asked to stop via
+                // agent_interrupt. Settlement tools stay; everything else goes.
+                // Each settlement batch grants one more final request, bounded by
+                // MaxSettlementExtensions, then the turn fails as a runaway.
+                var finalPhase = interrupted || providerRequests + 1 >= maxTurns;
+                var snapshot = finalPhase
+                    ? activeTools.EnabledAfterInterruption()
                     : activeTools;
-                if (finalProviderRequest)
+                if (finalPhase && !finalPhaseActive)
                 {
-                    await InjectFinalProviderRequestPrompt(cancellationToken).ConfigureAwait(false);
+                    finalPhaseActive = true;
+                    await InjectFinalProviderRequestPrompt(
+                        interrupted ? _finalProviderRequestAfterInterruptionPrompt : _finalProviderRequestPrompt,
+                        cancellationToken).ConfigureAwait(false);
                 }
 
                 var instructions = await PrepareEpoch(
@@ -856,11 +867,15 @@ internal sealed partial class AgentSession
                         snapshot,
                         cancellationToken).ConfigureAwait(false);
 
-                    if (providerRequests == maxTurns)
+                    if (finalPhase)
                     {
-                        await Fail(_runawayMessage, string.Empty, cancellationToken).ConfigureAwait(false);
-                        FinishTurn("failed", "runaway");
-                        return AgentExecution.Failed(_runawayMessage);
+                        settlementExtensions++;
+                        if (settlementExtensions > MaxSettlementExtensions)
+                        {
+                            await Fail(_runawayMessage, string.Empty, cancellationToken).ConfigureAwait(false);
+                            FinishTurn("failed", "runaway");
+                            return AgentExecution.Failed(_runawayMessage);
+                        }
                     }
 
                     continue;
@@ -931,6 +946,9 @@ internal sealed partial class AgentSession
                         }
 
                         providerRequests = 0;
+                        interrupted = false;
+                        finalPhaseActive = false;
+                        settlementExtensions = 0;
                         continue;
                     }
 

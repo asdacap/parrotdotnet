@@ -14,6 +14,8 @@ internal sealed class AgentSendTool(
 
     public string Name => "agent_send";
 
+    public bool IsEnabledAfterInterruption => true;
+
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
         AgentTurnSelection selection,

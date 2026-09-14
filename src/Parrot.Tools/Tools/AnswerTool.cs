@@ -14,6 +14,8 @@ internal sealed class AnswerTool(IChildQuestionCoordinator questions) : ITool
 
     public string Name => "answer";
 
+    public bool IsEnabledAfterInterruption => true;
+
     public Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
         AgentTurnSelection selection,

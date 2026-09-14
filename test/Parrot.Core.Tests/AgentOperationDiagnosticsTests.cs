@@ -52,7 +52,7 @@ internal sealed class AgentOperationDiagnosticsTests : IDisposable
             1,
             "private-response-sentinel",
             [new LLMToolCall("call-diagnostic", outcome == "unknown_tool" ? "private-unknown-sentinel" : tool.Name, "{\"value\":\"private-argument-sentinel\"}")]);
-        var toolCycles = outcome switch { "multiple_tools" => 3, "runaway" => new TestProfileFixture().Mode.Profile.MaxTurns, _ => 1 };
+        var toolCycles = outcome switch { "multiple_tools" => 3, "runaway" => new TestProfileFixture().Mode.Profile.MaxTurns + 4, _ => 1 };
         using var provider = new SteppedProvider([toolResponse,
             .. Enumerable.Range(1, toolCycles - 1).Select(index => LLMEvent.Completed(
                 "tool_calls",

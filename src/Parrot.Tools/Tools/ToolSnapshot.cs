@@ -56,5 +56,8 @@ internal sealed class ToolSnapshot
             : new ToolSnapshot([.. _entries.Where(entry => !disabledTools.Contains(entry.Tool.Name, StringComparer.Ordinal))]);
     }
 
+    public ToolSnapshot EnabledAfterInterruption() =>
+        new([.. _entries.Where(entry => entry.Tool.IsEnabledAfterInterruption)]);
+
     private sealed record ToolEntry(ITool Tool, LLMToolDefinition Definition);
 }

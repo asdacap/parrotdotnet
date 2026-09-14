@@ -593,8 +593,9 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(Conversation(repository))
             .IsEqualTo("user: first prompt | assistant:  | tool: settled | user: steer | "
                 + "system: This is the final provider request allowed for the current turn. "
-                + "Tools are unavailable for this request. Do not request or invoke tools. "
-                + "Provide the best possible final answer using the information already available. | assistant: done");
+                + "Tools are unavailable except the settlement tools (wait, agent_send, interrupt_process, "
+                + "agent_status, answer, question). Do not start new work. Settle anything still running if needed, "
+                + "then provide the best possible final answer using the information already available. | assistant: done");
         _ = await Assert.That(Prompts(provider.Requests[1])).IsEqualTo("first prompt | steer");
         _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
             "started:call-1:settled | finished:call-1:settled");
@@ -1143,8 +1144,9 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(Conversation(repository)).IsEqualTo(
             "user: first prompt | assistant:  | tool: settled | "
             + "system: This is the final provider request allowed for the current turn. "
-            + "Tools are unavailable for this request. Do not request or invoke tools. "
-            + "Provide the best possible final answer using the information already available. | "
+            + "Tools are unavailable except the settlement tools (wait, agent_send, interrupt_process, "
+            + "agent_status, answer, question). Do not start new work. Settle anything still running if needed, "
+            + "then provide the best possible final answer using the information already available. | "
             + "assistant: first answer | system: A new turn has started and its provider-request budget has reset. "
             + "Tool access is restored to the tools permitted for this turn. | "
             + "user: queued prompt | assistant: queued answer");
@@ -1368,11 +1370,12 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
-    public async Task A_tool_call_returned_after_tools_are_omitted_is_settled_and_fails_the_turn(
+    public async Task A_tool_call_returned_after_tools_are_omitted_is_settled_and_grants_one_more_final_request(
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(
-            Answer(string.Empty, new LLMToolCall("call-1", "settled", "{}")));
+            Answer(string.Empty, new LLMToolCall("call-1", "settled", "{}")),
+            Answer("final answer"));
         var repository = new EventRepository(_database);
         await using var session = Session(
             provider,
@@ -1385,11 +1388,88 @@ internal sealed class DrainTests : IDisposable
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(provider.Requests.Single().Tools).IsEmpty();
         provider.Release();
+        await provider.Arrived(cancellationToken);
+        provider.Release();
         await session.Settled();
         await session.DisposeAsync();
 
         _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
             "started:call-1:settled | error:call-1:settled:unknown tool settled");
+        _ = await Assert.That(Endings(repository)).IsEqualTo("stop");
+        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnFailed)).IsEqualTo(0);
+        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_budget_exhausted_final_request_carries_only_settlement_tools(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer(string.Empty, new LLMToolCall("call-1", "survivor", "{}")),
+            Answer(string.Empty, new LLMToolCall("call-2", "worker", "{}")),
+            Answer("final answer"));
+        var repository = new EventRepository(_database);
+        await using var session = Session(
+            provider,
+            repository,
+            [
+                new TestTool(new SurvivingTool("survivor")),
+                new TestTool(new SettledTool("worker")),
+            ],
+            new DrainProfile(maxTurns: 2).Mode,
+            cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        var finalDefinitions = provider.Requests[1].Tools.Select(definition => definition.Name).ToArray();
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await session.Settled();
+        await session.DisposeAsync();
+
+        _ = await Assert.That(finalDefinitions).HasSingleItem();
+        _ = await Assert.That(finalDefinitions.Single()).IsEqualTo("survivor");
+        _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
+            "started:call-1:survivor | finished:call-1:survivor | "
+            + "started:call-2:worker | error:call-2:worker:unknown tool worker");
+        _ = await Assert.That(Endings(repository)).IsEqualTo("stop");
+        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnFailed)).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Settlement_extensions_are_capped_and_then_the_turn_fails_as_a_runaway(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer(string.Empty, new LLMToolCall("call-1", "survivor", "{}")),
+            Answer(string.Empty, new LLMToolCall("call-2", "survivor", "{}")),
+            Answer(string.Empty, new LLMToolCall("call-3", "survivor", "{}")),
+            Answer(string.Empty, new LLMToolCall("call-4", "survivor", "{}")),
+            Answer(string.Empty, new LLMToolCall("call-5", "survivor", "{}")),
+            Answer(string.Empty, new LLMToolCall("call-6", "survivor", "{}")),
+            Answer("never reached"));
+        var repository = new EventRepository(_database);
+        await using var session = Session(
+            provider,
+            repository,
+            [new TestTool(new SurvivingTool("survivor"))],
+            new DrainProfile(maxTurns: 2).Mode,
+            cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
+        for (var cycle = 0; cycle < 6; cycle++)
+        {
+            await provider.Arrived(cancellationToken);
+            provider.Release();
+        }
+
+        await session.Settled();
+        await session.DisposeAsync();
+
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(6);
         _ = await Assert.That(repository.Replay().Last(published =>
             published.PayloadCase == Event.PayloadOneofCase.TurnFailed).TurnFailed.Message)
             .IsEqualTo("the turn exceeded its provider-request limit");
@@ -2366,6 +2446,19 @@ internal sealed class DrainTests : IDisposable
             cancellationToken.ThrowIfCancellationRequested();
             return ValueTask.FromResult(complete(candidate, ++_invocations));
         }
+    }
+
+    private sealed class SurvivingTool(string name) : ITool
+    {
+        public string Name => name;
+
+        public bool IsEnabledAfterInterruption => true;
+
+        public Task<ToolExecutionResult> Execute(
+            ToolInvocation invocation,
+            AgentTurnSelection selection,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<ToolExecutionResult>("survived");
     }
 
     private sealed class TrackingDisposable : IDisposable

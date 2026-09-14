@@ -9,6 +9,8 @@ internal sealed class InterruptProcessTool(IProcessOwner processes) : ITool
 {
     public string Name => "interrupt_process";
 
+    public bool IsEnabledAfterInterruption => true;
+
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
         AgentTurnSelection selection,
