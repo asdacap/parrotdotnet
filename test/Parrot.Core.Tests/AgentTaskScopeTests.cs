@@ -86,8 +86,8 @@ internal sealed class AgentTaskScopeTests
                 scopes.Add(child);
             }
 
-            _ = await Assert.That(ReferenceEquals(scopes[0].AgentTaskRuns, scopes[1].AgentTaskRuns)).IsFalse();
-            _ = await Assert.That(ReferenceEquals(root.AgentTaskRuns, scopes[0].AgentTaskRuns)).IsFalse();
+            _ = await Assert.That(ReferenceEquals(scopes[0].GetService<IAgentTaskRunCatalog>(), scopes[1].GetService<IAgentTaskRunCatalog>())).IsFalse();
+            _ = await Assert.That(ReferenceEquals(root.GetService<IAgentTaskRunCatalog>(), scopes[0].GetService<IAgentTaskRunCatalog>())).IsFalse();
             using var database = SessionDatabase.Open(":memory:");
             using var broker = new EventBroker();
             var repository = new EventRepository(database);
@@ -112,19 +112,19 @@ internal sealed class AgentTaskScopeTests
                     configuration.AgentTasks,
                     new HistoryForkBoundary.AfterCompletedHistory(),
                     completion);
-                scope.AgentTaskRuns.Start(request, call.Token);
+                scope.GetService<IAgentTaskRunCatalog>().Start(request, call.Token);
                 requests.Add(request);
                 completions.Add(completion);
                 await provider.Arrived(cancellationToken);
             }
 
             await call.CancelAsync();
-            _ = await Assert.That(() => scopes[0].AgentTaskRuns.Start(requests[0], cancellationToken)).Throws<InvalidOperationException>();
-            _ = await Assert.That(() => scopes[0].AgentTaskRuns.Start(requests[1], cancellationToken)).Throws<InvalidOperationException>();
+            _ = await Assert.That(() => scopes[0].GetService<IAgentTaskRunCatalog>().Start(requests[0], cancellationToken)).Throws<InvalidOperationException>();
+            _ = await Assert.That(() => scopes[0].GetService<IAgentTaskRunCatalog>().Start(requests[1], cancellationToken)).Throws<InvalidOperationException>();
             foreach (var scope in scopes)
             {
-                _ = await Assert.That(scope.AgentTaskRuns.Snapshot().Single().OwnerAgentSessionId).IsEqualTo(scope.Session.SessionId);
-                var reminder = new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(scope.ChildRegistry, scope.Session.Identity), new ProcessActiveWorkBlocker(scope.Processes), new AgentTaskActiveWorkBlocker(scope.AgentTaskRuns, configuration.PromptTemplates), new QueueActiveWorkBlocker(scope.GetService<IAgentQueues>(), configuration.PromptTemplates)], configuration.PromptTemplates).Build();
+                _ = await Assert.That(scope.GetService<IAgentTaskRunCatalog>().Snapshot().Single().OwnerAgentSessionId).IsEqualTo(scope.Session.SessionId);
+                var reminder = new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(scope.ChildRegistry, scope.Session.Identity), new ProcessActiveWorkBlocker(scope.GetService<IProcessOwner>()), new AgentTaskActiveWorkBlocker(scope.GetService<IAgentTaskRunCatalog>(), configuration.PromptTemplates), new QueueActiveWorkBlocker(scope.GetService<IAgentQueues>(), configuration.PromptTemplates)], configuration.PromptTemplates).Build();
                 _ = await Assert.That(reminder).Contains($"{scope.Session.SessionId}/shared-run");
                 var status = await new AgentTaskStatusProvider(session.Registry, configuration.PromptTemplates).Observe(
                     new StatusQuery(scope.Session.SessionId, root.Session.SessionId, root.Session.Name, "profile", "model"), cancellationToken);
@@ -140,8 +140,8 @@ internal sealed class AgentTaskScopeTests
             await detached.DisposeAsync();
             await detached.DisposeAsync();
             _ = await Assert.That((await completions[0].Delivered.WaitAsync(cancellationToken)).Status).IsEqualTo(AgentTaskExecutionStatus.Canceled);
-            _ = await Assert.That(scopes[0].AgentTaskRuns.Active()).IsEmpty();
-            _ = await Assert.That(scopes[1].AgentTaskRuns.Active()).Count().IsEqualTo(1);
+            _ = await Assert.That(scopes[0].GetService<IAgentTaskRunCatalog>().Active()).IsEmpty();
+            _ = await Assert.That(scopes[1].GetService<IAgentTaskRunCatalog>().Active()).Count().IsEqualTo(1);
             _ = await Assert.That(completions[1].Delivered.IsCompleted).IsFalse();
 
             var nestedOwner = scopes[1].ChildRegistry.SnapshotChildScopes().Single();
@@ -155,15 +155,15 @@ internal sealed class AgentTaskScopeTests
                 Progress = new AgentTaskProgress(broker, repository, nestedOwner.Session.SessionId, "shared-run", TestDiagnosticLog.Instance),
                 Completion = nestedCompletion,
             };
-            nestedOwner.AgentTaskRuns.Start(nestedRequest, cancellationToken);
+            nestedOwner.GetService<IAgentTaskRunCatalog>().Start(nestedRequest, cancellationToken);
             await provider.Arrived(cancellationToken);
             _ = await Assert.That(session.ActiveWork().Count(work => work.Kind == ActiveWorkKind.AgentTask)).IsEqualTo(2);
             await session.DisposeAsync();
             await session.DisposeAsync();
             _ = await Assert.That((await completions[1].Delivered.WaitAsync(cancellationToken)).Status).IsEqualTo(AgentTaskExecutionStatus.Canceled);
             _ = await Assert.That((await nestedCompletion.Delivered.WaitAsync(cancellationToken)).Status).IsEqualTo(AgentTaskExecutionStatus.Canceled);
-            _ = await Assert.That(scopes[1].AgentTaskRuns.Active()).IsEmpty();
-            _ = await Assert.That(nestedOwner.AgentTaskRuns.Active()).IsEmpty();
+            _ = await Assert.That(scopes[1].GetService<IAgentTaskRunCatalog>().Active()).IsEmpty();
+            _ = await Assert.That(nestedOwner.GetService<IAgentTaskRunCatalog>().Active()).IsEmpty();
         }
         finally
         {

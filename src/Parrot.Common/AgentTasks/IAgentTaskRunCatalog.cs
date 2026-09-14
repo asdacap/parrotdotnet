@@ -1,9 +1,10 @@
+using Parrot.Agent;
 using Parrot.Statuses;
 
 namespace Parrot.AgentTasks;
 
 /// <summary>Owns the agent's active task runs and settles their completion deliveries during shutdown.</summary>
-internal interface IAgentTaskRunCatalog : IAsyncDisposable
+internal interface IAgentTaskRunCatalog : IAsyncDisposable, IAgentWorkOwner
 {
     /// <summary>Captures currently active task work for status reporting.</summary>
     IReadOnlyList<ActiveWorkObservation> Active();
@@ -12,7 +13,4 @@ internal interface IAgentTaskRunCatalog : IAsyncDisposable
 
     /// <summary>Captures the active task runs with their current progress.</summary>
     IReadOnlyList<AgentTaskRunSnapshot> Snapshot();
-
-    /// <summary>Stops admission and waits for all owned runs to settle.</summary>
-    Task Settle();
 }

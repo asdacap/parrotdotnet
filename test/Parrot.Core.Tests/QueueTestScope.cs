@@ -21,22 +21,30 @@ internal sealed class QueueTestScope : IAgentSessionScope
     private readonly QueueTestScope? _parent;
     private readonly AgentSessionServices _services = new();
     private readonly IAgentQueues _queues;
-    private readonly QueueSnapshotPublisher _queuePublisher;
-    private readonly ProcessSnapshotPublisher _processPublisher;
+    private readonly IProcessOwner _processes;
+    private readonly IAgentTaskRunCatalog _agentTaskRuns;
+    private readonly IReadOnlyList<IInventoryPublisher> _publishers;
     private bool _disposed;
 
     public QueueTestScope(AgentIdentity identity, QueueTestScope? parent, UserSessionResources resources)
     {
         _parent = parent;
         _children = new ChildRegistry(identity, QueueChildAdmissionValidator.Validate);
-        AgentTaskRuns = new AgentTaskRunCatalog(identity.SessionId, TestDiagnosticLog.Instance, CancellationToken.None);
+        _agentTaskRuns = new AgentTaskRunCatalog(identity.SessionId, TestDiagnosticLog.Instance, CancellationToken.None);
         var repository = new EventRepository(_database);
         _dependencies = TestModels.Dependencies(identity, _events, repository, CancellationToken.None);
-        Processes = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, CancellationToken.None);
+        _processes = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, CancellationToken.None);
         _queues = new AgentQueues(identity, parent?.GetService<IAgentQueues>(), resources, _children, static queueIdentity => new QueueInventory(queueIdentity), TestDiagnosticLog.Instance);
-        _queuePublisher = new QueueSnapshotPublisher(_queues, _events);
-        _processPublisher = new ProcessSnapshotPublisher(Processes, _events);
+        IAgentSessionScope? root = parent;
+        while (root?.ParentScope.Parent is { } ancestor)
+        {
+            root = ancestor;
+        }
+
+        _publishers = [new QueueSnapshotPublisher(_queues, _events, root?.Session.SessionId ?? identity.SessionId), new ProcessSnapshotPublisher(_processes, _events)];
         _services.Register<IAgentQueues>(_queues);
+        _services.Register<IProcessOwner>(_processes);
+        _services.Register<IAgentTaskRunCatalog>(_agentTaskRuns);
         _queues.Initialize();
         ParentScope = parent is null ? AgentSessionParentScope.Root() : AgentSessionParentScope.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly);
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
@@ -48,10 +56,6 @@ internal sealed class QueueTestScope : IAgentSessionScope
     }
 
     public IAgentSession Session { get; }
-
-    public IProcessOwner Processes { get; }
-
-    public IAgentTaskRunCatalog AgentTaskRuns { get; }
 
     public IGoalService Goals => throw new NotSupportedException();
 
@@ -66,26 +70,18 @@ internal sealed class QueueTestScope : IAgentSessionScope
     public T GetService<T>()
         where T : class => _services.GetService<T>();
 
-    public void PublishQueueSnapshots()
+    public void PublishSnapshots()
     {
     }
 
-    public void PublishProcessSnapshots()
+    public IReadOnlyList<Event> CaptureSnapshotEvents() =>
+        [.. _publishers.SelectMany(static publisher => publisher.CaptureSnapshotEvents())];
+
+    public async Task SettleWork()
     {
+        await _agentTaskRuns.Settle().ConfigureAwait(false);
+        await _processes.Settle().ConfigureAwait(false);
     }
-
-    public IReadOnlyList<Event> CaptureQueueSnapshotEvents()
-    {
-        var root = (IAgentSessionScope)this;
-        while (root.ParentScope.Parent is { } parent)
-        {
-            root = parent;
-        }
-
-        return _queuePublisher.CaptureSnapshotEvents(root.Session.SessionId);
-    }
-
-    public IReadOnlyList<Event> CaptureProcessSnapshotEvents() => _processPublisher.CaptureSnapshotEvents();
 
     public async ValueTask DisposeAsync()
     {
@@ -100,11 +96,11 @@ internal sealed class QueueTestScope : IAgentSessionScope
             _ = _parent.ChildRegistry.DetachDirectChildScope(this);
         }
 
-        await AgentTaskRuns.DisposeAsync().ConfigureAwait(false);
+        await _agentTaskRuns.DisposeAsync().ConfigureAwait(false);
         await _children.DisposeAsync().ConfigureAwait(false);
         await Session.DisposeAsync().ConfigureAwait(false);
         _queues.Dispose();
-        await Processes.DisposeAsync().ConfigureAwait(false);
+        await _processes.DisposeAsync().ConfigureAwait(false);
         await _dependencies.DisposeAsync().ConfigureAwait(false);
         _events.Dispose();
         _database.Dispose();

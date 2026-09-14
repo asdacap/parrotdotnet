@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Protocol;
 using Scriban.Runtime;
@@ -16,7 +17,7 @@ internal sealed class AgentTaskStatusProvider(
         ArgumentNullException.ThrowIfNull(query);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var snapshots = agents.FindScope(query.SessionId)?.AgentTaskRuns.Snapshot();
+        var snapshots = agents.FindScope(query.SessionId)?.GetService<IAgentTaskRunCatalog>().Snapshot();
         if (snapshots is null || snapshots.Count == 0)
         {
             return ValueTask.FromResult(StatusObservation.Unavailable);

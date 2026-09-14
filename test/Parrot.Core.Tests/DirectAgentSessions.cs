@@ -80,7 +80,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
                 owner.Diagnostics,
                 (sessionParentScope, owningScope, children, childQuestions) =>
             {
-                var processes = owningScope.Processes;
+                var processes = owningScope.GetService<IProcessOwner>();
                 var queues = owningScope.GetService<IAgentQueues>();
                 source._queues.Add(queues);
                 var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);

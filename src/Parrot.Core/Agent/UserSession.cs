@@ -1,9 +1,11 @@
+using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Permissions;
+using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Questions;
 using Parrot.Skills;
@@ -324,17 +326,9 @@ internal sealed class UserSession : IUserSession
     {
         using var events = _eventBroker.Subscribe();
         _ = Main();
-        foreach (var scope in Registry.SnapshotScopes())
+        foreach (var published in Registry.SnapshotScopes().SelectMany(static scope => scope.CaptureSnapshotEvents()))
         {
-            foreach (var published in scope.CaptureQueueSnapshotEvents())
-            {
-                yield return published;
-            }
-
-            foreach (var published in scope.CaptureProcessSnapshotEvents())
-            {
-                yield return published;
-            }
+            yield return published;
         }
 
         yield return new Event { SessionUsageSnapshot = _eventRepository.GetRuntimeStatistics().CaptureUsage(_mainSessionId) };
@@ -391,7 +385,7 @@ internal sealed class UserSession : IUserSession
     }
 
     public IReadOnlyList<ActiveWorkObservation> ActiveWork() =>
-        [.. Registry.SnapshotScopes().SelectMany(static scope => scope.Processes.Active()), .. Registry.Active(), .. Registry.SnapshotScopes().SelectMany(static scope => scope.AgentTaskRuns.Active())];
+        [.. Registry.SnapshotScopes().SelectMany(static scope => scope.GetService<IProcessOwner>().Active()), .. Registry.Active(), .. Registry.SnapshotScopes().SelectMany(static scope => scope.GetService<IAgentTaskRunCatalog>().Active())];
 
     public Task SetGoal(string goal, CancellationToken cancellationToken) =>
         MainScope().Goals.SetGoal(goal, cancellationToken);
@@ -408,7 +402,7 @@ internal sealed class UserSession : IUserSession
 
         try
         {
-            await Task.WhenAll(Registry.SnapshotScopes().Select(static scope => scope.AgentTaskRuns.Settle())).ConfigureAwait(false);
+            await Task.WhenAll(Registry.SnapshotScopes().Select(static scope => scope.SettleWork())).ConfigureAwait(false);
         }
         catch (Exception exception)
         {

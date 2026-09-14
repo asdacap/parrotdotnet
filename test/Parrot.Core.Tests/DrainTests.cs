@@ -1422,7 +1422,7 @@ internal sealed class DrainTests : IDisposable
             new DrainProfile(maxTurns: 2).Mode,
             cancellationToken);
 
-        _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         await provider.Arrived(cancellationToken);
@@ -1462,7 +1462,7 @@ internal sealed class DrainTests : IDisposable
             new DrainProfile(maxTurns: 2).Mode,
             cancellationToken);
 
-        _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
         for (var cycle = 0; cycle < 6; cycle++)
         {
             await provider.Arrived(cancellationToken);

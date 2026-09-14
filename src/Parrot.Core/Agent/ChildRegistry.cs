@@ -211,8 +211,7 @@ internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionSco
                         $"child agent name is already registered: {scope.Session.Name}");
                 }
 
-                scope.PublishQueueSnapshots();
-                scope.PublishProcessSnapshots();
+                scope.PublishSnapshots();
             }
             catch
             {

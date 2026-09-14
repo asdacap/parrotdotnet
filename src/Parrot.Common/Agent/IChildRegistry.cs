@@ -5,7 +5,7 @@ internal interface IChildRegistry
 {
     bool IsAccepting { get; }
 
-    /// <summary>Gets the lock serializing direct-child admission with queue edge name checks.</summary>
+    /// <summary>Gets the lock serializing direct-child admission with the injected admission validation.</summary>
     Lock Gate { get; }
 
     /// <summary>Closes admission and disposes the owned child scopes.</summary>

@@ -1,8 +1,6 @@
 using Parrot.Agent;
-using Parrot.AgentTasks;
 using Parrot.Context;
 using Parrot.Llm;
-using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Questions;
 using Parrot.Security;
@@ -126,11 +124,7 @@ internal sealed class AgentInterruptToolTests
     {
         public IAgentSession Session => session;
 
-        public IProcessOwner Processes => throw new NotSupportedException();
-
         public IGoalService Goals => throw new NotSupportedException();
-
-        public IAgentTaskRunCatalog AgentTaskRuns => throw new NotSupportedException();
 
         public IAgentSpawner AgentSpawner => throw new NotSupportedException();
 
@@ -143,13 +137,11 @@ internal sealed class AgentInterruptToolTests
         public T GetService<T>()
         where T : class => throw new NotSupportedException();
 
-        public void PublishQueueSnapshots() => throw new NotSupportedException();
+        public void PublishSnapshots() => throw new NotSupportedException();
 
-        public void PublishProcessSnapshots() => throw new NotSupportedException();
+        public IReadOnlyList<Parrot.Protocol.Event> CaptureSnapshotEvents() => throw new NotSupportedException();
 
-        public IReadOnlyList<Parrot.Protocol.Event> CaptureQueueSnapshotEvents() => throw new NotSupportedException();
-
-        public IReadOnlyList<Parrot.Protocol.Event> CaptureProcessSnapshotEvents() => throw new NotSupportedException();
+        public Task SettleWork() => throw new NotSupportedException();
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
@@ -209,6 +201,7 @@ internal sealed class AgentInterruptToolTests
             IReadOnlyList<ConversationPart> parts,
             string messageId,
             Delivery delivery,
+            IncomingActivity reason,
             CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public void SetExitReminder(string? reminder) => throw new NotSupportedException();
@@ -216,12 +209,6 @@ internal sealed class AgentInterruptToolTests
         public Task<AgentSendResult> SendTextMessage(string message, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task<string> SendAndWaitForResult(string prompt, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task ReceiveChildQuestion(string message, string messageId, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task ReceiveAgentCompletion(string name, string message, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task ReceiveProcessCompletion(string name, string message, string messageId, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task ReceiveAgentTaskCompletion(string runId, string message, string messageId, CancellationToken cancellationToken) => throw new NotSupportedException();
 

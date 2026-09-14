@@ -77,8 +77,7 @@ internal sealed class AgentRegistry(
             _roots.Add(sessionId, scope);
             try
             {
-                scope.PublishQueueSnapshots();
-                scope.PublishProcessSnapshots();
+                scope.PublishSnapshots();
             }
             catch
             {

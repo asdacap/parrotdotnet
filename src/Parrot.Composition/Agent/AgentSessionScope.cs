@@ -1,4 +1,6 @@
+using System.Runtime.ExceptionServices;
 using Parrot.AgentTasks;
+using Parrot.Events;
 using Parrot.Process;
 using Parrot.Questions;
 using Parrot.Queues;
@@ -12,11 +14,9 @@ internal sealed class AgentSessionScope : IAgentSessionScope
     private readonly string _sessionId;
     private readonly Lock _gate = new();
     private readonly AgentSessionServices _services = new();
-    private readonly IAgentQueues _queues;
-    private readonly QueueSnapshotPublisher _queuePublisher;
-    private readonly ProcessSnapshotPublisher _processPublisher;
-    private Task? _queuePublication;
-    private Task? _processPublication;
+    private readonly IReadOnlyList<IInventoryPublisher> _publishers;
+    private readonly IReadOnlyList<IAgentWorkOwner> _workOwners;
+    private Task[]? _publications;
     private Task? _disposal;
 
     internal AgentSessionScope(
@@ -30,17 +30,16 @@ internal sealed class AgentSessionScope : IAgentSessionScope
         try
         {
             Session = _composition.Session;
-            Processes = _composition.Processes;
-            _queues = _composition.Queues;
-            _queuePublisher = new QueueSnapshotPublisher(_queues, arguments.EventBroker);
-            _processPublisher = new ProcessSnapshotPublisher(Processes, arguments.EventBroker);
-            _services.Register<IAgentQueues>(_queues);
+            _publishers = _composition.Publishers;
+            _workOwners = _composition.WorkOwners;
+            _services.Register<IAgentQueues>(_composition.Queues);
+            _services.Register<IProcessOwner>(_composition.Processes);
+            _services.Register<IAgentTaskRunCatalog>(_composition.AgentTaskRuns);
             ChildRegistry = _composition.ChildRegistry;
             ParentScope = _composition.ParentScope;
             ChildQuestions = _composition.ChildQuestions;
             AgentSpawner = _composition.AgentSpawner;
             Goals = _composition.Goals;
-            AgentTaskRuns = _composition.AgentTaskRuns;
             ParentScope.Validate(Session.Identity);
             ParentScope.ValidateOwnerScope(this);
             _diagnostics.Write(new("agent", "created", Parrot.Diagnostics.DiagnosticSeverity.Information)
@@ -67,10 +66,6 @@ internal sealed class AgentSessionScope : IAgentSessionScope
 
     public IChildQuestionCoordinator ChildQuestions { get; }
 
-    public IProcessOwner Processes { get; }
-
-    public IAgentTaskRunCatalog AgentTaskRuns { get; }
-
     public T GetService<T>()
         where T : class => _services.GetService<T>();
 
@@ -83,42 +78,40 @@ internal sealed class AgentSessionScope : IAgentSessionScope
         }
     }
 
-    public void PublishQueueSnapshots()
+    public void PublishSnapshots()
     {
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposal is not null, this);
-            _queuePublication ??= _queuePublisher.Run(ResolveRootSessionId());
+            _publications ??= [.. _publishers.Select(static publisher => publisher.Run())];
         }
     }
 
-    public void PublishProcessSnapshots()
+    public IReadOnlyList<Protocol.Event> CaptureSnapshotEvents() =>
+        [.. _publishers.SelectMany(static publisher => publisher.CaptureSnapshotEvents())];
+
+    public async Task SettleWork()
     {
-        lock (_gate)
+        Exception? failure = null;
+        foreach (var owner in _workOwners)
         {
-            ObjectDisposedException.ThrowIf(_disposal is not null, this);
-            _processPublication ??= _processPublisher.Run();
+            try
+            {
+                await owner.Settle().ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                failure ??= exception;
+            }
+        }
+
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
         }
     }
-
-    public IReadOnlyList<Protocol.Event> CaptureQueueSnapshotEvents() =>
-        _queuePublisher.CaptureSnapshotEvents(ResolveRootSessionId());
-
-    public IReadOnlyList<Protocol.Event> CaptureProcessSnapshotEvents() =>
-        _processPublisher.CaptureSnapshotEvents();
 
     internal void DisposeRejectedConstruction() => _composition.Dispose();
-
-    private string ResolveRootSessionId()
-    {
-        IAgentSessionScope root = this;
-        while (root.ParentScope.Parent is { } parent)
-        {
-            root = parent;
-        }
-
-        return root.Session.SessionId;
-    }
 
     private async Task DisposeResources()
     {
@@ -128,14 +121,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
             {
                 try
                 {
-                    try
-                    {
-                        await AgentTaskRuns.Settle().ConfigureAwait(false);
-                    }
-                    finally
-                    {
-                        await Processes.Settle().ConfigureAwait(false);
-                    }
+                    await SettleWork().ConfigureAwait(false);
                 }
                 finally
                 {
@@ -163,9 +149,8 @@ internal sealed class AgentSessionScope : IAgentSessionScope
                     }
                     finally
                     {
-                        _queues.Dispose();
-                        await Processes.DisposeAsync().ConfigureAwait(false);
-                        await Task.WhenAll(_queuePublication ?? Task.CompletedTask, _processPublication ?? Task.CompletedTask).ConfigureAwait(false);
+                        _composition.Queues.Dispose();
+                        await Task.WhenAll(_publications ?? []).ConfigureAwait(false);
                     }
                 }
             }

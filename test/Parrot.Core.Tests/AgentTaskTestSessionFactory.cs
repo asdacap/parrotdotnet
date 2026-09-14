@@ -75,7 +75,7 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
             TestDiagnosticLog.Instance,
             (sessionParentScope, owningScope, children, childQuestions) =>
         {
-            var processes = owningScope.Processes;
+            var processes = owningScope.GetService<IProcessOwner>();
             var agentQueues = owningScope.GetService<IAgentQueues>();
             var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
             var completionCallbacks = new TestCompletionCallbacksFixture(

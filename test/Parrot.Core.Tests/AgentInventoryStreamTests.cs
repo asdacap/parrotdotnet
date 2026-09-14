@@ -42,10 +42,10 @@ internal sealed class AgentInventoryStreamTests
         IReadOnlyList<Event> captured;
         if (queueDomain)
         {
-            var publisher = new QueueSnapshotPublisher(root.GetService<IAgentQueues>(), broker);
-            captured = publisher.CaptureSnapshotEvents(root.Session.SessionId);
+            var publisher = new QueueSnapshotPublisher(root.GetService<IAgentQueues>(), broker, root.Session.SessionId);
+            captured = publisher.CaptureSnapshotEvents();
             _ = await Assert.That(listener.Reader.TryRead(out _)).IsFalse();
-            publication = publisher.Run(root.Session.SessionId);
+            publication = publisher.Run();
             var initial = await listener.Reader.ReadAsync(timeout.Token);
             _ = await Assert.That(initial.QueueSnapshot).IsNotNull();
             _ = await Assert.That(initial.QueueSnapshot.Queues).IsEmpty();
@@ -62,7 +62,7 @@ internal sealed class AgentInventoryStreamTests
         }
         else
         {
-            var publisher = new ProcessSnapshotPublisher(root.Processes, broker);
+            var publisher = new ProcessSnapshotPublisher(root.GetService<IProcessOwner>(), broker);
             captured = publisher.CaptureSnapshotEvents();
             _ = await Assert.That(listener.Reader.TryRead(out _)).IsFalse();
             publication = publisher.Run();
@@ -72,10 +72,10 @@ internal sealed class AgentInventoryStreamTests
             _ = await Assert.That(listener.Reader.TryRead(out _)).IsFalse();
 
             var security = fixture.Session.Mode.Profile.SecurityProfile;
-            _ = root.Processes.StartUnattributed("first", "sleep 30", ProcessEnvironmentOverrides.Empty, root.Session, security, ShellProcessTerminalMode.Pipe);
+            _ = root.GetService<IProcessOwner>().StartUnattributed("first", "sleep 30", ProcessEnvironmentOverrides.Empty, root.Session, security, ShellProcessTerminalMode.Pipe);
             var first = await ReadProcessBatch(listener, timeout.Token);
             _ = await Assert.That(first.SelectMany(item => item.ShellProcessSnapshot.Processes)).HasSingleItem();
-            _ = root.Processes.StartUnattributed("second", "sleep 30", ProcessEnvironmentOverrides.Empty, root.Session, security, ShellProcessTerminalMode.Pipe);
+            _ = root.GetService<IProcessOwner>().StartUnattributed("second", "sleep 30", ProcessEnvironmentOverrides.Empty, root.Session, security, ShellProcessTerminalMode.Pipe);
             var update = await ReadProcessBatch(listener, timeout.Token);
             _ = await Assert.That(update.SelectMany(item => item.ShellProcessSnapshot.Processes)).Count().IsEqualTo(2);
         }
@@ -127,7 +127,7 @@ internal sealed class AgentInventoryStreamTests
         await rejected.DisposeAsync();
         _ = root.GetService<IAgentQueues>().Create("during-capture", "race");
         _ = await root.GetService<IAgentQueues>().Push("during-capture", ["item"], QueueDirection.Back, false, timeout.Token);
-        var latest = root.CaptureQueueSnapshotEvents().Single().QueueSnapshot;
+        var latest = root.CaptureSnapshotEvents().Single(static published => published.QueueSnapshot is not null).QueueSnapshot;
         _ = await Assert.That(latest.Revision).IsGreaterThan(initialRevision);
         _ = await Assert.That(await listener.MoveNextAsync()).IsTrue();
         _ = await Assert.That(listener.Current.PayloadCase).IsEqualTo(Event.PayloadOneofCase.ShellProcessSnapshot);
@@ -164,10 +164,8 @@ internal sealed class AgentInventoryStreamTests
         await using var fixture = await InventoryFixture.Create(directory, diagnostics, false);
         var session = fixture.Session;
         var root = session.Registry.SnapshotScopes().Single();
-        root.PublishQueueSnapshots();
-        root.PublishQueueSnapshots();
-        root.PublishProcessSnapshots();
-        root.PublishProcessSnapshots();
+        root.PublishSnapshots();
+        root.PublishSnapshots();
         _ = root.GetService<IAgentQueues>().Create("root-queue", "root");
         _ = await root.GetService<IAgentQueues>().Push("root-queue", ["item"], QueueDirection.Back, false, timeout.Token);
         await using var sibling = fixture.CreateChild(root, "sibling");
@@ -268,11 +266,11 @@ internal sealed class AgentInventoryStreamTests
         var owner = disposeRoot ? root : child;
         _ = owner.GetService<IAgentQueues>().Create("queued", "held claim");
         _ = await owner.GetService<IAgentQueues>().Push("queued", ["item"], QueueDirection.Back, false, timeout.Token);
-        var processOwner = owner.Processes;
+        var processOwner = owner.GetService<IProcessOwner>();
         var queueOwner = owner.GetService<IAgentQueues>();
         var process = processOwner.StartUnattributed("held", "sleep 300", ProcessEnvironmentOverrides.Empty, owner.Session, fixture.Session.Mode.Profile.SecurityProfile, ShellProcessTerminalMode.Pipe);
         using var queues = owner.GetService<IAgentQueues>().SubscribeInventory();
-        using var processes = owner.Processes.SubscribeInventory();
+        using var processes = owner.GetService<IProcessOwner>().SubscribeInventory();
         var initialQueues = await queues.Reader.ReadAsync(timeout.Token);
         var initialProcesses = await processes.Reader.ReadAsync(timeout.Token);
         _ = await Assert.That(initialQueues.Queues).HasSingleItem();
@@ -301,7 +299,7 @@ internal sealed class AgentInventoryStreamTests
         }
 
         _ = await Assert.That(process.Completed).IsTrue();
-        _ = await Assert.That(ReferenceEquals(owner.Processes, processOwner)).IsTrue();
+        _ = await Assert.That(ReferenceEquals(owner.GetService<IProcessOwner>(), processOwner)).IsTrue();
         _ = await Assert.That(ReferenceEquals(owner.GetService<IAgentQueues>(), queueOwner)).IsTrue();
         _ = await Assert.That(queueRevisions.Last().Removed).IsTrue();
         _ = await Assert.That(queueRevisions.Last().Queues).IsEmpty();
@@ -310,10 +308,10 @@ internal sealed class AgentInventoryStreamTests
         _ = await Assert.That(processRevisions.Last().Processes).IsEmpty();
         _ = await Assert.That(processRevisions.Last().InventoryInstanceId).IsEqualTo(initialProcesses.InventoryInstanceId);
         _ = await Assert.That(owner.GetService<IAgentQueues>().CaptureInventory().Removed).IsTrue();
-        _ = await Assert.That(owner.Processes.CaptureInventory().Removed).IsTrue();
-        _ = await Assert.That(child.Processes.CaptureInventory().Removed).IsTrue();
+        _ = await Assert.That(owner.GetService<IProcessOwner>().CaptureInventory().Removed).IsTrue();
+        _ = await Assert.That(child.GetService<IProcessOwner>().CaptureInventory().Removed).IsTrue();
         _ = await Assert.That(child.GetService<IAgentQueues>().CaptureInventory().Removed).IsTrue();
-        _ = await Assert.That(() => owner.Processes.StartUnattributed("late", "true", ProcessEnvironmentOverrides.Empty, owner.Session, fixture.Session.Mode.Profile.SecurityProfile, ShellProcessTerminalMode.Pipe))
+        _ = await Assert.That(() => owner.GetService<IProcessOwner>().StartUnattributed("late", "true", ProcessEnvironmentOverrides.Empty, owner.Session, fixture.Session.Mode.Profile.SecurityProfile, ShellProcessTerminalMode.Pipe))
             .Throws<InvalidOperationException>();
     }
 

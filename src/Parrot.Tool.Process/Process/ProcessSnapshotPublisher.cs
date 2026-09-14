@@ -3,7 +3,7 @@ using Parrot.Protocol;
 
 namespace Parrot.Process;
 
-internal sealed class ProcessSnapshotPublisher(IProcessOwner processes, IEventBroker events)
+internal sealed class ProcessSnapshotPublisher(IProcessOwner processes, IEventBroker events) : IInventoryPublisher
 {
     public IReadOnlyList<Event> CaptureSnapshotEvents() =>
         [.. ShellProcessInventoryProtocol.Convert(processes.CaptureInventory())];

@@ -1,5 +1,3 @@
-using Parrot.AgentTasks;
-using Parrot.Process;
 using Parrot.Questions;
 
 namespace Parrot.Agent;
@@ -9,11 +7,7 @@ internal interface IAgentSessionScope : IAsyncDisposable
 {
     IAgentSession Session { get; }
 
-    IProcessOwner Processes { get; }
-
     IGoalService Goals { get; }
-
-    IAgentTaskRunCatalog AgentTaskRuns { get; }
 
     IAgentSpawner AgentSpawner { get; }
 
@@ -30,15 +24,12 @@ internal interface IAgentSessionScope : IAsyncDisposable
     T GetService<T>()
         where T : class;
 
-    /// <summary>Starts queue snapshot publication once, after the scope is admitted to its topology.</summary>
-    void PublishQueueSnapshots();
+    /// <summary>Starts every registered inventory publisher once, after the scope is admitted to its topology.</summary>
+    void PublishSnapshots();
 
-    /// <summary>Starts process snapshot publication once, after the scope is admitted to its topology.</summary>
-    void PublishProcessSnapshots();
+    /// <summary>Captures every registered inventory as replayable events, in publisher registration order.</summary>
+    IReadOnlyList<Protocol.Event> CaptureSnapshotEvents();
 
-    /// <summary>Captures queue snapshot events without creating services or subscribing to updates.</summary>
-    IReadOnlyList<Protocol.Event> CaptureQueueSnapshotEvents();
-
-    /// <summary>Captures process snapshot events without creating services or subscribing to updates.</summary>
-    IReadOnlyList<Protocol.Event> CaptureProcessSnapshotEvents();
+    /// <summary>Prevents new work in every registered work owner and waits for it to settle, in registration order.</summary>
+    Task SettleWork();
 }

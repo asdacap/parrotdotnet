@@ -208,6 +208,31 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<IChildRegistry>(out var children);
                 return new AgentQueues(arguments.Identity, arguments.ParentLink.Parent?.GetService<IAgentQueues>(), arguments.Resources, children, static queueIdentity => new QueueInventory(queueIdentity), arguments.Diagnostics);
             })
+            .Bind<QueueSnapshotPublisher>().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                ctx.Inject<IAgentQueues>(out var queues);
+                var root = arguments.ParentLink.Parent;
+                while (root?.ParentScope.Parent is { } parent)
+                {
+                    root = parent;
+                }
+
+                return new QueueSnapshotPublisher(queues, arguments.EventBroker, root?.Session.SessionId ?? arguments.Identity.SessionId);
+            })
+            .Bind<ProcessSnapshotPublisher>().As(Lifetime.Scoped).To<ProcessSnapshotPublisher>()
+            .Bind<IReadOnlyList<IInventoryPublisher>>().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<QueueSnapshotPublisher>(out var queues);
+                ctx.Inject<ProcessSnapshotPublisher>(out var processes);
+                return new IInventoryPublisher[] { queues, processes };
+            })
+            .Bind<IReadOnlyList<IAgentWorkOwner>>().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<IAgentTaskRunCatalog>(out var agentTasks);
+                ctx.Inject<IProcessOwner>(out var processes);
+                return new IAgentWorkOwner[] { agentTasks, processes };
+            })
             .Bind<ExecCommandToolFactory>().As(Lifetime.Scoped).To<ExecCommandToolFactory>()
             .Bind<WriteStdinToolFactory>().As(Lifetime.Scoped).To<WriteStdinToolFactory>()
             .Bind<InterruptProcessToolFactory>().As(Lifetime.Scoped).To<InterruptProcessToolFactory>()
@@ -401,5 +426,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Root<IAgentParentScope>("ParentScope")
             .Root<IChildQuestionCoordinator>("ChildQuestions")
             .Root<IProcessOwner>("Processes")
-            .Root<IAgentQueues>("Queues");
+            .Root<IAgentQueues>("Queues")
+            .Root<IReadOnlyList<IInventoryPublisher>>("Publishers")
+            .Root<IReadOnlyList<IAgentWorkOwner>>("WorkOwners");
 }

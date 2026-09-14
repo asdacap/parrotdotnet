@@ -567,7 +567,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         registry.RegisterRootScope(parentScope);
         var parent = parentScope.Session;
         var selected = parent.CurrentSelection();
-        var catalog = parentScope.AgentTaskRuns;
+        var catalog = parentScope.GetService<IAgentTaskRunCatalog>();
         return new RuntimeContext(
             router,
             sessions,

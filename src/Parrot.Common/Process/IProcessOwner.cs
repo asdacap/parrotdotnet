@@ -5,7 +5,7 @@ using Parrot.Statuses;
 namespace Parrot.Process;
 
 /// <summary>Owns an agent session's shell processes, including inventory, settlement and resource disposal.</summary>
-internal interface IProcessOwner : IAsyncDisposable
+internal interface IProcessOwner : IAsyncDisposable, IAgentWorkOwner
 {
     string SessionId { get; }
 
@@ -53,7 +53,4 @@ internal interface IProcessOwner : IAsyncDisposable
 
     /// <summary>Captures undelivered process status snapshots.</summary>
     IReadOnlyList<ShellProcessStatusSnapshot> Snapshot();
-
-    /// <summary>Prevents further starts, cancels owned processes and waits for their settlement.</summary>
-    Task Settle();
 }

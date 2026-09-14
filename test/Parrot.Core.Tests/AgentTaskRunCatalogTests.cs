@@ -112,7 +112,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
         using var provider = new SteppedProvider();
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var catalog = runtime.ParentScope.AgentTaskRuns;
+        var catalog = runtime.ParentScope.GetService<IAgentTaskRunCatalog>();
         await using var otherOwner = new AgentTaskRunCatalog("other-owner", TestDiagnosticLog.Instance, cancellationToken);
         using var call = new CancellationTokenSource();
         var first = new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "first", TestDiagnosticLog.Instance);
@@ -246,7 +246,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
         using var provider = new AgentTaskBlockingProvider();
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var catalog = runtime.ParentScope.AgentTaskRuns;
+        var catalog = runtime.ParentScope.GetService<IAgentTaskRunCatalog>();
         var completion = new FailOnceCompletion();
         var progress = new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "retry-delivery", TestDiagnosticLog.Instance);
         var request = new AgentTaskRunRequest(
@@ -284,7 +284,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
             "{\"result\":\"done\",\"verdict\":\"accept\",\"evidence\":\"done\"}"]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var catalog = runtime.ParentScope.AgentTaskRuns;
+        var catalog = runtime.ParentScope.GetService<IAgentTaskRunCatalog>();
         for (var attempt = 0; attempt < 2; attempt++)
         {
             var completion = new Completion();

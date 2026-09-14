@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
+using Parrot.Process;
 using Parrot.Statuses;
 
 namespace Parrot.Tools;
@@ -163,7 +164,7 @@ internal sealed class AgentStatusTool(
             }
         }
 
-        var activeProcesses = childScope.Processes.Snapshot();
+        var activeProcesses = childScope.GetService<IProcessOwner>().Snapshot();
         _ = report.Append("\nActive processes:");
         var count = 0;
         foreach (var process in activeProcesses)

@@ -491,7 +491,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             status,
             new TestProfileFixture().Mode,
             lifetime.Token);
-        var otherProcesses = TestModels.ScopeOf(other).Processes;
+        var otherProcesses = TestModels.ScopeOf(other).GetService<IProcessOwner>();
         var process = otherProcesses.StartPipe(
             "other-work",
             "sleep 30",
@@ -640,7 +640,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             (sessionParentScope, owningScope, children, childQuestions) =>
             {
                 var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
-                return new AgentSession(identity, sessionParentScope, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.Processes), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(mode.Profile.SecurityProfile).Security, status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
+                return new AgentSession(identity, sessionParentScope, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.GetService<IProcessOwner>()), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(mode.Profile.SecurityProfile).Security, status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
             },
             lifetime);
         TestModels.RegisterScope(rootScope);
@@ -760,7 +760,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
                     scopedChildQuestions,
                     exitReminder,
                     mode,
-                    new TestCompletionCallbacksFixture(scopedChildQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.Processes), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker).Callbacks,
+                    new TestCompletionCallbacksFixture(scopedChildQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.GetService<IProcessOwner>()), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker).Callbacks,
                     new SecurityProfileTestFixture(securityProfile).Security,
                     status,
                     new AgentSessionActivity(TimeProvider.System),
