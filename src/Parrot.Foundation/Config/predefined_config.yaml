@@ -1145,6 +1145,8 @@ tools:
         command:
           type: string
           description: The shell command to run
+        cmd:
+          type: string
         env:
           type: object
           additionalProperties:

@@ -31,7 +31,8 @@ internal sealed class ExecCommandTool(
             ToolInputConversion.RequireObject(invocation.ArgumentsJson, "command");
             var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, ExecCommandToolJsonContext.Default.ExecCommandToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
-            var command = input.Command ?? throw new FormatException("Tool arguments require a string 'command'.");
+            var command = input.Command ?? input.Cmd
+                ?? throw new FormatException("Tool arguments require a string 'command'.");
             _ = input.Environment is null
                 ? ProcessEnvironmentOverrides.Empty
                 : new ProcessEnvironmentOverrides(input.Environment);
@@ -66,7 +67,8 @@ internal sealed class ExecCommandTool(
             ToolInputConversion.RequireObject(argumentsJson, "command");
             var input = JsonSerializer.Deserialize(argumentsJson, ExecCommandToolJsonContext.Default.ExecCommandToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
-            command = input.Command ?? throw new FormatException("Tool arguments require a string 'command'.");
+            command = input.Command ?? input.Cmd
+                ?? throw new FormatException("Tool arguments require a string 'command'.");
             environment = input.Environment is null
                 ? ProcessEnvironmentOverrides.Empty
                 : new ProcessEnvironmentOverrides(input.Environment);
@@ -121,6 +123,11 @@ internal sealed class ExecCommandTool(
     {
         [JsonPropertyName("command")]
         public string? Command { get; init; }
+
+        // Duplicate of Command as an undocumented alias: some weaker models emit
+        // 'cmd' instead of the schema's 'command', so both are accepted.
+        [JsonPropertyName("cmd")]
+        public string? Cmd { get; init; }
 
         [JsonPropertyName("env")]
         [JsonConverter(typeof(ProcessEnvironmentJsonConverter))]

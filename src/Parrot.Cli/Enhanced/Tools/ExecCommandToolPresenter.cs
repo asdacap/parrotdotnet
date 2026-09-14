@@ -54,8 +54,11 @@ internal sealed class ExecCommandToolPresenter(
         return root.ValueKind == JsonValueKind.Object
             && root.TryGetProperty("command", out var command)
             && command.ValueKind == JsonValueKind.String
-            ? command.GetString() ?? string.Empty
-            : throw new FormatException("exec_command requires a string command.");
+                ? command.GetString() ?? string.Empty
+                : root.TryGetProperty("cmd", out var aliased)
+                    && aliased.ValueKind == JsonValueKind.String
+                        ? aliased.GetString() ?? string.Empty
+                        : throw new FormatException("exec_command requires a string command.");
     }
 
     private ToolPresentationMetadata MetadataFor(bool isReadOnly) =>

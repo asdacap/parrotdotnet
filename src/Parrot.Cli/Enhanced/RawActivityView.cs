@@ -549,7 +549,10 @@ internal sealed class RawActivityView(
             return document.RootElement.TryGetProperty("command", out var command)
                 && command.ValueKind == JsonValueKind.String
                     ? command.GetString() ?? string.Empty
-                    : string.Empty;
+                    : document.RootElement.TryGetProperty("cmd", out var aliased)
+                        && aliased.ValueKind == JsonValueKind.String
+                            ? aliased.GetString() ?? string.Empty
+                            : string.Empty;
         }
         catch (JsonException)
         {
