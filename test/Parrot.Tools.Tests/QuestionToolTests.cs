@@ -26,7 +26,8 @@ internal sealed class QuestionToolTests
 
         _ = await Assert.That(question.Header).IsEqualTo("Palette");
         _ = await Assert.That(question.Prompt).IsEqualTo("Pick a colour");
-        _ = await Assert.That(question.Options.Single()).IsEqualTo("Blue");
+        _ = await Assert.That(question.Options.Single().Label).IsEqualTo("Blue");
+        _ = await Assert.That(question.Options.Single().Description).IsEqualTo(string.Empty);
         _ = await Assert.That(question.Multiple).IsTrue();
         _ = await Assert.That(question.Custom).IsTrue();
 

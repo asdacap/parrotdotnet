@@ -565,7 +565,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         foreach (var prompt in new[] { "start", new string('x', 4_000), new string('y', 40_000) })
         {
             _ = await session.Send(
-                [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+                [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
             await session.Settled();
         }
 
@@ -612,7 +612,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             TestDiagnosticLog.Instance,
             cancellationToken);
         _ = await restarted.Send(
-            [ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            [ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
         await restarted.Settled();
         _ = await Assert.That(repository.ModelHistory("agent").Count(message =>
                 message.Role == LLMRole.System
@@ -626,7 +626,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         restarted.UpdateSelection(resolvedSecondModel.RequestedSelector, restarted.CurrentSelection().Mode);
         restarted.UseResolvedSelection(resolvedSecondModel);
         _ = await restarted.Send(
-            [ConversationPart.TextPart("model changed")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            [ConversationPart.TextPart("model changed")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
         await restarted.Settled();
         var remindersAfterRebase = repository.ModelHistory("agent").Count(message =>
             message.Role == LLMRole.System
@@ -637,6 +637,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             [ConversationPart.TextPart(new string('z', 40_000))],
             Identifier.MessageId(),
             Delivery.Steer,
+            new IncomingActivity(IncomingActivityKind.Input, string.Empty),
             cancellationToken);
         await restarted.Settled();
         var secondCheckpoint = repository.LatestContextReminder("agent")
@@ -696,7 +697,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             cancellationToken);
 
         _ = await session.Send(
-            [ConversationPart.TextPart("baseline")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            [ConversationPart.TextPart("baseline")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
         await session.Settled();
         var instructions = provider.Requests[0].Instructions;
         var history = repository.ModelHistory("agent");
@@ -709,7 +710,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var padding = new string('x', checked((int)((targetTokens - baselineTokens) * 4)));
 
         _ = await session.Send(
-            [ConversationPart.TextPart(padding)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            [ConversationPart.TextPart(padding)], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
         await session.Settled();
 
         _ = await Assert.That(repository.LatestContextReminder("agent")).IsNull();
@@ -777,6 +778,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             [ConversationPart.TextPart(new string('p', 24_000))],
             Identifier.MessageId(),
             Delivery.Steer,
+            new IncomingActivity(IncomingActivityKind.Input, string.Empty),
             cancellationToken);
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(provider.Requests[0].Tools).Count().IsEqualTo(1);
@@ -815,7 +817,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         await using IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), _compactionGroupBlobs, new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, cancellationToken);
 
         _ = await session.Send(
-            [ConversationPart.TextPart("keep this prompt")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            [ConversationPart.TextPart("keep this prompt")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
         await session.Settled();
 
         var inferenceRequest = provider.Requests.Single();
@@ -882,7 +884,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             cancellationToken);
         foreach (var prompt in new[] { "old prompt", "middle prompt", "latest prompt" })
         {
-            _ = await session.Send([ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            _ = await session.Send([ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
             await session.Settled();
         }
 
@@ -937,7 +939,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             new AgentSessionActivity(TimeProvider.System),
             TestDiagnosticLog.Instance,
             cancellationToken);
-        _ = await restarted.Send([ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+        _ = await restarted.Send([ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
         await restarted.Settled();
         await restarted.DisposeAsync();
 
@@ -991,7 +993,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         foreach (var prompt in new[] { "old prompt", "middle prompt", "latest prompt" })
         {
             _ = await session.Send(
-                [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+                [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
             await session.Settled();
         }
 
@@ -1039,7 +1041,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             cancellationToken);
         var requestsBeforeRestart = provider.Requests.Count;
         _ = await restarted.Send(
-            [ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            [ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
         await restarted.Settled();
         await restarted.DisposeAsync();
 
@@ -1269,14 +1271,14 @@ internal sealed class CompactorAndContextTests : IDisposable
         foreach (var prompt in new[] { "first", "second" })
         {
             _ = await session.Send(
-                [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+                [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
             await provider.Arrived(cancellationToken);
             provider.Release();
             await session.Settled();
         }
 
         _ = await session.Send(
-            [ConversationPart.TextPart("third")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            [ConversationPart.TextPart("third")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
         await provider.Arrived(cancellationToken);
         var compaction = session.Compact(null, cancellationToken);
 
@@ -1307,7 +1309,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         await using IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, cancellationToken);
 
         _ = await session.Send(
-            [ConversationPart.TextPart("blocked")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            [ConversationPart.TextPart("blocked")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
         await provider.Arrived(cancellationToken);
         var eventsBeforeCompaction = repository.Replay().Count;
         using var compactionCancellation = new CancellationTokenSource();
@@ -1368,7 +1370,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         foreach (var prompt in new[] { "first", "second", "third" })
         {
             _ = await session.Send(
-                [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+                [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
             await session.Settled();
         }
 
@@ -1434,7 +1436,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         foreach (var prompt in new[] { "first", "second", "third" })
         {
             _ = await session.Send(
-                [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+                [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
             await session.Settled();
         }
 
@@ -1467,7 +1469,7 @@ internal sealed class CompactorAndContextTests : IDisposable
 
         foreach (var prompt in new[] { "first", "second", "third" })
         {
-            _ = await session.Send([ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            _ = await session.Send([ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
             await session.Settled();
         }
 

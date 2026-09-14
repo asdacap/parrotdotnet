@@ -53,7 +53,7 @@ internal sealed class UserSessionDiagnosticsTests : IDisposable
         _ = await Assert.That(factories.Lifetime.IsCancellationRequested).IsTrue();
         var questions = factories.Questions ?? throw new InvalidOperationException("The factory did not capture the session's question broker.");
         _ = await Assert.That(async () => await questions.Ask(
-            [new QuestionDefinition("probe", "Continue?", ["Yes", "No"], false, false)], CancellationToken.None))
+            [new QuestionDefinition("probe", "Continue?", [new Parrot.Questions.QuestionOption("Yes", string.Empty), new Parrot.Questions.QuestionOption("No", string.Empty)], false, false)], CancellationToken.None))
             .Throws<ObjectDisposedException>();
 
         var log = await File.ReadAllTextAsync(resources.LogPath);

@@ -404,13 +404,14 @@ internal sealed partial class AgentSession(
         IReadOnlyList<ConversationPart> parts,
         string messageId,
         Delivery delivery,
+        IncomingActivity reason,
         CancellationToken cancellationToken)
     {
         var admitted = await AdmitPartsAndWake(
             parts,
             messageId,
             delivery,
-            new IncomingActivity(IncomingActivityKind.Input, string.Empty),
+            reason,
             cancellationToken).ConfigureAwait(false);
         return (admitted.Admission, admitted.FollowUp);
     }
@@ -438,78 +439,6 @@ internal sealed partial class AgentSession(
                 throw new AgentExecutionException(AgentTaskStatus.Canceled, result.Error),
             _ => throw new InvalidOperationException("agent execution did not terminate"),
         };
-    }
-
-    public async Task ReceiveChildQuestion(
-        string message,
-        string messageId,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(message);
-        ArgumentException.ThrowIfNullOrWhiteSpace(messageId);
-
-        var admitted = await AdmitPartsAndWake(
-            [ConversationPart.TextPart(message)],
-            messageId,
-            Delivery.Steer,
-            new IncomingActivity(IncomingActivityKind.Input, string.Empty),
-            cancellationToken).ConfigureAwait(false);
-
-        if (ParentSessionId.Length == 0 || !admitted.FollowUp)
-        {
-            return;
-        }
-
-        lock (_executionGate)
-        {
-            _started = true;
-            _execution = Execute(message, messageId, admitted.SelectedDrain, null, cancellationToken);
-        }
-    }
-
-    public async Task ReceiveAgentCompletion(
-        string name,
-        string message,
-        CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        ArgumentNullException.ThrowIfNull(message);
-
-        var messageId = Identifier.MessageId();
-        var admitted = await AdmitPartsAndWake(
-            [ConversationPart.TextPart(message)],
-            messageId,
-            Delivery.Steer,
-            new IncomingActivity(IncomingActivityKind.AgentCompletion, name),
-            cancellationToken).ConfigureAwait(false);
-
-        if (ParentSessionId.Length == 0 || !admitted.FollowUp)
-        {
-            return;
-        }
-
-        lock (_executionGate)
-        {
-            _started = true;
-            _execution = Execute(message, messageId, admitted.SelectedDrain, null, cancellationToken);
-        }
-    }
-
-    public async Task ReceiveProcessCompletion(
-        string name,
-        string message,
-        string messageId,
-        CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        ArgumentNullException.ThrowIfNull(message);
-
-        _ = await AdmitPartsAndWake(
-            [ConversationPart.TextPart(message)],
-            messageId,
-            Delivery.Steer,
-            new IncomingActivity(IncomingActivityKind.ProcessCompletion, name),
-            cancellationToken).ConfigureAwait(false);
     }
 
     public async Task ReceiveAgentTaskCompletion(

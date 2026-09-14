@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using Parrot.Agent;
 using Parrot.Diagnostics;
+using Parrot.Protocol;
+using Parrot.Store;
 
 namespace Parrot.Process;
 
@@ -325,14 +327,24 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
 
             try
             {
-                await _agent
-                    .ReceiveProcessCompletion(Name, text, messageId, _lifetime)
+                _ = await _agent
+                    .Send(
+                        [ConversationPart.TextPart(text)],
+                        messageId,
+                        Delivery.Steer,
+                        new IncomingActivity(IncomingActivityKind.ProcessCompletion, Name),
+                        _lifetime)
                     .ConfigureAwait(false);
             }
             catch
             {
-                await _agent
-                    .ReceiveProcessCompletion(Name, text, messageId, CancellationToken.None)
+                _ = await _agent
+                    .Send(
+                        [ConversationPart.TextPart(text)],
+                        messageId,
+                        Delivery.Steer,
+                        new IncomingActivity(IncomingActivityKind.ProcessCompletion, Name),
+                        CancellationToken.None)
                     .ConfigureAwait(false);
             }
 

@@ -693,7 +693,7 @@ internal sealed class EnhancedCli(
                 if (!question.Multiple || directCustomAnswer)
                 {
                     var choices = question.Options
-                        .Select((option, index) => new SlashDialogOption($"__option_{index}__", option, option))
+                        .Select((option, index) => new SlashDialogOption($"__option_{index}__", option.Label, option.Description))
                         .ToList();
                     if (question.Custom)
                     {
@@ -762,7 +762,7 @@ internal sealed class EnhancedCli(
                     var choices = question.Options
                         .Select((option, index) => (Option: option, Index: index))
                         .Where(item => !selectedIndexes.Contains(item.Index))
-                        .Select(item => new SlashDialogOption($"__option_{item.Index}__", item.Option, item.Option))
+                        .Select(item => new SlashDialogOption($"__option_{item.Index}__", item.Option.Label, item.Option.Description))
                         .ToList();
                     if (question.Custom && customAnswer is null)
                     {
@@ -819,7 +819,9 @@ internal sealed class EnhancedCli(
                     }
                     else
                     {
-                        _ = selectedIndexes.Add(question.Options.IndexOf(selected.Label));
+                        _ = selectedIndexes.Add(question.Options
+                            .Select((option, index) => (option.Label, index))
+                            .First(pair => pair.Label == selected.Label).index);
                     }
                 }
 
@@ -830,6 +832,7 @@ internal sealed class EnhancedCli(
 
                 var selectedText = question.Options
                     .Where((_, index) => selectedIndexes.Contains(index))
+                    .Select(option => option.Label)
                     .Concat(customAnswer is null ? [] : [customAnswer]);
                 reply.Answers.Add(new QuestionAnswer { Text = string.Join(", ", selectedText) });
             }

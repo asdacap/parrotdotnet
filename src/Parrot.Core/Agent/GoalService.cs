@@ -21,6 +21,7 @@ internal sealed class GoalService(
             [ConversationPart.TextPart(notice)],
             Identifier.MessageId(),
             Delivery.Steer,
+            new IncomingActivity(IncomingActivityKind.Input, string.Empty),
             cancellationToken).ConfigureAwait(false);
     }
 

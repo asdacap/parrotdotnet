@@ -608,7 +608,7 @@ internal sealed class BasicCliTests
                 {
                     Header = "Decision",
                     Prompt = "Choose an approach",
-                    Options = { "One" },
+                    Options = { new Parrot.Protocol.QuestionOption { Label = "One", Description = string.Empty } },
                 },
             },
         };

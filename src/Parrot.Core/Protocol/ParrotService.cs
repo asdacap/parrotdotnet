@@ -1085,7 +1085,11 @@ internal sealed class ParrotService(
                 Multiple = question.Multiple,
                 Custom = question.Custom,
             };
-            converted.Options.AddRange(question.Options);
+            converted.Options.AddRange(question.Options.Select(option => new QuestionOption
+            {
+                Label = option.Label,
+                Description = option.Description,
+            }));
             return converted;
         }));
         return pending;

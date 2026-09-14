@@ -69,11 +69,12 @@ internal interface IAgentSession : IAsyncDisposable
         TimeProvider timeProvider,
         CancellationToken cancellationToken);
 
-    /// <summary>Durably admits input and reports its admission and whether a follow-up was scheduled.</summary>
+    /// <summary>Durably admits input, offering the supplied reason to the session's incoming activity, and reports its admission and whether a follow-up was scheduled.</summary>
     Task<(Admission Admission, bool FollowUp)> Send(
         IReadOnlyList<ConversationPart> parts,
         string messageId,
         Delivery delivery,
+        IncomingActivity reason,
         CancellationToken cancellationToken);
 
     void SetExitReminder(string? reminder);
@@ -81,22 +82,6 @@ internal interface IAgentSession : IAsyncDisposable
     Task<AgentSendResult> SendTextMessage(string message, CancellationToken cancellationToken);
 
     Task<string> SendAndWaitForResult(string prompt, CancellationToken cancellationToken);
-
-    Task ReceiveChildQuestion(
-        string message,
-        string messageId,
-        CancellationToken cancellationToken);
-
-    Task ReceiveAgentCompletion(
-        string name,
-        string message,
-        CancellationToken cancellationToken);
-
-    Task ReceiveProcessCompletion(
-        string name,
-        string message,
-        string messageId,
-        CancellationToken cancellationToken);
 
     Task ReceiveAgentTaskCompletion(
         string runId,

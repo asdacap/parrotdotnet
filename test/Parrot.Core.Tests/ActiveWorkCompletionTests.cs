@@ -284,8 +284,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
 
         _ = await parent.SendTextMessage("finish", cancellationToken);
         await parentProvider.Arrived(cancellationToken);
-        var firstQuestion = ownedChildQuestions.Ask(firstChild, [new Parrot.Questions.QuestionDefinition("first", "Continue?", ["Yes"], false, false)], cancellationToken);
-        var secondQuestion = ownedChildQuestions.Ask(secondChild, [new Parrot.Questions.QuestionDefinition("second", "Continue?", ["Yes"], false, false)], cancellationToken);
+        var firstQuestion = ownedChildQuestions.Ask(firstChild, [new Parrot.Questions.QuestionDefinition("first", "Continue?", [new Parrot.Questions.QuestionOption("Yes", string.Empty)], false, false)], cancellationToken);
+        var secondQuestion = ownedChildQuestions.Ask(secondChild, [new Parrot.Questions.QuestionDefinition("second", "Continue?", [new Parrot.Questions.QuestionOption("Yes", string.Empty)], false, false)], cancellationToken);
         _ = await WaitForPendingQuestions(ownedChildQuestions, parent, 2, cancellationToken);
         parentProvider.Release();
         await parentProvider.Arrived(cancellationToken);

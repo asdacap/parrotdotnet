@@ -630,7 +630,10 @@ internal sealed class BasicCli(
             await output.WriteLineAsync(question.Prompt.AsMemory(), cancellationToken).ConfigureAwait(false);
             foreach (var option in question.Options)
             {
-                await output.WriteLineAsync($"  {option}".AsMemory(), cancellationToken).ConfigureAwait(false);
+                var line = option.Description.Length == 0
+                    ? $"  {option.Label}"
+                    : $"  {option.Label} — {option.Description}";
+                await output.WriteLineAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
             }
 
             await output.WriteLineAsync("answer (or /cancel)".AsMemory(), cancellationToken).ConfigureAwait(false);

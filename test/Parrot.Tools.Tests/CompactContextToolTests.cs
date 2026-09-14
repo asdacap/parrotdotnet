@@ -70,6 +70,7 @@ internal sealed class CompactContextToolTests : IDisposable
                 [ConversationPart.TextPart(prompt)],
                 Identifier.MessageId(),
                 Delivery.Steer,
+                new IncomingActivity(IncomingActivityKind.Input, string.Empty),
                 cancellationToken);
             await session.Settled();
         }
@@ -78,6 +79,7 @@ internal sealed class CompactContextToolTests : IDisposable
             [ConversationPart.TextPart("compact now")],
             Identifier.MessageId(),
             Delivery.Steer,
+            new IncomingActivity(IncomingActivityKind.Input, string.Empty),
             cancellationToken);
         await session.Settled().WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
 
@@ -137,6 +139,7 @@ internal sealed class CompactContextToolTests : IDisposable
                     [ConversationPart.TextPart("seed")],
                     Identifier.MessageId(),
                     Delivery.Steer,
+                    new IncomingActivity(IncomingActivityKind.Input, string.Empty),
                     cancellationToken);
                 await session.Settled();
             }
@@ -145,6 +148,7 @@ internal sealed class CompactContextToolTests : IDisposable
                 [ConversationPart.TextPart("compact")],
                 Identifier.MessageId(),
                 Delivery.Steer,
+                new IncomingActivity(IncomingActivityKind.Input, string.Empty),
                 cancellationToken);
             await session.Settled().WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
 
