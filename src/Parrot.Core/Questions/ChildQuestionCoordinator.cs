@@ -67,7 +67,7 @@ internal sealed class ChildQuestionCoordinator(
                 [ConversationPart.TextPart(FormatSteer(pending))],
                 pending.Id,
                 Delivery.Steer,
-                new IncomingActivity(IncomingActivityKind.Input, string.Empty),
+                new IncomingActivity(string.Empty, null),
                 CancellationToken.None).ConfigureAwait(false);
             return await pending.Answer.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }

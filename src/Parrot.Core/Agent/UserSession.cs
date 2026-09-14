@@ -352,7 +352,7 @@ internal sealed class UserSession : IUserSession
             parts,
             messageId,
             delivery,
-            new IncomingActivity(IncomingActivityKind.Input, string.Empty),
+            new IncomingActivity(string.Empty, null),
             cancellationToken)
             .ConfigureAwait(false);
         return admission;

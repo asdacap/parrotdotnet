@@ -160,7 +160,7 @@ internal sealed partial class AgentSession
                 [ConversationPart.TextPart(message)],
                 messageId,
                 Delivery.Steer,
-                new IncomingActivity(IncomingActivityKind.Input, string.Empty),
+                new IncomingActivity(string.Empty, null),
                 cancellationToken).ConfigureAwait(false);
             execution = admitted.SelectedDrain;
         }
@@ -266,7 +266,7 @@ internal sealed partial class AgentSession
         var ownedExecution = new OwnedExecutionReservation(
             AdmitParts([ConversationPart.TextPart(prompt)], messageId, Delivery.Steer), cancellationToken);
         var (_, selectedDrain) = WakeSelected(
-            new IncomingActivity(IncomingActivityKind.Input, string.Empty), ownedExecution, cancellationToken);
+            new IncomingActivity(string.Empty, null), ownedExecution, cancellationToken);
         return await Execute(prompt, messageId, selectedDrain, ownedExecution, CancellationToken.None)
             .ConfigureAwait(false);
     }
@@ -338,7 +338,7 @@ internal sealed partial class AgentSession
                     [ConversationPart.TextPart(prompt)],
                     messageId,
                     Delivery.Steer,
-                    new IncomingActivity(IncomingActivityKind.Input, string.Empty),
+                    new IncomingActivity(string.Empty, null),
                     cancellationToken).ConfigureAwait(false);
                 completed = BoundResult(await WaitForDrainResult().ConfigureAwait(false));
             }
@@ -430,7 +430,7 @@ internal sealed partial class AgentSession
                         [ConversationPart.TextPart(completed.FormatCompletion(identity, parent.Session.Identity.PromptTemplates))],
                         Identifier.MessageId(),
                         Delivery.Steer,
-                        new IncomingActivity(IncomingActivityKind.AgentCompletion, identity.Name),
+                        new IncomingActivity(identity.Name, $"{identity.Name} completion"),
                         CancellationToken.None).ConfigureAwait(false);
                 }
             }

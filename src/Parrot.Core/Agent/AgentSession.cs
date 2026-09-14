@@ -275,7 +275,7 @@ internal sealed partial class AgentSession(
 
         if (!_disposing && eventRepository.HasPendingInputs(SessionId))
         {
-            _ = Wake(new IncomingActivity(IncomingActivityKind.Input, string.Empty));
+            _ = Wake(new IncomingActivity(string.Empty, null));
         }
     }
 
@@ -367,7 +367,7 @@ internal sealed partial class AgentSession(
 
         if (eventRepository.HasPendingInputs(SessionId))
         {
-            _ = incoming.TrySetResult(new IncomingActivity(IncomingActivityKind.Input, string.Empty));
+            _ = incoming.TrySetResult(new IncomingActivity(string.Empty, null));
         }
 
         try
@@ -455,7 +455,7 @@ internal sealed partial class AgentSession(
             [ConversationPart.TextPart(message)],
             messageId,
             Delivery.Steer,
-            new IncomingActivity(IncomingActivityKind.AgentTaskCompletion, runId),
+            new IncomingActivity(runId, $"AgentTask graph {runId} completion"),
             cancellationToken).ConfigureAwait(false);
     }
 

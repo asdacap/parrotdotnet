@@ -332,7 +332,7 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
                         [ConversationPart.TextPart(text)],
                         messageId,
                         Delivery.Steer,
-                        new IncomingActivity(IncomingActivityKind.ProcessCompletion, Name),
+                        new IncomingActivity(Name, $"process {Name} completion"),
                         _lifetime)
                     .ConfigureAwait(false);
             }
@@ -343,7 +343,7 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
                         [ConversationPart.TextPart(text)],
                         messageId,
                         Delivery.Steer,
-                        new IncomingActivity(IncomingActivityKind.ProcessCompletion, Name),
+                        new IncomingActivity(Name, $"process {Name} completion"),
                         CancellationToken.None)
                     .ConfigureAwait(false);
             }

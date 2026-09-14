@@ -92,7 +92,7 @@ internal sealed class AgentOperationDiagnosticsTests : IDisposable
             new AgentSessionActivity(TimeProvider.System),
             diagnostics,
             cancellationToken);
-        _ = await session.Send([ConversationPart.TextPart("private-prompt-sentinel")], "message", Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
+        _ = await session.Send([ConversationPart.TextPart("private-prompt-sentinel")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         if (outcome == "turn_cancelled")
         {
             await provider.Arrived(cancellationToken);

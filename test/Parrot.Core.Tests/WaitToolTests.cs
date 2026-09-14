@@ -52,7 +52,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         _ = scope.GetService<IProcessOwner>().StartUnattributed("process", "sleep 60", ProcessEnvironmentOverrides.Empty, session, SecurityProfile.Compose(readOnly: false, [], [], []), ShellProcessTerminalMode.Pipe);
         using var childProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         await using var childScope = BuildSession(childProvider, [], new EventRepository(_database), registry, AgentIdentity.Child("child", "agent", "main", "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(scope, AgentCompletionDeliveryPolicy.RetainedOnly), QueueResources("agent"), TestDiagnosticLog.Instance);
-        _ = await childScope.Session.Send([ConversationPart.TextPart("work")], "child-message", Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
+        _ = await childScope.Session.Send([ConversationPart.TextPart("work")], "child-message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await childProvider.Arrived(cancellationToken);
         var selection = new SelectionFixture(provider).Selection;
         Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
@@ -140,7 +140,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             [ConversationPart.TextPart("completed")],
             Identifier.MessageId(),
             Delivery.Steer,
-            new IncomingActivity(IncomingActivityKind.AgentCompletion, "researcher"),
+            new IncomingActivity("researcher", "researcher completion"),
             cancellationToken);
 
         _ = await Assert.That((await waiting).Text)
@@ -241,7 +241,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             [ConversationPart.TextPart("completed")],
             Identifier.MessageId(),
             Delivery.Steer,
-            new IncomingActivity(IncomingActivityKind.ProcessCompletion, "compiler"),
+            new IncomingActivity("compiler", "process compiler completion"),
             cancellationToken);
 
         _ = await Assert.That((await waiting).Text)
@@ -285,16 +285,16 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var session = scope.Session;
 
         _ = await session.Send(
-            [ConversationPart.TextPart("first")], "message-1", Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
+            [ConversationPart.TextPart("first")], "message-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         await WaitUntil(() => IsWaiting(session), cancellationToken);
         _ = await session.Send(
-            [ConversationPart.TextPart("first")], "message-1", Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
+            [ConversationPart.TextPart("first")], "message-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await Task.Delay(20, cancellationToken);
         _ = await Assert.That(IsWaiting(session)).IsTrue();
         _ = await session.Send(
-            [ConversationPart.TextPart("wakeup")], "message-2", Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
+            [ConversationPart.TextPart("wakeup")], "message-2", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
 
         var request = provider.Requests[1];

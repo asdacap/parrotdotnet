@@ -98,7 +98,7 @@ internal sealed class SessionRoutingDiagnosticsTests
                 await provider.Arrived(cancellationToken);
                 _ = await second.SendText("private-other-prompt-sentinel", "second-message", Delivery.Steer, cancellationToken);
                 await provider.Arrived(cancellationToken);
-                _ = await child.Session.Send([ConversationPart.TextPart("private-child-prompt-sentinel")], "child-message", Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
+                _ = await child.Session.Send([ConversationPart.TextPart("private-child-prompt-sentinel")], "child-message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
                 await provider.Arrived(cancellationToken);
                 if (interrupt)
                 {
