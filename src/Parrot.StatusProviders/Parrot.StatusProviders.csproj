@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Parrot.Common/Parrot.Common.csproj" />
+    <ProjectReference Include="../Parrot.Tool.Queue/Parrot.Tool.Queue.csproj" />
   </ItemGroup>
 
   <ItemGroup>
