@@ -8,7 +8,7 @@ internal sealed record LLMRequest
 
     public IReadOnlyList<LLMToolDefinition> Tools { get; init; } = [];
 
-    public int MaxTokens { get; init; }
+    public int MaxOutputTokens { get; init; }
 
     // Top-level system instructions, carried separately from the message list
     // because the responses dialect wants them out of band.

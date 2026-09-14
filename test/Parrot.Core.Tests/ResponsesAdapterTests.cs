@@ -145,7 +145,7 @@ internal sealed class ResponsesAdapterTests
         var request = new LLMRequest
         {
             Model = "gpt-5.6-sol",
-            MaxTokens = maxTokens,
+            MaxOutputTokens = maxTokens,
             Messages = [LLMMessage.User("hello")],
         };
         using var document = JsonDocument.Parse(ResponsesAdapter.Encode(request));

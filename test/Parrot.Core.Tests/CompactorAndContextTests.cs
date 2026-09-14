@@ -1774,7 +1774,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(result.RetainedDurableMessageCount).IsEqualTo(1);
         _ = await Assert.That(result.History[^1].Content).IsEqualTo(history[^1].Content);
         _ = await Assert.That(result.History).Count().IsEqualTo(3);
-        _ = await Assert.That(provider.Requests.Single().MaxTokens).IsEqualTo(1024);
+        _ = await Assert.That(provider.Requests.Single().MaxOutputTokens).IsEqualTo(1024);
     }
 
     [Test]
@@ -1863,7 +1863,7 @@ internal sealed class CompactorAndContextTests : IDisposable
 
         _ = await Assert.That(provider.Requests.Count).IsGreaterThan(1);
         _ = await Assert.That(provider.Requests)
-            .All(request => request.MaxTokens is > 0 and <= 137);
+            .All(request => request.MaxOutputTokens is > 0 and <= 137);
         _ = await Assert.That(provider.Requests)
             .All(request => Compactor.EstimateTokens(model, request.Messages) <= 500);
         _ = await Assert.That(provider.Requests[1].Messages)

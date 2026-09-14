@@ -342,13 +342,13 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
         public bool TryAdjustContextBudget(Exception failure)
         {
             if (_contextAdjusted
-                || !ProviderErrors.TryReduceContextBudget(failure, Request.MaxTokens, out var reducedMaximumTokens))
+                || !ProviderErrors.TryReduceContextBudget(failure, Request.MaxOutputTokens, out var reducedMaximumTokens))
             {
                 return false;
             }
 
             _contextAdjusted = true;
-            Request = Request with { MaxTokens = reducedMaximumTokens };
+            Request = Request with { MaxOutputTokens = reducedMaximumTokens };
             return true;
         }
 

@@ -21,7 +21,7 @@ internal static class ProviderModels
             {
                 Name = entry.Value.Name,
                 ContextWindow = entry.Value.Context,
-                MaxOutputTokens = entry.Value.MaxTokens,
+                MaxOutputTokens = entry.Value.MaxOutputTokens,
                 MaxInputTokens = entry.Value.MaxInputTokens,
                 InputPrice = entry.Value.InputPrice,
                 CachedInputPrice = entry.Value.CachedInputPrice,
@@ -42,7 +42,7 @@ internal static class ProviderModels
         var result = ModelMetadataFields.None;
         result |= fields.HasFlag(ModelConfigFields.Name) ? ModelMetadataFields.Name : ModelMetadataFields.None;
         result |= fields.HasFlag(ModelConfigFields.Context) ? ModelMetadataFields.ContextWindow : ModelMetadataFields.None;
-        result |= fields.HasFlag(ModelConfigFields.MaxTokens) ? ModelMetadataFields.MaxOutputTokens : ModelMetadataFields.None;
+        result |= fields.HasFlag(ModelConfigFields.MaxOutputTokens) ? ModelMetadataFields.MaxOutputTokens : ModelMetadataFields.None;
         result |= fields.HasFlag(ModelConfigFields.MaxInputTokens) ? ModelMetadataFields.MaxInputTokens : ModelMetadataFields.None;
         result |= fields.HasFlag(ModelConfigFields.InputPrice) ? ModelMetadataFields.InputPrice : ModelMetadataFields.None;
         result |= fields.HasFlag(ModelConfigFields.CachedInputPrice) ? ModelMetadataFields.CachedInputPrice : ModelMetadataFields.None;

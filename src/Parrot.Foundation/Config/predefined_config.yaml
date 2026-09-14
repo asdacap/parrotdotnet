@@ -1674,7 +1674,7 @@ providers:
       hy3-preview:
         name: Hy3 Preview
         context: 262144
-        max_tokens: 0
+        max_output_tokens: 0
         tools: true
         reasoning: true
         output: [text]
@@ -1688,15 +1688,15 @@ providers:
     base_url: https://api.kimi.com/coding/v1
     api_key_env: KIMI_API_KEY
     model_defaults:
-      kimi-for-coding: { name: Kimi For Coding, context: 262144, max_tokens: 0, tools: true, reasoning: true, output: [text] }
+      kimi-for-coding: { name: Kimi For Coding, context: 262144, max_output_tokens: 0, tools: true, reasoning: true, output: [text] }
   kimi-api:
     protocol: chat-completions
     base_url: https://api.moonshot.ai/v1
     api_key_env: MOONSHOT_API_KEY
     model_defaults:
-      kimi-k2-thinking: { name: Kimi K2 Thinking, context: 262144, max_tokens: 32768, tools: true, reasoning: true, output: [text] }
-      kimi-k2-turbo-preview: { name: Kimi K2 Turbo, context: 262144, max_tokens: 32768, tools: true, reasoning: false, output: [text] }
-      kimi-k2-0905-preview: { name: Kimi K2 0905, context: 262144, max_tokens: 32768, tools: true, reasoning: false, output: [text] }
+      kimi-k2-thinking: { name: Kimi K2 Thinking, context: 262144, max_output_tokens: 32768, tools: true, reasoning: true, output: [text] }
+      kimi-k2-turbo-preview: { name: Kimi K2 Turbo, context: 262144, max_output_tokens: 32768, tools: true, reasoning: false, output: [text] }
+      kimi-k2-0905-preview: { name: Kimi K2 0905, context: 262144, max_output_tokens: 32768, tools: true, reasoning: false, output: [text] }
 
 # OpenAI-compatible providers and their model catalogs.
 # providers:
@@ -1745,7 +1745,7 @@ providers:
 #         # Context window in tokens.
 #         context: 128000
 #         # Maximum output tokens.
-#         max_tokens: 16384
+#         max_output_tokens: 16384
 #         # USD per input token.
 #         input_price: 0.000001
 #         # USD per output token.
