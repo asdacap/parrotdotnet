@@ -56,7 +56,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         await childProvider.Arrived(cancellationToken);
         var selection = new SelectionFixture(provider).Selection;
         Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
-            new RuntimeStatus(registry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(registry, TestModels.PromptTemplates)),
+            new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(registry, TestModels.PromptTemplates)),
             session,
             time);
 
@@ -104,7 +104,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var session = scope.Session;
         await using var unobservedRegistry = new UnobservedRegistry(registry);
         Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
-            new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(unobservedRegistry, TestModels.PromptTemplates)),
+            new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(unobservedRegistry, TestModels.PromptTemplates)),
             session,
             TimeProvider.System);
         _ = repository.Admit(
@@ -131,7 +131,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var session = scope.Session;
         await using var unobservedRegistry = new UnobservedRegistry(registry);
         Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
-            new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(unobservedRegistry, TestModels.PromptTemplates)),
+            new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(unobservedRegistry, TestModels.PromptTemplates)),
             session,
             TimeProvider.System);
         var waiting = tool.Execute(new Parrot.Tools.ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken);
@@ -157,7 +157,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var session = scope.Session;
         await using var unobservedRegistry = new UnobservedRegistry(registry);
         Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
-            new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(unobservedRegistry, TestModels.PromptTemplates)),
+            new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(unobservedRegistry, TestModels.PromptTemplates)),
             session,
             TimeProvider.System);
         var waiting = tool.Execute(new Parrot.Tools.ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken);
@@ -232,7 +232,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var session = scope.Session;
         await using var unobservedRegistry = new UnobservedRegistry(registry);
         Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
-            new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(unobservedRegistry, TestModels.PromptTemplates)),
+            new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(unobservedRegistry, TestModels.PromptTemplates)),
             session,
             TimeProvider.System);
         var waiting = tool.Execute(new Parrot.Tools.ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken);
@@ -257,7 +257,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var session = scope.Session;
         await using var unobservedRegistry = new UnobservedRegistry(registry);
         Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
-            new RuntimeStatus(unobservedRegistry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(unobservedRegistry, TestModels.PromptTemplates)),
+            new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(unobservedRegistry, TestModels.PromptTemplates)),
             session,
             TimeProvider.System);
         using var canceled = new CancellationTokenSource();
@@ -280,7 +280,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         var repository = new EventRepository(_database);
         var registry = PrepareRegistry(new EventRepository(_database));
-        var factory = new Parrot.Tools.WaitToolFactory(new RuntimeStatus(registry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(registry, TestModels.PromptTemplates)), TimeProvider.System);
+        var factory = new Parrot.Tools.WaitToolFactory(new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(registry, TestModels.PromptTemplates)), TimeProvider.System);
         await using var scope = Session(provider, [factory], repository, registry);
         var session = scope.Session;
 
@@ -402,7 +402,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             new RetainedAgentBudget(1024),
             TestDiagnosticLog.Instance,
             CancellationToken.None);
-        registry.AttachStatus(new RuntimeStatus(registry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(registry, TestModels.PromptTemplates)));
+        registry.AttachStatus(new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(registry, TestModels.PromptTemplates)));
         _registries.Add(registry);
         return registry;
     }

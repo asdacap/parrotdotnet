@@ -37,6 +37,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Parrot.StatusProviders/Parrot.StatusProviders.csproj" />
+    <ProjectReference Include="../Parrot.Tool.AgentTask/Parrot.Tool.AgentTask.csproj" />
     <ProjectReference Include="../Parrot.Tool.Queue/Parrot.Tool.Queue.csproj" />
     <ProjectReference Include="../Parrot.Tool.Process/Parrot.Tool.Process.csproj" />
     <ProjectReference Include="../Parrot.Composition/Parrot.Composition.csproj" />

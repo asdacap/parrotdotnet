@@ -15,7 +15,7 @@ internal sealed class UserSessionFactory(
     SkillCatalogFactory skillCatalogFactory,
     TimeSpan userInputTimeout,
     TimeProvider timeProvider,
-    Func<IAgentRegistry, IPromptTemplateCatalog, IStatusProvider> createRuntimeTreeStatus) : IUserSessionFactory
+    Func<IAgentRegistry, IPromptTemplateCatalog, IReadOnlyList<IStatusProvider>> createRuntimeStatusProviders) : IUserSessionFactory
 {
     public Task<IUserSession> Create(
         ISessionResourceLease resources,
@@ -39,5 +39,5 @@ internal sealed class UserSessionFactory(
             userInputTimeout,
             timeProvider,
             static () => new EventBroker(),
-            createRuntimeTreeStatus);
+            createRuntimeStatusProviders);
 }

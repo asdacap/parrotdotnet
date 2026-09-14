@@ -6,7 +6,6 @@ using Parrot.Llm;
 using Parrot.Questions;
 using Parrot.Skills;
 using Parrot.State;
-using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -47,7 +46,7 @@ internal sealed class UserSessionDiagnosticsTests : IDisposable
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             static () => new EventBroker(),
-            static (agents, templates) => new RuntimeTreeStatusProvider(agents, templates))).Throws<InvalidOperationException>();
+            TestModels.RuntimeStatusProviders)).Throws<InvalidOperationException>();
 
         _ = await Assert.That(failure).IsSameReferenceAs(factories.Failure);
         _ = await Assert.That(factories.Lifetime.IsCancellationRequested).IsTrue();

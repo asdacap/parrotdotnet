@@ -185,9 +185,12 @@ internal static class TestModels
         CancellationToken lifetime)
     {
         IAgentRegistry registry = new AgentRegistry(agentSessions, eventBroker, eventRepository, profiles, promptTemplates, retainedAgents, TestDiagnosticLog.Instance, lifetime);
-        registry.AttachStatus(new RuntimeStatus(registry, promptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(registry, promptTemplates)));
+        registry.AttachStatus(new RuntimeStatus(promptTemplates, TimeProvider.System, RuntimeStatusProviders(registry, promptTemplates)));
         return registry;
     }
+
+    public static IReadOnlyList<IStatusProvider> RuntimeStatusProviders(IAgentRegistry registry, IPromptTemplateCatalog promptTemplates) =>
+        [new RuntimeTreeStatusProvider(registry, promptTemplates), new AgentTaskStatusProvider(registry, promptTemplates)];
 
     public static AgentSessionDependencies Dependencies(
         AgentIdentity identity,
@@ -209,7 +212,7 @@ internal static class TestModels
             new RetainedAgentBudget(1024),
             TestDiagnosticLog.Instance,
             lifetime);
-        var status = new RuntimeStatus(registry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(registry, TestModels.PromptTemplates));
+        var status = new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, RuntimeStatusProviders(registry, TestModels.PromptTemplates));
         registry.AttachStatus(status);
         return new AgentSessionDependencies(
             identity,

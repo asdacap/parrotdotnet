@@ -10,7 +10,6 @@ using Parrot.Queues;
 using Parrot.Security;
 using Parrot.Skills;
 using Parrot.State;
-using Parrot.Statuses;
 using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
@@ -1378,7 +1377,7 @@ internal sealed class ParrotServiceTests : IDisposable
                 new SkillCatalogFactory(_configuration, _root, Path.Combine(_root, "packaged-skills")),
                 timeout,
                 timeProvider,
-                static (agents, templates) => new RuntimeTreeStatusProvider(agents, templates)),
+                TestModels.RuntimeStatusProviders),
             _router,
             new ModeRegistry(
                 new ProfileRegistry(

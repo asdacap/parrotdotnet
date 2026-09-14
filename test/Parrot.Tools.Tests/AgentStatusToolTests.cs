@@ -55,7 +55,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             new RetainedAgentBudget(1024),
             TestDiagnosticLog.Instance,
             cancellationToken);
-        var status = new RuntimeStatus(registry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(registry, TestModels.PromptTemplates));
+        var status = new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(registry, TestModels.PromptTemplates));
         registry.AttachStatus(status);
         await using var parentScope = factory.Build(
             AgentIdentity.Main("parent", "main", TestModels.PromptTemplates),
@@ -141,7 +141,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             new RetainedAgentBudget(1024),
             TestDiagnosticLog.Instance,
             cancellationToken);
-        var status = new RuntimeStatus(registry, TestModels.PromptTemplates, TimeProvider.System, new RuntimeTreeStatusProvider(registry, TestModels.PromptTemplates));
+        var status = new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(registry, TestModels.PromptTemplates));
         registry.AttachStatus(status);
         await using var parentScope = factory.Build(
             AgentIdentity.Main("parent", "main", TestModels.PromptTemplates),

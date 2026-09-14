@@ -1,7 +1,7 @@
-using Parrot.Process;
+using Parrot.Agent;
 using Parrot.Statuses;
 
-namespace Parrot.Agent;
+namespace Parrot.Process;
 
 internal sealed class ProcessActiveWorkBlocker(IProcessOwner processes) : IActiveWorkBlocker
 {

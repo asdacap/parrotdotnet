@@ -10,9 +10,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Scriban" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Parrot.Composition" />
+    <InternalsVisibleTo Include="parrot" />
     <InternalsVisibleTo Include="Parrot.Tools.Tests" />
     <InternalsVisibleTo Include="Parrot.Core.Tests" />
+    <InternalsVisibleTo Include="Parrot.Cli.Tests" />
   </ItemGroup>
 
 </Project>

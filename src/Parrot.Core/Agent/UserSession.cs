@@ -60,7 +60,7 @@ internal sealed class UserSession : IUserSession
         TimeSpan userInputTimeout,
         TimeProvider timeProvider,
         Func<IEventBroker> createEventBroker,
-        Func<IAgentRegistry, IPromptTemplateCatalog, IStatusProvider> createRuntimeTreeStatus,
+        Func<IAgentRegistry, IPromptTemplateCatalog, IReadOnlyList<IStatusProvider>> createRuntimeStatusProviders,
         Stack<Func<ValueTask>> cleanup,
         CancellationTokenSource lifetime)
     {
@@ -123,10 +123,9 @@ internal sealed class UserSession : IUserSession
         Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _promptTemplates, retainedAgents, Diagnostics, _lifetime.Token);
         cleanup.Push(Registry.BeginShutdown);
         Status = new RuntimeStatus(
-            Registry,
             _promptTemplates,
             TimeProvider,
-            createRuntimeTreeStatus(Registry, _promptTemplates));
+            createRuntimeStatusProviders(Registry, _promptTemplates));
         Registry.AttachStatus(Status);
     }
 
@@ -183,7 +182,7 @@ internal sealed class UserSession : IUserSession
         TimeSpan userInputTimeout,
         TimeProvider timeProvider,
         Func<IEventBroker> createEventBroker,
-        Func<IAgentRegistry, IPromptTemplateCatalog, IStatusProvider> createRuntimeTreeStatus)
+        Func<IAgentRegistry, IPromptTemplateCatalog, IReadOnlyList<IStatusProvider>> createRuntimeStatusProviders)
     {
         var cleanup = new Stack<Func<ValueTask>>();
         var lifetime = new CancellationTokenSource();
@@ -205,7 +204,7 @@ internal sealed class UserSession : IUserSession
                 userInputTimeout,
                 timeProvider,
                 createEventBroker,
-                createRuntimeTreeStatus,
+                createRuntimeStatusProviders,
                 cleanup,
                 lifetime);
             session.Diagnostics.Write(new("session", "recovering", DiagnosticSeverity.Information));
