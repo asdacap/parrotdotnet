@@ -269,17 +269,6 @@ internal sealed class Compactor(
     private static List<LLMMessage> MessagesOf(IEnumerable<IReadOnlyList<LLMMessage>> groups) =>
         [.. groups.SelectMany(group => group)];
 
-    private static string BoundSummary(string summary, int maximumOutputTokens)
-    {
-        if (EstimateStringTokens(summary) <= maximumOutputTokens)
-        {
-            return summary;
-        }
-
-        var maximumCharacters = checked(maximumOutputTokens * 4);
-        return summary[..Math.Min(summary.Length, maximumCharacters)];
-    }
-
     private static long EstimateStringTokens(string value) => (value.Length + 3L) / 4L;
 
     private static long PercentageBudget(int contextWindow, int percentage)
@@ -291,6 +280,14 @@ internal sealed class Compactor(
 
         return ((long)contextWindow * percentage) / 100;
     }
+
+    private static long EstimateRetained(
+        ProviderModel selectedModel,
+        string instructions,
+        IReadOnlyList<LLMToolDefinition> tools,
+        LLMMessage fixedMessage,
+        IReadOnlyList<LLMMessage> retained) =>
+        EstimateInputTokens(selectedModel, instructions, tools, [fixedMessage, .. retained]);
 
     private async Task<CompactionResult?> CompactCore(
         ProviderModel selectedModel,
@@ -320,20 +317,7 @@ internal sealed class Compactor(
         var inputTokenLimit = selectedModel.Model.InputTokenLimit;
         var keepGroupFrom = groups.Count - 1;
         var retained = groups[^1].Messages.ToList();
-
-        while (keepGroupFrom > 1)
-        {
-            var candidate = groups[keepGroupFrom - 1].Messages.Concat(retained).ToList();
-            if (EstimateWithSummary(selectedModel, instructions, tools, fixedMessage, candidate) + 1 > targetBudget)
-            {
-                break;
-            }
-
-            retained = candidate;
-            keepGroupFrom--;
-        }
-
-        var naturalRequiredExceedsTarget = EstimateWithSummary(selectedModel, instructions, tools, fixedMessage, retained) + 1
+        var naturalRequiredExceedsTarget = EstimateRetained(selectedModel, instructions, tools, fixedMessage, retained) + 1
             > targetBudget;
         var checkpointCut = Enumerable.Range(0, groups.Count)
             .Where(index => groups[index].HasCheckpointBefore)
@@ -344,7 +328,7 @@ internal sealed class Compactor(
             })
             .Where(candidate =>
             {
-                var estimate = EstimateWithSummary(selectedModel, instructions, tools, fixedMessage, candidate.Retained) + 1;
+                var estimate = EstimateRetained(selectedModel, instructions, tools, fixedMessage, candidate.Retained) + 1;
                 return estimate <= targetBudget || (naturalRequiredExceedsTarget && estimate <= inputTokenLimit);
             })
             .OrderBy(candidate => Math.Abs(candidate.Index - keepGroupFrom))
@@ -369,21 +353,7 @@ internal sealed class Compactor(
             return null;
         }
 
-        var summaryBaseTokens = EstimateWithSummary(selectedModel, instructions, tools, fixedMessage, retained);
-        var targetExceededByRequiredContext = summaryBaseTokens + 1 > targetBudget;
-        var summaryBudget = (targetExceededByRequiredContext ? inputTokenLimit : targetBudget) - summaryBaseTokens;
-        if (summaryBudget <= 0)
-        {
-            throw new InvalidOperationException("The recent conversation leaves no room for a compaction summary.");
-        }
-
-        var summaryTokens = checked((int)Math.Min(summaryOutputTokens, summaryBudget));
         var inputBudget = Math.Min((long)maximumInputTokens, inputTokenLimit);
-        if (selectedModel.Model.ContextWindow > 0)
-        {
-            inputBudget = Math.Min(inputBudget, selectedModel.Model.ContextWindow - summaryTokens);
-        }
-
         if (inputBudget <= 0)
         {
             throw new InvalidOperationException("The selected model leaves no room for a compaction request.");
@@ -430,7 +400,7 @@ internal sealed class Compactor(
                     selectedModel,
                     summary,
                     chunk,
-                    summaryTokens,
+                    summaryOutputTokens,
                     providerSessions,
                     emitRetry,
                     cancellationToken);
@@ -465,7 +435,7 @@ internal sealed class Compactor(
                 selectedModel,
                 summary,
                 chunk,
-                summaryTokens,
+                summaryOutputTokens,
                 providerSessions,
                 emitRetry,
                 cancellationToken);
@@ -479,22 +449,9 @@ internal sealed class Compactor(
             throw new InvalidOperationException("The compacted conversation exceeds the selected model input limit.");
         }
 
-        if (!targetExceededByRequiredContext && compactedTokens > targetBudget)
-        {
-            throw new InvalidOperationException("The compacted conversation exceeds the configured target.");
-        }
-
         var watermark = keepGroupFrom == 0 ? baseWatermark : groups[keepGroupFrom - 1].EndWatermark;
         return new CompactionResult(compacted, summaryMessage, retained.Count, watermark);
     }
-
-    private long EstimateWithSummary(
-        ProviderModel selectedModel,
-        string instructions,
-        IReadOnlyList<LLMToolDefinition> tools,
-        LLMMessage fixedMessage,
-        IReadOnlyList<LLMMessage> retained) =>
-        EstimateInputTokens(selectedModel, instructions, tools, [LLMMessage.System(_summaryPrefix), fixedMessage, .. retained]);
 
     private long EstimateRequestTokens(
         ProviderModel selectedModel,
@@ -621,6 +578,6 @@ internal sealed class Compactor(
             }
         }
 
-        return summary is null ? null : BoundSummary(summary, maximumOutputTokens);
+        return summary;
     }
 }

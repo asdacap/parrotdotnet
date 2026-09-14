@@ -1536,12 +1536,11 @@ internal sealed class CompactorAndContextTests : IDisposable
         result = await compactor.Compact(new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 500 }), string.Empty, [], history, LLMMessage.User("fixed"), _compactionGroupBlobs, TestDiagnosticLog.Instance, "agent-test", cancellationToken);
         compacted = result?.History ?? throw new InvalidOperationException("Expected compaction.");
 
-        var assistant = compacted.Single(message => message.ToolCalls.Count > 0);
-        var assistantIndex = compacted.ToList().IndexOf(assistant);
-        _ = await Assert.That(assistant.ToolCalls).Count().IsEqualTo(2);
-        _ = await Assert.That(assistant.ToolCalls[0].Id).IsEqualTo("call-1");
-        _ = await Assert.That(compacted[assistantIndex + 1].ToolCallId).IsEqualTo("call-1");
-        _ = await Assert.That(compacted[assistantIndex + 2].ToolCallId).IsEqualTo("call-2");
+        // Only the last group is retained verbatim, so the tool-call group is summarised away.
+        _ = await Assert.That(result.RetainedDurableMessageCount).IsEqualTo(1);
+        _ = await Assert.That(compacted[^1].Content).IsEqualTo("latest");
+        _ = await Assert.That(compacted[0].Content).Contains("SUMMARY OF EARLIER");
+        _ = await Assert.That(compacted.Any(message => message.ToolCalls.Count > 0)).IsFalse();
     }
 
     [Test]
@@ -1728,9 +1727,9 @@ internal sealed class CompactorAndContextTests : IDisposable
                 cancellationToken)
                 ?? throw new InvalidOperationException("Expected compaction.");
             _ = await Assert.That(tiny.RetainedDurableMessageCount).IsEqualTo(1);
-            _ = await Assert.That(normal.RetainedDurableMessageCount).IsGreaterThan(tiny.RetainedDurableMessageCount);
-            _ = await Assert.That(Compactor.EstimateInputTokens(selection.CanonicalModel, string.Empty, [], normal.History)).IsLessThanOrEqualTo(300);
-            _ = await Assert.That(Compactor.EstimateInputTokens(selection.CanonicalModel, string.Empty, [], tiny.History)).IsLessThanOrEqualTo(1_000);
+            _ = await Assert.That(normal.RetainedDurableMessageCount).IsEqualTo(tiny.RetainedDurableMessageCount);
+            _ = await Assert.That(normal.History[^1].Content).IsEqualTo(groups[^1].Messages[0].Content);
+            _ = await Assert.That(tiny.History[^1].Content).IsEqualTo(groups[^1].Messages[0].Content);
 
             var unknown = selection with
             {
@@ -1759,7 +1758,7 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
-    public async Task Compaction_targets_percentage_and_retains_the_maximal_recent_suffix(
+    public async Task Compaction_retains_only_the_recent_group_and_excludes_the_summary_from_the_target(
         CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("summary");
@@ -1772,20 +1771,10 @@ internal sealed class CompactorAndContextTests : IDisposable
         var result = await compactor.Compact(model, "instructions", [], history, LLMMessage.User("fixed"), _compactionGroupBlobs, TestDiagnosticLog.Instance, "agent-test", cancellationToken)
             ?? throw new InvalidOperationException("Expected compaction.");
 
-        _ = await Assert.That(Compactor.EstimateInputTokens(model, "instructions", [], result.History))
-            .IsLessThanOrEqualTo(300);
+        _ = await Assert.That(result.RetainedDurableMessageCount).IsEqualTo(1);
         _ = await Assert.That(result.History[^1].Content).IsEqualTo(history[^1].Content);
-        _ = await Assert.That(result.RetainedDurableMessageCount).IsGreaterThan(0);
-        _ = await Assert.That(result.RetainedDurableMessageCount).IsLessThan(history.Count);
-        var immediatelyPreceding = history[history.Count - result.RetainedDurableMessageCount - 1];
-        IReadOnlyList<LLMMessage> withOneMore =
-        [
-            result.History[0],
-            result.History[1],
-            immediatelyPreceding,
-            .. result.History.Skip(2),
-        ];
-        _ = await Assert.That(Compactor.EstimateInputTokens(model, "instructions", [], withOneMore)).IsGreaterThan(300);
+        _ = await Assert.That(result.History).Count().IsEqualTo(3);
+        _ = await Assert.That(provider.Requests.Single().MaxTokens).IsEqualTo(1024);
     }
 
     [Test]
@@ -2335,12 +2324,13 @@ internal sealed class CompactorAndContextTests : IDisposable
             cancellationToken)
             ?? throw new InvalidOperationException("Expected compaction.");
 
-        _ = await Assert.That(result.RetainedDurableMessageCount).IsEqualTo(2);
+        _ = await Assert.That(result.RetainedDurableMessageCount).IsEqualTo(1);
+        _ = await Assert.That(result.History[^1].Contents.Count(part => part.Kind == LLMContentKind.Image)).IsEqualTo(1);
         _ = await Assert.That(Compactor.EstimateInputTokens(model, string.Empty, [], result.History)).IsLessThanOrEqualTo(500);
         _ = await Assert.That(provider.Requests.Count).IsGreaterThan(1);
         _ = await Assert.That(provider.Requests).All(request => Compactor.EstimateTokens(model, request.Messages) <= 600);
         _ = await Assert.That(provider.Requests.SelectMany(request => request.Messages)
-            .SelectMany(message => message.Contents).Count(part => part.Kind == LLMContentKind.Image)).IsEqualTo(6);
+            .SelectMany(message => message.Contents).Count(part => part.Kind == LLMContentKind.Image)).IsEqualTo(7);
         _ = await Assert.That(provider.Requests).All(request => request.Model == model.ModelId);
     }
 
