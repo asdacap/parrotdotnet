@@ -183,11 +183,11 @@ internal sealed class ChatGptProviderWebSocketTests
         ILLMProvider provider = new ChatGptProvider(new FixedOAuthTokenSource(), client, [], [], [], false, connector);
         await using var session = provider.OpenSession();
 
-        _ = await Drain(session.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxOutputTokens = 4096, Messages = [LLMMessage.User("hello")] }, cancellationToken));
+        _ = await Drain(session.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxTokens = 4096, Messages = [LLMMessage.User("hello")] }, cancellationToken));
         var continued = new LLMRequest
         {
             Model = "gpt-5.6-sol",
-            MaxOutputTokens = 4096,
+            MaxTokens = 4096,
             Messages =
             [
                 LLMMessage.User("hello"),
@@ -227,8 +227,8 @@ internal sealed class ChatGptProviderWebSocketTests
         ILLMProvider provider = new ChatGptProvider(new FixedOAuthTokenSource(), client, [], [], [], false, connector);
         await using var session = provider.OpenSession();
 
-        _ = await Drain(session.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxOutputTokens = 4096, Messages = [LLMMessage.User("one")] }, cancellationToken));
-        _ = await Drain(session.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxOutputTokens = 4096, Messages = [LLMMessage.User("two")] }, cancellationToken));
+        _ = await Drain(session.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxTokens = 4096, Messages = [LLMMessage.User("one")] }, cancellationToken));
+        _ = await Drain(session.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxTokens = 4096, Messages = [LLMMessage.User("two")] }, cancellationToken));
 
         _ = await Assert.That(connector.Calls).IsEqualTo(1);
         _ = await Assert.That(handler.Calls).IsEqualTo(2);
@@ -245,9 +245,9 @@ internal sealed class ChatGptProviderWebSocketTests
         await using var first = provider.OpenSession();
         await using var second = provider.OpenSession();
 
-        _ = await Drain(first.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxOutputTokens = 4096, Messages = [LLMMessage.User("one")] }, cancellationToken));
-        _ = await Drain(first.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxOutputTokens = 4096, Messages = [LLMMessage.User("two")] }, cancellationToken));
-        _ = await Drain(second.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxOutputTokens = 4096, Messages = [LLMMessage.User("three")] }, cancellationToken));
+        _ = await Drain(first.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxTokens = 4096, Messages = [LLMMessage.User("one")] }, cancellationToken));
+        _ = await Drain(first.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxTokens = 4096, Messages = [LLMMessage.User("two")] }, cancellationToken));
+        _ = await Drain(second.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxTokens = 4096, Messages = [LLMMessage.User("three")] }, cancellationToken));
 
         _ = await Assert.That(connector.Calls).IsEqualTo(0);
         _ = await Assert.That(handler.SessionIds).Count().IsEqualTo(3);
@@ -268,9 +268,9 @@ internal sealed class ChatGptProviderWebSocketTests
         await using var first = provider.OpenSession();
         await using var second = provider.OpenSession();
 
-        _ = await Drain(first.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxOutputTokens = 4096, Messages = [LLMMessage.User("one")] }, cancellationToken));
+        _ = await Drain(first.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxTokens = 4096, Messages = [LLMMessage.User("one")] }, cancellationToken));
         var firstSessionId = connector.HeadersByCall[0]["session-id"];
-        _ = await Drain(second.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxOutputTokens = 4096, Messages = [LLMMessage.User("two")] }, cancellationToken));
+        _ = await Drain(second.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxTokens = 4096, Messages = [LLMMessage.User("two")] }, cancellationToken));
         var secondSessionId = connector.HeadersByCall[1]["session-id"];
 
         _ = await Assert.That(connector.Calls).IsEqualTo(2);

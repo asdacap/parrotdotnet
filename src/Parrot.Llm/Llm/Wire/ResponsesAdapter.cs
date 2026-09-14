@@ -54,7 +54,7 @@ internal static class ResponsesAdapter
             Store = false,
             Reasoning = reasoning,
             Provider = WirePreferences.Normalize(request.ProviderPreferences),
-            MaxOutputTokens = request.MaxOutputTokens > 0 ? request.MaxOutputTokens : null,
+            MaxOutputTokens = request.MaxTokens > 0 ? request.MaxTokens : null,
         });
     }
 

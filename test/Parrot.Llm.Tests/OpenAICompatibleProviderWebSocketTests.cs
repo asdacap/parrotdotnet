@@ -409,7 +409,7 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
             Model = "model",
             Messages = [LLMMessage.User("hello")],
             Instructions = "same",
-            MaxOutputTokens = 1,
+            MaxTokens = 1,
         };
         var second = new LLMRequest
         {
@@ -420,7 +420,7 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
                 LLMMessage.User("next"),
             ],
             Instructions = instructions,
-            MaxOutputTokens = maxTokens,
+            MaxTokens = maxTokens,
         };
 
         _ = await Drain(session.Call(first, cancellationToken));

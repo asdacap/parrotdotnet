@@ -97,10 +97,10 @@ internal sealed class DrainTests : IDisposable
             ? (int)Math.Min(32_768, contextWindow - estimatedInputTokens - estimationHeadroom)
             : 32_768;
         _ = await Assert.That(expectedMaximumOutputTokens).IsGreaterThan(0);
-        _ = await Assert.That(request.MaxOutputTokens).IsEqualTo(expectedMaximumOutputTokens);
+        _ = await Assert.That(request.MaxTokens).IsEqualTo(expectedMaximumOutputTokens);
         if (contextWindow > 0)
         {
-            _ = await Assert.That(estimatedInputTokens + request.MaxOutputTokens).IsLessThanOrEqualTo(contextWindow);
+            _ = await Assert.That(estimatedInputTokens + request.MaxTokens).IsLessThanOrEqualTo(contextWindow);
         }
 
         provider.Release();
@@ -127,9 +127,9 @@ internal sealed class DrainTests : IDisposable
         _ = await session.Send([ConversationPart.TextPart("second prompt")], "message-2", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
         var request = provider.Requests[1];
-        _ = await Assert.That(request.MaxOutputTokens).IsGreaterThan(0);
-        _ = await Assert.That(reportedInputTokens + request.MaxOutputTokens).IsLessThanOrEqualTo(contextWindow);
-        _ = await Assert.That(request.MaxOutputTokens).IsLessThan(32_768);
+        _ = await Assert.That(request.MaxTokens).IsGreaterThan(0);
+        _ = await Assert.That(reportedInputTokens + request.MaxTokens).IsLessThanOrEqualTo(contextWindow);
+        _ = await Assert.That(request.MaxTokens).IsLessThan(32_768);
         provider.Release();
         await session.Settled();
     }

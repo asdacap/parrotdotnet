@@ -7,7 +7,7 @@ internal sealed record ModelConfig
 
     public int Context { get; init; }
 
-    public int MaxOutputTokens { get; init; }
+    public int MaxTokens { get; init; }
 
     public int MaxInputTokens { get; init; }
 
