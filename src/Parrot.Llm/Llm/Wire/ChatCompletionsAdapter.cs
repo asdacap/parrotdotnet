@@ -319,6 +319,9 @@ internal static class ChatCompletionsAdapter
         [JsonPropertyName("include_router_metadata")]
         public bool? IncludeRouterMetadata { get; init; }
 
+        // OpenRouter's require_parameters routing filter only recognizes
+        // max_tokens; max_completion_tokens (alone or alongside max_tokens)
+        // fails with 404 "No endpoints found ... Filter by Parameters".
         [JsonPropertyName("max_tokens")]
         public int? MaxTokens { get; init; }
     }
