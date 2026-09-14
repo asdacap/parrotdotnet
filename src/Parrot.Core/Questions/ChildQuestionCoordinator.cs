@@ -1,6 +1,8 @@
 using System.Text;
 using Parrot.Agent;
 using Parrot.Config;
+using Parrot.Protocol;
+using Parrot.Store;
 
 namespace Parrot.Questions;
 
@@ -61,9 +63,11 @@ internal sealed class ChildQuestionCoordinator(
 
         try
         {
-            await parent.ReceiveChildQuestion(
-                FormatSteer(pending),
+            _ = await parent.Send(
+                [ConversationPart.TextPart(FormatSteer(pending))],
                 pending.Id,
+                Delivery.Steer,
+                new IncomingActivity(IncomingActivityKind.Input, string.Empty),
                 CancellationToken.None).ConfigureAwait(false);
             return await pending.Answer.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }

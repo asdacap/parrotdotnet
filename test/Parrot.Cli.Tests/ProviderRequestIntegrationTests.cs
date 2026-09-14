@@ -118,7 +118,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
         var displaying = rendering.Run(stream.Reader, cancellationToken);
         try
         {
-            _ = await agent.Send([ConversationPart.TextPart("hello")], "message", Delivery.Steer, cancellationToken);
+            _ = await agent.Send([ConversationPart.TextPart("hello")], "message", Delivery.Steer, new IncomingActivity(IncomingActivityKind.Input, string.Empty), cancellationToken);
             await handler.RequestEntered.Task.WaitAsync(cancellationToken);
             await requesting.Task.WaitAsync(cancellationToken);
             var beforeHeaders = output.GetStringBuilder().Length;

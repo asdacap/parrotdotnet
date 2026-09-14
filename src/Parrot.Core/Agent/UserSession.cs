@@ -357,7 +357,12 @@ internal sealed class UserSession : IUserSession
         Delivery delivery,
         CancellationToken cancellationToken)
     {
-        var (admission, _) = await Main().Send(parts, messageId, delivery, cancellationToken)
+        var (admission, _) = await Main().Send(
+            parts,
+            messageId,
+            delivery,
+            new IncomingActivity(IncomingActivityKind.Input, string.Empty),
+            cancellationToken)
             .ConfigureAwait(false);
         return admission;
     }

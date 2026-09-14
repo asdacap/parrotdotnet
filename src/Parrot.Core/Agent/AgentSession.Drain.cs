@@ -335,7 +335,11 @@ internal sealed partial class AgentSession
             if (selectedDrain is null)
             {
                 _ = await Send(
-                    [ConversationPart.TextPart(prompt)], messageId, Delivery.Steer, cancellationToken).ConfigureAwait(false);
+                    [ConversationPart.TextPart(prompt)],
+                    messageId,
+                    Delivery.Steer,
+                    new IncomingActivity(IncomingActivityKind.Input, string.Empty),
+                    cancellationToken).ConfigureAwait(false);
                 completed = BoundResult(await WaitForDrainResult().ConfigureAwait(false));
             }
             else
@@ -422,9 +426,11 @@ internal sealed partial class AgentSession
             {
                 if (parent.ChildRegistry.IsAccepting)
                 {
-                    await parent.Session.ReceiveAgentCompletion(
-                        identity.Name,
-                        completed.FormatCompletion(identity, parent.Session.Identity.PromptTemplates),
+                    _ = await parent.Session.Send(
+                        [ConversationPart.TextPart(completed.FormatCompletion(identity, parent.Session.Identity.PromptTemplates))],
+                        Identifier.MessageId(),
+                        Delivery.Steer,
+                        new IncomingActivity(IncomingActivityKind.AgentCompletion, identity.Name),
                         CancellationToken.None).ConfigureAwait(false);
                 }
             }
