@@ -24,6 +24,9 @@ internal interface IChildQuestionCoordinator
     /// <summary>Authorizes the parent scope before answering its direct child.</summary>
     void ReplyFromParent(IAgentParentScope parentScope, string childSessionId, QuestionReply reply);
 
+    /// <summary>Resolves a direct child's friendly name after authorizing it against this coordinator's owner.</summary>
+    string ResolveDirectChildName(string childSessionId);
+
     /// <summary>Rejects pending requests and releases completion waiters.</summary>
     void Dispose();
 }

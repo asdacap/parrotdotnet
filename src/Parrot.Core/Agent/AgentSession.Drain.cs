@@ -165,7 +165,7 @@ internal sealed partial class AgentSession
             execution = admitted.SelectedDrain;
         }
 
-        return (new AgentSendResult(SessionId, Name, messageId, followUp), execution);
+        return (new AgentSendResult(Name, messageId, followUp), execution);
     }
 
     private Task<AgentExecution> EnqueueExecution(string prompt, CancellationToken cancellationToken)

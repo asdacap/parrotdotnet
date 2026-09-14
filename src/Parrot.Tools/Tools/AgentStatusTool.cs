@@ -128,7 +128,6 @@ internal sealed class AgentStatusTool(
     private static string Format(IAgentSessionScope childScope, AgentSessionActivitySnapshot activity)
     {
         var report = new StringBuilder("Agent status");
-        _ = report.Append("\nSession: ").Append(childScope.Session.SessionId);
         _ = report.Append("\nName: ").Append(childScope.Session.Name);
         _ = report.Append("\nLifecycle: ").Append(activity.State.ToString().ToLowerInvariant());
         AppendActivity(report, activity);
@@ -158,7 +157,7 @@ internal sealed class AgentStatusTool(
         {
             foreach (var child in activeChildren)
             {
-                _ = report.Append("\n- ").Append(child.Name).Append(" (").Append(child.Id).Append(')');
+                _ = report.Append("\n- ").Append(child.Name);
             }
         }
 

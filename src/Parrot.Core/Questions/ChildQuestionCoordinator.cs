@@ -171,6 +171,9 @@ internal sealed class ChildQuestionCoordinator(
         Reply(childSessionId, reply);
     }
 
+    public string ResolveDirectChildName(string childSessionId) =>
+        ownerScope.AuthorizeDirectChild(childSessionId).Session.Name;
+
     public void Dispose()
     {
         PendingRequest[] pending;

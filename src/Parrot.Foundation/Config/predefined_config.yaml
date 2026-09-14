@@ -371,9 +371,9 @@ prompt_templates:
     allowed_arguments: [question, answer]
     required_arguments: [question, answer]
   tool-result.question-replied:
-    template: 'Answered the pending question from child agent {agent_session_id}.'
-    allowed_arguments: [agent_session_id]
-    required_arguments: [agent_session_id]
+    template: 'Answered the pending question from child agent {agent_name}.'
+    allowed_arguments: [agent_name]
+    required_arguments: [agent_name]
   tool-result.error:
     template: 'error: {message}'
     allowed_arguments: [message]
@@ -1060,8 +1060,7 @@ tools:
       - session_id
       additionalProperties: false
   agent_spawn:
-    description: Start a child agent in an isolated session and return its session ID immediately. Friendly names are unique
-      among this session's direct children. Its terminal result is automatically sent to this session.
+    description: 'Start a child agent in an isolated session and return immediately. The required name identifies the child among this session''s direct children: an existing idle child with the same normalized name is resumed with the new prompt, model, and profile; an existing running child fails the call. Its terminal result is automatically sent to this session.'
     parameters:
       type: object
       properties:
@@ -1078,19 +1077,20 @@ tools:
           description: Optional configured model. Default follows caller model.
         name:
           type: string
-          description: Optional friendly name. It is lowercased and sanitized to letters, digits, and hyphens; omitted or
-            empty names are generated.
+          minLength: 1
+          description: 'Required friendly name, unique among this session''s direct children after lowercasing and sanitizing to letters, digits, and hyphens. An existing idle child with this name is resumed instead of creating a new agent; a running child fails the call.'
         scope:
           type: string
-          description: Optional problem-space scope for the child; omitted or empty inherits the parent's effective scope. Specify this to prevent subagent for doing redundant work with other agent.
+          description: Optional problem-space scope for the child; omitted or empty inherits the parent's effective scope. Specify this to prevent subagent for doing redundant work with other agent. Ignored when resuming an existing child.
         fork:
           type: string
           default: empty
           description: 'Conversation history for the child: default to no history; `full` gives the
-            parent''s effective history; a checkpoint title gives history from that checkpoint.'
+            parent''s effective history; a checkpoint title gives history from that checkpoint. Ignored when resuming an existing child.'
       required:
       - prompt
       - agent
+      - name
       additionalProperties: false
   edit:
     description: Replace exact, case-sensitive text in an existing UTF-8 file. With replace_all false exactly one match is

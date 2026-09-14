@@ -108,11 +108,12 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             new TurnFixture(parent, router).Selection,
             cancellationToken)).Text;
 
-        _ = await Assert.That(report).Contains($"Session: {child.SessionId}");
+        _ = await Assert.That(report).Contains("\nName: child");
+        _ = await Assert.That(report).DoesNotContain(child.SessionId);
         _ = await Assert.That(report).Contains("Request session duration: 2.0s");
         _ = await Assert.That(report).Contains("Current provider request duration: 2.0s");
         _ = await Assert.That(report).Contains("Current tool: wait");
-        _ = await Assert.That(report).Contains($"- grandchild ({grandchild.SessionId})");
+        _ = await Assert.That(report).Contains("\n- grandchild\n");
         _ = await Assert.That(report).Contains("assistant message (2.0s ago): line one\n  line two");
         _ = await Assert.That(rejected).StartsWith("error: child agent not found:");
 

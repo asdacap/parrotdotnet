@@ -77,6 +77,35 @@ internal sealed class AgentSpawner : IAgentSpawner
         }
     }
 
+    public IAgentSessionScope SpawnOrResumeScope(AgentLaunchRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        lock (_spawnGate)
+        {
+            var name = Sanitize(request.RequestedName);
+            if (name.Length == 0)
+            {
+                throw new AgentRegistryException("child agent name must contain at least one letter or digit");
+            }
+
+            var existing = _children.FindNamedChildScope(name);
+            if (existing is not null)
+            {
+                return ResumeOrReject(existing, request);
+            }
+
+            var candidate = request with { RequestedName = name };
+            try
+            {
+                return SpawnScopeCandidate(candidate, 0);
+            }
+            catch (ChildNameConflictException)
+            {
+                return ResumeOrReject(_children.ResolveNamedChildScope(name), request);
+            }
+        }
+    }
+
     public void ReleaseRetainedAgent(string sessionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
@@ -146,6 +175,26 @@ internal sealed class AgentSpawner : IAgentSpawner
         }
 
         return conflictingNames == 0 ? basis : $"{basis}-{conflictingNames + 1}";
+    }
+
+    private IAgentSessionScope ResumeOrReject(IAgentSessionScope scope, AgentLaunchRequest request)
+    {
+        if (scope.Session.IsActive())
+        {
+            throw new AgentRegistryException(
+                $"child agent '{scope.Session.Name}' is busy; wait for it to finish or use agent_send");
+        }
+
+        var profile = _authority.ResolveChildProfile(request.RequestedProfile);
+        var lineage = scope.Session.ResolvePolicyLineage();
+        if (lineage.CountProfile(profile.Id) >= profile.RecursionLimit)
+        {
+            throw new AgentRegistryException("subagent profile recursion limit reached");
+        }
+
+        var securityProfile = lineage.Resolve(profile.SecurityProfile);
+        scope.Session.UpdateSelection(request.Model, new NoopMode(profile, securityProfile));
+        return scope;
     }
 
     private IAgentSessionScope SpawnScopeCandidate(AgentLaunchRequest request, int conflictingNames)

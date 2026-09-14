@@ -493,8 +493,12 @@ uses the existing friendly-name normalization (lowercase letters, numbers, and
 hyphens), and concurrent requests for the same normalized name reuse one session.
 Identical names under different parents remain separate. Punctuation-only names
 retain the existing random-name fallback and cannot reuse an agent through the
-nonempty normalized-name lookup. Ordinary `agent_spawn` still creates a new agent
-with a suffixed name on collision.
+nonempty normalized-name lookup. `agent_spawn` requires a `name` unique among the calling agent's direct
+children after normalization. An existing idle child with the same normalized
+name is resumed with the new prompt, model, and profile; an existing running
+child fails the call with an error naming it. No suffix naming occurs on the
+tool path. AgentTask retained reuse via `GetOrSpawnScope` still reuses existing
+same-name children and never suffixes.
 
 Composite tasks use one retained composite agent for distinct preparation and
 validation turns, and that agent owns the recursively executed nested child
@@ -873,6 +877,7 @@ the spawn; the current spawn group is incomplete and is excluded. Thus another t
 call in the same provider batch cannot use a checkpoint created by that batch.
 Unknown titles, checkpoints no longer represented by the effective history, and
 same-batch checkpoints fail rather than silently selecting a different range.
+The fork argument is ignored when resuming an existing child.
 
 Compaction reshapes effective history. It preserves only the summary, applicable
 status, and retained tail, so a checkpoint compacted out of that material is no
@@ -1031,9 +1036,12 @@ turn. Retargeting an alias affects the next turn only; an active turn, including
 its tool rounds, continues to use its captured canonical route and matching
 prompt configuration.
 
-A spawned child runs independently and `agent_spawn` returns its session ID
-immediately. Friendly child names are unique only among one agent's direct
-children. `agent_send` can address the sender's direct parent or a descendant
+A spawned child runs independently and `agent_spawn` returns its name
+immediately. The name is required and unique among one agent's direct children
+after normalization: an existing idle child with the same normalized name is
+resumed with the new prompt, model, and profile (scope and fork arguments are
+ignored on resume), and an existing running child fails the call with an error
+naming it. `agent_send` can address the sender's direct parent or a descendant
 within the sender's own descendant tree and user session. A descendant uses a
 relative, slash-separated friendly-name path such as `child/grandchild`; paths
 travel only downward, cannot traverse upward, and do not authorize arbitrary
@@ -1049,10 +1057,13 @@ flight, the message can join that turn at its next provider boundary. This diffe
 from internal `SendAndWaitForResult` calls, which reserve a distinct subsequent
 execution. When each child execution finishes, Parrot automatically sends its
 terminal status and result to its direct parent as normal steering input.
+Agent tool outputs (`agent_spawn`, `agent_send`, `agent_status`, `answer`)
+expose agent names instead of agent session ids; tool inputs still accept
+session ids for direct parent and direct child addressing.
 `agent_spawn.scope` is optional. When omitted or empty, it inherits the
 parent's scope. A supplied scope changes only the scope hierarchy in the child
 prompt; it is informational only and does not change permissions, session
-ownership, or tool access.
+ownership, or tool access. It is ignored when resuming an existing child.
 
 The generic `wait` tool pauses for incoming activity and returns early for a new
 message, direct-child completion, unclaimed yielded-process completion. A

@@ -87,15 +87,104 @@ internal sealed class AgentSpawnerTests
         _ = await Assert.That(fixture.Root.ChildRegistry.SnapshotDescendants()).Count().IsEqualTo(2);
     }
 
+    [Test]
+    [Arguments("!!!")]
+    [Arguments("")]
+    public async Task Spawn_or_resume_rejects_names_without_alphanumeric_characters(
+        string requestedName,
+        CancellationToken cancellationToken)
+    {
+        await using var fixture = new SpawnerFixture(2, cancellationToken);
+        var request = fixture.Request with { RequestedName = requestedName };
+
+        var rejected = await Assert.That(() => fixture.Root.AgentSpawner.SpawnOrResumeScope(request))
+            .Throws<AgentRegistryException>();
+        _ = await Assert.That(rejected?.Message).IsEqualTo("child agent name must contain at least one letter or digit");
+        _ = await Assert.That(fixture.Root.ChildRegistry.SnapshotDescendants()).IsEmpty();
+    }
+
+    [Test]
+    public async Task Spawn_or_resume_fails_while_the_named_child_is_running_and_resumes_once_idle(
+        CancellationToken cancellationToken)
+    {
+        await using var fixture = new SpawnerFixture(2, cancellationToken);
+        var request = fixture.Request with { RequestedName = "Busy Helper!" };
+        var child = fixture.Root.AgentSpawner.SpawnOrResumeScope(request);
+        var completion = child.Session.SendAndWaitForResult("first work", cancellationToken);
+        await fixture.Provider.Arrived(cancellationToken);
+
+        var busy = await Assert.That(() => fixture.Root.AgentSpawner.SpawnOrResumeScope(request))
+            .Throws<AgentRegistryException>();
+        _ = await Assert.That(busy?.Message).Contains($"child agent '{child.Session.Name}' is busy");
+        _ = await Assert.That(fixture.Root.ChildRegistry.SnapshotDescendants()).HasSingleItem();
+
+        fixture.Provider.Release();
+        _ = await completion;
+
+        var before = child.Session.CurrentSelection();
+        var resumed = fixture.Root.AgentSpawner.SpawnOrResumeScope(request with
+        {
+            RequestedScope = "ignored scope",
+            Fork = HistoryForkSelection.Parse("full"),
+        });
+        _ = await Assert.That(resumed).IsSameReferenceAs(child);
+        _ = await Assert.That(resumed.Session.Identity.Scope).IsSameReferenceAs(child.Session.Identity.Scope);
+        _ = await Assert.That(resumed.Session.CurrentSelection().RequestedModel).IsEqualTo(before.RequestedModel);
+        _ = await Assert.That(fixture.Root.ChildRegistry.SnapshotDescendants()).HasSingleItem();
+    }
+
+    [Test]
+    public async Task Spawn_or_resume_applies_a_new_model_and_profile_on_resume(CancellationToken cancellationToken)
+    {
+        await using var fixture = new SpawnerFixture(2, cancellationToken);
+        var request = fixture.Request with { RequestedProfile = "worker", RequestedName = "helper" };
+        var child = fixture.Root.AgentSpawner.SpawnOrResumeScope(request);
+        var originalScope = child.Session.Identity.Scope;
+        var firstWork = child.Session.SendAndWaitForResult("first work", cancellationToken);
+        await fixture.Provider.Arrived(cancellationToken);
+        fixture.Provider.Release();
+        _ = await firstWork;
+
+        var originalProfile = child.Session.CurrentSelection().Profile.Id;
+        var request2 = fixture.Request with { RequestedProfile = "explorer", RequestedName = "helper" };
+        var resumed = fixture.Root.AgentSpawner.SpawnOrResumeScope(request2);
+
+        _ = await Assert.That(originalProfile).IsEqualTo("worker");
+        _ = await Assert.That(resumed).IsSameReferenceAs(child);
+        _ = await Assert.That(resumed.Session.CurrentSelection().Profile.Id).IsEqualTo("explorer");
+        _ = await Assert.That(resumed.Session.Identity.Scope).IsSameReferenceAs(originalScope);
+        _ = await Assert.That(resumed.ParentScope.DeliveryPolicy).IsEqualTo(AgentCompletionDeliveryPolicy.RetainedOnly);
+    }
+
+    [Test]
+    public async Task Concurrent_spawn_or_resume_constructs_one_shared_session(CancellationToken cancellationToken)
+    {
+        await using var fixture = new SpawnerFixture(4, cancellationToken);
+        var request = fixture.Request with { RequestedName = "SHARED..Helper" };
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var callers = Enumerable.Range(0, 8).Select(async _ =>
+        {
+            await start.Task.WaitAsync(cancellationToken);
+            return fixture.Root.AgentSpawner.SpawnOrResumeScope(request);
+        }).ToArray();
+        start.SetResult();
+        var children = await Task.WhenAll(callers);
+
+        _ = await Assert.That(children.All(child => ReferenceEquals(child, children[0]))).IsTrue();
+        _ = await Assert.That(fixture.Root.ChildRegistry.SnapshotDescendants()).HasSingleItem();
+        _ = await Assert.That(children[0].Session.Name).IsEqualTo("shared-helper");
+    }
+
     private sealed class SpawnerFixture : IAsyncDisposable
     {
         private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
         private readonly IEventBroker _broker = new EventBroker();
-        private readonly SteppedProvider _provider = new();
+        private readonly SteppedProvider _provider;
         private readonly IAgentRegistry _registry;
 
         public SpawnerFixture(int retainedCapacity, CancellationToken cancellationToken)
         {
+            _provider = Provider;
             var repository = new EventRepository(_database);
             var router = TestModels.Route(new ProviderModel(_provider, new LLMModel("model", _provider.Id)));
             var sessions = new AgentTaskTestSessionFactory(router);
@@ -136,6 +225,8 @@ internal sealed class AgentSpawnerTests
         public IAgentSessionScope Root { get; }
 
         public AgentLaunchRequest Request { get; }
+
+        public SteppedProvider Provider { get; } = new();
 
         public async ValueTask DisposeAsync()
         {
