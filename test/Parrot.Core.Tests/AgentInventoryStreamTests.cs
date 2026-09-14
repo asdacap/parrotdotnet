@@ -18,6 +18,7 @@ namespace Parrot.Core.Tests;
 internal sealed class AgentInventoryStreamTests
 {
     [Test]
+    [Timeout(30_000)]
     [Arguments(true)]
     [Arguments(false)]
     public async Task Domain_publisher_captures_without_subscription_and_publishes_lifecycle_snapshots(
@@ -104,6 +105,7 @@ internal sealed class AgentInventoryStreamTests
     }
 
     [Test]
+    [Timeout(30_000)]
     public async Task Listener_observes_updates_during_initial_capture_without_announcing_rejected_scopes(
         CancellationToken cancellationToken)
     {
@@ -151,6 +153,7 @@ internal sealed class AgentInventoryStreamTests
     }
 
     [Test]
+    [Timeout(30_000)]
     [Arguments(true)]
     [Arguments(false)]
     public async Task Listener_captures_admitted_owners_and_observes_later_admission_removal_and_reconnection(
@@ -244,6 +247,7 @@ internal sealed class AgentInventoryStreamTests
     }
 
     [Test]
+    [Timeout(30_000)]
     [Arguments(true)]
     [Arguments(false)]
     public async Task Disposing_scope_with_held_shell_claim_completes_local_inventory_streams(
