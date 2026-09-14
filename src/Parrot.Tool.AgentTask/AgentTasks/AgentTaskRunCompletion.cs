@@ -1,5 +1,7 @@
 using Parrot.Agent;
 using Parrot.Config;
+using Parrot.Protocol;
+using Parrot.Store;
 
 namespace Parrot.AgentTasks;
 
@@ -47,17 +49,19 @@ internal sealed class AgentTaskRunCompletion(
         var message = await messageTask.WaitAsync(cancellationToken).ConfigureAwait(false);
         if (wakeCaller)
         {
-            await session.ReceiveAgentTaskCompletion(
-                terminal.RunId,
-                message,
+            _ = await session.Send(
+                [ConversationPart.TextPart(message)],
                 terminal.CompletionMessageId,
+                Delivery.Steer,
+                new IncomingActivity(terminal.RunId, $"AgentTask graph {terminal.RunId} completion"),
                 cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            await session.RecordAgentTaskCompletion(
-                message,
+            await session.Record(
+                [ConversationPart.TextPart(message)],
                 terminal.CompletionMessageId,
+                Delivery.Steer,
                 cancellationToken).ConfigureAwait(false);
         }
 

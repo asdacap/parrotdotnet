@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Diagnostics;
@@ -247,7 +248,8 @@ internal partial class Composition
                     skillCatalogFactory,
                     configuration.UserInputTimeout,
                     TimeProvider.System,
-                    static (agents, templates) => [new RuntimeTreeStatusProvider(agents, templates), new AgentTaskStatusProvider(agents, templates)]);
+                    static (agents, templates) => [new RuntimeTreeStatusProvider(agents, templates), new AgentTaskStatusProvider(agents, templates)],
+                    AgentTaskParser.ParseArtifact);
             })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>

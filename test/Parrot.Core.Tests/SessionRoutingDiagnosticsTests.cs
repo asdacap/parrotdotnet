@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Diagnostics;
@@ -56,7 +57,8 @@ internal sealed class SessionRoutingDiagnosticsTests
                 new SkillCatalogFactory(configuration, root, Path.Combine(root, "skills")),
                 TimeSpan.FromSeconds(30),
                 TimeProvider.System,
-                TestModels.RuntimeStatusProviders);
+                TestModels.RuntimeStatusProviders,
+                AgentTaskParser.ParseArtifact);
             var store = new SessionStore(paths, root, "host", factory, router, modes, diagnostics);
             string firstId;
             string firstLogPath;

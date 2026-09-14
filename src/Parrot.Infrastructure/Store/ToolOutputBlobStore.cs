@@ -1,7 +1,7 @@
 using System.Text;
 using Parrot.Process;
 
-namespace Parrot.Agent;
+namespace Parrot.Store;
 
 internal sealed class ToolOutputBlobStore
 {

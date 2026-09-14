@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Events;
 using Parrot.Llm;
@@ -254,7 +255,7 @@ internal sealed class AgentQueueTests : IDisposable
             configuration.DefaultProfile,
             lease,
             sessions,
-            new UserSessionModes(modes, configuration.PromptTemplates),
+            new UserSessionModes(modes, configuration.PromptTemplates, AgentTaskParser.ParseArtifact),
             configuration.PromptTemplates,
             profiles,
             new SkillCatalogFactory(configuration, _root, Path.Combine(_root, "skills")),

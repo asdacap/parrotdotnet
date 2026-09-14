@@ -441,54 +441,16 @@ internal sealed partial class AgentSession(
         };
     }
 
-    public async Task ReceiveAgentTaskCompletion(
-        string runId,
-        string message,
+    public async Task Record(
+        IReadOnlyList<ConversationPart> parts,
         string messageId,
+        Delivery delivery,
         CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(runId);
-        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(parts);
         ArgumentException.ThrowIfNullOrWhiteSpace(messageId);
 
-        _ = await AdmitPartsAndWake(
-            [ConversationPart.TextPart(message)],
-            messageId,
-            Delivery.Steer,
-            new IncomingActivity(runId, $"AgentTask graph {runId} completion"),
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    public async Task RecordAgentTaskCompletion(
-        string message,
-        string messageId,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(message);
-        ArgumentException.ThrowIfNullOrWhiteSpace(messageId);
-
-        var admission = eventRepository.AdmitParts(
-            SessionId,
-            messageId,
-            [ConversationPart.TextPart(message)],
-            Delivery.Steer,
-            input =>
-            {
-                var admitted = new InputAdmitted
-                {
-                    InputId = input.Id,
-                    MessageId = input.MessageId,
-                    Content = input.Content,
-                    Delivery = input.Delivery,
-                };
-                admitted.Parts.AddRange(input.Parts.Select(ToProtocol));
-                return new Event
-                {
-                    Id = Identifier.EventId(),
-                    AgentSessionId = SessionId,
-                    InputAdmitted = admitted,
-                };
-            });
+        var admission = AdmitParts(parts, messageId, delivery);
         if (admission.Published is not null)
         {
             await eventBroker.PublishWithCancellation(admission.Published, cancellationToken).ConfigureAwait(false);

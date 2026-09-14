@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Diagnostics;
@@ -141,7 +142,7 @@ internal sealed class StatusDrainTests : IDisposable
             ModeRegistry.Plan,
             Resources(database, "repair-user"),
             sessions,
-            new UserSessionModes(modes, TestModels.PromptTemplates, Path.Combine(_root, "sessions", "repair-user", "plan")),
+            new UserSessionModes(modes, TestModels.PromptTemplates, Path.Combine(_root, "sessions", "repair-user", "plan"), AgentTaskParser.ParseArtifact),
             TestModels.PromptTemplates,
             new TestProfileFixture().Registry,
             SkillCatalogFactory(),
@@ -221,7 +222,7 @@ internal sealed class StatusDrainTests : IDisposable
             ModeRegistry.Plan,
             Resources(database, "user"),
             sessions,
-            new UserSessionModes(modes, TestModels.PromptTemplates, Path.Combine(_root, "sessions", "user", "plan")),
+            new UserSessionModes(modes, TestModels.PromptTemplates, Path.Combine(_root, "sessions", "user", "plan"), AgentTaskParser.ParseArtifact),
             TestModels.PromptTemplates,
             new TestProfileFixture().Registry,
             SkillCatalogFactory(),
@@ -439,7 +440,7 @@ internal sealed class StatusDrainTests : IDisposable
             ModeRegistry.Build,
             Resources(database, "user"),
             sessions,
-            new UserSessionModes(modes, TestModels.PromptTemplates, Path.Combine(_root, "sessions", "user", "plan")),
+            new UserSessionModes(modes, TestModels.PromptTemplates, Path.Combine(_root, "sessions", "user", "plan"), AgentTaskParser.ParseArtifact),
             TestModels.PromptTemplates,
             new TestProfileFixture().Registry,
             SkillCatalogFactory(),

@@ -5,7 +5,10 @@ using Parrot.Store;
 
 namespace Parrot.Agent;
 
-internal sealed class UserSessionModes(ModeRegistry modes, IPromptTemplateCatalog promptTemplates)
+internal sealed class UserSessionModes(
+    ModeRegistry modes,
+    IPromptTemplateCatalog promptTemplates,
+    Func<string, AgentTaskArtifact> parseTaskArtifact)
 {
     private readonly Lock _planGate = new();
     private readonly ModeRegistry _modes = modes ?? throw new ArgumentNullException(nameof(modes));
@@ -16,8 +19,12 @@ internal sealed class UserSessionModes(ModeRegistry modes, IPromptTemplateCatalo
     private string _planArtifact = string.Empty;
     private string _taskArtifact = string.Empty;
 
-    internal UserSessionModes(ModeRegistry modes, IPromptTemplateCatalog promptTemplates, string planDirectory)
-        : this(modes, promptTemplates) =>
+    internal UserSessionModes(
+        ModeRegistry modes,
+        IPromptTemplateCatalog promptTemplates,
+        string planDirectory,
+        Func<string, AgentTaskArtifact> parseTaskArtifact)
+        : this(modes, promptTemplates, parseTaskArtifact) =>
         _mainScratch = new AgentScratchDirectory(
             Path.GetDirectoryName(planDirectory)
             ?? throw new ArgumentException("A plan directory must have a parent.", nameof(planDirectory)));
@@ -202,7 +209,7 @@ internal sealed class UserSessionModes(ModeRegistry modes, IPromptTemplateCatalo
         AgentTaskArtifact tasks;
         try
         {
-            tasks = AgentTaskParser.ParseArtifact(taskJson);
+            tasks = parseTaskArtifact(taskJson);
         }
         catch (ArgumentException failure)
         {

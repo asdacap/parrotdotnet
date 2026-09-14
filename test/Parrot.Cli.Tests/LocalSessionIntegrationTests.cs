@@ -1,5 +1,6 @@
 using Grpc.Core;
 using Parrot.Agent;
+using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Diagnostics;
@@ -309,7 +310,8 @@ internal sealed class LocalSessionIntegrationTests
                 new SkillCatalogFactory(configuration, workspace.Root, Path.Combine(workspace.Root, "skills")),
                 TimeSpan.FromSeconds(30),
                 TimeProvider.System,
-                static (agents, templates) => [new RuntimeTreeStatusProvider(agents, templates), new AgentTaskStatusProvider(agents, templates)]);
+                static (agents, templates) => [new RuntimeTreeStatusProvider(agents, templates), new AgentTaskStatusProvider(agents, templates)],
+                AgentTaskParser.ParseArtifact);
             _diagnostics = new DiagnosticLogs(workspace.Paths, FileDiagnosticLog.CreateInstanceId(), TextWriter.Null, TimeProvider.System);
             Store = new SessionStore(workspace.Paths, workspace.Root, "host", factory, router, modes, _diagnostics);
             _service = new ParrotService(

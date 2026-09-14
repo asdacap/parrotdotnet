@@ -162,10 +162,11 @@ internal sealed class WaitToolTests : IAsyncDisposable
             TimeProvider.System);
         var waiting = tool.Execute(new Parrot.Tools.ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken);
 
-        await session.ReceiveAgentTaskCompletion(
-            "graph-call",
-            "completed",
+        _ = await session.Send(
+            [ConversationPart.TextPart("completed")],
             Identifier.MessageId(),
+            Delivery.Steer,
+            new IncomingActivity("graph-call", "AgentTask graph graph-call completion"),
             cancellationToken);
 
         _ = await Assert.That((await waiting).Text)

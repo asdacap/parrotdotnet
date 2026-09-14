@@ -210,9 +210,7 @@ internal sealed class AgentInterruptToolTests
 
         public Task<string> SendAndWaitForResult(string prompt, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task ReceiveAgentTaskCompletion(string runId, string message, string messageId, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public Task RecordAgentTaskCompletion(string message, string messageId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task Record(IReadOnlyList<ConversationPart> parts, string messageId, Delivery delivery, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task<WaitAgentResult> Wait(int yieldAfterMilliseconds, CancellationToken cancellationToken) => throw new NotSupportedException();
 

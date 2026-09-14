@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Diagnostics;
 using Parrot.Events;
@@ -38,7 +39,7 @@ internal sealed class UserSessionDiagnosticsTests : IDisposable
             configuration.DefaultProfile,
             lease,
             factories,
-            new UserSessionModes(modes, configuration.PromptTemplates),
+            new UserSessionModes(modes, configuration.PromptTemplates, AgentTaskParser.ParseArtifact),
             configuration.PromptTemplates,
             profiles,
             new SkillCatalogFactory(configuration, _root, Path.Combine(_root, "skills")),

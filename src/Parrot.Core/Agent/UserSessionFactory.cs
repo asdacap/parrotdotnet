@@ -1,3 +1,4 @@
+using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Events;
 using Parrot.Llm;
@@ -15,7 +16,8 @@ internal sealed class UserSessionFactory(
     SkillCatalogFactory skillCatalogFactory,
     TimeSpan userInputTimeout,
     TimeProvider timeProvider,
-    Func<IAgentRegistry, IPromptTemplateCatalog, IReadOnlyList<IStatusProvider>> createRuntimeStatusProviders) : IUserSessionFactory
+    Func<IAgentRegistry, IPromptTemplateCatalog, IReadOnlyList<IStatusProvider>> createRuntimeStatusProviders,
+    Func<string, AgentTaskArtifact> parseTaskArtifact) : IUserSessionFactory
 {
     public Task<IUserSession> Create(
         ISessionResourceLease resources,
@@ -31,7 +33,7 @@ internal sealed class UserSessionFactory(
             mode,
             resources,
             agentSessionFactories,
-            new UserSessionModes(modes, promptTemplates),
+            new UserSessionModes(modes, promptTemplates, parseTaskArtifact),
             promptTemplates,
             profiles,
             skillCatalogFactory,

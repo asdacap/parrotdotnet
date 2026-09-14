@@ -83,16 +83,11 @@ internal interface IAgentSession : IAsyncDisposable
 
     Task<string> SendAndWaitForResult(string prompt, CancellationToken cancellationToken);
 
-    Task ReceiveAgentTaskCompletion(
-        string runId,
-        string message,
+    /// <summary>Durably admits input without waking the drain, unlike Send; for use while the session is shutting down.</summary>
+    Task Record(
+        IReadOnlyList<ConversationPart> parts,
         string messageId,
-        CancellationToken cancellationToken);
-
-    /// <summary>Records task completion in history without delivering incoming activity.</summary>
-    Task RecordAgentTaskCompletion(
-        string message,
-        string messageId,
+        Delivery delivery,
         CancellationToken cancellationToken);
 
     /// <summary>Waits for the captured execution, yielding a running result when the duration elapses.</summary>

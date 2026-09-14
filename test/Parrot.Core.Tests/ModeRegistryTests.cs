@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Parrot.Agent;
+using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Protocol;
@@ -93,7 +94,8 @@ internal sealed class ModeRegistryTests : IDisposable
         var profile = new UserSessionModes(
             Registry(),
             TestModels.PromptTemplates,
-            Path.Combine(_root, "sessions", "session", "plan")).Resolve(ModeRegistry.Plan);
+            Path.Combine(_root, "sessions", "session", "plan"),
+            AgentTaskParser.ParseArtifact).Resolve(ModeRegistry.Plan);
         profile.Prepare();
         var artifact = PlanArtifact("session");
         await File.WriteAllTextAsync(artifact, "stale plan");
@@ -129,7 +131,8 @@ internal sealed class ModeRegistryTests : IDisposable
         var mode = new UserSessionModes(
             Registry(),
             TestModels.PromptTemplates,
-            Path.Combine(_root, "sessions", "session", "plan")).Resolve(id);
+            Path.Combine(_root, "sessions", "session", "plan"),
+            AgentTaskParser.ParseArtifact).Resolve(id);
         var profile = mode.Profile;
 
         _ = await Assert.That(profile.Id).IsEqualTo(id);
@@ -246,7 +249,7 @@ internal sealed class ModeRegistryTests : IDisposable
             ModeRegistry.Build);
 
         var planDirectory = Path.Combine(_root, "plans", "plan");
-        var ownerModes = new UserSessionModes(registry, TestModels.PromptTemplates, planDirectory);
+        var ownerModes = new UserSessionModes(registry, TestModels.PromptTemplates, planDirectory, AgentTaskParser.ParseArtifact);
         var build = ownerModes.Resolve(ModeRegistry.Build);
         var plan = ownerModes.Resolve(ModeRegistry.Plan);
 
@@ -273,7 +276,7 @@ internal sealed class ModeRegistryTests : IDisposable
             Path.Combine(_root, "data"));
         var registry = Registry([new SandboxRule(_root, SandboxRuleAction.DenyWrite)]);
         var planDirectory = Path.Combine(paths.State, "sessions", "session", "plan");
-        var plan = new UserSessionModes(registry, TestModels.PromptTemplates, planDirectory).Resolve(ModeRegistry.Plan);
+        var plan = new UserSessionModes(registry, TestModels.PromptTemplates, planDirectory, AgentTaskParser.ParseArtifact).Resolve(ModeRegistry.Plan);
         plan.Prepare();
         var artifact = PlanArtifactIn(planDirectory);
         var outside = Path.Combine(_root, "outside.md");
@@ -316,7 +319,8 @@ internal sealed class ModeRegistryTests : IDisposable
         var profile = new UserSessionModes(
             Registry([], ModeRegistry.Query),
             TestModels.PromptTemplates,
-            Path.Combine(_root, "sessions", "session", "plan")).Resolve(ModeRegistry.Plan);
+            Path.Combine(_root, "sessions", "session", "plan"),
+            AgentTaskParser.ParseArtifact).Resolve(ModeRegistry.Plan);
         profile.Prepare();
         var artifact = PlanArtifact("session");
         await File.WriteAllTextAsync(artifact, "  # Plan\n\n- change code\n");
@@ -346,7 +350,8 @@ internal sealed class ModeRegistryTests : IDisposable
         var profile = new UserSessionModes(
             Registry(),
             TestModels.PromptTemplates,
-            Path.Combine(_root, "sessions", "tree", "plan")).Resolve(ModeRegistry.Plan);
+            Path.Combine(_root, "sessions", "tree", "plan"),
+            AgentTaskParser.ParseArtifact).Resolve(ModeRegistry.Plan);
         profile.Prepare();
         var artifact = PlanArtifact("tree");
         await File.WriteAllTextAsync(artifact, "# Plan");
@@ -391,7 +396,8 @@ internal sealed class ModeRegistryTests : IDisposable
         var profile = new UserSessionModes(
             Registry(),
             TestModels.PromptTemplates,
-            Path.Combine(_root, "sessions", "multi-root", "plan")).Resolve(ModeRegistry.Plan);
+            Path.Combine(_root, "sessions", "multi-root", "plan"),
+            AgentTaskParser.ParseArtifact).Resolve(ModeRegistry.Plan);
         profile.Prepare();
         var artifact = PlanArtifact("multi-root");
         await File.WriteAllTextAsync(artifact, "# Plan");
@@ -414,7 +420,8 @@ internal sealed class ModeRegistryTests : IDisposable
         var profile = new UserSessionModes(
             Registry(),
             TestModels.PromptTemplates,
-            Path.Combine(_root, "sessions", "user-session", "plan")).Resolve(ModeRegistry.Plan);
+            Path.Combine(_root, "sessions", "user-session", "plan"),
+            AgentTaskParser.ParseArtifact).Resolve(ModeRegistry.Plan);
         profile.Prepare();
         await File.WriteAllTextAsync(PlanArtifact("user-session"), "# Plan");
         await WriteValidTasks(PlanArtifact("user-session"));
@@ -436,7 +443,8 @@ internal sealed class ModeRegistryTests : IDisposable
         var profile = new UserSessionModes(
             Registry(),
             TestModels.PromptTemplates,
-            Path.Combine(_root, "sessions", "repair", "plan")).Resolve(ModeRegistry.Plan);
+            Path.Combine(_root, "sessions", "repair", "plan"),
+            AgentTaskParser.ParseArtifact).Resolve(ModeRegistry.Plan);
         profile.Prepare();
         var artifact = PlanArtifact("repair");
         await File.WriteAllTextAsync(artifact, "# Plan");
@@ -461,7 +469,8 @@ internal sealed class ModeRegistryTests : IDisposable
         var profile = new UserSessionModes(
             Registry(),
             TestModels.PromptTemplates,
-            Path.Combine(_root, "sessions", "session", "plan")).Resolve(ModeRegistry.Plan);
+            Path.Combine(_root, "sessions", "session", "plan"),
+            AgentTaskParser.ParseArtifact).Resolve(ModeRegistry.Plan);
         profile.Prepare();
         await File.WriteAllTextAsync(PlanArtifact("session"), " \n\t ");
 
@@ -476,12 +485,12 @@ internal sealed class ModeRegistryTests : IDisposable
     public async Task Fresh_owner_state_does_not_revive_an_artifact_from_an_earlier_attempt()
     {
         var planDirectory = Path.Combine(_root, "sessions", "same-owner", "plan");
-        var previous = new UserSessionModes(Registry(), TestModels.PromptTemplates, planDirectory).Resolve(ModeRegistry.Plan);
+        var previous = new UserSessionModes(Registry(), TestModels.PromptTemplates, planDirectory, AgentTaskParser.ParseArtifact).Resolve(ModeRegistry.Plan);
         previous.Prepare();
         var previousArtifact = PlanArtifactIn(planDirectory);
         await File.WriteAllTextAsync(previousArtifact, "stale plan");
 
-        var current = new UserSessionModes(Registry(), TestModels.PromptTemplates, planDirectory).Resolve(ModeRegistry.Plan);
+        var current = new UserSessionModes(Registry(), TestModels.PromptTemplates, planDirectory, AgentTaskParser.ParseArtifact).Resolve(ModeRegistry.Plan);
         current.Prepare();
         var artifacts = Directory.GetFiles(planDirectory, "plan-*.md");
         var currentArtifact = artifacts.Single(path => !string.Equals(path, previousArtifact, StringComparison.Ordinal));
@@ -496,8 +505,8 @@ internal sealed class ModeRegistryTests : IDisposable
         var registry = Registry();
         var firstDirectory = Path.Combine(_root, "sessions", "first", "plan");
         var secondDirectory = Path.Combine(_root, "sessions", "second", "plan");
-        var firstModes = new UserSessionModes(registry, TestModels.PromptTemplates, firstDirectory);
-        var secondModes = new UserSessionModes(registry, TestModels.PromptTemplates, secondDirectory);
+        var firstModes = new UserSessionModes(registry, TestModels.PromptTemplates, firstDirectory, AgentTaskParser.ParseArtifact);
+        var secondModes = new UserSessionModes(registry, TestModels.PromptTemplates, secondDirectory, AgentTaskParser.ParseArtifact);
         var first = firstModes.Resolve(ModeRegistry.Plan);
         var firstAgain = firstModes.Resolve(ModeRegistry.Plan);
         var second = secondModes.Resolve(ModeRegistry.Plan);

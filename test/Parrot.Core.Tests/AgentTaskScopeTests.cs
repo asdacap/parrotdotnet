@@ -53,7 +53,8 @@ internal sealed class AgentTaskScopeTests
                 new SkillCatalogFactory(configuration, directory, Path.Combine(directory, "skills")),
                 TimeSpan.FromSeconds(30),
                 TimeProvider.System,
-                TestModels.RuntimeStatusProviders);
+                TestModels.RuntimeStatusProviders,
+                AgentTaskParser.ParseArtifact);
             var store = new SessionStore(paths, directory, "host", factory, router, modes, diagnostics);
             await using var session = await store.Open(router.Resolve(model.Selector));
             var root = session.Registry.SnapshotScopes().Single();
