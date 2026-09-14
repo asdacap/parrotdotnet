@@ -1524,7 +1524,7 @@ internal sealed class EnhancedHierarchyTests
                 {
                     ToolCallId = "send",
                     ToolName = "agent_send",
-                    Result = "{\"session_id\":\"agent-session-opaque\",\"name\":\"scout\",\"status\":\"running\"}",
+                    Result = "{\"name\":\"scout\",\"status\":\"running\"}",
                 },
             },
             cancellationToken);

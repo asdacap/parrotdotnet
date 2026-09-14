@@ -16,9 +16,9 @@ internal static class ToolResultFormatter
         ? templates.Render("tool-result.question-answer", [new PromptTemplateArgument("question", question), new PromptTemplateArgument("answer", answer)])
         : $"Question: {question}\nAnswer: {answer}";
 
-    public static string QuestionReplied(ToolInvocation invocation, string agentSessionId) => invocation.PromptTemplates is { } templates
-        ? templates.Render("tool-result.question-replied", [new PromptTemplateArgument("agent_session_id", agentSessionId)])
-        : $"Answered the pending question from child agent {agentSessionId}.";
+    public static string QuestionReplied(ToolInvocation invocation, string agentName) => invocation.PromptTemplates is { } templates
+        ? templates.Render("tool-result.question-replied", [new PromptTemplateArgument("agent_name", agentName)])
+        : $"Answered the pending question from child agent {agentName}.";
 
     public static string Marker(ToolInvocation invocation, string marker) => Text(invocation, marker);
 }

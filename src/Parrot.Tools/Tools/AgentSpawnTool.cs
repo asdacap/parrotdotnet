@@ -31,7 +31,9 @@ internal sealed class AgentSpawnTool(
             prompt = input.Prompt ?? throw new FormatException("Tool arguments require a string 'prompt'.");
             requestedProfile = input.Agent ?? throw new FormatException("Tool arguments require a string 'agent'.");
             requestedModel = input.Model ?? string.Empty;
-            requestedName = input.Name ?? string.Empty;
+            requestedName = string.IsNullOrEmpty(input.Name)
+                ? throw new FormatException("Tool arguments require a string 'name'.")
+                : input.Name;
             requestedScope = input.Scope ?? string.Empty;
             requestedFork = HistoryForkSelection.Parse(input.Fork ?? string.Empty);
         }
@@ -45,7 +47,7 @@ internal sealed class AgentSpawnTool(
             var model = requestedModel.Length == 0
                 ? selection.RequestedModel
                 : router.Resolve(requestedModel).RequestedSelector;
-            var agent = ownerScope.AgentSpawner.SpawnScope(new AgentLaunchRequest(
+            var agent = ownerScope.AgentSpawner.SpawnOrResumeScope(new AgentLaunchRequest(
                 ownerScope.Session,
                 selection,
                 requestedProfile,
@@ -56,7 +58,7 @@ internal sealed class AgentSpawnTool(
                 new HistoryForkBoundary.BeforeToolBatch(invocation.AssistantSequence, invocation.CallId),
                 AgentCompletionDeliveryPolicy.Automatic)).Session;
             _ = await agent.SendTextMessage(prompt, cancellationToken).ConfigureAwait(false);
-            return new SpawnAgentResult(agent.SessionId, agent.Name, agent.Depth).Format();
+            return new SpawnAgentResult(agent.Name, agent.Depth).Format();
         }
         catch (Exception failure) when (failure is AgentRegistryException or LLMProviderException or ArgumentException)
         {

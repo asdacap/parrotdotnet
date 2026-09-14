@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace Parrot.Agent;
 
-internal sealed record SpawnAgentResult(string SessionId, string Name, int Depth)
+internal sealed record SpawnAgentResult(string Name, int Depth)
 {
     public string Format()
     {
@@ -13,7 +13,6 @@ internal sealed record SpawnAgentResult(string SessionId, string Name, int Depth
         using (var writer = new Utf8JsonWriter(buffer))
         {
             writer.WriteStartObject();
-            writer.WriteString("session_id", SessionId);
             writer.WriteString("name", Name);
             writer.WriteString("kind", "agent");
             writer.WriteString("status", "running");

@@ -18,7 +18,7 @@ internal sealed class EnhancedAgentToolPresenterTests
                 "agent_send",
                 "{\"session_id\":\"agent-session-opaque\",\"message\":\"inspect logs\"}",
                 static reference => reference == "agent-session-opaque" ? "scout" : reference),
-            "{\"session_id\":\"agent-session-opaque\",\"name\":\"scout\",\"status\":\"running\"}",
+            "{\"name\":\"scout\",\"status\":\"running\"}",
             "main: Send to scout",
             "✓ main: Send to scout|  inspect logs",
         ];
@@ -131,7 +131,7 @@ internal sealed class EnhancedAgentToolPresenterTests
             new ToolTerminalPresentation(
                 ToolTerminalStatus.Succeeded,
                 true,
-                "{\"session_id\":\"agent-session-opaque\",\"name\":\"resolved-by-core\",\"status\":\"running\"}",
+                "{\"name\":\"resolved-by-core\",\"status\":\"running\"}",
                 string.Empty))
             ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(ScrollbackContext);
         var legacy = (presenter.PresentTerminal(

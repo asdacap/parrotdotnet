@@ -34,6 +34,7 @@ internal sealed class AnswerTool(IChildQuestionCoordinator questions) : ITool
             var wireAnswers = input.Answers
                 ?? throw new FormatException("Tool arguments require an array 'answers'.");
             var reply = new QuestionReply([.. wireAnswers.Select(answer => new QuestionAnswer(answer ?? string.Empty))]);
+            var agentName = questions.ResolveDirectChildName(agentSessionId);
 
             if (_parentScope is null)
             {
@@ -44,7 +45,7 @@ internal sealed class AnswerTool(IChildQuestionCoordinator questions) : ITool
                 questions.ReplyFromParent(_parentScope, agentSessionId, reply);
             }
 
-            return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.QuestionReplied(invocation, agentSessionId));
+            return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.QuestionReplied(invocation, agentName));
         }
         catch (Exception failure) when (failure is JsonException
             or FormatException

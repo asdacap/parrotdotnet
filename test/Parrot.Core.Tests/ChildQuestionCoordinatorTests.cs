@@ -154,7 +154,7 @@ internal sealed partial class SubagentTests
             new TurnFixture(parent, router).Selection,
             cancellationToken);
 
-        _ = await Assert.That(answered.Text).IsEqualTo($"Answered the pending question from child agent {child.SessionId}.");
+        _ = await Assert.That(answered.Text).IsEqualTo($"Answered the pending question from child agent {child.Name}.");
         _ = await Assert.That((await asking).Answers.Single().Text).IsEqualTo("yes");
         _ = await Assert.That(coordinator.PendingForParent(parent)).IsEmpty();
         await provider.Arrived(cancellationToken);

@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace Parrot.Agent;
 
-internal sealed record AgentSendResult(string SessionId, string Name, string MessageId, bool FollowUp)
+internal sealed record AgentSendResult(string Name, string MessageId, bool FollowUp)
 {
     public string Format()
     {
@@ -13,7 +13,6 @@ internal sealed record AgentSendResult(string SessionId, string Name, string Mes
         using (var writer = new Utf8JsonWriter(buffer))
         {
             writer.WriteStartObject();
-            writer.WriteString("session_id", SessionId);
             writer.WriteString("name", Name);
 
             if (FollowUp)
