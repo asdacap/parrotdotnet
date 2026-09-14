@@ -16,7 +16,6 @@ namespace Parrot.Core.Tests;
 internal sealed class SessionRoutingDiagnosticsTests
 {
     [Test]
-    [Skip("Probable pre-existing lifecycle bug: root scope access during shutdown re-materializes ShellProcessOwner after settlement.")]
     [Arguments(false)]
     [Arguments(true)]
     public async Task Shared_provider_routes_root_and_child_turns_to_owning_session_and_resume_appends(

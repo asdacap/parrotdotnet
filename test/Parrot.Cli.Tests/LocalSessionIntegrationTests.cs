@@ -20,7 +20,7 @@ internal sealed class LocalSessionIntegrationTests
     private const string Selection = "integration/model";
 
     [Test]
-    [Skip("Probable lifecycle bug: shutdown materializes an unused root agent after ShellProcessOwners has stopped.")]
+    [Timeout(30_000)]
     [Arguments(false)]
     [Arguments(true)]
     public async Task Startup_attaches_without_local_ownership_or_warns_and_creates_when_owner_is_unreachable(
@@ -92,7 +92,7 @@ internal sealed class LocalSessionIntegrationTests
     }
 
     [Test]
-    [Skip("Probable lifecycle bug: shutdown materializes an unused root agent after ShellProcessOwners has stopped.")]
+    [Timeout(30_000)]
     public async Task Reconnecting_older_session_updates_recency_and_owner_shutdown_allows_same_id_reload(
         CancellationToken cancellationToken)
     {

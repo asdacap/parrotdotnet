@@ -15,7 +15,6 @@ namespace Parrot.Core.Tests;
 internal sealed class AgentScopeDiagnosticsTests
 {
     [Test]
-    [Skip("Probable pre-existing lifecycle bug: root scope access during shutdown re-materializes ShellProcessOwner after settlement.")]
     public async Task Child_scope_uses_session_log_and_closes_before_session_resources()
     {
         var root = Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"));

@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -114,8 +115,22 @@ static int validate_tty(int descriptor, dev_t *device)
     return EXIT_SUCCESS;
 }
 
-static void run_bridge_child(int slave, int error_descriptor, char *const arguments[])
+static void run_bridge_child(int slave, int error_descriptor, pid_t parent, char *const arguments[])
 {
+    // The bridge may be killed with an uncatchable signal such as SIGKILL, so
+    // the sandboxed shell must die with it: otherwise it keeps holding the
+    // slave tty open and the master-side drain never observes EOF.
+    if (prctl(PR_SET_PDEATHSIG, SIGKILL) == -1)
+    {
+        report_child_error(error_descriptor, "prctl PDEATHSIG");
+        _exit(EXIT_FAILURE);
+    }
+
+    if (getppid() != parent)
+    {
+        _exit(EXIT_FAILURE);
+    }
+
     for (int descriptor = STDIN_FILENO; descriptor <= STDERR_FILENO; ++descriptor)
     {
         if (slave != descriptor && dup2(slave, descriptor) == -1)
@@ -222,6 +237,7 @@ static int run_bridge(int argc, char *argv[])
         return report_error_code("pipe2", error);
     }
 
+    pid_t parent = getpid();
     pid_t child = fork();
     if (child == -1)
     {
@@ -235,7 +251,7 @@ static int run_bridge(int argc, char *argv[])
     if (child == 0)
     {
         (void)close(error_pipe[0]);
-        run_bridge_child(slave, error_pipe[1], &argv[4]);
+        run_bridge_child(slave, error_pipe[1], parent, &argv[4]);
     }
 
     (void)close(error_pipe[1]);

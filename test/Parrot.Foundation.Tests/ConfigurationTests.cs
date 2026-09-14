@@ -382,7 +382,6 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
-    [Skip("Probable pre-existing test/config drift: five inherited system prompts plus custom guidance yield six, not five.")]
     public async Task System_prompts_override_inherited_entries_and_add_namespaced_providers()
     {
         var prompts = Load(Write("""
@@ -391,12 +390,14 @@ internal sealed class ConfigurationTests : IDisposable
               custom:guidance: Additional guidance.
             """)).SystemPrompts;
 
-        _ = await Assert.That(prompts).Count().IsEqualTo(5);
+        _ = await Assert.That(prompts).Count().IsEqualTo(6);
         _ = await Assert.That(prompts["runtime:system-context:01-base"]).IsEqualTo("Custom base prompt.");
         _ = await Assert.That(prompts["runtime:system-context:02-delegation"])
             .StartsWith("# Agent delegation\nPrefer to split larger task to subagent with a well defined scope.");
         _ = await Assert.That(prompts["runtime:system-context:03-subagent-pattern"])
             .StartsWith("# Common subagent spawn strategy");
+        _ = await Assert.That(prompts["runtime:system-context:05-git-ethics"])
+            .Contains("# Git-ethics");
         _ = await Assert.That(prompts["custom:guidance"]).IsEqualTo("Additional guidance.");
     }
 
@@ -1275,7 +1276,6 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
 
     [Test]
-    [Skip("Probable pre-existing test/config drift: expected gpt-5.6-sol default differs from current predefined model aliases.")]
     public async Task Provider_model_alias_defaults_are_validated_after_layering()
     {
         var baselineDefaults = Load(Write(string.Empty)).ProviderModelAliasDefaults;
@@ -1530,7 +1530,6 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
-    [Skip("Probable pre-existing test/config drift: expected gpt-5.6-terra/sol defaults differ from current predefined model aliases.")]
     public async Task Set_model_aliases_persists_all_standard_targets_once_and_preserves_other_yaml()
     {
         var path = Write("""

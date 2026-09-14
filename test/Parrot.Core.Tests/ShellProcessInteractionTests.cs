@@ -258,7 +258,6 @@ internal sealed class ShellProcessInteractionTests : IDisposable
     }
 
     [Test]
-    [Skip("Probable pre-existing process teardown bug: killing the PTY shell before cancellation leaves its child holding the terminal and blocks owner settlement.")]
     public async Task Empty_input_polls_only_output_after_the_prior_cursor(CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsLinux())

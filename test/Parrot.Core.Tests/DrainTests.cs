@@ -724,7 +724,6 @@ internal sealed class DrainTests : IDisposable
     public async Task Provider_request_phases_are_transient_and_reset_on_retry_and_terminal_paths(
         string outcome, CancellationToken cancellationToken)
     {
-        Skip.Unless(outcome != "completed", "Confirmed pre-existing test/statistics drift on unchanged HEAD: usage summaries are transient, but this case expects persisted AgentStatisticsUpdated events.");
         using var provider = new RequestPhaseProvider(
             outcome == "failed",
             [
@@ -818,8 +817,10 @@ internal sealed class DrainTests : IDisposable
         var terminalIndex = published.FindLastIndex(item => item.PayloadCase is
             Event.PayloadOneofCase.TurnEnded or Event.PayloadOneofCase.TurnFailed);
         _ = await Assert.That(published.IndexOf(phases[^1])).IsLessThan(terminalIndex);
-        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.AgentStatisticsUpdated))
-            .IsEqualTo(outcome == "completed" ? 2 : 0);
+
+        // Usage summaries are transient in the current design: statistics are
+        // replayed from usage facts, so nothing is persisted for them.
+        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.AgentStatisticsUpdated)).IsEqualTo(0);
         _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnFailed))
             .IsEqualTo(outcome == "failed" ? 1 : 0);
         if (outcome == "cancelled")

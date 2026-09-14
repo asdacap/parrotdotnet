@@ -54,7 +54,6 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
-    [Skip("Confirmed pre-existing test/context drift on unchanged HEAD: optional utilities are rendered after project rules, but this test expects them before.")]
     public async Task System_context_includes_platform_cwd_and_agents_files()
     {
         await File.WriteAllTextAsync(Path.Combine(_configDirectory, "AGENTS.md"), "GLOBAL RULE: be concise.");
@@ -84,9 +83,9 @@ internal sealed class CompactorAndContextTests : IDisposable
         var securityIndex = built.IndexOf("The following configured sandbox rules", StringComparison.Ordinal);
         _ = await Assert.That(baseIndex).IsLessThan(expectedIndex);
         _ = await Assert.That(expectedIndex).IsLessThan(platformIndex);
-        _ = await Assert.That(platformIndex).IsLessThan(optionalIndex);
-        _ = await Assert.That(optionalIndex).IsLessThan(projectIndex);
-        _ = await Assert.That(projectIndex).IsLessThan(workingDirectoryIndex);
+        _ = await Assert.That(platformIndex).IsLessThan(projectIndex);
+        _ = await Assert.That(projectIndex).IsLessThan(optionalIndex);
+        _ = await Assert.That(optionalIndex).IsLessThan(workingDirectoryIndex);
         _ = await Assert.That(workingDirectoryIndex).IsLessThan(gitRepositoryIndex);
         _ = await Assert.That(gitRepositoryIndex).IsLessThan(subagentsIndex);
         _ = await Assert.That(subagentsIndex).IsLessThan(securityIndex);
