@@ -66,7 +66,7 @@ internal static class ChatCompletionsAdapter
             ReasoningEffort = request.Reasoning?.Effort is { Length: > 0 } effort ? effort : null,
             Provider = WirePreferences.Normalize(request.ProviderPreferences),
             IncludeRouterMetadata = request.IncludeRouterMetadata ? true : null,
-            MaxOutputTokens = request.MaxOutputTokens > 0 ? request.MaxOutputTokens : null,
+            MaxTokens = request.MaxOutputTokens > 0 ? request.MaxOutputTokens : null,
         };
 
         return JsonSerializer.SerializeToUtf8Bytes(body, WireJsonContext.Default.ChatCompletionsBody);
@@ -319,8 +319,8 @@ internal static class ChatCompletionsAdapter
         [JsonPropertyName("include_router_metadata")]
         public bool? IncludeRouterMetadata { get; init; }
 
-        [JsonPropertyName("max_completion_tokens")]
-        public int? MaxOutputTokens { get; init; }
+        [JsonPropertyName("max_tokens")]
+        public int? MaxTokens { get; init; }
     }
 
     internal sealed class Message

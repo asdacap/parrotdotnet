@@ -110,7 +110,7 @@ internal sealed class OpenAICompatibleProviderTests
     }
 
     [Test]
-    public async Task Encode_writes_the_output_budget_as_max_completion_tokens()
+    public async Task Encode_writes_the_output_budget_as_max_tokens()
     {
         var request = new LLMRequest
         {
@@ -121,9 +121,9 @@ internal sealed class OpenAICompatibleProviderTests
         using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request));
         var root = document.RootElement;
 
-        _ = await Assert.That(root.TryGetProperty("max_completion_tokens", out var maxCompletionTokens)).IsTrue();
-        _ = await Assert.That(root.TryGetProperty("max_tokens", out _)).IsFalse();
-        _ = await Assert.That(maxCompletionTokens.GetInt32()).IsEqualTo(4096);
+        _ = await Assert.That(root.TryGetProperty("max_tokens", out var maxTokens)).IsTrue();
+        _ = await Assert.That(root.TryGetProperty("max_completion_tokens", out _)).IsFalse();
+        _ = await Assert.That(maxTokens.GetInt32()).IsEqualTo(4096);
     }
 
     [Test]
