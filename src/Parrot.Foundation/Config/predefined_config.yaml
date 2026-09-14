@@ -1060,9 +1060,15 @@ tools:
       - session_id
       additionalProperties: false
   agent_interrupt:
-    description: Interrupt this agent's current turn the same way the turn limit does. The in-flight tool calls settle, then the next provider request is final and offers only the settlement tools.
+    description: Interrupt one direct child agent by name. The child's current turn stops and settles like a parent-initiated interrupt; completion is delivered through its normal completion event.
     parameters:
       type: object
+      properties:
+        name:
+          type: string
+          description: Direct child agent name
+      required:
+      - name
       additionalProperties: false
   agent_spawn:
     description: Start a child agent in an isolated session and return its session ID immediately. Friendly names are unique

@@ -1440,46 +1440,6 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
-    public async Task Agent_interrupt_enters_the_final_phase_and_offers_only_settlement_tools(
-        CancellationToken cancellationToken)
-    {
-        using var provider = new SteppedProvider(
-            Answer(string.Empty, new LLMToolCall("call-1", "agent_interrupt", "{}")),
-            Answer("final answer"));
-        var repository = new EventRepository(_database);
-        await using var session = Session(
-            provider,
-            repository,
-            [
-                new TestTool(new AgentInterruptTool(new TurnInterruptionRequest()), new AgentInterruptToolFactory()),
-                new TestTool(new SurvivingTool("survivor")),
-                new TestTool(new SettledTool("worker")),
-            ],
-            new DrainProfile(maxTurns: 32).Mode,
-            cancellationToken);
-
-        _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
-        await provider.Arrived(cancellationToken);
-        provider.Release();
-        await provider.Arrived(cancellationToken);
-        var finalDefinitions = provider.Requests[1].Tools.Select(definition => definition.Name).ToArray();
-        _ = await Assert.That(finalDefinitions.Length).IsEqualTo(2);
-        _ = await Assert.That(finalDefinitions.OrderBy(name => name).First()).IsEqualTo("agent_interrupt");
-        _ = await Assert.That(finalDefinitions.OrderBy(name => name).Last()).IsEqualTo("survivor");
-        _ = await Assert.That(provider.Requests[1].Messages).Contains(message =>
-            message.Role == LLMRole.System
-            && message.Content.Contains("final provider request", StringComparison.Ordinal));
-        provider.Release();
-        await session.Settled();
-        await session.DisposeAsync();
-
-        _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
-            "started:call-1:agent_interrupt | finished:call-1:agent_interrupt");
-        _ = await Assert.That(Endings(repository)).IsEqualTo("stop");
-        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnFailed)).IsEqualTo(0);
-    }
-
-    [Test]
     public async Task Settlement_extensions_are_capped_and_then_the_turn_fails_as_a_runaway(
         CancellationToken cancellationToken)
     {
@@ -1513,47 +1473,6 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(repository.Replay().Last(published =>
             published.PayloadCase == Event.PayloadOneofCase.TurnFailed).TurnFailed.Message)
             .IsEqualTo("the turn exceeded its provider-request limit");
-    }
-
-    [Test]
-    public async Task A_completion_callback_retry_after_agent_interrupt_resets_the_final_phase(
-        CancellationToken cancellationToken)
-    {
-        using var provider = new SteppedProvider(
-            Answer(string.Empty, new LLMToolCall("call-1", "agent_interrupt", "{}")),
-            Answer("kept going"),
-            Answer("final answer"));
-        var repository = new EventRepository(_database);
-        var retry = new RecordingCompletionCallback((candidate, invocation) => invocation == 1
-            ? AgentTurnCompletionOutcome.Retry(
-                "keep going",
-                false,
-                false,
-                false,
-                null)
-            : AgentTurnCompletionOutcome.Continue(null, null));
-        await using var session = SessionWithCompletionCallbacks(
-            provider,
-            repository,
-            [retry],
-            new DrainProfile(maxTurns: 2).Mode,
-            cancellationToken);
-
-        _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
-        await provider.Arrived(cancellationToken);
-        provider.Release();
-        await provider.Arrived(cancellationToken);
-        provider.Release();
-        await provider.Arrived(cancellationToken);
-        var finalDefinitions = provider.Requests[2].Tools.Select(definition => definition.Name).ToArray();
-        provider.Release();
-        await session.Settled();
-        await session.DisposeAsync();
-
-        _ = await Assert.That(finalDefinitions).IsEmpty();
-        _ = await Assert.That(Endings(repository)).IsEqualTo("stop");
-        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnFailed)).IsEqualTo(0);
-        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
     }
 
     [Test]

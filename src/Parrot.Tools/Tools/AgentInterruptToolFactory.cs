@@ -2,7 +2,7 @@ using Parrot.Agent;
 
 namespace Parrot.Tools;
 
-internal sealed class AgentInterruptToolFactory : IToolFactory
+internal sealed class AgentInterruptToolFactory(IChildRegistry registry) : IToolFactory
 {
-    public ITool Create(IAgentSession session) => new AgentInterruptTool(session.TurnInterruption);
+    public ITool Create(IAgentSession session) => new AgentInterruptTool(registry);
 }

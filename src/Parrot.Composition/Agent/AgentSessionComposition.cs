@@ -256,7 +256,11 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 return new SetExitReminderToolFactory(reminder, arguments.PromptTemplates);
             })
             .Bind<AgentSendToolFactory>().As(Lifetime.Scoped).To<AgentSendToolFactory>()
-            .Bind<AgentInterruptToolFactory>().As(Lifetime.Scoped).To<AgentInterruptToolFactory>()
+            .Bind<AgentInterruptToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<IChildRegistry>(out var children);
+                return new AgentInterruptToolFactory(children);
+            })
             .Bind<AgentStatusToolFactory>().As(Lifetime.Scoped).To<AgentStatusToolFactory>()
             .Bind<WaitToolFactory>().As(Lifetime.Scoped).To<WaitToolFactory>()
             .Bind<StatusToolFactory>().As(Lifetime.Scoped).To<StatusToolFactory>()
