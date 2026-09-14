@@ -346,6 +346,10 @@ prompt_templates:
     template: 'This is the final provider request allowed for the current turn. Tools are unavailable except the settlement tools (wait, agent_send, interrupt_process, agent_status, answer, question). Do not start new work. Settle anything still running if needed, then provide the best possible final answer using the information already available.'
     allowed_arguments: []
     required_arguments: []
+  agent-session.final-request-interrupted:
+    template: 'This is the final provider request allowed for the current turn because the turn was interrupted. Tools are unavailable except the settlement tools (wait, agent_send, interrupt_process, agent_status, answer, question). Do not start new work. Settle anything still running if needed, then provide the best possible final answer using the information already available.'
+    allowed_arguments: []
+    required_arguments: []
   agent-session.tools-restored:
     template: 'A new turn has started and its provider-request budget has reset. Tool access is restored to the tools permitted for this turn.'
     allowed_arguments: []

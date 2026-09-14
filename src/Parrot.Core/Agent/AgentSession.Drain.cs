@@ -776,7 +776,9 @@ internal sealed partial class AgentSession
                 if (finalPhase && !finalPhaseActive)
                 {
                     finalPhaseActive = true;
-                    await InjectFinalProviderRequestPrompt(cancellationToken).ConfigureAwait(false);
+                    await InjectFinalProviderRequestPrompt(
+                        interrupted ? _finalProviderRequestAfterInterruptionPrompt : _finalProviderRequestPrompt,
+                        cancellationToken).ConfigureAwait(false);
                 }
 
                 var instructions = await PrepareEpoch(

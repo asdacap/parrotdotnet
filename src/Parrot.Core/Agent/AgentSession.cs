@@ -60,6 +60,7 @@ internal sealed partial class AgentSession(
     private readonly string _truncatedToolCallPrompt = promptTemplates.Render("agent-session.truncated-tool-call", []);
     private readonly string _invalidToolCallPrompt = promptTemplates.Render("agent-session.invalid-tool-call", []);
     private readonly string _finalProviderRequestPrompt = promptTemplates.Render("agent-session.final-request", []);
+    private readonly string _finalProviderRequestAfterInterruptionPrompt = promptTemplates.Render("agent-session.final-request-interrupted", []);
     private readonly string _toolAvailabilityRestoredPrompt = promptTemplates.Render("agent-session.tools-restored", []);
     private readonly string _interruptedResult = promptTemplates.Render("agent-session.interrupted-result", []);
     private readonly string _interruptedNote = promptTemplates.Render("agent-session.interrupted-note", []);
