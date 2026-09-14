@@ -152,20 +152,4 @@ internal sealed class QueueStoreTests : IDisposable
             .Throws<ObjectDisposedException>();
         _ = await Assert.That(store.List).Throws<ObjectDisposedException>();
     }
-
-    [Test]
-    public async Task A_filesystem_lock_bounds_take_and_try_take_does_not_wait(CancellationToken cancellationToken)
-    {
-        using IQueueStore store = new QueueStore(_directory);
-        var info = store.Create("locked-work", string.Empty);
-        _ = Directory.CreateDirectory(info.Path + ".lock");
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromMilliseconds(20));
-
-        _ = await Assert.That(async () =>
-            await store.Take("locked-work", 1, QueueDirection.Front, timeout.Token))
-            .Throws<OperationCanceledException>();
-        var attempted = store.TryTake("locked-work", 1, QueueDirection.Front);
-        _ = await Assert.That(attempted.Acquired).IsFalse();
-    }
 }

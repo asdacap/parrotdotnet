@@ -6,13 +6,13 @@
 
   <ItemGroup>
     <ProjectReference Include="../Parrot.Common/Parrot.Common.csproj" />
-    <ProjectReference Include="../Parrot.Infrastructure/Parrot.Infrastructure.csproj" />
     <ProjectReference Include="../Parrot.Tools/Parrot.Tools.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Parrot.Composition" />
     <InternalsVisibleTo Include="parrot" />
+    <InternalsVisibleTo Include="Parrot.StatusProviders" />
     <InternalsVisibleTo Include="Parrot.Core.Tests" />
     <InternalsVisibleTo Include="Parrot.Tools.Tests" />
     <InternalsVisibleTo Include="Parrot.Cli.Tests" />
