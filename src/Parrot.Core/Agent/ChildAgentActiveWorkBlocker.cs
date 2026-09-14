@@ -12,7 +12,6 @@ internal sealed class ChildAgentActiveWorkBlocker(IChildRegistry children, Agent
             .Select(static session => new ActiveWorkObservation(
                 session.SessionId,
                 session.Name,
-                ActiveWorkKind.Agent,
                 ActiveWorkState.Running))
             .OrderBy(static observation => observation.Id, StringComparer.Ordinal)
             .ToArray();

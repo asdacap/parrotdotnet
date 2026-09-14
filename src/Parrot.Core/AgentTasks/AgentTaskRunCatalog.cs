@@ -23,7 +23,6 @@ internal sealed class AgentTaskRunCatalog(string ownerAgentSessionId, IDiagnosti
                 .Select(run => new ActiveWorkObservation(
                     $"{ownerAgentSessionId}/{run.RunId}",
                     run.DisplayName,
-                    ActiveWorkKind.AgentTask,
                     ActiveWorkState.Running))
                 .OrderBy(static item => item.Id, StringComparer.Ordinal)];
         }

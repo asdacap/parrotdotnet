@@ -133,7 +133,7 @@ internal sealed class AgentTaskScopeTests
                 _ = await Assert.That(status.Text).DoesNotContain(scopes.Single(other => !ReferenceEquals(other, scope)).Session.Name);
             }
 
-            _ = await Assert.That(string.Join(',', session.ActiveWork().Where(work => work.Kind == ActiveWorkKind.AgentTask)
+            _ = await Assert.That(string.Join(',', session.Registry.SnapshotScopes().SelectMany(static scope => scope.GetService<IAgentTaskRunCatalog>().Active())
                 .Select(work => work.Id).Order(StringComparer.Ordinal))).IsEqualTo("first-owner/shared-run,second-owner/shared-run");
             var detached = root.ChildRegistry.DetachDirectChildScope(scopes[0])
                 ?? throw new InvalidOperationException("Scope shutdown already started.");
@@ -157,7 +157,7 @@ internal sealed class AgentTaskScopeTests
             };
             nestedOwner.GetService<IAgentTaskRunCatalog>().Start(nestedRequest, cancellationToken);
             await provider.Arrived(cancellationToken);
-            _ = await Assert.That(session.ActiveWork().Count(work => work.Kind == ActiveWorkKind.AgentTask)).IsEqualTo(2);
+            _ = await Assert.That(session.Registry.SnapshotScopes().Sum(static scope => scope.GetService<IAgentTaskRunCatalog>().Active().Count)).IsEqualTo(2);
             await session.DisposeAsync();
             await session.DisposeAsync();
             _ = await Assert.That((await completions[1].Delivered.WaitAsync(cancellationToken)).Status).IsEqualTo(AgentTaskExecutionStatus.Canceled);

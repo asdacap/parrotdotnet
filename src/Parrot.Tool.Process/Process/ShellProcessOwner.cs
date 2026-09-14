@@ -170,7 +170,6 @@ internal sealed class ShellProcessOwner(
                 .Select(process => new ActiveWorkObservation(
                     $"{identity.SessionId}/{process.Name}",
                     process.Name,
-                    ActiveWorkKind.Shell,
                     ActiveWorkState.Running))
                 .OrderBy(item => item.Id, StringComparer.Ordinal)];
         }

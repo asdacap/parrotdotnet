@@ -67,9 +67,6 @@ internal interface IUserSession : IAsyncDisposable
     /// <summary>Reads the foreground agent's projected message history.</summary>
     IReadOnlyList<string> History();
 
-    /// <summary>Captures currently active process, agent, and task-run work.</summary>
-    IReadOnlyList<ActiveWorkObservation> ActiveWork();
-
     Task SetGoal(string goal, CancellationToken cancellationToken);
 
     void ClearGoal();

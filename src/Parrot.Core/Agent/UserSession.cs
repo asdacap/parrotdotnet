@@ -1,11 +1,9 @@
-using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Permissions;
-using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Questions;
 using Parrot.Skills;
@@ -382,9 +380,6 @@ internal sealed class UserSession : IUserSession
             return new ValueTask(_disposal);
         }
     }
-
-    public IReadOnlyList<ActiveWorkObservation> ActiveWork() =>
-        [.. Registry.SnapshotScopes().SelectMany(static scope => scope.GetService<IProcessOwner>().Active()), .. Registry.Active(), .. Registry.SnapshotScopes().SelectMany(static scope => scope.GetService<IAgentTaskRunCatalog>().Active())];
 
     public Task SetGoal(string goal, CancellationToken cancellationToken) =>
         MainScope().Goals.SetGoal(goal, cancellationToken);

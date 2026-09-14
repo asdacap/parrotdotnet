@@ -58,8 +58,8 @@ internal sealed class ActiveWorkBlockerTests
     {
         await using var processOwner = new StubProcessOwner(
         [
-            new ActiveWorkObservation("process-b", "B", ActiveWorkKind.Shell, ActiveWorkState.Running),
-            new ActiveWorkObservation("process-a", "A", ActiveWorkKind.Shell, ActiveWorkState.Running),
+            new ActiveWorkObservation("process-b", "B", ActiveWorkState.Running),
+            new ActiveWorkObservation("process-a", "A", ActiveWorkState.Running),
         ]);
 
         var result = new ProcessActiveWorkBlocker(processOwner).Observe();
@@ -74,8 +74,8 @@ internal sealed class ActiveWorkBlockerTests
     {
         await using var taskCatalog = new StubTaskCatalog(
         [
-            new ActiveWorkObservation("task-b", "B", ActiveWorkKind.AgentTask, ActiveWorkState.Running),
-            new ActiveWorkObservation("task-a", "A", ActiveWorkKind.AgentTask, ActiveWorkState.Running),
+            new ActiveWorkObservation("task-b", "B", ActiveWorkState.Running),
+            new ActiveWorkObservation("task-a", "A", ActiveWorkState.Running),
         ]);
 
         var result = new AgentTaskActiveWorkBlocker(taskCatalog, TestModels.PromptTemplates).Observe();
