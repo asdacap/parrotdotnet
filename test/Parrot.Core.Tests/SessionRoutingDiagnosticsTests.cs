@@ -88,7 +88,7 @@ internal sealed class SessionRoutingDiagnosticsTests
                     configuration.PromptTemplates);
                 await using var child = first.Registry.CreateChildScope(
                     childIdentity,
-                    AgentSessionParentLink.Child(firstScope, AgentCompletionDeliveryPolicy.RetainedOnly),
+                    AgentSessionParentLink.Child(firstScope, AgentCompletionDeliveryPolicy.RetainedOnly, first.Registry.ReserveRetainedAgent()),
                     new ModelSelector(model.Selector),
                     first.Mode,
                     first.Mode.Profile.SecurityProfile,

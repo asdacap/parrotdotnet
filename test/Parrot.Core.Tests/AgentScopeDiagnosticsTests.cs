@@ -64,7 +64,7 @@ internal sealed class AgentScopeDiagnosticsTests
                     "diagnostic-child", rootId, "main", "child", 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates);
                 await using var child = session.Registry.CreateChildScope(
                     identity,
-                    AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly),
+                    AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly, session.Registry.ReserveRetainedAgent()),
                     new ModelSelector(model.Selector),
                     session.Mode,
                     session.Mode.Profile.SecurityProfile,

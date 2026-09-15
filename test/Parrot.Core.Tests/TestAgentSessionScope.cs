@@ -22,6 +22,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
     private readonly IAgentTaskRunCatalog _agentTaskRuns;
     private readonly IReadOnlyList<IInventoryPublisher> _publishers;
     private readonly IPromptTemplateCatalog _promptTemplates;
+    private readonly AgentSessionParentLink _parentLink;
     private IAgentSession? _session;
     private Task? _shutdown;
 
@@ -36,6 +37,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         CancellationToken lifetime)
     {
         _promptTemplates = promptTemplates;
+        _parentLink = parentLink;
         ChildRegistry = new ChildRegistry(owner, QueueChildAdmissionValidator.Validate);
         _agentTaskRuns = new AgentTaskRunCatalog(owner.SessionId, diagnostics, lifetime);
         _processes = new ShellProcessOwner(owner, resources, new AgentPathEnvironment(resources, resources.AgentScratch(owner.SessionId)), runner, diagnostics, lifetime);
@@ -219,6 +221,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
 
         _queues.Dispose();
         _events.Dispose();
+        _parentLink.ReleaseRetention();
         if (failure is not null)
         {
             ExceptionDispatchInfo.Capture(failure).Throw();

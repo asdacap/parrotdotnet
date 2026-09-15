@@ -2,20 +2,25 @@ namespace Parrot.Agent;
 
 internal sealed record AgentSessionParentLink(
     IAgentSessionScope? Parent,
-    AgentCompletionDeliveryPolicy DeliveryPolicy)
+    AgentCompletionDeliveryPolicy DeliveryPolicy,
+    RetainedAgentReservation? Retention)
 {
     public AgentPolicyLineage PolicyLineage => Parent is { } parent
         ? parent.Session.ResolvePolicyLineage().Link(parent.Session)
         : AgentPolicyLineage.Root();
 
     public static AgentSessionParentLink Root() =>
-        new(null, AgentCompletionDeliveryPolicy.RetainedOnly);
+        new(null, AgentCompletionDeliveryPolicy.RetainedOnly, null);
 
     public static AgentSessionParentLink Child(
         IAgentSessionScope parent,
-        AgentCompletionDeliveryPolicy deliveryPolicy)
+        AgentCompletionDeliveryPolicy deliveryPolicy,
+        RetainedAgentReservation retention)
     {
         ArgumentNullException.ThrowIfNull(parent);
-        return new(parent, deliveryPolicy);
+        ArgumentNullException.ThrowIfNull(retention);
+        return new(parent, deliveryPolicy, retention);
     }
+
+    public void ReleaseRetention() => Retention?.Release();
 }

@@ -23,7 +23,7 @@ internal interface IChildRegistry
     /// </summary>
     IAgentSessionScope? DetachDirectChildScope(IAgentSessionScope scope);
 
-    /// <summary>Resolves a canonical id before a child name; throws when absent or shutting down.</summary>
+    /// <summary>Resolves a child name before a canonical id; throws when absent or shutting down.</summary>
     IAgentSessionScope ResolveDirectChildScope(string sessionIdOrName);
 
     /// <summary>Searches accepting child registries recursively by canonical id, returning null when absent.</summary>
@@ -43,7 +43,7 @@ internal interface IChildRegistry
 
     /// <summary>
     /// Takes ownership on success; returns false during shutdown.
-    /// A different parent or duplicate session id or name throws without retaining the supplied scope.
+    /// A different parent or duplicate name throws without retaining the supplied scope.
     /// </summary>
     bool TryAdd(IAgentSessionScope scope);
 }

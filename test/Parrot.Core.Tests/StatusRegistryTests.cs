@@ -273,7 +273,7 @@ internal sealed class StatusRegistryTests
         await using var fixture = new RuntimeTreeFixture();
         fixture.EnableProcesses();
         var root = fixture.Build(AgentIdentity.Main("root", "main", TestModels.PromptTemplates), AgentSessionParentLink.Root());
-        var child = fixture.Build(AgentIdentity.Child("child", "root", "main", "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(root, AgentCompletionDeliveryPolicy.RetainedOnly));
+        var child = fixture.Build(AgentIdentity.Child("child", "root", "main", "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(root, AgentCompletionDeliveryPolicy.RetainedOnly, fixture.Registry.ReserveRetainedAgent()));
         _ = await child.Session.SendTextMessage("work", cancellationToken);
         await fixture.Provider.Arrived(cancellationToken);
         _ = root.GetService<IAgentQueues>().Create("work", "queued work\n{{ hostile }}");

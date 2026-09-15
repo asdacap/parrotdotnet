@@ -14,7 +14,6 @@ internal sealed class AgentSpawner : IAgentSpawner
     private readonly CancellationTokenSource _lifetime;
     private readonly Lock _gate = new();
     private readonly Lock _spawnGate = new();
-    private readonly Dictionary<string, RetainedAgentReservation> _retainedAgents = new(StringComparer.Ordinal);
     private readonly List<Task> _rejectedScopeDisposals = [];
     private bool _accepting = true;
     private int _pendingConstructions;
@@ -104,21 +103,6 @@ internal sealed class AgentSpawner : IAgentSpawner
                 return ResumeOrReject(_children.ResolveNamedChildScope(name), request);
             }
         }
-    }
-
-    public void ReleaseRetainedAgent(string sessionId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        RetainedAgentReservation? reservation;
-        lock (_gate)
-        {
-            if (!_retainedAgents.Remove(sessionId, out reservation))
-            {
-                throw new AgentRegistryException($"retained child agent not found: {sessionId}");
-            }
-        }
-
-        reservation.Release();
     }
 
     public ValueTask DisposeAsync()
@@ -228,7 +212,7 @@ internal sealed class AgentSpawner : IAgentSpawner
             lock (_gate)
             {
                 EnsureAccepting();
-                childParentLink = new AgentSessionParentLink(registeredOwnerScope, request.DeliveryPolicy);
+                childParentLink = AgentSessionParentLink.Child(registeredOwnerScope, request.DeliveryPolicy, retainedReservation);
                 if (childParentLink.PolicyLineage.CountProfile(profile.Id) >= profile.RecursionLimit)
                 {
                     throw new AgentRegistryException("subagent profile recursion limit reached");
@@ -274,7 +258,12 @@ internal sealed class AgentSpawner : IAgentSpawner
                 status,
                 childHistory,
                 _lifetime.Token);
-            Retain(childIdentity.SessionId, retainedReservation);
+            lock (_gate)
+            {
+                EnsureAccepting();
+            }
+
+            retainedReservation.Commit();
             if (!_children.TryAdd(constructedScope))
             {
                 throw new AgentRegistryException("the user session is shutting down");
@@ -293,41 +282,13 @@ internal sealed class AgentSpawner : IAgentSpawner
         }
     }
 
-    private void Retain(string sessionId, RetainedAgentReservation reservation)
-    {
-        lock (_gate)
-        {
-            EnsureAccepting();
-            _retainedAgents.Add(sessionId, reservation);
-            reservation.Commit();
-        }
-    }
-
-    private void Reject(string sessionId, RetainedAgentReservation reservation)
-    {
-        bool retained;
-        lock (_gate)
-        {
-            retained = _retainedAgents.Remove(sessionId);
-        }
-
-        if (retained)
-        {
-            reservation.Release();
-        }
-        else
-        {
-            reservation.Rollback();
-        }
-    }
-
     private void RejectConstruction(
         string sessionId,
         RetainedAgentReservation reservation,
         IAgentSessionScope? constructedScope,
         IEventRepository? childHistory)
     {
-        Reject(sessionId, reservation);
+        reservation.Rollback();
         if (constructedScope is not null)
         {
             var rejectedScopeDisposal = constructedScope.DisposeAsync().AsTask();
@@ -390,18 +351,6 @@ internal sealed class AgentSpawner : IAgentSpawner
         catch (Exception exception)
         {
             failure = exception;
-        }
-
-        RetainedAgentReservation[] retainedAgents;
-        lock (_gate)
-        {
-            retainedAgents = [.. _retainedAgents.Values];
-            _retainedAgents.Clear();
-        }
-
-        foreach (var retainedAgent in retainedAgents)
-        {
-            retainedAgent.Release();
         }
 
         _lifetime.Dispose();

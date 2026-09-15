@@ -1,6 +1,6 @@
 namespace Parrot.Agent;
 
-/// <summary>Owns child-agent creation and retained-agent reservations for one parent scope.</summary>
+/// <summary>Owns child-agent creation for one parent scope.</summary>
 internal interface IAgentSpawner : IAsyncDisposable
 {
     IAgentSessionScope SpawnScope(AgentLaunchRequest request);
@@ -14,6 +14,4 @@ internal interface IAgentSpawner : IAsyncDisposable
     /// child is running. Scope and fork from the request are ignored when resuming.
     /// </summary>
     IAgentSessionScope SpawnOrResumeScope(AgentLaunchRequest request);
-
-    void ReleaseRetainedAgent(string sessionId);
 }

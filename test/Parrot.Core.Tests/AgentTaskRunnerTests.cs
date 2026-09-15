@@ -65,7 +65,7 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
             using var dependencies = TestModels.Dependencies(runtime.Parent.Identity, _broker, _repository, cancellationToken);
             IAgentSessionScope CreateChild() => registry.CreateChildScope(
                 identity,
-                AgentSessionParentLink.Child(runtime.ParentScope, AgentCompletionDeliveryPolicy.RetainedOnly),
+                AgentSessionParentLink.Child(runtime.ParentScope, AgentCompletionDeliveryPolicy.RetainedOnly, registry.ReserveRetainedAgent()),
                 runtime.Selection.RequestedModel,
                 dependencies.Profile,
                 dependencies.Profile.Profile.SecurityProfile,

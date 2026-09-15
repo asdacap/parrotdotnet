@@ -1810,7 +1810,6 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var detached = rootScope.ChildRegistry.DetachDirectChildScope(first)
             ?? throw new InvalidOperationException("The registered child was not detached.");
         await detached.DisposeAsync();
-        rootScope.AgentSpawner.ReleaseRetainedAgent(detached.Session.SessionId);
         var replacement = rootScope.AgentSpawner.SpawnScope(new AgentLaunchRequest(
             root,
             new TurnFixture(root, new RouterFixture(provider, []).Router).Selection,
@@ -2308,7 +2307,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         IMode mode = new NoopMode(new AgentProfile("worker", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(false, [], [], []));
         var first = sessions.Create(
             AgentIdentity.Child("first-child", parent.SessionId, parent.Name, "duplicate", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates),
-            AgentSessionParentLink.Child(parentScope, AgentCompletionDeliveryPolicy.RetainedOnly),
+            AgentSessionParentLink.Child(parentScope, AgentCompletionDeliveryPolicy.RetainedOnly, registry.ReserveRetainedAgent()),
             new ModelSelector("stepped/model"),
             _broker,
             _repository,
@@ -2319,7 +2318,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             cancellationToken);
         var second = sessions.Create(
             AgentIdentity.Child("second-child", parent.SessionId, parent.Name, "duplicate", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates),
-            AgentSessionParentLink.Child(parentScope, AgentCompletionDeliveryPolicy.RetainedOnly),
+            AgentSessionParentLink.Child(parentScope, AgentCompletionDeliveryPolicy.RetainedOnly, registry.ReserveRetainedAgent()),
             new ModelSelector("stepped/model"),
             _broker,
             _repository,
@@ -2453,7 +2452,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         if (depth > 0)
         {
             var ancestor = Session(provider, 0, "ancestor", "ancestor-agent", registry, cancellationToken);
-            parentLink = AgentSessionParentLink.Child(TestModels.ScopeOf(ancestor), AgentCompletionDeliveryPolicy.RetainedOnly);
+            parentLink = AgentSessionParentLink.Child(TestModels.ScopeOf(ancestor), AgentCompletionDeliveryPolicy.RetainedOnly, registry.ReserveRetainedAgent());
         }
 
         var identity = depth == 0

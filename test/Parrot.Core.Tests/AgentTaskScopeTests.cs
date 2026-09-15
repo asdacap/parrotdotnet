@@ -76,7 +76,7 @@ internal sealed class AgentTaskScopeTests
                 var identity = AgentIdentity.Child(name, root.Session.SessionId, root.Session.Name, name, 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates);
                 var child = session.Registry.CreateChildScope(
                     identity,
-                    AgentSessionParentLink.Child(root, AgentCompletionDeliveryPolicy.RetainedOnly),
+                    AgentSessionParentLink.Child(root, AgentCompletionDeliveryPolicy.RetainedOnly, session.Registry.ReserveRetainedAgent()),
                     new ModelSelector(model.Selector),
                     session.Mode,
                     session.Mode.Profile.SecurityProfile,

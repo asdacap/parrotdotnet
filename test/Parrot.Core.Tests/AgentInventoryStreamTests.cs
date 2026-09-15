@@ -443,7 +443,7 @@ internal sealed class AgentInventoryStreamTests
 
         public IAgentSessionScope CreateChild(IAgentSessionScope parent, string name) => Session.Registry.CreateChildScope(
             AgentIdentity.Child(name, parent.Session.SessionId, parent.Session.Name, name, 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates),
-            AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly),
+            AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly, Session.Registry.ReserveRetainedAgent()),
             new ModelSelector(model.Selector),
             Session.Mode,
             Session.Mode.Profile.SecurityProfile,

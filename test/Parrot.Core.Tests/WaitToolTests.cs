@@ -51,7 +51,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         _ = await queues.Push("work", ["item"], QueueDirection.Back, false, cancellationToken);
         _ = scope.GetService<IProcessOwner>().StartUnattributed("process", "sleep 60", ProcessEnvironmentOverrides.Empty, session, SecurityProfile.Compose(readOnly: false, [], [], []), ShellProcessTerminalMode.Pipe);
         using var childProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
-        await using var childScope = BuildSession(childProvider, [], new EventRepository(_database), registry, AgentIdentity.Child("child", "agent", "main", "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(scope, AgentCompletionDeliveryPolicy.RetainedOnly), QueueResources("agent"), TestDiagnosticLog.Instance);
+        await using var childScope = BuildSession(childProvider, [], new EventRepository(_database), registry, AgentIdentity.Child("child", "agent", "main", "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(scope, AgentCompletionDeliveryPolicy.RetainedOnly, registry.ReserveRetainedAgent()), QueueResources("agent"), TestDiagnosticLog.Instance);
         _ = await childScope.Session.Send([ConversationPart.TextPart("work")], "child-message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await childProvider.Arrived(cancellationToken);
         var selection = new SelectionFixture(provider).Selection;

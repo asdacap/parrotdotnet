@@ -2,8 +2,7 @@ namespace Parrot.Agent;
 
 internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionScope> validateChildAdmission) : IChildRegistry, IAsyncDisposable
 {
-    private readonly Dictionary<string, IAgentSessionScope> _entries = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _names = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IAgentSessionScope> _childrenByName = new(StringComparer.Ordinal);
     private bool _accepting = true;
     private Task? _shutdown;
 
@@ -23,12 +22,8 @@ internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionSco
     public IAgentSessionScope? FindDirectChildScope(string childSessionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(childSessionId);
-        lock (Gate)
-        {
-            return _accepting && _entries.TryGetValue(childSessionId, out var child)
-                ? child
-                : null;
-        }
+        return SnapshotChildScopes().FirstOrDefault(child =>
+            string.Equals(child.Session.SessionId, childSessionId, StringComparison.Ordinal));
     }
 
     public IAgentSessionScope? DetachDirectChildScope(IAgentSessionScope scope)
@@ -36,15 +31,10 @@ internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionSco
         ArgumentNullException.ThrowIfNull(scope);
         lock (Gate)
         {
-            if (_entries.TryGetValue(scope.Session.SessionId, out var registered)
+            if (_childrenByName.TryGetValue(scope.Session.Name, out var registered)
                 && ReferenceEquals(registered, scope))
             {
-                _ = _entries.Remove(scope.Session.SessionId);
-                if (_names.GetValueOrDefault(scope.Session.Name) == scope.Session.SessionId)
-                {
-                    _ = _names.Remove(scope.Session.Name);
-                }
-
+                _ = _childrenByName.Remove(scope.Session.Name);
                 return scope;
             }
 
@@ -69,9 +59,8 @@ internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionSco
             if (_shutdown is null)
             {
                 _accepting = false;
-                children = [.. _entries.Values];
-                _entries.Clear();
-                _names.Clear();
+                children = [.. _childrenByName.Values];
+                _childrenByName.Clear();
                 completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 _shutdown = completion.Task;
             }
@@ -108,25 +97,10 @@ internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionSco
         await shutdown.ConfigureAwait(false);
     }
 
-    public IAgentSessionScope ResolveDirectChildScope(string sessionIdOrName)
-    {
-        lock (Gate)
-        {
-            if (_accepting && _entries.TryGetValue(sessionIdOrName, out var canonical))
-            {
-                return canonical;
-            }
-
-            if (_accepting
-                && _names.TryGetValue(sessionIdOrName, out var sessionId)
-                && _entries.TryGetValue(sessionId, out var named))
-            {
-                return named;
-            }
-        }
-
-        throw new AgentRegistryException($"child agent not found: {sessionIdOrName}");
-    }
+    public IAgentSessionScope ResolveDirectChildScope(string sessionIdOrName) =>
+        FindNamedChildScope(sessionIdOrName)
+        ?? FindDirectChildScope(sessionIdOrName)
+        ?? throw new AgentRegistryException($"child agent not found: {sessionIdOrName}");
 
     public IAgentSessionScope? FindDescendantScope(string sessionId)
     {
@@ -174,15 +148,10 @@ internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionSco
     {
         lock (Gate)
         {
-            if (_accepting
-                && _names.TryGetValue(name, out var sessionId)
-                && _entries.TryGetValue(sessionId, out var child))
-            {
-                return child;
-            }
+            return _accepting && _childrenByName.TryGetValue(name, out var child)
+                ? child
+                : null;
         }
-
-        return null;
     }
 
     public bool TryAdd(IAgentSessionScope scope)
@@ -202,25 +171,19 @@ internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionSco
             }
 
             validateChildAdmission(scope);
-            _entries.Add(scope.Session.SessionId, scope);
+            if (!_childrenByName.TryAdd(scope.Session.Name, scope))
+            {
+                throw new ChildNameConflictException(
+                    $"child agent name is already registered: {scope.Session.Name}");
+            }
+
             try
             {
-                if (!_names.TryAdd(scope.Session.Name, scope.Session.SessionId))
-                {
-                    throw new ChildNameConflictException(
-                        $"child agent name is already registered: {scope.Session.Name}");
-                }
-
                 scope.PublishSnapshots();
             }
             catch
             {
-                _ = _entries.Remove(scope.Session.SessionId);
-                if (_names.GetValueOrDefault(scope.Session.Name) == scope.Session.SessionId)
-                {
-                    _ = _names.Remove(scope.Session.Name);
-                }
-
+                _ = _childrenByName.Remove(scope.Session.Name);
                 throw;
             }
 
@@ -232,7 +195,7 @@ internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionSco
     {
         lock (Gate)
         {
-            return _accepting ? [.. _entries.Values] : [];
+            return _accepting ? [.. _childrenByName.Values] : [];
         }
     }
 }

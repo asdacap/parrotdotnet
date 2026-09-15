@@ -12,6 +12,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
     private readonly AgentSessionComposition _composition;
     private readonly Parrot.Diagnostics.IDiagnosticLog _diagnostics;
     private readonly string _sessionId;
+    private readonly AgentSessionParentLink _parentLink;
     private readonly Lock _gate = new();
     private readonly AgentSessionServices _services = new();
     private readonly IReadOnlyList<IInventoryPublisher> _publishers;
@@ -26,6 +27,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
         ArgumentNullException.ThrowIfNull(arguments);
         _diagnostics = arguments.Diagnostics;
         _sessionId = arguments.Identity.SessionId;
+        _parentLink = arguments.ParentLink;
         _composition = composeSession(arguments, this);
         try
         {
@@ -150,6 +152,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
                     finally
                     {
                         _composition.Queues.Dispose();
+                        _parentLink.ReleaseRetention();
                         await Task.WhenAll(_publications ?? []).ConfigureAwait(false);
                     }
                 }
