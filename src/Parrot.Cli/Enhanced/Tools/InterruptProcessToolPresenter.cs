@@ -11,7 +11,7 @@ internal sealed class InterruptProcessToolPresenter : IToolPresenter
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {
         var label = Process(call.ArgumentsJson);
-        return new ToolLiveValue($"{call.Owner}: {label}", [], Metadata, frame);
+        return new ToolLiveValue(label, [], Metadata, frame);
     }
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
@@ -21,7 +21,7 @@ internal sealed class InterruptProcessToolPresenter : IToolPresenter
         var block = status == ToolTerminalStatus.Succeeded
             ? ToolBlock.Empty
             : ToolBlock.FromError(terminal.ResultPresent ? terminal.Result : terminal.Error);
-        return new ToolScrollbackValue($"{call.Owner}: {label}", block, status, Metadata);
+        return new ToolScrollbackValue(label, block, status, Metadata);
     }
 
     private static string Process(string argumentsJson)

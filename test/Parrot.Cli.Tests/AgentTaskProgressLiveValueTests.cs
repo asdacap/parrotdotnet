@@ -22,7 +22,7 @@ internal sealed class AgentTaskProgressLiveValueTests
 
         var lines = Render(snapshot, 80);
 
-        _ = await Assert.That(string.Join('|', lines)).IsEqualTo($"Agent tasks:|{icon} task");
+        _ = await Assert.That(string.Join('|', lines)).IsEqualTo($"• Agent tasks:|  {icon} task");
     }
 
     [Test]
@@ -37,7 +37,7 @@ internal sealed class AgentTaskProgressLiveValueTests
 
         var lines = Render(snapshot, 80);
 
-        _ = await Assert.That(lines[1]).IsEqualTo("◐ safe[2J    line next");
+        _ = await Assert.That(lines[1]).IsEqualTo("  ◐ safe[2J    line next");
         _ = await Assert.That(string.Join('\n', lines)).DoesNotContain("\u001b");
     }
 
@@ -49,10 +49,10 @@ internal sealed class AgentTaskProgressLiveValueTests
         root.Children.Add(new AgentTaskProgressNode { Name = "日本語 alpha beta", Status = AgentTaskProgressStatus.Pending });
         snapshot.RootNodes.Add(root);
 
-        var lines = Render(snapshot, 12);
+        var lines = Render(snapshot, 14);
 
         _ = await Assert.That(string.Join('|', lines))
-            .IsEqualTo("Agent tasks:|◐ root|└── ○ 日本語|     alpha b|    eta");
+            .IsEqualTo("• Agent tasks:|  ◐ root|  └── ○ 日本語|       alpha b|      eta");
     }
 
     [Test]
@@ -69,7 +69,7 @@ internal sealed class AgentTaskProgressLiveValueTests
         var lines = Render(snapshot, 80);
 
         _ = await Assert.That(string.Join('|', lines))
-            .IsEqualTo("Agent tasks:|◐ root|├── ○ first|│   └── ✓ nested|└── ✗ last");
+            .IsEqualTo("• Agent tasks:|  ◐ root|  ├── ○ first|  │   └── ✓ nested|  └── ✗ last");
     }
 
     [Test]
@@ -112,8 +112,8 @@ internal sealed class AgentTaskProgressLiveValueTests
 
         var lines = Render(snapshot, 80);
 
-        _ = await Assert.That(lines[1]).IsEqualTo("◐ display text[2J");
-        _ = await Assert.That(lines[2]).IsEqualTo("○ legacy-name");
+        _ = await Assert.That(lines[1]).IsEqualTo("  ◐ display text[2J");
+        _ = await Assert.That(lines[2]).IsEqualTo("  ○ legacy-name");
     }
 
     [Test]
@@ -121,7 +121,6 @@ internal sealed class AgentTaskProgressLiveValueTests
     {
         IToolPresenter presenter = new RunAgentTasksToolPresenter(new GenericToolPresenter());
         var call = new ToolCallPresentation(
-            "main",
             "run_agent_tasks",
             "{\"path\":\"/private/task.json\",\"artifact\":{\"secret\":\"embedded\"}}");
         var live = presenter.PresentLive(call, 0);
@@ -133,10 +132,10 @@ internal sealed class AgentTaskProgressLiveValueTests
         var renderedTerminal = terminal?.Render(new ScrollbackRenderContext(80, Palette))
             ?? throw new InvalidOperationException();
 
-        _ = await Assert.That(renderedLive).IsEqualTo("⠋ main: running agent tasks");
+        _ = await Assert.That(renderedLive).IsEqualTo("⠋ running agent tasks");
         _ = await Assert.That(renderedLive).DoesNotContain("/private/task.json");
         _ = await Assert.That(renderedLive).DoesNotContain("embedded");
-        _ = await Assert.That(renderedTerminal[0]).IsEqualTo("✓ main: tool call run_agent_tasks");
+        _ = await Assert.That(renderedTerminal[0]).IsEqualTo("✓ tool call run_agent_tasks");
         _ = await Assert.That(renderedTerminal[1]).IsEqualTo("  complete");
     }
 

@@ -44,25 +44,14 @@ internal sealed class ToolScrollbackValue(
     public IReadOnlyList<string> Render(ScrollbackRenderContext context)
     {
         var (marker, style) = DescribeStatus(context);
-        var activityLabel = HierarchicalActivityValue.RemoveOwner(Report.Label, context.ActivityOwner);
-        var header = LayoutHeader($"{marker} {activityLabel}", context.Columns, Report.Metadata.MultilineLabel);
-        var lines = header.Select(style.Apply).ToList();
-        if (Report.Block.Kind == ToolBlockKind.Status)
+        var content = context with
         {
-            lines.AddRange(TerminalText.Sanitize(Report.Block.Text).Split('\n')
-                .SelectMany(line => TerminalText.Layout($"  {line}", context.Columns)));
-            return lines;
-        }
-
-        var maximumLines = Report.Block.Kind switch
-        {
-            ToolBlockKind.Diff => DiffScrollbackValue.MaximumRows + 2,
-            ToolBlockKind.Code or ToolBlockKind.CompletedInput => 100,
-            ToolBlockKind.Queue => 30,
-            _ => 10,
+            Columns = context.Decoration.ContentColumns(context.Columns),
+            Decoration = ActivityDecoration.None,
         };
-        lines.AddRange(RenderBlock(context, Math.Max(0, maximumLines - header.Count), style));
-        return lines;
+        var header = LayoutHeader(Report.Label, content.Columns, Report.Metadata.MultilineLabel);
+        var decorated = context.Decoration.Apply(marker, [.. header, .. RenderBlock(content, header.Count, style)]);
+        return [.. decorated.Take(header.Count).Select(style.Apply), .. decorated.Skip(header.Count)];
     }
 
     private static List<string> LayoutHeader(string label, int columns, bool multiline)
@@ -117,11 +106,22 @@ internal sealed class ToolScrollbackValue(
             _ => (TerminalIcons.Failure, context.Palette.Failure),
         };
 
-    private IEnumerable<string> RenderBlock(
-        ScrollbackRenderContext context,
-        int maximumLines,
-        TerminalStyle statusStyle)
+    private IEnumerable<string> RenderBlock(ScrollbackRenderContext context, int headerLines, TerminalStyle statusStyle)
     {
+        if (Report.Block.Kind == ToolBlockKind.Status)
+        {
+            return TerminalText.Sanitize(Report.Block.Text).Split('\n')
+                .SelectMany(line => TerminalText.Layout(line, context.Columns));
+        }
+
+        var blockLines = Report.Block.Kind switch
+        {
+            ToolBlockKind.Diff => DiffScrollbackValue.MaximumRows + 2,
+            ToolBlockKind.Code or ToolBlockKind.CompletedInput => 100,
+            ToolBlockKind.Queue => 30,
+            _ => 10,
+        };
+        var maximumLines = Math.Max(0, blockLines - headerLines);
         if (maximumLines == 0 || Report.Block.Kind == ToolBlockKind.None)
         {
             return [];

@@ -12,11 +12,11 @@ internal sealed class WebFetchToolPresenter : IToolPresenter
     };
 
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) =>
-        new ToolLiveValue($"{call.Owner}: web fetch {Request(call.ArgumentsJson)}", [], Metadata, frame);
+        new ToolLiveValue($"web fetch {Request(call.ArgumentsJson)}", [], Metadata, frame);
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal) =>
         new ToolScrollbackValue(
-            $"{call.Owner}: web fetch {Request(call.ArgumentsJson)}",
+            $"web fetch {Request(call.ArgumentsJson)}",
             terminal.DescribeBlock(ToolBlockKind.Text),
             terminal.ResolveStatus(),
             Metadata);

@@ -9,19 +9,19 @@ internal sealed class SetCheckpointToolPresenter : IToolPresenter
     public ToolPresentationMetadata Metadata => ToolPresentationMetadata.Default;
 
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) =>
-        new ToolLiveValue(Label(call.Owner, Title(call.ArgumentsJson)), ToolBlock.Empty, Metadata, frame);
+        new ToolLiveValue(Label(Title(call.ArgumentsJson)), ToolBlock.Empty, Metadata, frame);
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
         var status = terminal.ResolveStatus();
         return new ToolScrollbackValue(
-            Label(call.Owner, Title(call.ArgumentsJson)),
+            Label(Title(call.ArgumentsJson)),
             status == ToolTerminalStatus.Succeeded ? ToolBlock.Empty : terminal.DescribeBlock(ToolBlockKind.None),
             status,
             Metadata);
     }
 
-    private static string Label(string owner, string title) => $"{owner}: Set checkpoint {title}";
+    private static string Label(string title) => $"Set checkpoint {title}";
 
     private static string Title(string argumentsJson)
     {

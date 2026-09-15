@@ -17,7 +17,9 @@ internal sealed class ProcessCompletionScrollbackValue(string command, long? ela
         var label = ElapsedMilliseconds is > DurationThresholdMilliseconds
             ? $"{command} ({AgentDurationFormatter.Format(ElapsedMilliseconds.Value)})"
             : command;
-        return [.. TerminalText.Layout(TerminalText.Sanitize(label), context.Columns)
+        return [.. context.Decoration.Apply(
+                TerminalIcons.Shell,
+                TerminalText.Layout(TerminalText.Sanitize(label), context.Decoration.ContentColumns(context.Columns)))
             .Select(context.Palette.Muted.Apply)];
     }
 }

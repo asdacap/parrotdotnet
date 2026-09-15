@@ -8,11 +8,12 @@ internal sealed class FinalMessageScrollbackValue(string source) : IScrollbackIt
 
     public bool Continues(IScrollbackItem previous) => false;
 
-    public IReadOnlyList<string> Render(ScrollbackRenderContext context) =>
+    public IReadOnlyList<string> Render(ScrollbackRenderContext context) => context.Decoration.Apply(
+        TerminalIcons.AssistantMessage,
         EnhancedFinalMessageRenderer.Render(
             source,
-            TerminalIcons.AssistantMessage + " ",
-            context.Columns,
+            string.Empty,
+            context.Decoration.ContentColumns(context.Columns),
             context.Palette.ColorEnabled,
-            true);
+            true));
 }

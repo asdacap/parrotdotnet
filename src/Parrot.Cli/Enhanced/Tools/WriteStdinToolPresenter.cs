@@ -26,7 +26,7 @@ internal sealed class WriteStdinToolPresenter : IToolPresenter
         var characters = count < 0
             ? "input"
             : $"{count.ToString(CultureInfo.InvariantCulture)} chars";
-        return $"{call.Owner}: write {characters} to {process}";
+        return $"write {characters} to {process}";
     }
 
     private static (string Name, int Count) Read(string argumentsJson)

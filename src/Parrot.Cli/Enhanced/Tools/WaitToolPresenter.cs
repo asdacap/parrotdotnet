@@ -11,7 +11,7 @@ internal sealed class WaitToolPresenter : IToolPresenter
     };
 
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) =>
-        new ToolLiveValue($"{call.Owner}: Wait for incoming activity", [], Metadata, frame);
+        new ToolLiveValue("Wait for incoming activity", [], Metadata, frame);
 
     public IScrollbackItem? PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal) => null;
 }

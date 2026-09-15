@@ -155,7 +155,7 @@ internal sealed class EnhancedHierarchyTests
             cancellationToken);
 
         _ = await Assert.That(string.Join('|', committed)).IsEqualTo(
-            "  • [worker] ↻ Exit reminder injected|  • [worker] ↻ Skill loaded: /skills/example[2J/SKILL.md");
+            "  ↻ [worker] Exit reminder injected|  ↻ [worker] Skill loaded: /skills/example[2J/SKILL.md");
     }
 
     [Test]
@@ -1219,32 +1219,22 @@ internal sealed class EnhancedHierarchyTests
     [Arguments(18, "worker")]
     [Arguments(18, "界界")]
     [Arguments(8, "a-very-long-agent-label")]
-    public async Task Hierarchical_tool_rows_fit_columns_and_remove_owner_before_layout(int columns, string label)
+    public async Task Hierarchical_tool_rows_fit_columns(int columns, string label)
     {
         var palette = new TerminalPalette(false);
-        ILiveBufferItem liveItem = new HierarchicalLiveValue(
-            new ToolLiveValue($"{label}: $ alpha beta", [], 0),
-            1,
-            label,
-            label,
-            "✓",
-            null);
+        ILiveBufferItem liveItem = new HierarchicalLiveValue(new ToolLiveValue("$ alpha beta", [], 0), 1, label, null);
         var live = liveItem.Render(new LiveBufferRenderContext(columns, palette));
         IScrollbackItem scrollbackItem = new HierarchicalScrollbackValue(
-            new ToolScrollbackValue($"{label}: $ alpha beta", ["output value"], ToolTerminalStatus.Succeeded),
+            new ToolScrollbackValue("$ alpha beta", ["output value"], ToolTerminalStatus.Succeeded),
             1,
-            label,
-            label,
-            "✓");
+            label);
         var scrollback = scrollbackItem.Render(new ScrollbackRenderContext(columns, palette));
 
         _ = await Assert.That(live.Lines.All(line => TerminalText.Width(line.Text) <= columns)).IsTrue();
         _ = await Assert.That(scrollback.All(line => TerminalText.Width(line) <= columns)).IsTrue();
         if (columns == 18 && label == "worker")
         {
-            var rendered = string.Join('|', live.Lines.Select(line => line.Text));
-            _ = await Assert.That(rendered).Contains("$ a");
-            _ = await Assert.That(rendered).DoesNotContain("worker: $");
+            _ = await Assert.That(string.Join('|', live.Lines.Select(line => line.Text))).Contains("$ a");
         }
     }
 
@@ -1253,11 +1243,9 @@ internal sealed class EnhancedHierarchyTests
     {
         var palette = new TerminalPalette(true);
         ILiveBufferItem value = new HierarchicalLiveValue(
-            new MarqueeValue("● ", "12345678901234567890", 0),
+            new StreamedResponseValue(TerminalIcons.AssistantMessage, "12345678901234567890"),
             1,
             "界 worker",
-            "worker",
-            "♟",
             new LiveModelAliasIcon("界", ModelAliasIconColor.Gray));
 
         var rendered = value.Render(new LiveBufferRenderContext(20, palette));
@@ -1266,7 +1254,7 @@ internal sealed class EnhancedHierarchyTests
         var labelEnd = line.Text.IndexOf("] ", StringComparison.Ordinal) + 2;
         var glyphStart = line.Text.IndexOf('界', labelEnd);
 
-        _ = await Assert.That(line.Text).IsEqualTo("  ● [界 worker] 界 1");
+        _ = await Assert.That(line.Text).IsEqualTo("  ● [界 worker] 界 0");
         _ = await Assert.That(TerminalText.Width(line.Text)).IsLessThanOrEqualTo(20);
         _ = await Assert.That(span.StartCell).IsEqualTo(TerminalText.Width(line.Text[..glyphStart]));
         _ = await Assert.That(span.Length).IsEqualTo(2);
@@ -1530,7 +1518,7 @@ internal sealed class EnhancedHierarchyTests
             cancellationToken);
 
         _ = await Assert.That(committed).HasSingleItem();
-        _ = await Assert.That(committed[0]).Contains("✓ Send to scout|inspect logs");
+        _ = await Assert.That(committed[0]).Contains("✓ Send to scout|  inspect logs");
         _ = await Assert.That(committed[0]).DoesNotContain("agent-session-opaque");
     }
 

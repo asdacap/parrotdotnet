@@ -1,11 +1,6 @@
 namespace Parrot.Cli.Enhanced;
 
-internal sealed class HierarchicalScrollbackValue(
-    IScrollbackItem value,
-    int depth,
-    string? label,
-    string owner,
-    string? successfulIcon) : IScrollbackItem
+internal sealed class HierarchicalScrollbackValue(IScrollbackItem value, int depth, string? label) : IScrollbackItem
 {
     public bool IsCompleted => value.IsCompleted;
 
@@ -17,19 +12,8 @@ internal sealed class HierarchicalScrollbackValue(
 
     public bool Continues(IScrollbackItem previous) => false;
 
-    public IReadOnlyList<string> Render(ScrollbackRenderContext context)
+    public IReadOnlyList<string> Render(ScrollbackRenderContext context) => value.Render(context with
     {
-        var decoration = HierarchicalActivityValue.Describe(context.Columns, depth, label, string.Empty);
-        return [.. value.Render(context with
-            {
-                Columns = Math.Max(1, context.Columns - decoration.Width + 2),
-                ActivityOwner = owner,
-            })
-            .Select((line, index) => HierarchicalActivityValue.Decorate(
-                line,
-                decoration,
-                successfulIcon,
-                index == 0,
-                context.Columns).Text)];
-    }
+        Decoration = ActivityDecoration.Describe(context.Columns, depth, label, string.Empty),
+    });
 }

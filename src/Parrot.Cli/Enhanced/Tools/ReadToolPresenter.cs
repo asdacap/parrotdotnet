@@ -12,7 +12,7 @@ internal sealed class ReadToolPresenter : IToolPresenter
     };
 
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) =>
-        new ToolLiveValue($"{call.Owner}: read {Path(call.ArgumentsJson)}", [], Metadata, frame);
+        new ToolLiveValue($"read {Path(call.ArgumentsJson)}", [], Metadata, frame);
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
@@ -22,7 +22,7 @@ internal sealed class ReadToolPresenter : IToolPresenter
             ? ToolBlock.FromError(
                 $"{ToolYamlFormatter.Format(call.ArgumentsJson)}\n---\n{terminal.DescribeBlock(ToolBlockKind.None).Text}")
             : ToolBlock.Empty;
-        return new ToolScrollbackValue($"{call.Owner}: read {path}", block, status, Metadata);
+        return new ToolScrollbackValue($"read {path}", block, status, Metadata);
     }
 
     private static string Path(string argumentsJson)

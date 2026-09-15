@@ -12,14 +12,15 @@ internal sealed class AgentTaskProgressScrollbackValue(AgentTaskProgressSnapshot
 
     public IReadOnlyList<string> Render(ScrollbackRenderContext context)
     {
+        var columns = context.Decoration.ContentColumns(context.Columns);
         var result = new List<string>();
         foreach (var line in AgentTaskProgressFormatter.Format(snapshot))
         {
             var connector = line.IndexOf("─ ", StringComparison.Ordinal);
             var indent = connector < 0 ? string.Empty : new string(' ', TerminalText.Width(line[..(connector + 2)]));
-            result.AddRange(TerminalText.LayoutHanging(line, Math.Max(1, context.Columns), indent));
+            result.AddRange(TerminalText.LayoutHanging(line, columns, indent));
         }
 
-        return result;
+        return context.Decoration.Apply(TerminalIcons.Activity, result);
     }
 }

@@ -9,5 +9,12 @@ internal sealed class ReasoningSummaryScrollbackValue(string markdown) : IScroll
     public bool Continues(IScrollbackItem previous) => false;
 
     public IReadOnlyList<string> Render(ScrollbackRenderContext context) =>
-        [.. MarkdownRenderer.Render("✦ ", markdown, context.Columns, false).Select(context.Palette.Muted.Apply)];
+        [.. context.Decoration.Apply(
+                TerminalIcons.Reasoning,
+                MarkdownRenderer.Render(
+                    string.Empty,
+                    markdown,
+                    context.Decoration.ContentColumns(context.Columns),
+                    false))
+            .Select(context.Palette.Muted.Apply)];
 }

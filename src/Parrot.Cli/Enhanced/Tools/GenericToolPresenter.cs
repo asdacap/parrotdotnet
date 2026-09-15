@@ -5,13 +5,13 @@ internal sealed class GenericToolPresenter : IToolPresenter
     public string ToolName => "generic";
 
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) =>
-        new ToolLiveValue($"{call.Owner}: {call.ToolName}", Detail(call.ArgumentsJson), frame);
+        new ToolLiveValue(call.ToolName, Detail(call.ArgumentsJson), frame);
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
         var suffix = terminal.Status == ToolTerminalStatus.Cancelled ? " cancelled" : string.Empty;
         return new ToolScrollbackValue(
-            $"{call.Owner}: tool call {call.ToolName}{suffix}",
+            $"tool call {call.ToolName}{suffix}",
             TerminalDetails(call, terminal),
             terminal.ResolveStatus());
     }

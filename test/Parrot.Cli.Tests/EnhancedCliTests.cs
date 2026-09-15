@@ -871,7 +871,7 @@ internal sealed class EnhancedCliTests
 
         var rendered = output.ToString();
         _ = await Assert.That(rendered).Contains("✓ $ dotnet test\r\n");
-        _ = await Assert.That(rendered).Contains("Process exited with code 0 after 1.23s\r\nall tests passed\r\n");
+        _ = await Assert.That(rendered).Contains("  Process exited with code 0 after 1.23s\r\n  all tests passed\r\n");
         _ = await Assert.That(rendered).DoesNotContain("exec_command finished");
     }
 
@@ -1064,7 +1064,7 @@ internal sealed class EnhancedCliTests
 
         _ = await Assert.That(beforeAgentFinished).IsEqualTo(4);
         _ = await Assert.That(committed.Count).IsEqualTo(5);
-        _ = await Assert.That(string.Join('|', committed)).Contains("✓ tool call exec_command|dotnet test");
+        _ = await Assert.That(string.Join('|', committed)).Contains("✓ tool call exec_command|  dotnet test");
         _ = await Assert.That(string.Join('|', committed)).Contains("  ✗ [explorer[31m] tool call read[2J|    [explorer[31m] denied[2J");
         _ = await Assert.That(string.Join('|', committed)).Contains("  ♟ [explorer] agent finished (7s)");
         _ = await Assert.That(draws.Last()).IsEmpty();

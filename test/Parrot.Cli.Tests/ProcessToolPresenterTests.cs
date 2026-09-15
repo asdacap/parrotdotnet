@@ -14,15 +14,15 @@ internal sealed class ProcessToolPresenterTests
         yield return () =>
         [
             new ExecCommandToolPresenter(TimeProvider.System, []),
-            new ToolCallPresentation("main", "exec_command", "{\"command\":\"compile\"}"),
+            new ToolCallPresentation("exec_command", "{\"command\":\"compile\"}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Process exited with code 7 after 1.23s", string.Empty),
             "$ compile",
-            "✗ main: $ compile",
+            "✗ $ compile",
         ];
         yield return () =>
         [
             new InterruptProcessToolPresenter(),
-            new ToolCallPresentation("main", "interrupt_process", "{\"name\":\"build\",\"signal\":15}"),
+            new ToolCallPresentation("interrupt_process", "{\"name\":\"build\",\"signal\":15}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Signal 15 sent to shell process 'build'.", string.Empty),
             "signal 15 build",
             "signal 15 build",
@@ -30,15 +30,15 @@ internal sealed class ProcessToolPresenterTests
         yield return () =>
         [
             new InterruptProcessToolPresenter(),
-            new ToolCallPresentation("main", "interrupt_process", "{\"name\":\"build\"}"),
+            new ToolCallPresentation("interrupt_process", "{\"name\":\"build\"}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Process exited with code 2 after 0.42s", string.Empty),
             "signal 2 build",
-            "✗ main: signal 2 build",
+            "✗ signal 2 build",
         ];
         yield return () =>
         [
             new InterruptProcessToolPresenter(),
-            new ToolCallPresentation("main", "interrupt_process", "{\"name\":\"build\",\"signal\":null}"),
+            new ToolCallPresentation("interrupt_process", "{\"name\":\"build\",\"signal\":null}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Signal 2 sent to shell process 'build'.", string.Empty),
             "signal 2 build",
             "signal 2 build",
@@ -49,7 +49,7 @@ internal sealed class ProcessToolPresenterTests
     public async Task Yielded_exec_process_defers_terminal_presentation()
     {
         IToolPresenter presenter = new ExecCommandToolPresenter(TimeProvider.System, []);
-        var call = new ToolCallPresentation("main", "exec_command", "{\"command\":\"compile\"}");
+        var call = new ToolCallPresentation("exec_command", "{\"command\":\"compile\"}");
         var terminal = new ToolTerminalPresentation(
             ToolTerminalStatus.Succeeded,
             true,
@@ -74,12 +74,12 @@ internal sealed class ProcessToolPresenterTests
     public async Task Exec_output_does_not_imply_a_yielded_process(string arguments, string result)
     {
         IToolPresenter presenter = new ExecCommandToolPresenter(TimeProvider.System, []);
-        var call = new ToolCallPresentation("main", "exec_command", arguments);
+        var call = new ToolCallPresentation("exec_command", arguments);
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, result, string.Empty);
 
         var rendered = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException()).Render(ScrollbackContext);
 
-        _ = await Assert.That(rendered[0]).IsEqualTo("✓ main: $ status");
+        _ = await Assert.That(rendered[0]).IsEqualTo("✓ $ status");
         _ = await Assert.That(string.Join('\n', rendered)).Contains(result);
         _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain("process " + result + " running");
     }
@@ -88,7 +88,7 @@ internal sealed class ProcessToolPresenterTests
     public async Task Spilled_nonzero_process_output_is_reported_as_a_failure()
     {
         IToolPresenter presenter = new ExecCommandToolPresenter(TimeProvider.System, []);
-        var call = new ToolCallPresentation("main", "exec_command", "{\"command\":\"compile\"}");
+        var call = new ToolCallPresentation("exec_command", "{\"command\":\"compile\"}");
         var outputPath = Path.GetFullPath(Path.Combine("state", "sessions", "session", "blob", "output"));
         var terminal = new ToolTerminalPresentation(
             ToolTerminalStatus.Succeeded,
@@ -99,7 +99,7 @@ internal sealed class ProcessToolPresenterTests
         var rendered = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException()).Render(ScrollbackContext);
 
         _ = await Assert.That(terminal.ResolveProcessStatus()).IsEqualTo(ToolTerminalStatus.ReportedFailure);
-        _ = await Assert.That(rendered[0]).IsEqualTo("✗ main: $ compile");
+        _ = await Assert.That(rendered[0]).IsEqualTo("✗ $ compile");
         _ = await Assert.That(string.Join('\n', rendered)).Contains($"saved to {outputPath}");
     }
 
@@ -109,7 +109,6 @@ internal sealed class ProcessToolPresenterTests
         IToolPresenter presenter = new ExecCommandToolPresenter(TimeProvider.System, []);
         var command = "python3 - <<'PY'\nfirst\nsecond\nthird\nfourth\nfifth\nPY";
         var call = new ToolCallPresentation(
-            "main",
             "exec_command",
             "{\"command\":\"" + System.Text.Json.JsonEncodedText.Encode(command) + "\"}");
         var terminal = new ToolTerminalPresentation(
@@ -122,7 +121,7 @@ internal sealed class ProcessToolPresenterTests
             .Render(ScrollbackContext);
 
         _ = await Assert.That(string.Join('\n', rendered.Take(6))).IsEqualTo(
-            "✓ main: $ python3 - <<'PY'\nfirst\nsecond\nthird\nfourth\n.. 2 lines truncated.");
+            "✓ $ python3 - <<'PY'\n  first\n  second\n  third\n  fourth\n  .. 2 lines truncated.");
     }
 
     [Test]
@@ -130,33 +129,33 @@ internal sealed class ProcessToolPresenterTests
     {
         var timeProvider = new ControlledTimeProvider();
         IToolPresenter presenter = new ExecCommandToolPresenter(timeProvider, []);
-        var call = new ToolCallPresentation("main", "exec_command", "{\"command\":\"dotnet test\"}");
+        var call = new ToolCallPresentation("exec_command", "{\"command\":\"dotnet test\"}");
         var live = presenter.PresentLive(call, 0);
 
         _ = await Assert.That(live.Render(LiveContext).Lines[0].Text)
-            .IsEqualTo("⠋ main: $ dotnet test (running 0s)");
+            .IsEqualTo("⠋ $ dotnet test (running 0s)");
 
         timeProvider.SetElapsed(TimeSpan.FromSeconds(12));
         live = live.Animate(1);
         _ = await Assert.That(live.Render(LiveContext).Lines[0].Text)
-            .IsEqualTo("⠙ main: $ dotnet test (running 12s)");
+            .IsEqualTo("⠙ $ dotnet test (running 12s)");
 
         timeProvider.SetElapsed(TimeSpan.FromSeconds(125));
         live = live.Animate(2);
         _ = await Assert.That(live.Render(LiveContext).Lines[0].Text)
-            .IsEqualTo("⠹ main: $ dotnet test (running 2m 05s)");
+            .IsEqualTo("⠹ $ dotnet test (running 2m 05s)");
 
         timeProvider.SetElapsed(TimeSpan.FromSeconds(3723));
         live = live.Animate(3);
         _ = await Assert.That(live.Render(LiveContext).Lines[0].Text)
-            .IsEqualTo("⠸ main: $ dotnet test (running 1h 02m 03s)");
+            .IsEqualTo("⠸ $ dotnet test (running 1h 02m 03s)");
     }
 
     [Test]
     public async Task Exec_process_output_is_not_colored()
     {
         IToolPresenter presenter = new ExecCommandToolPresenter(TimeProvider.System, []);
-        var call = new ToolCallPresentation("main", "exec_command", "{\"command\":\"echo output\"}");
+        var call = new ToolCallPresentation("exec_command", "{\"command\":\"echo output\"}");
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "output", string.Empty);
 
         var rendered = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException())
@@ -181,7 +180,7 @@ internal sealed class ProcessToolPresenterTests
         var palette = new TerminalPalette(true);
         IToolPresenter presenter = new ExecCommandToolPresenter(TimeProvider.System, ["rg", "grep", "sed", "custom"]);
         var arguments = "{\"command\":\"" + System.Text.Json.JsonEncodedText.Encode(command) + "\"}";
-        var call = new ToolCallPresentation("main", "exec_command", arguments);
+        var call = new ToolCallPresentation("exec_command", arguments);
         var live = presenter.PresentLive(call, 0);
         var terminal = presenter.PresentTerminal(
             call,
@@ -208,7 +207,7 @@ internal sealed class ProcessToolPresenterTests
         string expectedDiagnostic)
     {
         IToolPresenter presenter = new ExecCommandToolPresenter(TimeProvider.System, ["rg"]);
-        var call = new ToolCallPresentation("main", "exec_command", "{\"command\":\"rg pattern\"}");
+        var call = new ToolCallPresentation("exec_command", "{\"command\":\"rg pattern\"}");
         var terminal = presenter.PresentTerminal(
             call,
             new ToolTerminalPresentation(status, resultPresent, result, error))
@@ -335,7 +334,6 @@ internal sealed class ProcessToolPresenterTests
         const string secretInput = "secret 🔒";
         const string secretResult = "private process output";
         var call = new ToolCallPresentation(
-            "main",
             "write_stdin",
             "{\"name\":\"build\",\"input\":\"secret \\uD83D\\uDD12\",\"yield_after_ms\":0}");
         var terminal = new ToolTerminalPresentation(
@@ -349,8 +347,8 @@ internal sealed class ProcessToolPresenterTests
             ?? throw new InvalidOperationException("Write stdin terminal presentation missing.");
         var rendered = finished.Render(ScrollbackContext);
 
-        _ = await Assert.That(string.Join('\n', live)).Contains("main: write 8 chars to build");
-        _ = await Assert.That(string.Join('\n', rendered)).Contains("main: write 8 chars to build");
+        _ = await Assert.That(string.Join('\n', live)).Contains("write 8 chars to build");
+        _ = await Assert.That(string.Join('\n', rendered)).Contains("write 8 chars to build");
         _ = await Assert.That(string.Join('\n', live)).DoesNotContain(secretInput);
         _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain(secretInput);
         _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain(secretResult);
@@ -362,14 +360,14 @@ internal sealed class ProcessToolPresenterTests
     public async Task Write_stdin_is_nonthrowing_for_partial_arguments()
     {
         IToolPresenter presenter = new WriteStdinToolPresenter();
-        var call = new ToolCallPresentation("main", "write_stdin", "{\"name\":\"build\",\"input\":\"secret");
+        var call = new ToolCallPresentation("write_stdin", "{\"name\":\"build\",\"input\":\"secret");
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Errored, false, string.Empty, "secret error");
 
         var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines[0].Text;
         var finished = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException()).Render(ScrollbackContext);
 
-        _ = await Assert.That(live).Contains("main: write input to process");
-        _ = await Assert.That(string.Join('\n', finished)).Contains("main: write input to process");
+        _ = await Assert.That(live).Contains("write input to process");
+        _ = await Assert.That(string.Join('\n', finished)).Contains("write input to process");
         _ = await Assert.That(live).DoesNotContain("secret");
         _ = await Assert.That(string.Join('\n', finished)).DoesNotContain("secret error");
     }

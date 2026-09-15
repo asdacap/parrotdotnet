@@ -1,18 +1,13 @@
 namespace Parrot.Cli.Enhanced;
 
-internal readonly record struct StreamedResponseValue(string Prefix, string Text) : ILiveBufferItem
+internal readonly record struct StreamedResponseValue(string Marker, string Text) : ILiveBufferItem
 {
     public MultiLine Render(LiveBufferRenderContext context)
     {
-        var prefix = SingleLine(Prefix);
-        var text = SingleLine(Text);
-        var prefixWidth = TerminalText.Width(prefix);
-        var available = Math.Max(0, context.Columns - prefixWidth);
-        var rendered = available == 0
-            ? TerminalText.Clip(prefix, context.Columns)
-            : prefix + Viewport(text, available);
+        var viewport = Viewport(SingleLine(Text), context.Decoration.ContentColumns(context.Columns));
         return new MultiLine(
-            [new TerminalLine(rendered, context.Palette.LiveSurface)],
+            [.. context.Decoration.Apply(Marker, [viewport])
+                .Select(line => new TerminalLine(line, context.Palette.LiveSurface))],
             null,
             LiveBufferRetention.Tail);
     }

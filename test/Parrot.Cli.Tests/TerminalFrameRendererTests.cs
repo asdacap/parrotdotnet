@@ -184,8 +184,8 @@ internal sealed class TerminalFrameRendererTests
         await renderer.Commit(ImmediateScrollbackValue.Muted(["after tree"]), frame, cancellationToken);
         var following = output.ToString()[boundary..];
 
-        _ = await Assert.That(tree).Contains("\r\nAgent tasks:\r\n✓ root task\r\n\r\n");
-        _ = await Assert.That(tree).DoesNotContain("\r\n\r\n\r\nAgent tasks:");
+        _ = await Assert.That(tree).Contains("\r\n• Agent tasks:\r\n  ✓ root task\r\n\r\n");
+        _ = await Assert.That(tree).DoesNotContain("\r\n\r\n\r\n• Agent tasks:");
         _ = await Assert.That(following).Contains("after tree\r\n");
         _ = await Assert.That(following).DoesNotContain("\r\n\r\nafter tree\r\n");
     }

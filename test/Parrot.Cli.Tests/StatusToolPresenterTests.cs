@@ -15,19 +15,19 @@ internal sealed class StatusToolPresenterTests
             .Select(static index => $"Model {index}: {new string('x', 100)}\u001b"));
         var context = new ScrollbackRenderContext(columns, new TerminalPalette(false));
         var rendered = (registry.PresentTerminal(
-            new ToolCallPresentation("main", "status", "{}"),
+            new ToolCallPresentation("status", "{}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, output, string.Empty))
             ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(context);
-        var expected = TerminalText.Layout("✓ main: tool call status", columns)
+        var expected = TerminalText.Layout("✓ tool call status", columns)
             .Concat(output.Replace("\u001b", string.Empty, StringComparison.Ordinal).Split('\n')
-                .SelectMany(line => TerminalText.Layout($"  {line}", columns)));
+                .SelectMany(line => TerminalText.Layout(line, columns - 2).Select(static row => $"  {row}")));
 
         _ = await Assert.That(string.Join('\n', rendered)).IsEqualTo(string.Join('\n', expected));
         _ = await Assert.That(rendered.Count).IsGreaterThan(200);
 
         var generic = (registry.PresentTerminal(
-            new ToolCallPresentation("main", "other", "{}"),
+            new ToolCallPresentation("other", "{}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, output, string.Empty))
             ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(context);

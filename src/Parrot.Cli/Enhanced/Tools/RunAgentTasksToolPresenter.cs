@@ -10,7 +10,7 @@ internal sealed class RunAgentTasksToolPresenter(IToolPresenter generic) : ITool
     };
 
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) =>
-        new ToolLiveValue($"{call.Owner}: running agent tasks", [], frame);
+        new ToolLiveValue("running agent tasks", [], frame);
 
     public IScrollbackItem? PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal) =>
         generic.PresentTerminal(call with { ArgumentsJson = string.Empty }, terminal);

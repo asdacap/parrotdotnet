@@ -21,23 +21,23 @@ internal sealed class ToolPresenterRegistryTests
             string.Empty,
             string.Empty);
 
-        var known = registry.PresentLive(new ToolCallPresentation("main", "read", "{}"), 0)
+        var known = registry.PresentLive(new ToolCallPresentation("read", "{}"), 0)
             .Render(LiveContext).Lines[0].Text;
-        var differentlyCased = registry.PresentLive(new ToolCallPresentation("main", "Read", "{}"), 0)
+        var differentlyCased = registry.PresentLive(new ToolCallPresentation("Read", "{}"), 0)
             .Render(LiveContext).Lines[0].Text;
-        var invalidLive = registry.PresentLive(new ToolCallPresentation("main", "broken", "{}"), 0)
+        var invalidLive = registry.PresentLive(new ToolCallPresentation("broken", "{}"), 0)
             .Render(LiveContext).Lines[0].Text;
         var invalidTerminalItem = registry.PresentTerminal(
-            new ToolCallPresentation("main", "broken", "{}"), terminal)
+            new ToolCallPresentation("broken", "{}"), terminal)
             ?? throw new InvalidOperationException("The generic presenter must produce terminal output.");
         var invalidTerminal = invalidTerminalItem.Render(ScrollbackContext)[0];
         var omitted = registry.PresentTerminal(
-            new ToolCallPresentation("main", "live_only", "{}"), terminal);
+            new ToolCallPresentation("live_only", "{}"), terminal);
 
         _ = await Assert.That(known).IsEqualTo("selected");
-        _ = await Assert.That(differentlyCased).Contains("main: Read");
-        _ = await Assert.That(invalidLive).Contains("main: broken");
-        _ = await Assert.That(invalidTerminal).Contains("main: tool call broken");
+        _ = await Assert.That(differentlyCased).Contains("Read");
+        _ = await Assert.That(invalidLive).Contains("broken");
+        _ = await Assert.That(invalidTerminal).Contains("tool call broken");
         _ = await Assert.That(omitted).IsNull();
     }
 
@@ -46,7 +46,6 @@ internal sealed class ToolPresenterRegistryTests
     {
         IToolPresenter presenter = new GenericToolPresenter();
         var call = new ToolCallPresentation(
-            "main",
             "unknown",
             "{\"path\":\"src/App.cs\",\"options\":{\"limit\":2},\"enabled\":true,\"ambiguous\":\"true\"}");
         var terminal = presenter.PresentTerminal(
@@ -57,10 +56,10 @@ internal sealed class ToolPresenterRegistryTests
                 "[{\"name\":\"first\"},{\"name\":\"second\"}]",
                 string.Empty));
         var invalid = presenter.PresentTerminal(
-            new ToolCallPresentation("main", "unknown", "not json"),
+            new ToolCallPresentation("unknown", "not json"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "plain result", string.Empty));
         var duplicate = presenter.PresentLive(
-            new ToolCallPresentation("main", "unknown", "{\"value\":1,\"value\":2}"),
+            new ToolCallPresentation("unknown", "{\"value\":1,\"value\":2}"),
             0);
         var live = presenter.PresentLive(call, 0);
 
@@ -74,7 +73,7 @@ internal sealed class ToolPresenterRegistryTests
         _ = await Assert.That(terminalText).Contains("ambiguous: \"true\"");
         _ = await Assert.That(terminalText).Contains("  ---\n  - name: \"first\"");
         _ = await Assert.That(terminalText).DoesNotContain("{\"");
-        _ = await Assert.That(invalidText).IsEqualTo("✓ main: tool call unknown\n  not json\n  ---\n  plain result");
+        _ = await Assert.That(invalidText).IsEqualTo("✓ tool call unknown\n  not json\n  ---\n  plain result");
         _ = await Assert.That(duplicate.Render(LiveContext).Lines[1].Text).Contains("{\"value\":1,\"value\":2}");
     }
 
@@ -85,7 +84,6 @@ internal sealed class ToolPresenterRegistryTests
         const string inputSecret = "secret 🔒";
         const string resultSecret = "private result";
         var call = new ToolCallPresentation(
-            "main",
             "sensitive",
             "{\"name\":\"build\",\"input\":\"secret \\uD83D\\uDD12\"}");
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, resultSecret, string.Empty);
@@ -107,7 +105,7 @@ internal sealed class ToolPresenterRegistryTests
     {
         var registry = new ToolPresenterRegistry([new SensitiveFailingToolPresenter()], new GenericToolPresenter());
         const string malformed = "{\"input\":\"secret";
-        var call = new ToolCallPresentation("main", "sensitive", malformed);
+        var call = new ToolCallPresentation("sensitive", malformed);
 
         var live = registry.PresentLive(call, 0).Render(LiveContext).Lines.Select(line => line.Text);
 
@@ -122,10 +120,10 @@ internal sealed class ToolPresenterRegistryTests
         IToolPresenter generic = new GenericToolPresenter();
         var registry = new ToolPresenterRegistry([], generic);
         const string notice = "Tool output exceeded 64 KiB and was saved to /tmp/output.";
-        var live = registry.PresentLive(new ToolCallPresentation("main", "retired_tool", "not json"), 0)
+        var live = registry.PresentLive(new ToolCallPresentation("retired_tool", "not json"), 0)
             .Render(LiveContext).Lines.Select(line => line.Text);
         var presented = registry.PresentTerminal(
-            new ToolCallPresentation("main", "retired_tool", "not json"),
+            new ToolCallPresentation("retired_tool", "not json"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, notice, string.Empty))
             ?? throw new InvalidOperationException("The generic presenter must render terminal output.");
         var rendered = presented.Render(ScrollbackContext);
@@ -133,9 +131,9 @@ internal sealed class ToolPresenterRegistryTests
         var liveText = string.Join('\n', live);
         var renderedText = string.Join('\n', rendered);
 
-        _ = await Assert.That(liveText).Contains("main: retired_tool");
+        _ = await Assert.That(liveText).Contains("retired_tool");
         _ = await Assert.That(liveText).Contains("not json");
-        _ = await Assert.That(renderedText).Contains("main: tool call retired_tool");
+        _ = await Assert.That(renderedText).Contains("tool call retired_tool");
         _ = await Assert.That(renderedText).Contains("not json");
         _ = await Assert.That(renderedText).Contains(notice);
     }
@@ -145,7 +143,6 @@ internal sealed class ToolPresenterRegistryTests
     {
         var registry = new ToolPresenterRegistry([new SensitiveFailingToolPresenter()], new GenericToolPresenter());
         var call = new ToolCallPresentation(
-            "main",
             "sensitive",
             "{\"input\":\"secret😀\",\"name\":\"worker\"}");
         var terminal = new ToolTerminalPresentation(
@@ -175,10 +172,10 @@ internal sealed class ToolPresenterRegistryTests
             RedactedInputFields = ["input"],
         };
         var structured = ToolPresentationRedactor.Redact(
-            new ToolCallPresentation("main", "sensitive", "{\"input\":{\"secret\":true},\"safe\":42}"),
+            new ToolCallPresentation("sensitive", "{\"input\":{\"secret\":true},\"safe\":42}"),
             metadata);
         var invalid = ToolPresentationRedactor.Redact(
-            new ToolCallPresentation("main", "sensitive", "not-json secret"),
+            new ToolCallPresentation("sensitive", "not-json secret"),
             metadata);
 
         _ = await Assert.That(structured.ArgumentsJson).Contains("<redacted>");
@@ -230,10 +227,10 @@ internal sealed class ToolPresenterRegistryTests
         IToolPresenter spawnPresenter = new AgentSpawnToolPresenter();
         IToolPresenter readPresenter = new ReadToolPresenter();
         var spawn = spawnPresenter.PresentTerminal(
-            new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"ship it\",\"name\":\"worker\"}"),
+            new ToolCallPresentation("agent_spawn", "{\"prompt\":\"ship it\",\"name\":\"worker\"}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty));
         var read = readPresenter.PresentTerminal(
-            new ToolCallPresentation("main", "read", "{\"path\":\"src/App.cs\",\"offset\":12}"),
+            new ToolCallPresentation("read", "{\"path\":\"src/App.cs\",\"offset\":12}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "12: class App", string.Empty));
 
         var spawnLines = (spawn ?? throw new InvalidOperationException("Spawn presentation missing.")).Render(ScrollbackContext);
@@ -241,9 +238,9 @@ internal sealed class ToolPresenterRegistryTests
             .Render(new ScrollbackRenderContext(32_768, new TerminalPalette(true)));
 
         _ = await Assert.That(string.Join('|', spawnLines))
-            .IsEqualTo("♟ main: Start agent worker|name: worker|fork: empty|prompt: ship it");
+            .IsEqualTo("♟ Start agent worker|  name: worker|  fork: empty|  prompt: ship it");
         _ = await Assert.That(readLines).Count().IsEqualTo(1);
-        _ = await Assert.That(readLines[0]).Contains("\u001b[38;5;245m✓ main: read src/App.cs\u001b[0m");
+        _ = await Assert.That(readLines[0]).Contains("\u001b[38;5;245m✓ read src/App.cs\u001b[0m");
         _ = await Assert.That(string.Join('\n', readLines)).DoesNotContain("12: class App");
         _ = await Assert.That(spawnPresenter.Metadata.TerminalOnly).IsTrue();
     }

@@ -17,8 +17,8 @@ internal sealed class AgentSpawnToolPresenter : IToolPresenter
         using var arguments = JsonDocument.Parse(call.ArgumentsJson);
         var label = arguments.RootElement.TryGetProperty("name", out var name)
             && name.GetString() is { Length: > 0 } value
-                ? $"{call.Owner}: Start agent {value}"
-                : $"{call.Owner}: Start agent";
+                ? $"Start agent {value}"
+                : "Start agent";
         return new ToolLiveValue(label, [], Metadata, frame);
     }
 
@@ -28,8 +28,8 @@ internal sealed class AgentSpawnToolPresenter : IToolPresenter
         var status = terminal.ResolveStatus();
         var label = arguments.RootElement.TryGetProperty("name", out var name)
             && name.GetString() is { Length: > 0 } value
-                ? $"{call.Owner}: Start agent {value}"
-                : $"{call.Owner}: Start agent";
+                ? $"Start agent {value}"
+                : "Start agent";
         var block = status is ToolTerminalStatus.Errored or ToolTerminalStatus.ReportedFailure
             ? terminal.DescribeBlock(ToolBlockKind.None)
             : ToolBlock.FromCompletedInput(CompletedInput(arguments.RootElement));

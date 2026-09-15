@@ -14,12 +14,11 @@ internal sealed class ShellProcessLiveValue(
         var elapsedSinceSnapshot = timeProvider.GetElapsedTime(observedTimestamp);
         var elapsedMilliseconds = Math.Max(0L, process.ElapsedMs + (long)elapsedSinceSnapshot.TotalMilliseconds);
         var name = process.Name.Length == 0 ? process.ProcessId : process.Name;
-        var label = HierarchicalActivityValue.RemoveOwner(
-            $"{process.OwnerAgentName}: $ {process.Command} (process {name} running {Format(elapsedMilliseconds)})",
-            context.ActivityOwner);
-        var marker = TerminalIcons.SpinnerFrames[frame % TerminalIcons.SpinnerFrames.Length];
-        var lines = TerminalText.Layout($"{marker} {TerminalText.Sanitize(label)}", context.Columns)
-            .Take(10)
+        var label = $"$ {process.Command} (process {name} running {Format(elapsedMilliseconds)})";
+        var marker = TerminalIcons.SpinnerFrames[frame % TerminalIcons.SpinnerFrames.Length].ToString();
+        var lines = context.Decoration.Apply(
+                marker,
+                TerminalText.Layout(TerminalText.Sanitize(label), context.Decoration.ContentColumns(context.Columns)).Take(10))
             .Select(value => new TerminalLine(value, context.Palette.Marker))
             .ToList();
         return new MultiLine(lines, null, LiveBufferRetention.Fixed);

@@ -112,7 +112,7 @@ internal sealed class ShellProcessActivityTests
 
         _ = await Assert.That(activity.Commits).Count().IsEqualTo(1);
         _ = await Assert.That(activity.Commits[0]).IsEqualTo(
-            "✓ $ rg AgentTask|Process exited with code 0 after 0.02s|matching output");
+            "✓ $ rg AgentTask|  Process exited with code 0 after 0.02s|  matching output");
     }
 
     [Test]
@@ -157,7 +157,7 @@ internal sealed class ShellProcessActivityTests
         await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1 }, cancellationToken);
 
         _ = await Assert.That(activity.Commits).HasSingleItem();
-        _ = await Assert.That(activity.Commits[0]).Contains("$ echo line-1|echo line-2");
+        _ = await Assert.That(activity.Commits[0]).Contains("$ echo line-1|  echo line-2");
         _ = await Assert.That(activity.Commits[0]).EndsWith("echo line-12");
     }
 

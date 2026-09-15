@@ -18,7 +18,7 @@ internal sealed class QueuePushToolPresenter : IToolPresenter
     {
         var input = QueuePushInput.Parse(call.ArgumentsJson);
         return new ToolLiveValue(
-            Label(call.Owner, input.Name, input.Close ? QueueState.Closed : QueueState.Open),
+            Label(input.Name, input.Close ? QueueState.Closed : QueueState.Open),
             ToolBlock.FromQueue(input.Details),
             Metadata,
             frame);
@@ -32,7 +32,7 @@ internal sealed class QueuePushToolPresenter : IToolPresenter
         var block = status == ToolTerminalStatus.Succeeded
             ? ToolBlock.FromQueue(input.Details)
             : terminal.DescribeBlock(ToolBlockKind.None);
-        return new ToolScrollbackValue(Label(call.Owner, input.Name, state), block, status, Metadata);
+        return new ToolScrollbackValue(Label(input.Name, state), block, status, Metadata);
     }
 
     private static QueueState ResolveState(
@@ -48,8 +48,8 @@ internal sealed class QueuePushToolPresenter : IToolPresenter
         && terminal.Result.StartsWith("error: queue: '", StringComparison.Ordinal)
         && terminal.Result.Contains("' is closed", StringComparison.Ordinal);
 
-    private static string Label(string owner, string name, QueueState state) =>
-        $"{owner}: Push to queue {name} · {state.ToString().ToLowerInvariant()}";
+    private static string Label(string name, QueueState state) =>
+        $"Push to queue {name} · {state.ToString().ToLowerInvariant()}";
 
     private readonly record struct QueuePushInput(string Name, string[] Details, bool Close)
     {

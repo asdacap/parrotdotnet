@@ -86,7 +86,7 @@ internal sealed class EnhancedActivity(ToolPresenterRegistry presenters)
         var fragment = name.Length == 0
             ? Redacted
             : TerminalText.Sanitize(ToolPresentationRedactor.Redact(
-                new ToolCallPresentation(string.Empty, name, chunk.ArgumentsFragment),
+                new ToolCallPresentation(name, chunk.ArgumentsFragment),
                 presenters.Describe(name)).ArgumentsJson);
         return name.Length == 0
             ? $"tool call: {fragment}"

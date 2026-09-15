@@ -16,7 +16,7 @@ internal sealed class QuestionToolPresenter : IToolPresenter
             ? questions[0].GetProperty("prompt").GetString() ?? "Question"
             : "Question";
         return new ToolLiveValue(
-            $"{call.Owner}: Question · {questions.GetArrayLength()} {(questions.GetArrayLength() == 1 ? "item" : "items")}",
+            $"Question · {questions.GetArrayLength()} {(questions.GetArrayLength() == 1 ? "item" : "items")}",
             [prompt],
             Metadata,
             frame);
@@ -29,7 +29,7 @@ internal sealed class QuestionToolPresenter : IToolPresenter
         var details = questions.EnumerateArray().Select(question =>
             question.GetProperty("prompt").GetString() ?? "Question").ToArray();
         return new ToolScrollbackValue(
-            $"{call.Owner}: Question · {details.Length} {(details.Length == 1 ? "item" : "items")}",
+            $"Question · {details.Length} {(details.Length == 1 ? "item" : "items")}",
             terminal.DescribeBlock(ToolBlockKind.Text),
             terminal.ResolveStatus(),
             Metadata);

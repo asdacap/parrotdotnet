@@ -82,17 +82,19 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public string? StartCompaction() => _activities.Add(CompactionActivity) ? CompactionActivity : null;
 
-    public (string ActivityId, string Line)? FinishCompaction(Event published)
+    public (string ActivityId, ActivityNoticeScrollbackValue Notice)? FinishCompaction(Event published)
     {
         if (!_activities.Remove(CompactionActivity))
         {
             return null;
         }
 
-        var line = published.PayloadCase == Event.PayloadOneofCase.CompactionFailed
-            ? $"! compaction failed: {TerminalText.Sanitize(published.CompactionFailed.Message)}"
-            : "+ compaction finished";
-        return (CompactionActivity, line);
+        var notice = published.PayloadCase == Event.PayloadOneofCase.CompactionFailed
+            ? new ActivityNoticeScrollbackValue(
+                TerminalIcons.Failure,
+                $"compaction failed: {published.CompactionFailed.Message}")
+            : new ActivityNoticeScrollbackValue(TerminalIcons.Success, "compaction finished");
+        return (CompactionActivity, notice);
     }
 
     public void CollectResponse(string fragment)
@@ -173,7 +175,9 @@ internal sealed class AgentSessionState(string agentSessionId)
         return AgentActivityId;
     }
 
-    public (string ActivityId, string Response, string Line)? FinishTurn(Event published, bool failed)
+    public (string ActivityId, string Response, ActivityNoticeScrollbackValue Notice)? FinishTurn(
+        Event published,
+        bool failed)
     {
         if (!_activities.Remove(AgentActivityId))
         {
@@ -186,25 +190,27 @@ internal sealed class AgentSessionState(string agentSessionId)
         var interrupted = !failed
             && string.Equals(published.TurnEnded.FinishReason, "interrupted", StringComparison.Ordinal);
         var response = DrainResponse();
-        var status = failed
-            ? $"! agent: {TerminalText.Sanitize(published.TurnFailed.Message)}"
+        var notice = failed
+            ? new ActivityNoticeScrollbackValue(TerminalIcons.Failure, $"agent: {published.TurnFailed.Message}")
             : interrupted
-                ? "- agent interrupted"
-                : "+ agent finished";
-        return (AgentActivityId, response, status);
+                ? new ActivityNoticeScrollbackValue(TerminalIcons.Interrupted, "agent interrupted")
+                : new ActivityNoticeScrollbackValue(TerminalIcons.Agent, "agent finished");
+        return (AgentActivityId, response, notice);
     }
 
-    public (string ActivityId, string Line)? FinishAgent(Event published, bool failed)
+    public (string ActivityId, ActivityNoticeScrollbackValue Notice)? FinishAgent(Event published, bool failed)
     {
         if (!_agentTerminalPending)
         {
             return null;
         }
 
-        var status = failed
-            ? $"! agent: {TerminalText.Sanitize(published.AgentFailed.Message)}"
-            : $"+ agent finished ({AgentDurationFormatter.Format(published.AgentFinished.ElapsedMs)})";
-        return (AgentActivityId, status);
+        var notice = failed
+            ? new ActivityNoticeScrollbackValue(TerminalIcons.Failure, $"agent: {published.AgentFailed.Message}")
+            : new ActivityNoticeScrollbackValue(
+                TerminalIcons.Agent,
+                $"agent finished ({AgentDurationFormatter.Format(published.AgentFinished.ElapsedMs)})");
+        return (AgentActivityId, notice);
     }
 
     public void CompleteAgent()
@@ -398,7 +404,7 @@ internal sealed class AgentSessionState(string agentSessionId)
         var activityId = ToolActivityPrefix + toolCallId;
         _ = _activities.Remove(activityId);
         _ = _foldedTools.Remove(toolCallId);
-        var call = new ToolCallPresentation(Name, toolCall.Name, toolCall.Arguments.ToString(), agentReferenceResolver);
+        var call = new ToolCallPresentation(toolCall.Name, toolCall.Arguments.ToString(), agentReferenceResolver);
         var terminal = published.PayloadCase switch
         {
             Event.PayloadOneofCase.ToolFinished => new ToolTerminalPresentation(
@@ -443,7 +449,7 @@ internal sealed class AgentSessionState(string agentSessionId)
                         frame)
                     : _response.Length == 0
                         ? new SpinnerValue(AgentLabel, frame)
-                        : new StreamedResponseValue("● ", _response.ToString());
+                        : new StreamedResponseValue(TerminalIcons.AssistantMessage, _response.ToString());
         }
 
         if (string.Equals(activityId, CompactionActivity, StringComparison.Ordinal))
@@ -456,7 +462,7 @@ internal sealed class AgentSessionState(string agentSessionId)
         {
             var toolCall = _toolCalls[toolCallId];
             live = presenters.PresentLive(
-                new ToolCallPresentation(Name, toolCall.Name, toolCall.Arguments.ToString(), agentReferenceResolver),
+                new ToolCallPresentation(toolCall.Name, toolCall.Arguments.ToString(), agentReferenceResolver),
                 frame);
             _toolLive.Add(toolCallId, live);
         }

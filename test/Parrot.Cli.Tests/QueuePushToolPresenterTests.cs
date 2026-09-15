@@ -14,22 +14,22 @@ internal sealed class QueuePushToolPresenterTests
     {
         IToolPresenter presenter = new QueuePushToolPresenter();
         var open = (presenter.PresentTerminal(
-            new ToolCallPresentation("main", "queue_push", "{\"name\":\"work\",\"items\":[\"first\",\"second\"]}"),
+            new ToolCallPresentation("queue_push", "{\"name\":\"work\",\"items\":[\"first\",\"second\"]}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty))
             ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
         var closed = (presenter.PresentTerminal(
-            new ToolCallPresentation("main", "queue_push", "{\"name\":\"work\",\"items\":[\"final\"],\"close\":true}"),
+            new ToolCallPresentation("queue_push", "{\"name\":\"work\",\"items\":[\"final\"],\"close\":true}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty))
             ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
         var live = presenter.PresentLive(
-            new ToolCallPresentation("main", "queue_push", "{\"name\":\"work\",\"items\":[\"final\"],\"close\":true}"),
+            new ToolCallPresentation("queue_push", "{\"name\":\"work\",\"items\":[\"final\"],\"close\":true}"),
             0).Render(LiveContext).Lines.Select(static line => line.Text).ToArray();
 
-        _ = await Assert.That(string.Join('|', open)).IsEqualTo("✓ main: Push to queue work · open|  first|  second");
-        _ = await Assert.That(string.Join('|', closed)).IsEqualTo("✓ main: Push to queue work · closed|  final");
-        _ = await Assert.That(string.Join('|', live)).IsEqualTo("⠋ main: Push to queue work · closed|  final");
+        _ = await Assert.That(string.Join('|', open)).IsEqualTo("✓ Push to queue work · open|  first|  second");
+        _ = await Assert.That(string.Join('|', closed)).IsEqualTo("✓ Push to queue work · closed|  final");
+        _ = await Assert.That(string.Join('|', live)).IsEqualTo("⠋ Push to queue work · closed|  final");
     }
 
     [Test]
@@ -38,18 +38,18 @@ internal sealed class QueuePushToolPresenterTests
         IToolPresenter presenter = new QueuePushToolPresenter();
         const string arguments = "{\"name\":\"work\",\"source_file\":\"tasks/items.txt\",\"close\":true}";
         var terminal = (presenter.PresentTerminal(
-            new ToolCallPresentation("main", "queue_push", arguments),
+            new ToolCallPresentation("queue_push", arguments),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty))
             ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
         var live = presenter.PresentLive(
-            new ToolCallPresentation("main", "queue_push", arguments),
+            new ToolCallPresentation("queue_push", arguments),
             0).Render(LiveContext).Lines.Select(static line => line.Text).ToArray();
 
         _ = await Assert.That(string.Join('|', terminal))
-            .IsEqualTo("✓ main: Push to queue work · closed|  source_file: tasks/items.txt");
+            .IsEqualTo("✓ Push to queue work · closed|  source_file: tasks/items.txt");
         _ = await Assert.That(string.Join('|', live))
-            .IsEqualTo("⠋ main: Push to queue work · closed|  source_file: tasks/items.txt");
+            .IsEqualTo("⠋ Push to queue work · closed|  source_file: tasks/items.txt");
     }
 
     [Test]
@@ -58,7 +58,6 @@ internal sealed class QueuePushToolPresenterTests
         IToolPresenter presenter = new QueuePushToolPresenter();
         var rendered = (presenter.PresentTerminal(
             new ToolCallPresentation(
-                "main",
                 "queue_push",
                 "{\"name\":\"work\",\"source_file\":\"private.txt\"}"),
             new ToolTerminalPresentation(
@@ -69,7 +68,7 @@ internal sealed class QueuePushToolPresenterTests
             ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
 
-        _ = await Assert.That(rendered[0]).IsEqualTo("✗ main: Push to queue work · open");
+        _ = await Assert.That(rendered[0]).IsEqualTo("✗ Push to queue work · open");
         _ = await Assert.That(string.Join('|', rendered)).Contains("error: access denied");
         _ = await Assert.That(string.Join('|', rendered)).DoesNotContain("private.txt");
     }
@@ -79,7 +78,7 @@ internal sealed class QueuePushToolPresenterTests
     {
         IToolPresenter presenter = new QueuePushToolPresenter();
         var rendered = (presenter.PresentTerminal(
-            new ToolCallPresentation("main", "queue_push", "{\"name\":\"work\",\"items\":[\"again\"]}"),
+            new ToolCallPresentation("queue_push", "{\"name\":\"work\",\"items\":[\"again\"]}"),
             new ToolTerminalPresentation(
                 ToolTerminalStatus.Succeeded,
                 true,
@@ -88,7 +87,7 @@ internal sealed class QueuePushToolPresenterTests
             ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
 
-        _ = await Assert.That(rendered[0]).IsEqualTo("✗ main: Push to queue work · closed");
+        _ = await Assert.That(rendered[0]).IsEqualTo("✗ Push to queue work · closed");
         _ = await Assert.That(rendered[1]).IsEqualTo("  error: queue: 'work' is closed");
     }
 
@@ -103,12 +102,12 @@ internal sealed class QueuePushToolPresenterTests
             + string.Join(',', items.Select(static item => $"\"{item.Replace("\u001b", "\\u001b", StringComparison.Ordinal)}\""))
             + "]}";
         var rendered = (presenter.PresentTerminal(
-            new ToolCallPresentation("main", "queue_push", arguments),
+            new ToolCallPresentation("queue_push", arguments),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty))
             ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
         var large = (presenter.PresentTerminal(
-            new ToolCallPresentation("main", "queue_push", $"{{\"name\":\"work\",\"items\":[\"{new string('界', 8_000)}\"]}}"),
+            new ToolCallPresentation("queue_push", $"{{\"name\":\"work\",\"items\":[\"{new string('界', 8_000)}\"]}}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty))
             ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(new ScrollbackRenderContext(32_768, new TerminalPalette(false)));
@@ -128,12 +127,12 @@ internal sealed class QueuePushToolPresenterTests
     {
         var registry = new ToolPresenterRegistry([new QueuePushToolPresenter()], new GenericToolPresenter());
         var rendered = (registry.PresentTerminal(
-            new ToolCallPresentation("main", "queue_push", arguments),
+            new ToolCallPresentation("queue_push", arguments),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, false, string.Empty, string.Empty))
             ?? throw new InvalidOperationException("Fallback presentation missing."))
             .Render(ScrollbackContext);
 
-        _ = await Assert.That(rendered[0]).IsEqualTo("✓ main: tool call queue_push");
+        _ = await Assert.That(rendered[0]).IsEqualTo("✓ tool call queue_push");
         _ = await Assert.That(string.Join('\n', rendered)).Contains("name: \"work\"");
     }
 }

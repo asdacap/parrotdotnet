@@ -19,9 +19,9 @@ internal sealed class ExecCommandToolPresenter(
         var isReadOnly = IsReadOnlyCommand(command);
         var metadata = MetadataFor(isReadOnly);
         return isReadOnly
-            ? new ToolLiveValue($"{call.Owner}: $ {command}", ToolBlock.Empty, metadata, frame)
+            ? new ToolLiveValue($"$ {command}", ToolBlock.Empty, metadata, frame)
             : new ToolLiveValue(
-                $"{call.Owner}: $ {command}",
+                $"$ {command}",
                 [],
                 metadata,
                 frame,
@@ -37,7 +37,7 @@ internal sealed class ExecCommandToolPresenter(
 
         var command = Command(call.ArgumentsJson);
         var isReadOnly = IsReadOnlyCommand(command);
-        var label = $"{call.Owner}: $ {command}";
+        var label = $"$ {command}";
         var status = terminal.ResolveProcessStatus();
         var block = status is ToolTerminalStatus.Errored or ToolTerminalStatus.ReportedFailure
             ? ToolBlock.FromOutput(ToolOutputText.Tail(terminal.ResultPresent ? terminal.Result : terminal.Error, 10))

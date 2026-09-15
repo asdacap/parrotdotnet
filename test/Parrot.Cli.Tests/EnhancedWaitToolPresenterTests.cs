@@ -11,11 +11,11 @@ internal sealed class EnhancedWaitToolPresenterTests
     public async Task Wait_renders_the_incoming_activity_live_label()
     {
         IToolPresenter presenter = new WaitToolPresenter();
-        var call = new ToolCallPresentation("main", "wait", "{\"duration_ms\":10000}");
+        var call = new ToolCallPresentation("wait", "{\"duration_ms\":10000}");
 
         var rendered = presenter.PresentLive(call, 0).Render(LiveContext).Lines;
 
-        _ = await Assert.That(rendered[0].Text).IsEqualTo("⠋ main: Wait for incoming activity");
+        _ = await Assert.That(rendered[0].Text).IsEqualTo("⠋ Wait for incoming activity");
     }
 
     [Test]
@@ -31,7 +31,7 @@ internal sealed class EnhancedWaitToolPresenterTests
     public async Task Wait_omits_terminal_output()
     {
         IToolPresenter presenter = new WaitToolPresenter();
-        var call = new ToolCallPresentation("main", "wait", "{}");
+        var call = new ToolCallPresentation("wait", "{}");
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "timed out", string.Empty);
 
         _ = await Assert.That(presenter.PresentTerminal(call, terminal)).IsNull();

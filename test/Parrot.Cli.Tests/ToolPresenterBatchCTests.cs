@@ -11,8 +11,8 @@ internal sealed class ToolPresenterBatchCTests
 
     public static IEnumerable<object[]> Presenters()
     {
-        yield return [new GlobToolPresenter(), "{\"pattern\":\"**/*.cs\",\"path\":\"src\"}", "main: glob \"**/*.cs\" in src"];
-        yield return [new WebFetchToolPresenter(), "{\"url\":\"https://example.com/path\"}", "main: web fetch GET https://example.com/path"];
+        yield return [new GlobToolPresenter(), "{\"pattern\":\"**/*.cs\",\"path\":\"src\"}", "glob \"**/*.cs\" in src"];
+        yield return [new WebFetchToolPresenter(), "{\"url\":\"https://example.com/path\"}", "web fetch GET https://example.com/path"];
     }
 
     public static IEnumerable<object[]> PresenterInstances()
@@ -29,7 +29,7 @@ internal sealed class ToolPresenterBatchCTests
         string argumentsJson,
         string expectedLabel)
     {
-        var call = new ToolCallPresentation("main", presenter.ToolName, argumentsJson);
+        var call = new ToolCallPresentation(presenter.ToolName, argumentsJson);
         var terminal = new ToolTerminalPresentation(
             ToolTerminalStatus.Succeeded,
             true,
@@ -51,11 +51,11 @@ internal sealed class ToolPresenterBatchCTests
     public async Task Glob_uses_the_workspace_when_path_is_omitted()
     {
         IToolPresenter presenter = new GlobToolPresenter();
-        var call = new ToolCallPresentation("main", "glob", "{\"pattern\":\"src/**/*.cs\"}");
+        var call = new ToolCallPresentation("glob", "{\"pattern\":\"src/**/*.cs\"}");
 
         var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines.Select(line => line.Text).ToArray();
 
-        _ = await Assert.That(live[0]).IsEqualTo("⠋ main: glob \"src/**/*.cs\"");
+        _ = await Assert.That(live[0]).IsEqualTo("⠋ glob \"src/**/*.cs\"");
     }
 
     [Test]
@@ -69,7 +69,7 @@ internal sealed class ToolPresenterBatchCTests
     {
         IToolPresenter presenter = new ReadToolPresenter();
         const string arguments = "{\"path\":\"src/App.cs\",\"offset\":12,\"limit\":3}";
-        var call = new ToolCallPresentation("main", "read", arguments);
+        var call = new ToolCallPresentation("read", arguments);
         var terminal = new ToolTerminalPresentation(status, resultPresent, result, error);
 
         var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines[0].Text;
@@ -79,9 +79,9 @@ internal sealed class ToolPresenterBatchCTests
         var expectedError = resultPresent ? result : error;
         var expectedBlock = $"path: \"src/App.cs\"\noffset: 12\nlimit: 3\n---\n{expectedError}";
 
-        _ = await Assert.That(live).IsEqualTo("⠋ main: read src/App.cs");
-        _ = await Assert.That(rendered).IsEqualTo($"✗ main: read src/App.cs\n  {expectedBlock.Replace("\n", "\n  ", StringComparison.Ordinal)}");
-        _ = await Assert.That(rendered).Contains("✗ main: read src/App.cs");
+        _ = await Assert.That(live).IsEqualTo("⠋ read src/App.cs");
+        _ = await Assert.That(rendered).IsEqualTo($"✗ read src/App.cs\n  {expectedBlock.Replace("\n", "\n  ", StringComparison.Ordinal)}");
+        _ = await Assert.That(rendered).Contains("✗ read src/App.cs");
         _ = await Assert.That(rendered).Contains("  path: \"src/App.cs\"");
         _ = await Assert.That(rendered).Contains("  offset: 12");
         _ = await Assert.That(rendered).Contains("  limit: 3");
@@ -101,17 +101,14 @@ internal sealed class ToolPresenterBatchCTests
         string expectedMarker)
     {
         IToolPresenter presenter = new ReadToolPresenter();
-        var call = new ToolCallPresentation(
-            "main",
-            "read",
-            "{\"path\":\"README.md\",\"offset\":2,\"limit\":4}");
+        var call = new ToolCallPresentation("read", "{\"path\":\"README.md\",\"offset\":2,\"limit\":4}");
         var terminal = new ToolTerminalPresentation(status, resultPresent, result, error);
 
         var item = presenter.PresentTerminal(call, terminal)
             ?? throw new InvalidOperationException("Terminal presentation missing.");
         var rendered = string.Join('\n', item.Render(ScrollbackContext));
 
-        _ = await Assert.That(rendered).IsEqualTo($"{expectedMarker} main: read README.md");
+        _ = await Assert.That(rendered).IsEqualTo($"{expectedMarker} read README.md");
         _ = await Assert.That(rendered).DoesNotContain("path:");
         _ = await Assert.That(rendered).DoesNotContain("offset:");
         _ = await Assert.That(rendered).DoesNotContain("limit:");
@@ -123,7 +120,7 @@ internal sealed class ToolPresenterBatchCTests
     [MethodDataSource(nameof(PresenterInstances))]
     public async Task Presenters_throw_for_malformed_arguments(IToolPresenter presenter)
     {
-        var call = new ToolCallPresentation("main", presenter.ToolName, "{");
+        var call = new ToolCallPresentation(presenter.ToolName, "{");
         var terminal = new ToolTerminalPresentation(
             ToolTerminalStatus.Succeeded,
             false,

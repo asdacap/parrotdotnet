@@ -43,7 +43,7 @@ internal static class ToolDisplayText
         int maximumDetailLines)
     {
         var rendered = Details(details, maximumDetailLines)
-            .SelectMany(detail => TerminalText.Layout($"  {detail}", columns))
+            .SelectMany(detail => TerminalText.Layout(detail, columns))
             .ToList();
         if (rendered.Count <= maximumLines)
         {
@@ -54,7 +54,7 @@ internal static class ToolDisplayText
         if (maximumLines > 0)
         {
             var truncated = rendered.Count - bounded.Count;
-            bounded.AddRange(TerminalText.Layout($"  .. {truncated} lines truncated.", columns).Take(1));
+            bounded.AddRange(TerminalText.Layout($".. {truncated} lines truncated.", columns).Take(1));
         }
 
         return bounded;

@@ -14,29 +14,28 @@ internal sealed class EnhancedAgentToolPresenterTests
         [
             new AgentSendToolPresenter(),
             new ToolCallPresentation(
-                "main",
                 "agent_send",
                 "{\"name\":\"agent-session-opaque\",\"message\":\"inspect logs\"}",
                 static reference => reference == "agent-session-opaque" ? "scout" : reference),
             "{\"name\":\"scout\",\"status\":\"running\"}",
-            "main: Send to scout",
-            "✓ main: Send to scout|  inspect logs",
+            "Send to scout",
+            "✓ Send to scout|  inspect logs",
         ];
         yield return () =>
         [
             new AgentSpawnToolPresenter(),
-            new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"inspect logs\",\"name\":\"scout\",\"scope\":\"storage layer\"}"),
+            new ToolCallPresentation("agent_spawn", "{\"prompt\":\"inspect logs\",\"name\":\"scout\",\"scope\":\"storage layer\"}"),
             "{\"name\":\"scout\",\"status\":\"running\"}",
-            "main: Start agent scout",
-            "♟ main: Start agent scout|name: scout|scope: storage layer|fork: empty|prompt: inspect logs",
+            "Start agent scout",
+            "♟ Start agent scout|  name: scout|  scope: storage layer|  fork: empty|  prompt: inspect logs",
         ];
         yield return () =>
         [
             new SetCheckpointToolPresenter(),
-            new ToolCallPresentation("main", "set_checkpoint", "{\"title\":\"before refactor\"}"),
+            new ToolCallPresentation("set_checkpoint", "{\"title\":\"before refactor\"}"),
             "checkpoint set",
-            "main: Set checkpoint before refactor",
-            "✓ main: Set checkpoint before refactor",
+            "Set checkpoint before refactor",
+            "✓ Set checkpoint before refactor",
         ];
     }
 
@@ -75,19 +74,19 @@ internal sealed class EnhancedAgentToolPresenterTests
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty);
 
         var omitted = (presenter.PresentTerminal(
-            new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"inspect\",\"agent\":\"worker\"}"),
+            new ToolCallPresentation("agent_spawn", "{\"prompt\":\"inspect\",\"agent\":\"worker\"}"),
             terminal)
             ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(ScrollbackContext);
         var empty = (presenter.PresentTerminal(
-            new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"inspect\",\"agent\":\"worker\",\"fork\":\"\"}"),
+            new ToolCallPresentation("agent_spawn", "{\"prompt\":\"inspect\",\"agent\":\"worker\",\"fork\":\"\"}"),
             terminal)
             ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(ScrollbackContext);
         var full = (presenter.PresentTerminal(
-            new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"inspect\",\"agent\":\"worker\",\"fork\":\"full\"}"),
+            new ToolCallPresentation("agent_spawn", "{\"prompt\":\"inspect\",\"agent\":\"worker\",\"fork\":\"full\"}"),
             terminal)
             ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(ScrollbackContext);
         var checkpoint = (presenter.PresentTerminal(
-            new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"inspect\",\"agent\":\"worker\",\"fork\":\"before refactor\"}"),
+            new ToolCallPresentation("agent_spawn", "{\"prompt\":\"inspect\",\"agent\":\"worker\",\"fork\":\"before refactor\"}"),
             terminal)
             ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(ScrollbackContext);
 
@@ -103,14 +102,13 @@ internal sealed class EnhancedAgentToolPresenterTests
         IToolPresenter presenter = new AgentSendToolPresenter();
         var message = string.Join("\\n", Enumerable.Range(1, 12).Select(static line => $"line {line}"));
         var call = new ToolCallPresentation(
-            "main",
             "agent_send",
             $"{{\"name\":\"scout\",\"message\":\"{message}\"}}");
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty);
 
         var completed = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(ScrollbackContext);
 
-        _ = await Assert.That(completed[0]).IsEqualTo("✓ main: Send to scout");
+        _ = await Assert.That(completed[0]).IsEqualTo("✓ Send to scout");
         _ = await Assert.That(completed).Count().IsLessThanOrEqualTo(10);
         _ = await Assert.That(string.Join('|', completed)).Contains("  line 1");
         _ = await Assert.That(completed[^1]).Contains("lines truncated.");
@@ -122,7 +120,6 @@ internal sealed class EnhancedAgentToolPresenterTests
     {
         IToolPresenter presenter = new AgentSendToolPresenter();
         var call = new ToolCallPresentation(
-            "main",
             "agent_send",
             "{\"name\":\"agent-session-opaque\",\"message\":\"inspect logs\"}",
             static _ => "known-before-send");
@@ -150,10 +147,10 @@ internal sealed class EnhancedAgentToolPresenterTests
             ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
 
-        _ = await Assert.That(completed[0]).IsEqualTo("✓ main: Send to resolved-by-core");
-        _ = await Assert.That(legacy[0]).IsEqualTo("✓ main: Send to known-before-send");
-        _ = await Assert.That(nonObject[0]).IsEqualTo("✓ main: Send to known-before-send");
-        _ = await Assert.That(failed[0]).IsEqualTo("✗ main: Send to known-before-send");
+        _ = await Assert.That(completed[0]).IsEqualTo("✓ Send to resolved-by-core");
+        _ = await Assert.That(legacy[0]).IsEqualTo("✓ Send to known-before-send");
+        _ = await Assert.That(nonObject[0]).IsEqualTo("✓ Send to known-before-send");
+        _ = await Assert.That(failed[0]).IsEqualTo("✗ Send to known-before-send");
         _ = await Assert.That(string.Join('|', failed)).Contains("error: unavailable");
     }
 

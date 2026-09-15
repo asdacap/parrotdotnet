@@ -12,7 +12,7 @@ internal sealed class QueueTakeToolPresenter : IToolPresenter
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {
         var input = QueueTakeInput.Parse(call.ArgumentsJson);
-        return new ToolLiveValue(Label(call.Owner, input.Name, input.Count), ToolBlock.Empty, Metadata, frame);
+        return new ToolLiveValue(Label(input.Name, input.Count), ToolBlock.Empty, Metadata, frame);
     }
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
@@ -22,7 +22,7 @@ internal sealed class QueueTakeToolPresenter : IToolPresenter
         if (status != ToolTerminalStatus.Succeeded)
         {
             return new ToolScrollbackValue(
-                Label(call.Owner, input.Name, input.Count),
+                Label(input.Name, input.Count),
                 terminal.DescribeBlock(ToolBlockKind.None),
                 status,
                 Metadata);
@@ -30,23 +30,23 @@ internal sealed class QueueTakeToolPresenter : IToolPresenter
 
         var result = QueueTakeResult.Parse(terminal.Result);
         return new ToolScrollbackValue(
-            Label(call.Owner, result.Name, input.Count, result.Description, result.Closed),
+            Label(result.Name, input.Count, result.Description, result.Closed),
             ToolBlock.FromQueue([string.Concat(result.Size.ToString(CultureInfo.InvariantCulture), " remaining"), .. result.Items]),
             status,
             Metadata);
     }
 
-    private static string Label(string owner, string name, int count)
+    private static string Label(string name, int count)
     {
         var unit = count == 1 ? "item" : "items";
-        return $"{owner}: Take from queue {name} · up to {count.ToString(CultureInfo.InvariantCulture)} {unit}";
+        return $"Take from queue {name} · up to {count.ToString(CultureInfo.InvariantCulture)} {unit}";
     }
 
-    private static string Label(string owner, string name, int count, string description, bool closed)
+    private static string Label(string name, int count, string description, bool closed)
     {
         var label = description.Length == 0
-            ? Label(owner, name, count)
-            : $"{Label(owner, name, count)} · {description}";
+            ? Label(name, count)
+            : $"{Label(name, count)} · {description}";
         return closed ? $"{label} · closed" : label;
     }
 

@@ -15,14 +15,14 @@ internal sealed class WriteEditToolPresenterTests
         [
             new WriteToolPresenter(),
             "{\"path\":\"src/file.txt\",\"content\":\"secret content\"}",
-            "main: write src/file.txt",
+            "write src/file.txt",
             "secret content",
         ];
         yield return
         [
             new EditToolPresenter(),
             "{\"path\":\"src/file.txt\",\"old_string\":\"secret search\",\"new_string\":\"secret replacement\",\"replace_all\":true}",
-            "main: edit src/file.txt",
+            "edit src/file.txt",
             "secret search",
         ];
     }
@@ -41,7 +41,7 @@ internal sealed class WriteEditToolPresenterTests
         string expectedLabel,
         string hiddenValue)
     {
-        var call = new ToolCallPresentation("main", presenter.ToolName, arguments);
+        var call = new ToolCallPresentation(presenter.ToolName, arguments);
         var terminal = new ToolTerminalPresentation(
             ToolTerminalStatus.Succeeded,
             true,
@@ -70,7 +70,7 @@ internal sealed class WriteEditToolPresenterTests
         string hiddenValue)
     {
         const string diff = "--- a/src/file.txt\n+++ b/src/file.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n";
-        var call = new ToolCallPresentation("main", presenter.ToolName, arguments);
+        var call = new ToolCallPresentation(presenter.ToolName, arguments);
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, diff, string.Empty);
 
         var item = presenter.PresentTerminal(call, terminal)
@@ -93,7 +93,7 @@ internal sealed class WriteEditToolPresenterTests
         string expectedLabel,
         string hiddenValue)
     {
-        var call = new ToolCallPresentation("main", presenter.ToolName, arguments);
+        var call = new ToolCallPresentation(presenter.ToolName, arguments);
         var terminal = new ToolTerminalPresentation(
             ToolTerminalStatus.Succeeded,
             true,
@@ -115,7 +115,7 @@ internal sealed class WriteEditToolPresenterTests
     [MethodDataSource(nameof(PresenterInstances))]
     public async Task Presenters_throw_for_malformed_arguments(IToolPresenter presenter)
     {
-        var call = new ToolCallPresentation("main", presenter.ToolName, "{");
+        var call = new ToolCallPresentation(presenter.ToolName, "{");
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, false, string.Empty, string.Empty);
 
         _ = await Assert.That(() => presenter.PresentLive(call, 0)).Throws<JsonException>();

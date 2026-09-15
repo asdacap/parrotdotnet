@@ -7,7 +7,7 @@ internal sealed class AgentTaskProgressLiveValue(AgentTaskProgressSnapshot snaps
 {
     public MultiLine Render(LiveBufferRenderContext context)
     {
-        var columns = Math.Max(1, context.Columns);
+        var columns = context.Decoration.ContentColumns(context.Columns);
         var rows = new List<string> { "Agent tasks:" };
         var remaining = new Stack<NodeFrame>();
         Push(snapshot.RootNodes, string.Empty, true, remaining);
@@ -26,7 +26,8 @@ internal sealed class AgentTaskProgressLiveValue(AgentTaskProgressSnapshot snaps
         }
 
         return new MultiLine(
-            [.. rows.Select(row => new TerminalLine(row, context.Palette.LiveSurface))],
+            [.. context.Decoration.Apply(TerminalIcons.Activity, rows)
+                .Select(row => new TerminalLine(row, context.Palette.LiveSurface))],
             null,
             LiveBufferRetention.Fixed);
     }

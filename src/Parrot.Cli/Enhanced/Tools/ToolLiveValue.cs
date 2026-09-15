@@ -54,22 +54,24 @@ internal sealed class ToolLiveValue : ILiveBufferItem
 
     public MultiLine Render(LiveBufferRenderContext context)
     {
-        var lines = new List<TerminalLine>();
-        var marker = Frames[_frame % Frames.Length];
-        var activityLabel = HierarchicalActivityValue.RemoveOwner(Report.Label, context.ActivityOwner);
+        var columns = context.Decoration.ContentColumns(context.Columns);
+        var marker = Frames[_frame % Frames.Length].ToString();
         var label = _runningDuration is null
-            ? activityLabel
-            : $"{activityLabel} (running {_runningDuration.Format()})";
-        var header = TerminalText.Layout($"{marker} {label}", context.Columns).Take(10).ToArray();
+            ? Report.Label
+            : $"{Report.Label} (running {_runningDuration.Format()})";
+        var header = TerminalText.Layout(label, columns).Take(10).ToArray();
         var headerStyle = Report.Metadata.Style == ToolPresentationStyle.Muted
             ? context.Palette.LiveMuted
             : context.Palette.Marker;
-        lines.AddRange(header.Select(value => new TerminalLine(value, headerStyle)));
-        var detailLines = ToolDisplayText.LayoutDetails(
+        var details = ToolDisplayText.LayoutDetails(
             Report.Block.Kind == ToolBlockKind.None ? [] : [Report.Block.Text],
-            context.Columns,
+            columns,
             Math.Max(0, 10 - header.Length));
-        lines.AddRange(detailLines.Select(value => new TerminalLine(value, context.Palette.LiveSurface)));
+        var lines = context.Decoration.Apply(marker, [.. header, .. details])
+            .Select((value, index) => new TerminalLine(
+                value,
+                index < header.Length ? headerStyle : context.Palette.LiveSurface))
+            .ToList();
         return new MultiLine(lines, null, LiveBufferRetention.Tail);
     }
 }

@@ -11,13 +11,13 @@ internal sealed class EditToolPresenter : IToolPresenter
     public ToolPresentationMetadata Metadata => ToolPresentationMetadata.Default;
 
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) =>
-        new ToolLiveValue(Label(call.Owner, Path(call.ArgumentsJson)), ToolBlock.Empty, Metadata, frame);
+        new ToolLiveValue(Label(Path(call.ArgumentsJson)), ToolBlock.Empty, Metadata, frame);
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
         var status = terminal.ResolveStatus();
         return new ToolScrollbackValue(
-            Label(call.Owner, Path(call.ArgumentsJson)),
+            Label(Path(call.ArgumentsJson)),
             DescribeBlock(terminal, status),
             status,
             Metadata);
@@ -52,7 +52,7 @@ internal sealed class EditToolPresenter : IToolPresenter
         return result.AsSpan(firstLineEnd + 1).StartsWith("+++ ", StringComparison.Ordinal);
     }
 
-    private static string Label(string owner, string path) => $"{owner}: edit {path}";
+    private static string Label(string path) => $"edit {path}";
 
     private static string Path(string argumentsJson)
     {

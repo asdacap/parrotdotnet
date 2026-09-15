@@ -14,14 +14,14 @@ internal sealed class GlobToolPresenter : IToolPresenter
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {
         var (pattern, path) = Arguments(call.ArgumentsJson);
-        return new ToolLiveValue(Label(call.Owner, pattern, path), [], Metadata, frame);
+        return new ToolLiveValue(Label(pattern, path), [], Metadata, frame);
     }
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
         var (pattern, path) = Arguments(call.ArgumentsJson);
         var status = terminal.ResolveStatus();
-        var label = Label(call.Owner, pattern, path);
+        var label = Label(pattern, path);
         if (status == ToolTerminalStatus.Succeeded)
         {
             var count = ToolOutputText.CountLines(terminal.Result);
@@ -42,9 +42,9 @@ internal sealed class GlobToolPresenter : IToolPresenter
         return (String(root, "pattern"), String(root, "path"));
     }
 
-    private static string Label(string owner, string pattern, string path) => path.Length == 0
-        ? $"{owner}: glob \"{pattern}\""
-        : $"{owner}: glob \"{pattern}\" in {path}";
+    private static string Label(string pattern, string path) => path.Length == 0
+        ? $"glob \"{pattern}\""
+        : $"glob \"{pattern}\" in {path}";
 
     private static string String(JsonElement root, string name) => root.ValueKind == JsonValueKind.Object
         && root.TryGetProperty(name, out var value)

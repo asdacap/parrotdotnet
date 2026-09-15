@@ -13,7 +13,7 @@ internal sealed class QueueTakeToolPresenterTests
     public async Task Queue_take_renders_remaining_then_taken_items_with_queue_metadata()
     {
         IToolPresenter presenter = new QueueTakeToolPresenter();
-        var call = new ToolCallPresentation("worker", "queue_take", "{\"name\":\"work\",\"count\":5}");
+        var call = new ToolCallPresentation("queue_take", "{\"name\":\"work\",\"count\":5}");
         var result = "{\"path\":\"/ignored\",\"name\":\"work\",\"description\":\"release tasks\",\"size\":2,\"closed\":true,\"items\":[\"first\",\"second\"]}";
 
         var terminal = (presenter.PresentTerminal(
@@ -24,15 +24,15 @@ internal sealed class QueueTakeToolPresenterTests
         var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines.Select(static line => line.Text).ToArray();
 
         _ = await Assert.That(string.Join('|', terminal)).IsEqualTo(
-            "✓ worker: Take from queue work · up to 5 items · release tasks · closed|  2 remaining|  first|  second");
-        _ = await Assert.That(string.Join('|', live)).IsEqualTo("⠋ worker: Take from queue work · up to 5 items");
+            "✓ Take from queue work · up to 5 items · release tasks · closed|  2 remaining|  first|  second");
+        _ = await Assert.That(string.Join('|', live)).IsEqualTo("⠋ Take from queue work · up to 5 items");
     }
 
     [Test]
     public async Task Queue_take_omits_empty_description_and_open_state()
     {
         IToolPresenter presenter = new QueueTakeToolPresenter();
-        var call = new ToolCallPresentation("main", "queue_take", "{\"name\":\"work\"}");
+        var call = new ToolCallPresentation("queue_take", "{\"name\":\"work\"}");
         var rendered = (presenter.PresentTerminal(
             call,
             new ToolTerminalPresentation(
@@ -45,8 +45,8 @@ internal sealed class QueueTakeToolPresenterTests
         var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines.Select(static line => line.Text).ToArray();
 
         _ = await Assert.That(string.Join('|', rendered)).IsEqualTo(
-            "✓ main: Take from queue work · up to 1 item|  0 remaining");
-        _ = await Assert.That(string.Join('|', live)).IsEqualTo("⠋ main: Take from queue work · up to 1 item");
+            "✓ Take from queue work · up to 1 item|  0 remaining");
+        _ = await Assert.That(string.Join('|', live)).IsEqualTo("⠋ Take from queue work · up to 1 item");
     }
 
     [Test]
@@ -54,7 +54,7 @@ internal sealed class QueueTakeToolPresenterTests
     {
         IToolPresenter presenter = new QueueTakeToolPresenter();
         var rendered = (presenter.PresentTerminal(
-            new ToolCallPresentation("main", "queue_take", "{\"name\":\"work\",\"count\":3}"),
+            new ToolCallPresentation("queue_take", "{\"name\":\"work\",\"count\":3}"),
             new ToolTerminalPresentation(
                 ToolTerminalStatus.Succeeded,
                 true,
@@ -63,7 +63,7 @@ internal sealed class QueueTakeToolPresenterTests
             ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
 
-        _ = await Assert.That(rendered[0]).IsEqualTo("✗ main: Take from queue work · up to 3 items");
+        _ = await Assert.That(rendered[0]).IsEqualTo("✗ Take from queue work · up to 3 items");
         _ = await Assert.That(rendered[1]).IsEqualTo("  error: queue: 'work' is unavailable");
     }
 
@@ -78,12 +78,12 @@ internal sealed class QueueTakeToolPresenterTests
             + string.Join(',', items.Select(static item => $"\"{item.Replace("\u001b", "\\u001b", StringComparison.Ordinal)}\""))
             + "]}";
         var rendered = (presenter.PresentTerminal(
-            new ToolCallPresentation("main", "queue_take", "{\"name\":\"work\"}"),
+            new ToolCallPresentation("queue_take", "{\"name\":\"work\"}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, result, string.Empty))
             ?? throw new InvalidOperationException("Terminal presentation missing."))
             .Render(ScrollbackContext);
         var large = (presenter.PresentTerminal(
-            new ToolCallPresentation("main", "queue_take", "{\"name\":\"work\"}"),
+            new ToolCallPresentation("queue_take", "{\"name\":\"work\"}"),
             new ToolTerminalPresentation(
                 ToolTerminalStatus.Succeeded,
                 true,
@@ -109,12 +109,12 @@ internal sealed class QueueTakeToolPresenterTests
     {
         var registry = new ToolPresenterRegistry([new QueueTakeToolPresenter()], new GenericToolPresenter());
         var rendered = (registry.PresentTerminal(
-            new ToolCallPresentation("main", "queue_take", arguments),
+            new ToolCallPresentation("queue_take", arguments),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, false, string.Empty, string.Empty))
             ?? throw new InvalidOperationException("Fallback presentation missing."))
             .Render(ScrollbackContext);
 
-        _ = await Assert.That(rendered[0]).IsEqualTo("✓ main: tool call queue_take");
+        _ = await Assert.That(rendered[0]).IsEqualTo("✓ tool call queue_take");
     }
 
     [Test]
@@ -122,18 +122,18 @@ internal sealed class QueueTakeToolPresenterTests
     {
         var registry = new ToolPresenterRegistry([new QueueTakeToolPresenter()], new GenericToolPresenter());
         var malformedInput = (registry.PresentTerminal(
-            new ToolCallPresentation("main", "queue_take", "{\"name\":false}"),
+            new ToolCallPresentation("queue_take", "{\"name\":false}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, false, string.Empty, string.Empty))
             ?? throw new InvalidOperationException("Fallback presentation missing."))
             .Render(ScrollbackContext);
         var malformedResult = (registry.PresentTerminal(
-            new ToolCallPresentation("main", "queue_take", "{\"name\":\"work\"}"),
+            new ToolCallPresentation("queue_take", "{\"name\":\"work\"}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{\"name\":\"work\"}", string.Empty))
             ?? throw new InvalidOperationException("Fallback presentation missing."))
             .Render(ScrollbackContext);
 
-        _ = await Assert.That(malformedInput[0]).IsEqualTo("✓ main: tool call queue_take");
-        _ = await Assert.That(malformedResult[0]).IsEqualTo("✓ main: tool call queue_take");
+        _ = await Assert.That(malformedInput[0]).IsEqualTo("✓ tool call queue_take");
+        _ = await Assert.That(malformedResult[0]).IsEqualTo("✓ tool call queue_take");
         _ = await Assert.That(string.Join('\n', malformedResult)).Contains("name: \"work\"");
     }
 }

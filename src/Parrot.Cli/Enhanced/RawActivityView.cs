@@ -433,8 +433,7 @@ internal sealed class RawActivityView(
                     await commit(
                         Wrap(
                             GetNamedAgentSession(published.AgentSessionId),
-                            ImmediateScrollbackValue.Muted(["↻ Exit reminder injected"]),
-                            null),
+                            new ActivityNoticeScrollbackValue(TerminalIcons.StatusNotice, "Exit reminder injected")),
                         Snapshot(),
                         cancellationToken).ConfigureAwait(false);
                     break;
@@ -443,9 +442,9 @@ internal sealed class RawActivityView(
                     await commit(
                         Wrap(
                             GetNamedAgentSession(published.AgentSessionId),
-                            ImmediateScrollbackValue.Muted(
-                                [$"↻ Skill loaded: {TerminalText.Sanitize(published.SkillLoaded.Path)}"]),
-                            null),
+                            new ActivityNoticeScrollbackValue(
+                                TerminalIcons.StatusNotice,
+                                $"Skill loaded: {published.SkillLoaded.Path}")),
                         Snapshot(),
                         cancellationToken).ConfigureAwait(false);
                     break;
@@ -471,7 +470,7 @@ internal sealed class RawActivityView(
                         {
                             var summary = new ReasoningSummaryScrollbackValue(fragment);
                             await commit(
-                                isRoot ? summary : Wrap(GetNamedAgentSession(published.AgentSessionId), summary, null),
+                                isRoot ? summary : Wrap(GetNamedAgentSession(published.AgentSessionId), summary),
                                 Snapshot(),
                                 cancellationToken).ConfigureAwait(false);
                         }
@@ -560,20 +559,14 @@ internal sealed class RawActivityView(
         }
     }
 
-    private static HierarchicalScrollbackValue WrapProcess(
-        ActiveShellProcess process,
-        IScrollbackItem value)
-    {
-        var owner = process.OwnerAgentName.Length == 0
+    private static HierarchicalScrollbackValue WrapProcess(ActiveShellProcess process, IScrollbackItem value) =>
+        new(value, Math.Max(0, process.Depth), ProcessOwnerLabel(process));
+
+    private static string? ProcessOwnerLabel(ActiveShellProcess process) => process.Depth == 0
+        ? null
+        : process.OwnerAgentName.Length == 0
             ? process.OwnerAgentSessionId
             : process.OwnerAgentName;
-        return new HierarchicalScrollbackValue(
-            value,
-            Math.Max(0, process.Depth),
-            process.Depth == 0 ? null : owner,
-            owner,
-            null);
-    }
 
     private void ObserveProcessCompletions(string ownerAgentSessionId, IEnumerable<CompletedShellProcess> completions)
     {
@@ -589,7 +582,7 @@ internal sealed class RawActivityView(
             && completion.HasElapsedMs
                 ? completion.ElapsedMs
                 : (long?)null;
-        return new ProcessCompletionScrollbackValue($"$ {command}", elapsedMilliseconds);
+        return new ProcessCompletionScrollbackValue(command, elapsedMilliseconds);
     }
 
     private async Task ShutdownCore()
@@ -715,7 +708,7 @@ internal sealed class RawActivityView(
         }
 
         await commit(
-            Wrap(state, new AgentTaskProgressScrollbackValue(pending.Snapshot), null),
+            Wrap(state, new AgentTaskProgressScrollbackValue(pending.Snapshot)),
             Snapshot(),
             cancellationToken).ConfigureAwait(false);
         pending.FlushedRevision = pending.Snapshot.Revision;
@@ -854,8 +847,6 @@ internal sealed class RawActivityView(
                     state.CreateDetachedAgentTaskProgressItem(toolCallId),
                     _hierarchy.GetDepth(state.AgentSessionId),
                     _hierarchy.GetLabel(state.AgentSessionId),
-                    state.Name,
-                    "⚙",
                     null)))));
         rows.AddRange(activities.Select(activity => (
             activity.State.AgentSessionId,
@@ -972,7 +963,7 @@ internal sealed class RawActivityView(
 
         _ = _activities.Remove((state, completion.ActivityId));
         await commit(
-            Wrap(state, ImmediateScrollbackValue.Muted([completion.Line]), "✓"),
+            Wrap(state, completion.Notice),
             Snapshot(),
             cancellationToken).ConfigureAwait(false);
     }
@@ -983,7 +974,7 @@ internal sealed class RawActivityView(
         if (_hierarchy.IsChild(published.AgentSessionId))
         {
             if (await state.FinishChildTurn(response => commit(
-                    Wrap(state, new FinalMessageScrollbackValue(response), null),
+                    Wrap(state, new FinalMessageScrollbackValue(response)),
                     SnapshotWithout(state, AgentSessionState.AgentActivityId),
                     cancellationToken)).ConfigureAwait(false) is { } activityId)
             {
@@ -1107,7 +1098,7 @@ internal sealed class RawActivityView(
         if (deferred is not null)
         {
             var command = ReadCommand(call.ArgumentsJson);
-            scrollback = ObserveDeferredProcess(deferred, published, call, command)
+            scrollback = ObserveDeferredProcess(deferred, published, state.Name, command)
                 && !string.IsNullOrWhiteSpace(command)
                 && _completedProcesses.Add((published.AgentSessionId, ProcessKey(deferred.InventoryInstanceId, deferred.ProcessId)))
                     ? ProcessCompletion(command, published.AgentSessionId, deferred.ProcessId)
@@ -1120,7 +1111,7 @@ internal sealed class RawActivityView(
         }
         else
         {
-            await commit(Wrap(state, scrollback, null), Snapshot(), cancellationToken).ConfigureAwait(false);
+            await commit(Wrap(state, scrollback), Snapshot(), cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -1140,8 +1131,6 @@ internal sealed class RawActivityView(
             value,
             depth,
             _hierarchy.GetLabel(activity.State.AgentSessionId),
-            activity.State.Name,
-            "♟",
             modelAliasIcon);
     }
 
@@ -1157,13 +1146,10 @@ internal sealed class RawActivityView(
             return queue;
         }
 
-        var owner = _hierarchy.GetLabel(ownerAgentSessionId) ?? ownerAgentSessionId;
         return new HierarchicalLiveValue(
             queue,
             _hierarchy.GetDepth(ownerAgentSessionId),
-            owner,
-            owner,
-            null,
+            _hierarchy.GetLabel(ownerAgentSessionId) ?? ownerAgentSessionId,
             null);
     }
 
@@ -1172,77 +1158,57 @@ internal sealed class RawActivityView(
             new NeutralAgentLiveBufferItem(state.Name),
             Math.Max(0, _hierarchy.GetDepth(state.AgentSessionId) - 1),
             _hierarchy.GetLabel(state.AgentSessionId),
-            state.Name,
-            "♟",
             null);
 
-    private HierarchicalLiveValue CreateProcessItem(ProcessState process)
-    {
-        var owner = process.Process.OwnerAgentName.Length == 0
-            ? process.Process.OwnerAgentSessionId
-            : process.Process.OwnerAgentName;
-        return new HierarchicalLiveValue(
+    private HierarchicalLiveValue CreateProcessItem(ProcessState process) =>
+        new(
             new ShellProcessLiveValue(process.Process, process.ObservedTimestamp, _timeProvider, _frame),
             Math.Max(0, process.Process.Depth),
-            process.Process.Depth == 0 ? null : owner,
-            owner,
-            null,
+            ProcessOwnerLabel(process.Process),
             null);
-    }
 
-    private HierarchicalScrollbackValue Wrap(
-        AgentSessionState state,
-        IScrollbackItem value,
-        string? successfulIcon) =>
-        new(
-            value,
-            _hierarchy.GetDepth(state.AgentSessionId),
-            _hierarchy.GetLabel(state.AgentSessionId),
-            state.Name,
-            successfulIcon);
+    private HierarchicalScrollbackValue Wrap(AgentSessionState state, IScrollbackItem value) =>
+        new(value, _hierarchy.GetDepth(state.AgentSessionId), _hierarchy.GetLabel(state.AgentSessionId));
 
     private Task CommitResponse(AgentSessionState state, CancellationToken cancellationToken) =>
         state.FlushResponse(response => commit(
-            Wrap(state, new FinalMessageScrollbackValue(response), null),
+            Wrap(state, new FinalMessageScrollbackValue(response)),
             Snapshot(),
             cancellationToken));
 
     private async Task CommitCompletion(
         AgentSessionState state,
-        (string ActivityId, string Response, string Line) completion,
+        (string ActivityId, string Response, ActivityNoticeScrollbackValue Notice) completion,
         CancellationToken cancellationToken)
     {
         _ = _activities.Remove((state, completion.ActivityId));
         if (completion.Response.Length > 0)
         {
             await commit(
-                Wrap(state, new FinalMessageScrollbackValue(completion.Response), null),
+                Wrap(state, new FinalMessageScrollbackValue(completion.Response)),
                 Snapshot(),
                 cancellationToken).ConfigureAwait(false);
         }
 
         await CommitAgentCompletion(
             state,
-            (completion.ActivityId, completion.Line),
+            (completion.ActivityId, completion.Notice),
             cancellationToken).ConfigureAwait(false);
     }
 
     private async Task CommitAgentCompletion(
         AgentSessionState state,
-        (string ActivityId, string Line) completion,
+        (string ActivityId, ActivityNoticeScrollbackValue Notice) completion,
         CancellationToken cancellationToken)
     {
         _ = _activities.Remove((state, completion.ActivityId));
-        await commit(
-            Wrap(state, ImmediateScrollbackValue.Muted([completion.Line]), "♟"),
-            Snapshot(),
-            cancellationToken).ConfigureAwait(false);
+        await commit(Wrap(state, completion.Notice), Snapshot(), cancellationToken).ConfigureAwait(false);
     }
 
     private bool ObserveDeferredProcess(
         YieldedShellProcess yielded,
         Event published,
-        ToolCallPresentation call,
+        string ownerAgentName,
         string command)
     {
         var inventory = ObserveInventory(_processInventories, published.AgentSessionId);
@@ -1287,7 +1253,7 @@ internal sealed class RawActivityView(
             Command = command,
             OriginToolCallId = published.ToolFinished.ToolCallId,
             OwnerAgentSessionId = published.AgentSessionId,
-            OwnerAgentName = call.Owner,
+            OwnerAgentName = ownerAgentName,
             ParentAgentSessionId = string.Empty,
             ParentAgentName = string.Empty,
             Depth = _hierarchy.GetDepth(published.AgentSessionId),
@@ -1327,9 +1293,10 @@ internal sealed class RawActivityView(
     private readonly record struct NeutralAgentLiveBufferItem(string Name) : ILiveBufferItem
     {
         public MultiLine Render(LiveBufferRenderContext context) => new(
-            [new TerminalLine(
-                TerminalText.Clip($"♟ agent {TerminalText.Sanitize(Name)}", context.Columns),
-                context.Palette.LiveMuted)],
+            [.. context.Decoration.Apply(
+                    TerminalIcons.Agent,
+                    [TerminalText.Clip($"agent {TerminalText.Sanitize(Name)}", context.Decoration.ContentColumns(context.Columns))])
+                .Select(line => new TerminalLine(line, context.Palette.LiveMuted))],
             null,
             LiveBufferRetention.Fixed);
     }

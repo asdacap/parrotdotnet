@@ -5,7 +5,7 @@ internal sealed class StatusToolPresenter : IToolPresenter
     public string ToolName => "status";
 
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) =>
-        new ToolLiveValue($"{call.Owner}: status", [], frame);
+        new ToolLiveValue("status", [], frame);
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
@@ -14,6 +14,6 @@ internal sealed class StatusToolPresenter : IToolPresenter
             ? ToolBlock.FromStatus(terminal.Result)
             : terminal.DescribeBlock(ToolBlockKind.Text);
         return new ToolScrollbackValue(
-            $"{call.Owner}: tool call status", block, status, ToolPresentationMetadata.Default);
+            "tool call status", block, status, ToolPresentationMetadata.Default);
     }
 }

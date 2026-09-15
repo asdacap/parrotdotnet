@@ -13,7 +13,7 @@ internal sealed class AgentSendToolPresenter : IToolPresenter
         using var arguments = JsonDocument.Parse(call.ArgumentsJson);
         var name = arguments.RootElement.GetProperty("name").GetString() ?? string.Empty;
         var recipient = call.ResolveAgentReference(name);
-        return new ToolLiveValue($"{call.Owner}: Send to {recipient}", [], Metadata, frame);
+        return new ToolLiveValue($"Send to {recipient}", [], Metadata, frame);
     }
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
@@ -26,7 +26,7 @@ internal sealed class AgentSendToolPresenter : IToolPresenter
             ? ReadRecipientName(terminal.Result) ?? call.ResolveAgentReference(name)
             : call.ResolveAgentReference(name);
         return new ToolScrollbackValue(
-            $"{call.Owner}: Send to {recipient}",
+            $"Send to {recipient}",
             status == ToolTerminalStatus.Succeeded ? ToolBlock.FromText(message) : terminal.DescribeBlock(ToolBlockKind.None),
             status,
             Metadata);

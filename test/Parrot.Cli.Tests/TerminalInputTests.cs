@@ -373,26 +373,26 @@ internal sealed class TerminalInputTests
     public async Task Streamed_response_keeps_the_latest_text_within_the_viewport()
     {
         var context = new LiveBufferRenderContext(5, new TerminalPalette(false));
-        ILiveBufferItem shortTextValue = new StreamedResponseValue("● ", "one");
+        ILiveBufferItem shortTextValue = new StreamedResponseValue("●", "one");
         var shortText = shortTextValue.Render(context);
-        ILiveBufferItem nextCharacterValue = new StreamedResponseValue("● ", "one t");
+        ILiveBufferItem nextCharacterValue = new StreamedResponseValue("●", "one t");
         var nextCharacter = nextCharacterValue.Render(context);
-        ILiveBufferItem incompleteWordValue = new StreamedResponseValue("● ", "one tw");
+        ILiveBufferItem incompleteWordValue = new StreamedResponseValue("●", "one tw");
         var incompleteWord = incompleteWordValue.Render(context);
-        ILiveBufferItem completedWordValue = new StreamedResponseValue("● ", "one two");
+        ILiveBufferItem completedWordValue = new StreamedResponseValue("●", "one two");
         var completedWord = completedWordValue.Render(context);
-        ILiveBufferItem trailingWhitespaceValue = new StreamedResponseValue("● ", "one two ");
+        ILiveBufferItem trailingWhitespaceValue = new StreamedResponseValue("●", "one two ");
         var trailingWhitespace = trailingWhitespaceValue.Render(context);
-        ILiveBufferItem nextWordValue = new StreamedResponseValue("● ", "one two n");
+        ILiveBufferItem nextWordValue = new StreamedResponseValue("●", "one two n");
         var nextWord = nextWordValue.Render(context);
-        ILiveBufferItem newlineValue = new StreamedResponseValue("● ", "one\ntwo");
+        ILiveBufferItem newlineValue = new StreamedResponseValue("●", "one\ntwo");
         var newline = newlineValue.Render(context);
 
         _ = await Assert.That(shortText.Lines[0].Text).IsEqualTo("● one");
         _ = await Assert.That(nextCharacter.Lines[0].Text).IsEqualTo("● e t");
         _ = await Assert.That(incompleteWord.Lines[0].Text).IsEqualTo("●  tw");
         _ = await Assert.That(completedWord.Lines[0].Text).IsEqualTo("● two");
-        _ = await Assert.That(trailingWhitespace.Lines[0].Text).IsEqualTo("● wo ");
+        _ = await Assert.That(trailingWhitespace.Lines[0].Text).IsEqualTo("● wo");
         _ = await Assert.That(nextWord.Lines[0].Text).IsEqualTo("● o n");
         _ = await Assert.That(newline.Lines[0].Text).IsEqualTo("● two");
         _ = await Assert.That(shortText.Retention).IsEqualTo(LiveBufferRetention.Tail);
@@ -403,24 +403,21 @@ internal sealed class TerminalInputTests
     {
         var palette = new TerminalPalette(false);
         ILiveBufferItem wideValue = new StreamedResponseValue(string.Empty, "old 界ab");
-        var wide = wideValue.Render(new LiveBufferRenderContext(3, palette));
+        var wide = wideValue.Render(new LiveBufferRenderContext(5, palette));
         ILiveBufferItem joinedBoundaryValue = new StreamedResponseValue(string.Empty, "old 👨‍👩‍👧‍👦a");
-        var joinedBoundary = joinedBoundaryValue.Render(new LiveBufferRenderContext(2, palette));
+        var joinedBoundary = joinedBoundaryValue.Render(new LiveBufferRenderContext(4, palette));
         ILiveBufferItem joinedTailValue = new StreamedResponseValue(string.Empty, "old a👨‍👩‍👧‍👦");
-        var joinedTail = joinedTailValue.Render(new LiveBufferRenderContext(3, palette));
+        var joinedTail = joinedTailValue.Render(new LiveBufferRenderContext(5, palette));
         ILiveBufferItem combiningValue = new StreamedResponseValue(string.Empty, "old e\u0301x");
-        var combining = combiningValue.Render(new LiveBufferRenderContext(2, palette));
-        ILiveBufferItem clippedPrefixValue = new StreamedResponseValue("● ", "response");
-        var clippedPrefix = clippedPrefixValue.Render(new LiveBufferRenderContext(1, palette));
+        var combining = combiningValue.Render(new LiveBufferRenderContext(4, palette));
 
-        _ = await Assert.That(wide.Lines[0].Text).IsEqualTo("ab");
-        _ = await Assert.That(joinedBoundary.Lines[0].Text).IsEqualTo("a");
-        _ = await Assert.That(joinedTail.Lines[0].Text).IsEqualTo("a👨‍👩‍👧‍👦");
-        _ = await Assert.That(combining.Lines[0].Text).IsEqualTo("éx");
-        _ = await Assert.That(clippedPrefix.Lines[0].Text).IsEqualTo("●");
-        _ = await Assert.That(TerminalText.Width(wide.Lines[0].Text)).IsEqualTo(2);
-        _ = await Assert.That(TerminalText.Width(joinedBoundary.Lines[0].Text)).IsEqualTo(1);
-        _ = await Assert.That(TerminalText.Width(joinedTail.Lines[0].Text)).IsEqualTo(3);
+        _ = await Assert.That(wide.Lines[0].Text).IsEqualTo("  ab");
+        _ = await Assert.That(joinedBoundary.Lines[0].Text).IsEqualTo("  a");
+        _ = await Assert.That(joinedTail.Lines[0].Text).IsEqualTo("  a👨‍👩‍👧‍👦");
+        _ = await Assert.That(combining.Lines[0].Text).IsEqualTo("  éx");
+        _ = await Assert.That(TerminalText.Width(wide.Lines[0].Text)).IsEqualTo(4);
+        _ = await Assert.That(TerminalText.Width(joinedBoundary.Lines[0].Text)).IsEqualTo(3);
+        _ = await Assert.That(TerminalText.Width(joinedTail.Lines[0].Text)).IsEqualTo(5);
     }
 
     [Test]
