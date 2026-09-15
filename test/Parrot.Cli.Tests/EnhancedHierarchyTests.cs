@@ -1491,7 +1491,7 @@ internal sealed class EnhancedHierarchyTests
                 {
                     ToolCallId = "send",
                     ToolName = "agent_send",
-                    ArgumentsFragment = "{\"session_id\":\"agent-session-opaque\",\"message\":\"inspect logs\"}",
+                    ArgumentsFragment = "{\"name\":\"agent-session-opaque\",\"message\":\"inspect logs\"}",
                 },
             },
             cancellationToken);
@@ -1563,7 +1563,7 @@ internal sealed class EnhancedHierarchyTests
                 {
                     ToolCallId = "send",
                     ToolName = "agent_send",
-                    ArgumentsFragment = "{\"session_id\":\"late-root\",\"message\":\"completed\"}",
+                    ArgumentsFragment = "{\"name\":\"late-root\",\"message\":\"completed\"}",
                 },
             },
             cancellationToken);

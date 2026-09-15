@@ -21,14 +21,14 @@ internal sealed class AgentSendTool(
         AgentTurnSelection selection,
         CancellationToken cancellationToken)
     {
-        string sessionId;
+        string name;
         string message;
 
         try
         {
             var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, AgentProcessToolJsonContext.Default.AgentSendToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
-            sessionId = input.SessionId ?? throw new FormatException("Tool arguments require a string 'session_id'.");
+            name = input.Name ?? throw new FormatException("Tool arguments require a string 'name'.");
             message = input.Message ?? throw new FormatException("Tool arguments require a string 'message'.");
 
             if (Encoding.UTF8.GetByteCount(message) > MaximumMessageBytes)
@@ -43,7 +43,7 @@ internal sealed class AgentSendTool(
 
         try
         {
-            var target = resolver.ResolveRecipient(sessionId);
+            var target = resolver.ResolveRecipient(name);
 
             if (!string.Equals(target.SessionId, identity.ParentSessionId, StringComparison.Ordinal)
                 && !session.ResolvePolicySelection().SecurityProfile.AllowsDelegationTo(
@@ -62,8 +62,8 @@ internal sealed class AgentSendTool(
 
     internal sealed class Input
     {
-        [JsonPropertyName("session_id")]
-        public string? SessionId { get; init; }
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
 
         [JsonPropertyName("message")]
         public string? Message { get; init; }

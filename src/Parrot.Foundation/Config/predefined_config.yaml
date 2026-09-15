@@ -1035,7 +1035,7 @@ tools:
     parameters:
       type: object
       properties:
-        session_id:
+        name:
           type: string
           minLength: 1
           description: The case-sensitive literal 'parent', the parent's friendly name, a direct-child friendly name, or a
@@ -1047,7 +1047,7 @@ tools:
           minLength: 1
           description: Message to send. At most 32768 UTF-8 bytes; split larger content into smaller messages.
       required:
-      - session_id
+      - name
       - message
       additionalProperties: false
   agent_status:
@@ -1055,12 +1055,12 @@ tools:
     parameters:
       type: object
       properties:
-        session_id:
+        name:
           type: string
           minLength: 1
           description: Friendly name of this agent's direct child.
       required:
-      - session_id
+      - name
       additionalProperties: false
   agent_interrupt:
     description: Interrupt one direct child agent by name. The child's current turn stops and settles like a parent-initiated interrupt; completion is delivered through its normal completion event.

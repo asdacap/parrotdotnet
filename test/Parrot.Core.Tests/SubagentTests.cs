@@ -758,7 +758,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var result = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{grandparent.Name}}","message":"skip parent"}"""),
+                $$"""{"name":"{{grandparent.Name}}","message":"skip parent"}"""),
             new TurnFixture(sender, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
 
@@ -913,7 +913,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             });
         var definition = definitions.Document([send]).Single();
         using var schema = JsonDocument.Parse(definition.ParametersJson);
-        var sessionIdDescription = schema.RootElement.GetProperty("properties").GetProperty("session_id")
+        var nameDescription = schema.RootElement.GetProperty("properties").GetProperty("name")
             .GetProperty("description").GetString();
 
         _ = await Assert.That(definition.Description).Contains("direct parent or direct child or to a descendant");
@@ -921,11 +921,11 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await Assert.That(definition.Description).Contains("slash-separated friendly-name paths");
         _ = await Assert.That(definition.Description).Contains("child/grandchild");
         _ = await Assert.That(definition.Description).Contains("paths only travel downward");
-        _ = await Assert.That(sessionIdDescription).Contains("literal 'parent'");
-        _ = await Assert.That(sessionIdDescription).Contains("direct-child friendly name");
-        _ = await Assert.That(sessionIdDescription).Contains("slash-separated relative");
-        _ = await Assert.That(sessionIdDescription).Contains("child/grandchild");
-        _ = await Assert.That(sessionIdDescription).Contains("direct-parent alias precedence");
+        _ = await Assert.That(nameDescription).Contains("literal 'parent'");
+        _ = await Assert.That(nameDescription).Contains("direct-child friendly name");
+        _ = await Assert.That(nameDescription).Contains("slash-separated relative");
+        _ = await Assert.That(nameDescription).Contains("child/grandchild");
+        _ = await Assert.That(nameDescription).Contains("direct-parent alias precedence");
     }
 
     [Test]
@@ -981,7 +981,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var sent = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                """{"session_id":"first/duplicate/parent/target","message":"deep work"}"""),
+                """{"name":"first/duplicate/parent/target","message":"deep work"}"""),
             new TurnFixture(root, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         using var sentResult = JsonDocument.Parse(sent);
@@ -1404,7 +1404,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var steeredJson = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                """{"session_id":"worker","message":"steer now"}"""),
+                """{"name":"worker","message":"steer now"}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         using var steered = JsonDocument.Parse(steeredJson);
@@ -1424,7 +1424,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var followedUpJson = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.Name}}","message":"follow up"}"""),
+                $$"""{"name":"{{spawned.Name}}","message":"follow up"}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         using var followedUp = JsonDocument.Parse(followedUpJson);
@@ -1473,7 +1473,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var sent = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"parent","message":"task completed"}"""),
+                $$"""{"name":"parent","message":"task completed"}"""),
             new TurnFixture(child, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         using var result = JsonDocument.Parse(sent);
@@ -1517,7 +1517,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var sent = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                """{"session_id":"parent","message":"task completed"}"""),
+                """{"name":"parent","message":"task completed"}"""),
             new TurnFixture(child, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         using var result = JsonDocument.Parse(sent);
@@ -1560,7 +1560,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var sending = send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.Name}}","message":"boundary"}"""),
+                $$"""{"name":"{{spawned.Name}}","message":"boundary"}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken);
         provider.Release();
@@ -1603,7 +1603,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var sentJson = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.Name}}","message":"{{boundary}}"}"""),
+                $$"""{"name":"{{spawned.Name}}","message":"{{boundary}}"}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
 
@@ -1643,32 +1643,32 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var blank = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.Name}}","message":" "}"""),
+                $$"""{"name":"{{spawned.Name}}","message":" "}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         var missing = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                """{"session_id":"missing","message":"hello"}"""),
+                """{"name":"missing","message":"hello"}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         ITool strangerSend = new AgentSendTool(stranger.Identity, new AgentResolver(stranger.Identity, ParentScope(stranger, registry), TestModels.ScopeOf(stranger), registry), stranger);
         var invisible = (await strangerSend.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.Name}}","message":"hello"}"""),
+                $$"""{"name":"{{spawned.Name}}","message":"hello"}"""),
             new TurnFixture(stranger, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         var oversized = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.Name}}","message":"{{new string('x', (32 * 1024) + 1)}}"}"""),
+                $$"""{"name":"{{spawned.Name}}","message":"{{new string('x', (32 * 1024) + 1)}}"}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         var oversizedUnicode = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.Name}}","message":"{{new string('界', 10_923)}}"}"""),
+                $$"""{"name":"{{spawned.Name}}","message":"{{new string('界', 10_923)}}"}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
 
@@ -2018,7 +2018,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.Name}}","message":"wait forever"}"""),
+                $$"""{"name":"{{spawned.Name}}","message":"wait forever"}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         await provider.Arrived(cancellationToken);
@@ -2048,7 +2048,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var rejected = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.Name}}","message":"again"}"""),
+                $$"""{"name":"{{spawned.Name}}","message":"again"}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         _ = await Assert.That(rejected).IsEqualTo("error: the user session is shutting down");

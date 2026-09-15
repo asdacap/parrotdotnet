@@ -22,28 +22,28 @@ internal sealed class AgentStatusTool(IAgentResolver resolver) : ITool
         ArgumentNullException.ThrowIfNull(selection);
         _ = cancellationToken;
 
-        string sessionId;
+        string name;
         try
         {
             var input = JsonSerializer.Deserialize(
                 invocation.ArgumentsJson,
                 AgentProcessToolJsonContext.Default.AgentStatusToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
-            sessionId = input.SessionId ?? throw new FormatException("Tool arguments require a string 'session_id'.");
+            name = input.Name ?? throw new FormatException("Tool arguments require a string 'name'.");
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
             return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.Error(invocation, failure.Message));
         }
 
-        if (string.IsNullOrWhiteSpace(sessionId))
+        if (string.IsNullOrWhiteSpace(name))
         {
-            return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.Error(invocation, "no child session given"));
+            return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.Error(invocation, "no child agent given"));
         }
 
         try
         {
-            var childScope = resolver.ResolveStatusTargetScope(sessionId);
+            var childScope = resolver.ResolveStatusTargetScope(name);
             var activity = childScope.Session.Activity.Capture();
             return Task.FromResult<ToolExecutionResult>(Format(childScope, activity));
         }
@@ -177,7 +177,7 @@ internal sealed class AgentStatusTool(IAgentResolver resolver) : ITool
 
     internal sealed class Input
     {
-        [JsonPropertyName("session_id")]
-        public string? SessionId { get; init; }
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
     }
 }

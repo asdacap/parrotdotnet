@@ -11,20 +11,20 @@ internal sealed class AgentSendToolPresenter : IToolPresenter
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {
         using var arguments = JsonDocument.Parse(call.ArgumentsJson);
-        var sessionId = arguments.RootElement.GetProperty("session_id").GetString() ?? string.Empty;
-        var recipient = call.ResolveAgentReference(sessionId);
+        var name = arguments.RootElement.GetProperty("name").GetString() ?? string.Empty;
+        var recipient = call.ResolveAgentReference(name);
         return new ToolLiveValue($"{call.Owner}: Send to {recipient}", [], Metadata, frame);
     }
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
         using var arguments = JsonDocument.Parse(call.ArgumentsJson);
-        var sessionId = arguments.RootElement.GetProperty("session_id").GetString() ?? string.Empty;
+        var name = arguments.RootElement.GetProperty("name").GetString() ?? string.Empty;
         var message = arguments.RootElement.GetProperty("message").GetString() ?? string.Empty;
         var status = terminal.ResolveStatus();
         var recipient = status == ToolTerminalStatus.Succeeded
-            ? ReadRecipientName(terminal.Result) ?? call.ResolveAgentReference(sessionId)
-            : call.ResolveAgentReference(sessionId);
+            ? ReadRecipientName(terminal.Result) ?? call.ResolveAgentReference(name)
+            : call.ResolveAgentReference(name);
         return new ToolScrollbackValue(
             $"{call.Owner}: Send to {recipient}",
             status == ToolTerminalStatus.Succeeded ? ToolBlock.FromText(message) : terminal.DescribeBlock(ToolBlockKind.None),

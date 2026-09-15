@@ -99,11 +99,11 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             new AgentResolver(parent.Identity, TestModels.ScopeOf(parent).ParentScope, TestModels.ScopeOf(parent), registry));
 
         var report = (await tool.Execute(
-            new ToolInvocation("call", "{\"session_id\":\"child\"}"),
+            new ToolInvocation("call", "{\"name\":\"child\"}"),
             new TurnFixture(parent, router).Selection,
             cancellationToken)).Text;
         var rejected = (await tool.Execute(
-            new ToolInvocation("call", $"{{\"session_id\":\"{grandchild.SessionId}\"}}"),
+            new ToolInvocation("call", $"{{\"name\":\"{grandchild.SessionId}\"}}"),
             new TurnFixture(parent, router).Selection,
             cancellationToken)).Text;
 
@@ -156,15 +156,15 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             new AgentResolver(parent.Identity, TestModels.ScopeOf(parent).ParentScope, TestModels.ScopeOf(parent), registry));
 
         var blank = (await tool.Execute(
-            new ToolInvocation("call", "{\"session_id\":\"  \"}"),
+            new ToolInvocation("call", "{\"name\":\"  \"}"),
             new TurnFixture(parent, router).Selection,
             cancellationToken)).Text;
         var unknown = (await tool.Execute(
-            new ToolInvocation("call", "{\"session_id\":\"child\",\"extra\":true}"),
+            new ToolInvocation("call", "{\"name\":\"child\",\"extra\":true}"),
             new TurnFixture(parent, router).Selection,
             cancellationToken)).Text;
 
-        _ = await Assert.That(blank).IsEqualTo("error: no child session given");
+        _ = await Assert.That(blank).IsEqualTo("error: no child agent given");
         _ = await Assert.That(unknown).StartsWith("error:");
         await registry.DisposeAsync();
     }

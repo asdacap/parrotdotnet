@@ -16,7 +16,7 @@ internal sealed class EnhancedAgentToolPresenterTests
             new ToolCallPresentation(
                 "main",
                 "agent_send",
-                "{\"session_id\":\"agent-session-opaque\",\"message\":\"inspect logs\"}",
+                "{\"name\":\"agent-session-opaque\",\"message\":\"inspect logs\"}",
                 static reference => reference == "agent-session-opaque" ? "scout" : reference),
             "{\"name\":\"scout\",\"status\":\"running\"}",
             "main: Send to scout",
@@ -105,7 +105,7 @@ internal sealed class EnhancedAgentToolPresenterTests
         var call = new ToolCallPresentation(
             "main",
             "agent_send",
-            $"{{\"session_id\":\"scout\",\"message\":\"{message}\"}}");
+            $"{{\"name\":\"scout\",\"message\":\"{message}\"}}");
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty);
 
         var completed = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(ScrollbackContext);
@@ -124,7 +124,7 @@ internal sealed class EnhancedAgentToolPresenterTests
         var call = new ToolCallPresentation(
             "main",
             "agent_send",
-            "{\"session_id\":\"agent-session-opaque\",\"message\":\"inspect logs\"}",
+            "{\"name\":\"agent-session-opaque\",\"message\":\"inspect logs\"}",
             static _ => "known-before-send");
         var completed = (presenter.PresentTerminal(
             call,
