@@ -13,5 +13,5 @@ internal sealed class NoopMode(IAgentProfile profile, SecurityProfile securityPr
     {
     }
 
-    public ModeCompletionOutcome Complete(string sessionId, string messageId) => ModeCompletionOutcome.None;
+    public ModeCompletionOutcome Complete() => ModeCompletionOutcome.None;
 }

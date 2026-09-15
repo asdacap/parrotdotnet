@@ -13,9 +13,15 @@ internal sealed class ModeTurnCompletionCallback(
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var modeOutcome = candidate.Mode.Complete(candidate.SessionId, candidate.MessageId);
+        var modeOutcome = candidate.Mode.Complete();
         if (modeOutcome.RepairDiagnostic is not { } diagnostic)
         {
+            if (modeOutcome.Completion is { } completion)
+            {
+                completion.AgentSessionId = candidate.SessionId;
+                completion.MessageId = candidate.MessageId;
+            }
+
             return AgentTurnCompletionOutcome.Continue(null, modeOutcome.Completion);
         }
 

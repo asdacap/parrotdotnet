@@ -671,13 +671,11 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         {
         }
 
-        public ModeCompletionOutcome Complete(string sessionId, string messageId)
+        public ModeCompletionOutcome Complete()
         {
             Completions++;
             var completion = new PlanCompleted
             {
-                AgentSessionId = sessionId,
-                MessageId = messageId,
                 Markdown = "# Completed",
             };
 

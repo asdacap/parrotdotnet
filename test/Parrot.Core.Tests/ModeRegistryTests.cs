@@ -170,7 +170,7 @@ internal sealed class ModeRegistryTests : IDisposable
             },
             configured.SecurityProfile,
             () => prepared = true,
-            (sessionId, messageId) => ModeCompletionOutcome.Repair($"{sessionId}/{messageId}"));
+            () => ModeCompletionOutcome.Repair("repair"));
         var mode = noOp
             ? new NoopMode(sessionMode.Profile, securityProfile)
             : sessionMode;
@@ -196,9 +196,9 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(profile.Prompt).IsEqualTo(noOp ? "initial" : "prepared");
         _ = await Assert.That(mode.Profile.Prompt).IsEqualTo(noOp ? "initial" : "prepared");
         _ = await Assert.That(promptReads).IsEqualTo(3);
-        var completion = mode.Complete("session", "message");
+        var completion = mode.Complete();
         _ = await Assert.That(completion.Completion).IsNull();
-        _ = await Assert.That(completion.RepairDiagnostic).IsEqualTo(noOp ? null : "session/message");
+        _ = await Assert.That(completion.RepairDiagnostic).IsEqualTo(noOp ? null : "repair");
     }
 
     [Test]
@@ -326,15 +326,13 @@ internal sealed class ModeRegistryTests : IDisposable
         await File.WriteAllTextAsync(artifact, "  # Plan\n\n- change code\n");
         await WriteValidTasks(artifact);
 
-        var completed = profile.Complete("session", "message").Completion;
+        var completed = profile.Complete().Completion;
 
         if (completed is not { } emitted)
         {
             throw new InvalidOperationException("plan completion was not emitted");
         }
 
-        _ = await Assert.That(emitted.AgentSessionId).IsEqualTo("session");
-        _ = await Assert.That(emitted.MessageId).IsEqualTo("message");
         _ = await Assert.That(emitted.Markdown).IsEqualTo("# Plan\n\n- change code");
         _ = await Assert.That(emitted.Dialog.Prompt).IsEqualTo("Plan complete: ");
         _ = await Assert.That(emitted.Dialog.Choices[0].Action.Mode).IsEqualTo(ModeRegistry.Build);
@@ -359,7 +357,7 @@ internal sealed class ModeRegistryTests : IDisposable
             TaskArtifactFor(artifact),
             "{\"schema_version\":1,\"tasks\":[{\"name\":\"first\",\"description\":\"First\",\"payload\":[{\"name\":\"child-first\",\"description\":\"Child first\",\"payload\":\"Do it\",\"acceptance_criteria\":\"Pass\"},{\"name\":\"child-second\",\"description\":\"Child second\",\"payload\":[{\"name\":\"grandchild\",\"description\":\"Grandchild\",\"payload\":\"Do it\",\"acceptance_criteria\":\"Pass\"}],\"acceptance_criteria\":\"Pass\"}],\"acceptance_criteria\":\"Pass\"},{\"name\":\"second\",\"dependencies\":[\"first\"],\"description\":\"Second\",\"payload\":\"Do it\",\"acceptance_criteria\":\"Pass\"}]}");
 
-        var completed = profile.Complete("session", "message").Completion
+        var completed = profile.Complete().Completion
             ?? throw new InvalidOperationException("plan completion was not emitted");
         var tree = completed.TaskTree ?? throw new InvalidOperationException("task tree was not emitted");
 
@@ -405,7 +403,7 @@ internal sealed class ModeRegistryTests : IDisposable
             TaskArtifactFor(artifact),
             "{\"schema_version\":1,\"tasks\":[{\"name\":\"first\",\"description\":\"First\",\"payload\":\"Do it\",\"acceptance_criteria\":\"Pass\"},{\"name\":\"second\",\"description\":\"Second\",\"payload\":\"Do it\",\"acceptance_criteria\":\"Pass\"}]}");
 
-        var completed = profile.Complete("session", "message").Completion
+        var completed = profile.Complete().Completion
             ?? throw new InvalidOperationException("plan completion was not emitted");
         var tree = completed.TaskTree ?? throw new InvalidOperationException("task tree was not emitted");
 
@@ -426,14 +424,13 @@ internal sealed class ModeRegistryTests : IDisposable
         await File.WriteAllTextAsync(PlanArtifact("user-session"), "# Plan");
         await WriteValidTasks(PlanArtifact("user-session"));
 
-        var completed = profile.Complete("main-agent-session", "message").Completion;
+        var completed = profile.Complete().Completion;
 
         if (completed is not { } emitted)
         {
             throw new InvalidOperationException("plan completion was not emitted");
         }
 
-        _ = await Assert.That(emitted.AgentSessionId).IsEqualTo("main-agent-session");
         _ = await Assert.That(emitted.Markdown).IsEqualTo("# Plan");
     }
 
@@ -449,14 +446,14 @@ internal sealed class ModeRegistryTests : IDisposable
         var artifact = PlanArtifact("repair");
         await File.WriteAllTextAsync(artifact, "# Plan");
 
-        var missing = profile.Complete("session", "missing");
+        var missing = profile.Complete();
 
         _ = await Assert.That(missing.Completion).IsNull();
         _ = await Assert.That(missing.RepairDiagnostic).Contains(TaskArtifactFor(artifact));
         _ = await Assert.That(missing.RepairDiagnostic).Contains("blank");
 
         await File.WriteAllTextAsync(TaskArtifactFor(artifact), "{\"schema_version\":2,\"tasks\":[]}");
-        var invalid = profile.Complete("session", "invalid");
+        var invalid = profile.Complete();
 
         _ = await Assert.That(invalid.Completion).IsNull();
         _ = await Assert.That(invalid.RepairDiagnostic).Contains(TaskArtifactFor(artifact));
@@ -474,7 +471,7 @@ internal sealed class ModeRegistryTests : IDisposable
         profile.Prepare();
         await File.WriteAllTextAsync(PlanArtifact("session"), " \n\t ");
 
-        var outcome = profile.Complete("session", "message");
+        var outcome = profile.Complete();
 
         _ = await Assert.That(outcome.Completion).IsNull();
         _ = await Assert.That(outcome.RepairDiagnostic).Contains(PlanArtifact("session"));

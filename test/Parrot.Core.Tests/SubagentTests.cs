@@ -1254,7 +1254,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await Assert.That(mode.Profile.MaxTurns).IsEqualTo(64);
         _ = await Assert.That(mode.Profile.SecurityProfile).IsSameReferenceAs(securityProfile);
         _ = await Assert.That(mode.Profile.SecurityProfile.ReadOnly).IsTrue();
-        _ = await Assert.That(mode.Complete(child.SessionId, "message").Completion).IsNull();
+        _ = await Assert.That(mode.Complete().Completion).IsNull();
 
         _ = await child.SendTextMessage("work", cancellationToken);
         await provider.Arrived(cancellationToken);

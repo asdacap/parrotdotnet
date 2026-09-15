@@ -7,11 +7,11 @@ internal sealed class SessionMode(
     Func<string> prompt,
     SecurityProfile securityProfile,
     Action prepare,
-    Func<string, string, ModeCompletionOutcome> complete) : IMode
+    Func<ModeCompletionOutcome> complete) : IMode
 {
     public IAgentProfile Profile { get; } = new SessionModeProfile(profile, prompt, securityProfile);
 
     public void Prepare() => prepare();
 
-    public ModeCompletionOutcome Complete(string sessionId, string messageId) => complete(sessionId, messageId);
+    public ModeCompletionOutcome Complete() => complete();
 }

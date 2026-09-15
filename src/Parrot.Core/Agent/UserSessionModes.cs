@@ -63,7 +63,7 @@ internal sealed class UserSessionModes(
                 () => profile.Prompt,
                 profile.SecurityProfile,
                 static () => { },
-                static (_, _) => ModeCompletionOutcome.None);
+                static () => ModeCompletionOutcome.None);
     }
 
     private void SecureArtifact(string artifact)
@@ -159,7 +159,7 @@ internal sealed class UserSessionModes(
         }
     }
 
-    private ModeCompletionOutcome CompletePlan(string agentSessionId, string messageId)
+    private ModeCompletionOutcome CompletePlan()
     {
         string artifact;
         string taskArtifact;
@@ -223,8 +223,6 @@ internal sealed class UserSessionModes(
 
         var completion = new PlanCompleted
         {
-            AgentSessionId = agentSessionId,
-            MessageId = messageId,
             Markdown = plan,
             TaskTree = AgentTaskProgressSnapshot.FromPlannedTasks(tasks.Tasks),
             TaskDeclarations = { PlanTaskDeclaration.FromPlannedTasks(tasks.Tasks) },

@@ -9,6 +9,6 @@ internal interface IMode
     /// <summary>Prepares mode state before the turn reads its profile prompt.</summary>
     void Prepare();
 
-    /// <summary>Completes the captured mode for the specified turn, possibly requesting repair.</summary>
-    ModeCompletionOutcome Complete(string sessionId, string messageId);
+    /// <summary>Completes the captured mode for the ending turn, possibly requesting repair.</summary>
+    ModeCompletionOutcome Complete();
 }
