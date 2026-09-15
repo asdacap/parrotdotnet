@@ -1,7 +1,6 @@
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Security;
-using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Agent;
@@ -23,7 +22,6 @@ internal interface IAgentSessionFactory
         IEventRepository eventRepository,
         IMode mode,
         SecurityProfile securityProfile,
-        IRuntimeStatus status,
         IAgentRegistry registry,
         CancellationToken lifetime);
 }

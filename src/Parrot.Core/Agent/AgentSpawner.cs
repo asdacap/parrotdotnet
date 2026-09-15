@@ -202,7 +202,6 @@ internal sealed class AgentSpawner : IAgentSpawner
 
         var registeredOwnerScope = _parentSessionScope.RequireOwnerScope();
         var profile = _authority.ResolveChildProfile(request.RequestedProfile);
-        var status = _authority.RequireStatus();
         var retainedReservation = _authority.ReserveRetainedAgent();
         AgentIdentity childIdentity;
         AgentSessionParentLink childParentLink;
@@ -255,7 +254,6 @@ internal sealed class AgentSpawner : IAgentSpawner
                 request.Model,
                 new NoopMode(profile, securityProfile),
                 securityProfile,
-                status,
                 childHistory,
                 _lifetime.Token);
             lock (_gate)

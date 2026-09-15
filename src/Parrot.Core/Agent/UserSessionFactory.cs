@@ -3,7 +3,6 @@ using Parrot.Config;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Skills;
-using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Agent;
@@ -16,7 +15,6 @@ internal sealed class UserSessionFactory(
     SkillCatalogFactory skillCatalogFactory,
     TimeSpan userInputTimeout,
     TimeProvider timeProvider,
-    Func<IAgentRegistry, IPromptTemplateCatalog, IReadOnlyList<IStatusProvider>> createRuntimeStatusProviders,
     Func<string, AgentTaskArtifact> parseTaskArtifact) : IUserSessionFactory
 {
     public Task<IUserSession> Create(
@@ -40,6 +38,5 @@ internal sealed class UserSessionFactory(
             interactivePermissions,
             userInputTimeout,
             timeProvider,
-            static () => new EventBroker(),
-            createRuntimeStatusProviders);
+            static () => new EventBroker());
 }

@@ -46,8 +46,7 @@ internal sealed class UserSessionDiagnosticsTests : IDisposable
             false,
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
-            static () => new EventBroker(),
-            TestModels.RuntimeStatusProviders)).Throws<InvalidOperationException>();
+            static () => new EventBroker())).Throws<InvalidOperationException>();
 
         _ = await Assert.That(failure).IsSameReferenceAs(factories.Failure);
         _ = await Assert.That(factories.Lifetime.IsCancellationRequested).IsTrue();

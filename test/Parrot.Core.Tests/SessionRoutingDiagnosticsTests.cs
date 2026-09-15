@@ -57,7 +57,6 @@ internal sealed class SessionRoutingDiagnosticsTests
                 new SkillCatalogFactory(configuration, root, Path.Combine(root, "skills")),
                 TimeSpan.FromSeconds(30),
                 TimeProvider.System,
-                TestModels.RuntimeStatusProviders,
                 AgentTaskParser.ParseArtifact);
             var store = new SessionStore(paths, root, "host", factory, router, modes, diagnostics);
             string firstId;
@@ -92,7 +91,6 @@ internal sealed class SessionRoutingDiagnosticsTests
                     new ModelSelector(model.Selector),
                     first.Mode,
                     first.Mode.Profile.SecurityProfile,
-                    first.Status,
                     first.Registry.InitializeChildHistory(firstScope.Session.SessionId, childIdentity.SessionId, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty")),
                     first.Lifetime);
 

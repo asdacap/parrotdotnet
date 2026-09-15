@@ -182,12 +182,9 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
         _ = await Assert.That(reminder).Contains("Running AgentTask graphs:");
         _ = await Assert.That(reminder).Contains($"{runtime.Parent.SessionId}/first (name: first)");
         _ = await Assert.That(reminder).Contains($"{runtime.Parent.SessionId}/second (name: second)");
-        var statusProvider = new AgentTaskStatusProvider(TestModels.PromptTemplates);
+        var statusProvider = new AgentTaskStatusProvider(catalog, TestModels.PromptTemplates);
         var status = await statusProvider.Observe(
-            new StatusQuery(runtime.Parent.SessionId, string.Empty, string.Empty, "profile", "model", runtime.ParentScope),
-            cancellationToken);
-        var otherStatus = await statusProvider.Observe(
-            new StatusQuery("other-owner", string.Empty, string.Empty, "profile", "model", null),
+            new StatusQuery(runtime.Parent.SessionId, string.Empty, string.Empty, "profile", "model"),
             cancellationToken);
         _ = await Assert.That(status.Available).IsTrue();
         _ = await Assert.That(status.Text.IndexOf("first", StringComparison.Ordinal))
@@ -196,7 +193,6 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
         _ = await Assert.That(status.Text).Contains("description: Run first)");
         _ = await Assert.That(status.Text).Contains("task: second (");
         _ = await Assert.That(status.Text).Contains("description: Run second)");
-        _ = await Assert.That(otherStatus.Available).IsFalse();
         var customTemplates = new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)
         {
             ["status.runtime"] = new(
@@ -204,8 +200,8 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
                 new HashSet<string>(["section", "agents", "runs"], StringComparer.Ordinal),
                 new ScribanPromptTemplateEngine("prompt_templates.status.runtime", "{{ section }}:{{ for run in runs }}{{ run.run_id }}={{ for node in run.nodes }}{{ node.name }};{{ end }}{{ end }}")),
         });
-        var customizedStatus = await new AgentTaskStatusProvider(customTemplates).Observe(
-            new StatusQuery(runtime.Parent.SessionId, string.Empty, string.Empty, "profile", "model", runtime.ParentScope),
+        var customizedStatus = await new AgentTaskStatusProvider(catalog, customTemplates).Observe(
+            new StatusQuery(runtime.Parent.SessionId, string.Empty, string.Empty, "profile", "model"),
             cancellationToken);
         _ = await Assert.That(statusProvider.Key).IsEqualTo("runtime:agent-tasks");
         _ = await Assert.That(customizedStatus.Text).IsEqualTo("agent-tasks:first=first;second=second;");

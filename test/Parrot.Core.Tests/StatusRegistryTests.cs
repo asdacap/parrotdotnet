@@ -19,7 +19,7 @@ internal sealed class StatusRegistryTests
     [Test]
     public async Task Observe_composes_available_status_by_key_and_resamples_providers()
     {
-        var query = new StatusQuery("session", string.Empty, string.Empty, "plan", "openai/gpt/high", null);
+        var query = new StatusQuery("session", string.Empty, string.Empty, "plan", "openai/gpt/high");
         var calls = 0;
         StatusQuery? observedQuery = null;
         var registry = new StatusRegistry(
@@ -58,7 +58,7 @@ internal sealed class StatusRegistryTests
         IStatusProvider provider = new ContextStatusProvider(
                 new ContextSnapshot(estimatedTokens, contextLimit, available ? usage : null, 90),
                 TestModels.PromptTemplates);
-        var observation = await provider.Observe(new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model", null), CancellationToken.None);
+        var observation = await provider.Observe(new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"), CancellationToken.None);
 
         var expectedUsage = available ? FormattableString.Invariant($"{usage}% used") : "unavailable";
         _ = await Assert.That(observation.Available).IsTrue();
@@ -79,7 +79,7 @@ internal sealed class StatusRegistryTests
         };
         IStatusProvider provider = new ContextStatusProvider(snapshot, TestModels.PromptTemplates);
         var observation = await provider.Observe(
-            new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model", null),
+            new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"),
             CancellationToken.None);
 
         _ = await Assert.That(observation.Text).Contains("1M model context window")
@@ -113,7 +113,7 @@ internal sealed class StatusRegistryTests
                 : TestModels.PromptTemplates;
             IStatusProvider provider = new ContextStatusProvider(new ContextSnapshot(-123, available ? 1000 : -1, available ? -12 : null, -90), templates);
 
-            var observation = await provider.Observe(new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model", null), CancellationToken.None);
+            var observation = await provider.Observe(new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"), CancellationToken.None);
 
             _ = await Assert.That(observation.Text).IsEqualTo(expected);
         }
@@ -138,7 +138,7 @@ internal sealed class StatusRegistryTests
         });
         IStatusProvider provider = new SelectionStatusProvider(templates);
 
-        var observation = await provider.Observe(new StatusQuery("child", parentSessionId, parentSessionName, "build", "{{ model }}", null), CancellationToken.None);
+        var observation = await provider.Observe(new StatusQuery("child", parentSessionId, parentSessionName, "build", "{{ model }}"), CancellationToken.None);
 
         _ = await Assert.That(observation.Text).IsEqualTo(expected);
     }
@@ -151,7 +151,7 @@ internal sealed class StatusRegistryTests
         IStatusProvider runtime = new RuntimeTreeStatusProvider(fixture.Registry, TestModels.PromptTemplates);
         var full = new StatusRegistry(new GeneratedTimeStatusProvider(TimeProvider.System, TestModels.PromptTemplates), new SelectionStatusProvider(TestModels.PromptTemplates), runtime);
         IStatusProvider context = new ContextStatusProvider(new ContextSnapshot(123, 1000, 12, 90), TestModels.PromptTemplates);
-        var query = new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model", null);
+        var query = new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model");
 
         var fullText = await full.ObserveWithProvider(query, new ProfileStatusProvider("profile:build", "profile prompt"), context, CancellationToken.None);
         var runtimeText = await new StatusRegistry(runtime).ObserveWithProvider(query, null, context, CancellationToken.None);
@@ -169,7 +169,7 @@ internal sealed class StatusRegistryTests
     public async Task Additional_context_snapshots_are_isolated_per_observation()
     {
         var registry = new StatusRegistry(new ScriptedStatusProvider("runtime:value", static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("shared"))));
-        var query = new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model", null);
+        var query = new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model");
         IStatusProvider first = new ContextStatusProvider(new ContextSnapshot(100, 1000, 10, 90), TestModels.PromptTemplates);
         IStatusProvider second = new ContextStatusProvider(new ContextSnapshot(800, 1000, 80, 90), TestModels.PromptTemplates);
         var observations = await Task.WhenAll(
@@ -189,7 +189,7 @@ internal sealed class StatusRegistryTests
     {
         IStatusProvider provider = new ProfileStatusProvider("profile:build", prompt);
         var observation = await provider.Observe(
-            new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model", null),
+            new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"),
             CancellationToken.None);
 
         _ = await Assert.That(observation.Available).IsEqualTo(available);
@@ -204,7 +204,7 @@ internal sealed class StatusRegistryTests
 
         IStatusProvider provider = new GeneratedTimeStatusProvider(timeProvider, TestModels.PromptTemplates);
         var observation = await provider.Observe(
-            new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model", null),
+            new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"),
             CancellationToken.None);
 
         _ = await Assert.That(observation.Text).IsEqualTo("Generated at: 1970-01-02T00:00:00.0000000+00:00");
@@ -215,7 +215,7 @@ internal sealed class StatusRegistryTests
     {
         IStatusProvider provider = new SelectionStatusProvider(TestModels.PromptTemplates);
         var observation = await provider.Observe(
-            new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model/medium", null),
+            new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model/medium"),
             CancellationToken.None);
 
         _ = await Assert.That(observation.Text)
@@ -236,7 +236,7 @@ internal sealed class StatusRegistryTests
     {
         IStatusProvider provider = new SelectionStatusProvider(TestModels.PromptTemplates);
         var observation = await provider.Observe(
-            new StatusQuery("child", parentSessionId, parentSessionName, "build", "low_llm", null),
+            new StatusQuery("child", parentSessionId, parentSessionName, "build", "low_llm"),
             CancellationToken.None);
 
         var parent = string.IsNullOrWhiteSpace(parentSessionId)
@@ -283,7 +283,7 @@ internal sealed class StatusRegistryTests
         IStatusProvider provider = new RuntimeTreeStatusProvider(fixture.Registry, TestModels.PromptTemplates);
 
         var observation = await provider.Observe(
-            new StatusQuery("root", string.Empty, string.Empty, "build", "provider/model", null),
+            new StatusQuery("root", string.Empty, string.Empty, "build", "provider/model"),
             cancellationToken);
 
         _ = await Assert.That(observation.Text).IsEqualTo(
@@ -317,7 +317,7 @@ internal sealed class StatusRegistryTests
         IStatusProvider provider = new RuntimeTreeStatusProvider(fixture.Registry, templates);
 
         var observation = await provider.Observe(
-            new StatusQuery("root", string.Empty, string.Empty, "build", "provider/model", null),
+            new StatusQuery("root", string.Empty, string.Empty, "build", "provider/model"),
             cancellationToken);
 
         _ = await Assert.That(provider.Key).IsEqualTo("runtime:queues");
@@ -333,7 +333,7 @@ internal sealed class StatusRegistryTests
         _ = await Assert.That(() => registry.Register(new ScriptedStatusProvider("runtime:selection", static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("second")))))
             .Throws<StatusRegistryException>();
         _ = await Assert.That(async () => await registry.Observe(
-                new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model", null),
+                new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"),
                 new ScriptedStatusProvider("runtime:selection", static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("profile"))),
                 CancellationToken.None))
             .Throws<StatusRegistryException>();
@@ -347,7 +347,7 @@ internal sealed class StatusRegistryTests
             static (_, _) => ValueTask.FromException<StatusObservation>(new InvalidOperationException("failed"))));
 
         var exception = await Assert.That(async () => await registry.Observe(
-                new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model", null),
+                new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"),
                 null,
                 CancellationToken.None))
             .Throws<StatusRegistryException>();
@@ -394,7 +394,7 @@ internal sealed class StatusRegistryTests
                 {
                     var exitReminder = new ExitReminder(_repository, TestModels.PromptTemplates, identity.SessionId);
                     var mode = new TestProfileFixture().Mode;
-                    return new AgentSession(identity, parentScope, _router.Resolve(string.Empty).RequestedSelector, _router, _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(_root), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "status-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.GetService<IProcessOwner>()), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, _repository, _broker).Callbacks, new SecurityProfileTestFixture(mode.Profile.SecurityProfile).Security, Registry.RequireStatus(), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
+                    return new AgentSession(identity, parentScope, _router.Resolve(string.Empty).RequestedSelector, _router, _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(_root), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "status-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.GetService<IProcessOwner>()), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, _repository, _broker).Callbacks, new SecurityProfileTestFixture(mode.Profile.SecurityProfile).Security, TestModels.ScopedRuntimeStatus(Registry, owningScope), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
                 },
                 CancellationToken.None);
             if (parentLink.Parent is { } parent)

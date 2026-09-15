@@ -5,7 +5,6 @@ using Parrot.Permissions;
 using Parrot.Protocol;
 using Parrot.Questions;
 using Parrot.Skills;
-using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Agent;
@@ -34,8 +33,6 @@ internal interface IUserSession : IAsyncDisposable
     IImageArtifactRepository Images { get; }
 
     IAgentRegistry Registry { get; }
-
-    IRuntimeStatus Status { get; }
 
     IQuestionBroker Questions { get; }
 

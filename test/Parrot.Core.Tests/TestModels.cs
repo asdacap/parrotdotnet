@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Parrot.Agent;
+using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
@@ -185,12 +186,17 @@ internal static class TestModels
         CancellationToken lifetime)
     {
         IAgentRegistry registry = new AgentRegistry(agentSessions, eventBroker, eventRepository, profiles, promptTemplates, retainedAgents, TestDiagnosticLog.Instance, lifetime);
-        registry.AttachStatus(new RuntimeStatus(promptTemplates, TimeProvider.System, RuntimeStatusProviders(registry, promptTemplates)));
         return registry;
     }
 
     public static IReadOnlyList<IStatusProvider> RuntimeStatusProviders(IAgentRegistry registry, IPromptTemplateCatalog promptTemplates) =>
-        [new RuntimeTreeStatusProvider(registry, promptTemplates), new AgentTaskStatusProvider(promptTemplates)];
+        [new RuntimeTreeStatusProvider(registry, promptTemplates)];
+
+    public static IRuntimeStatus ScopedRuntimeStatus(IAgentRegistry registry, IAgentSessionScope scope) =>
+        new RuntimeStatus(
+            PromptTemplates,
+            TimeProvider.System,
+            [new RuntimeTreeStatusProvider(registry, PromptTemplates), new AgentTaskStatusProvider(scope.GetService<IAgentTaskRunCatalog>(), PromptTemplates)]);
 
     public static AgentSessionDependencies Dependencies(
         AgentIdentity identity,
@@ -213,7 +219,6 @@ internal static class TestModels
             TestDiagnosticLog.Instance,
             lifetime);
         var status = new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, RuntimeStatusProviders(registry, TestModels.PromptTemplates));
-        registry.AttachStatus(status);
         return new AgentSessionDependencies(
             identity,
             owner,
@@ -274,7 +279,6 @@ internal static class TestModels
             IEventRepository eventRepository,
             IMode mode,
             SecurityProfile securityProfile,
-            IRuntimeStatus status,
             IAgentRegistry registry,
             CancellationToken lifetime) =>
             throw new NotSupportedException("This test session does not support spawning subagents.");

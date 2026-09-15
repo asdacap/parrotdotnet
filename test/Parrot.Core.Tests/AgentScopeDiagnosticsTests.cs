@@ -50,7 +50,6 @@ internal sealed class AgentScopeDiagnosticsTests
                 new SkillCatalogFactory(configuration, root, Path.Combine(root, "skills")),
                 TimeSpan.FromSeconds(30),
                 TimeProvider.System,
-                TestModels.RuntimeStatusProviders,
                 AgentTaskParser.ParseArtifact);
             var store = new SessionStore(paths, root, "host", factory, router, modes, diagnostics);
             string logPath;
@@ -68,7 +67,6 @@ internal sealed class AgentScopeDiagnosticsTests
                     new ModelSelector(model.Selector),
                     session.Mode,
                     session.Mode.Profile.SecurityProfile,
-                    session.Status,
                     session.Registry.InitializeChildHistory(rootId, identity.SessionId, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty")),
                     session.Lifetime);
                 _ = await Assert.That(child.Session.SessionId).IsEqualTo(identity.SessionId);

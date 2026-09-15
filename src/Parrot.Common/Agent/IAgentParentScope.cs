@@ -17,9 +17,6 @@ internal interface IAgentParentScope
 
     string OwnerSessionId { get; }
 
-    /// <summary>Gets the owner scope, or null while the parent scope is not bound to one.</summary>
-    IAgentSessionScope? OwnerScope { get; }
-
     /// <summary>Validates that an identity matches this parent topology.</summary>
     void Validate(AgentIdentity identity);
 

@@ -5,7 +5,6 @@ using Parrot.Llm;
 using Parrot.Queues;
 using Parrot.Security;
 using Parrot.Skills;
-using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
 using Parrot.Web;
@@ -40,7 +39,6 @@ internal sealed class AgentSessionFactory(
         IEventRepository eventRepository,
         IMode mode,
         SecurityProfile securityProfile,
-        IRuntimeStatus status,
         IAgentRegistry registry,
         CancellationToken lifetime)
     {
@@ -87,7 +85,6 @@ internal sealed class AgentSessionFactory(
             security,
             agentSkills,
             owner.Permissions,
-            status,
             registry,
             owner.Questions,
             owner.TimeProvider,

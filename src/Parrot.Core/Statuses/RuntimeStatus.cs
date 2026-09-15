@@ -40,8 +40,7 @@ internal sealed class RuntimeStatus : IRuntimeStatus
                 session.ParentSessionId,
                 session.ParentSessionName,
                 profile.Id,
-                selection.RequestedModel.Value,
-                session.Scope),
+                selection.RequestedModel.Value),
             new ProfileStatusProvider($"profile:{profile.Id}", profile.Prompt),
             contextStatus,
             cancellationToken);
@@ -61,8 +60,7 @@ internal sealed class RuntimeStatus : IRuntimeStatus
                 session.ParentSessionId,
                 session.ParentSessionName,
                 selection.Profile.Id,
-                selection.RequestedModel.Value,
-                session.Scope),
+                selection.RequestedModel.Value),
             null,
             contextStatus,
             cancellationToken);
@@ -83,8 +81,7 @@ internal sealed class RuntimeStatus : IRuntimeStatus
                 session.ParentSessionId,
                 session.ParentSessionName,
                 selection.Profile.Id,
-                selection.RequestedModel.Value,
-                session.Scope),
+                selection.RequestedModel.Value),
             null,
             cancellationToken).ConfigureAwait(false);
         return string.Join("\n\n", new[] { runtime, observation }.Where(text => !string.IsNullOrWhiteSpace(text)));
@@ -107,8 +104,7 @@ internal sealed class RuntimeStatus : IRuntimeStatus
                 session.ParentSessionId,
                 session.ParentSessionName,
                 profile.Id,
-                selection.RequestedModel.Value,
-                session.Scope),
+                selection.RequestedModel.Value),
             new ProfileStatusProvider($"profile:{profile.Id}", profile.Prompt),
             new ContextStatusProvider(contextSnapshot, _templates),
             cancellationToken);
@@ -130,8 +126,7 @@ internal sealed class RuntimeStatus : IRuntimeStatus
                 session.ParentSessionId,
                 session.ParentSessionName,
                 selection.Profile.Id,
-                selection.RequestedModel.Value,
-                session.Scope),
+                selection.RequestedModel.Value),
             cancellationToken)
             .ConfigureAwait(false);
         return observation.Available ? observation.Text : string.Empty;

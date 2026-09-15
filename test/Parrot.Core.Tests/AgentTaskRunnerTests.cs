@@ -7,7 +7,6 @@ using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Security;
 using Parrot.State;
-using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -69,7 +68,6 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
                 runtime.Selection.RequestedModel,
                 dependencies.Profile,
                 dependencies.Profile.Profile.SecurityProfile,
-                dependencies.Status,
                 _repository,
                 cancellationToken);
             if (fail)
@@ -1513,7 +1511,6 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
             IEventRepository eventRepository,
             IMode mode,
             SecurityProfile securityProfile,
-            IRuntimeStatus status,
             IAgentRegistry registry,
             CancellationToken lifetime) =>
             fail ? throw new InvalidOperationException("secret-exception") : scope;

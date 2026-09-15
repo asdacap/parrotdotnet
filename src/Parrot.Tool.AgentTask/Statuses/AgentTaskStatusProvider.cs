@@ -5,7 +5,9 @@ using Scriban.Runtime;
 
 namespace Parrot.Statuses;
 
-internal sealed class AgentTaskStatusProvider(IPromptTemplateCatalog templates) : IStatusProvider
+internal sealed class AgentTaskStatusProvider(
+    IAgentTaskRunCatalog agentTaskRuns,
+    IPromptTemplateCatalog templates) : IStatusProvider
 {
     public string Key => "runtime:agent-tasks";
 
@@ -14,8 +16,8 @@ internal sealed class AgentTaskStatusProvider(IPromptTemplateCatalog templates) 
         ArgumentNullException.ThrowIfNull(query);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var snapshots = query.Scope?.GetService<IAgentTaskRunCatalog>().Snapshot();
-        if (snapshots is null || snapshots.Count == 0)
+        var snapshots = agentTaskRuns.Snapshot();
+        if (snapshots.Count == 0)
         {
             return ValueTask.FromResult(StatusObservation.Unavailable);
         }

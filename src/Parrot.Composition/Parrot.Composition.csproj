@@ -8,6 +8,7 @@
     <ProjectReference Include="../Parrot.Tool.Queue/Parrot.Tool.Queue.csproj" />
     <ProjectReference Include="../Parrot.Tool.Process/Parrot.Tool.Process.csproj" />
     <ProjectReference Include="../Parrot.Tool.AgentTask/Parrot.Tool.AgentTask.csproj" />
+    <ProjectReference Include="../Parrot.StatusProviders/Parrot.StatusProviders.csproj" />
     <ProjectReference Include="../Parrot.Common/Parrot.Common.csproj" />
     <ProjectReference Include="../Parrot.Core/Parrot.Core.csproj" />
     <ProjectReference Include="../Parrot.Tools/Parrot.Tools.csproj" />

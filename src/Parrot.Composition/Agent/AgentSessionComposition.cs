@@ -162,10 +162,17 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.Mode;
             })
-            .Bind<IRuntimeStatus>().To(ctx =>
+            .Bind<IRuntimeStatus>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.Status;
+                ctx.Inject<IAgentTaskRunCatalog>(out var agentTaskRuns);
+                return new RuntimeStatus(
+                    arguments.PromptTemplates,
+                    arguments.TimeProvider,
+                    [
+                        new RuntimeTreeStatusProvider(arguments.Registry, arguments.PromptTemplates),
+                        new AgentTaskStatusProvider(agentTaskRuns, arguments.PromptTemplates),
+                    ]);
             })
             .Bind<TimeProvider>().To(ctx =>
             {

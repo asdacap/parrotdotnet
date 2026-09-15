@@ -9,7 +9,6 @@ using Parrot.Protocol;
 using Parrot.Queues;
 using Parrot.Skills;
 using Parrot.State;
-using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Web;
 using Pure.DI;
@@ -248,7 +247,6 @@ internal partial class Composition
                     skillCatalogFactory,
                     configuration.UserInputTimeout,
                     TimeProvider.System,
-                    static (agents, templates) => [new RuntimeTreeStatusProvider(agents, templates), new AgentTaskStatusProvider(templates)],
                     AgentTaskParser.ParseArtifact);
             })
 

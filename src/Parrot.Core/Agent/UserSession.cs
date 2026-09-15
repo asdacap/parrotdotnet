@@ -7,7 +7,6 @@ using Parrot.Permissions;
 using Parrot.Protocol;
 using Parrot.Questions;
 using Parrot.Skills;
-using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Agent;
@@ -58,7 +57,6 @@ internal sealed class UserSession : IUserSession
         TimeSpan userInputTimeout,
         TimeProvider timeProvider,
         Func<IEventBroker> createEventBroker,
-        Func<IAgentRegistry, IPromptTemplateCatalog, IReadOnlyList<IStatusProvider>> createRuntimeStatusProviders,
         Stack<Func<ValueTask>> cleanup,
         CancellationTokenSource lifetime)
     {
@@ -120,11 +118,6 @@ internal sealed class UserSession : IUserSession
         var retainedAgents = new RetainedAgentBudget(1024);
         Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _promptTemplates, retainedAgents, Diagnostics, _lifetime.Token);
         cleanup.Push(Registry.BeginShutdown);
-        Status = new RuntimeStatus(
-            _promptTemplates,
-            TimeProvider,
-            createRuntimeStatusProviders(Registry, _promptTemplates));
-        Registry.AttachStatus(Status);
     }
 
     public string Id { get; }
@@ -157,8 +150,6 @@ internal sealed class UserSession : IUserSession
 
     public IAgentRegistry Registry { get; }
 
-    public IRuntimeStatus Status { get; }
-
     public IQuestionBroker Questions { get; }
 
     public IPermissionBroker Permissions { get; }
@@ -179,8 +170,7 @@ internal sealed class UserSession : IUserSession
         bool interactivePermissions,
         TimeSpan userInputTimeout,
         TimeProvider timeProvider,
-        Func<IEventBroker> createEventBroker,
-        Func<IAgentRegistry, IPromptTemplateCatalog, IReadOnlyList<IStatusProvider>> createRuntimeStatusProviders)
+        Func<IEventBroker> createEventBroker)
     {
         var cleanup = new Stack<Func<ValueTask>>();
         var lifetime = new CancellationTokenSource();
@@ -202,7 +192,6 @@ internal sealed class UserSession : IUserSession
                 userInputTimeout,
                 timeProvider,
                 createEventBroker,
-                createRuntimeStatusProviders,
                 cleanup,
                 lifetime);
             session.Diagnostics.Write(new("session", "recovering", DiagnosticSeverity.Information));
@@ -505,7 +494,6 @@ internal sealed class UserSession : IUserSession
             _agentSessions.PrepareHistory(_mainSessionId, _eventRepository),
             Mode,
             Mode.Profile.SecurityProfile,
-            Status,
             Registry,
             _lifetime.Token);
         try

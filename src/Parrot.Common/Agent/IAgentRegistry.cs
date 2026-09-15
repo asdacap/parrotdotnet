@@ -16,8 +16,6 @@ internal interface IAgentRegistry : IAsyncDisposable
     IReadOnlyList<IAgentSessionScope> SnapshotScopes();
 
     /// <summary>Attaches the shared runtime observer once.</summary>
-    void AttachStatus(IRuntimeStatus status);
-
     /// <summary>Registers a root scope with a unique session identity.</summary>
     void RegisterRootScope(IAgentSessionScope scope);
 
@@ -39,8 +37,6 @@ internal interface IAgentRegistry : IAsyncDisposable
     RetainedAgentReservation ReserveRetainedAgent();
 
     /// <summary>Returns the attached observer, failing if unattached or shutting down.</summary>
-    IRuntimeStatus RequireStatus();
-
     /// <summary>Tests scope identity among registered roots and descendants.</summary>
     bool ContainsScope(IAgentSessionScope candidate);
 
@@ -51,7 +47,6 @@ internal interface IAgentRegistry : IAsyncDisposable
         ModelSelector model,
         IMode mode,
         SecurityProfile securityProfile,
-        IRuntimeStatus status,
         IEventRepository childHistory,
         CancellationToken childLifetime);
 

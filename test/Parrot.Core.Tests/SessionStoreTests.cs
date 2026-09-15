@@ -85,7 +85,7 @@ internal sealed class SessionStoreTests : IDisposable
         var router = TestModels.Route(model);
         sessions.Use(router);
         var factory = new ObservingUserSessions(
-            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, new TestProfileFixture().Registry, SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System, TestModels.RuntimeStatusProviders, AgentTaskParser.ParseArtifact),
+            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, new TestProfileFixture().Registry, SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System, AgentTaskParser.ParseArtifact),
             logPath,
             fail);
         var store = new SessionStore(paths, workingDirectory, "host", factory, router, Modes(), diagnostics);
@@ -167,7 +167,6 @@ internal sealed class SessionStoreTests : IDisposable
             SkillCatalogFactory(),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
-            TestModels.RuntimeStatusProviders,
             AgentTaskParser.ParseArtifact));
         var store = new SessionStore(paths, workingDirectory, "host", factory, router, Modes(), Diagnostics());
 
@@ -431,7 +430,7 @@ internal sealed class SessionStoreTests : IDisposable
             new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")),
             workingDirectory,
             "host",
-            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, new TestProfileFixture().Registry, SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System, TestModels.RuntimeStatusProviders, AgentTaskParser.ParseArtifact),
+            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, new TestProfileFixture().Registry, SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System, AgentTaskParser.ParseArtifact),
             router,
             Modes(),
             Diagnostics());
@@ -494,7 +493,7 @@ internal sealed class SessionStoreTests : IDisposable
             new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")),
             workingDirectory,
             "host",
-            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, new TestProfileFixture().Registry, SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System, TestModels.RuntimeStatusProviders, AgentTaskParser.ParseArtifact),
+            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, new TestProfileFixture().Registry, SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System, AgentTaskParser.ParseArtifact),
             router,
             Modes(),
             Diagnostics());

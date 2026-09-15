@@ -1378,7 +1378,6 @@ internal sealed class ParrotServiceTests : IDisposable
                 new SkillCatalogFactory(_configuration, _root, Path.Combine(_root, "packaged-skills")),
                 timeout,
                 timeProvider,
-                TestModels.RuntimeStatusProviders,
                 AgentTaskParser.ParseArtifact),
             _router,
             new ModeRegistry(

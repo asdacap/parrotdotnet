@@ -5,7 +5,6 @@ using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Queues;
 using Parrot.Security;
-using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
 
@@ -61,7 +60,6 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
             IEventRepository eventRepository,
             IMode mode,
             SecurityProfile securityProfile,
-            IRuntimeStatus status,
             IAgentRegistry registry,
             CancellationToken lifetime)
         {
@@ -82,9 +80,10 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
             {
                 var processes = owningScope.GetService<IProcessOwner>();
                 var queues = owningScope.GetService<IAgentQueues>();
+                var status = TestModels.ScopedRuntimeStatus(registry, owningScope);
                 source._queues.Add(queues);
                 var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
-                IAgentSession session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, source._includeStatusTool ? [new StatusToolFactory(owner.Status)] : [], source._includeStatusTool ? new TestToolDefinitionsFixture("status").Definitions : TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(owner.Diagnostics, identity.SessionId, null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(processes), new QueueActiveWorkBlocker(queues, TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker).Callbacks, security, status, new AgentSessionActivity(source._timeProvider), owner.Diagnostics, lifetime);
+                IAgentSession session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, source._includeStatusTool ? [new StatusToolFactory(status)] : [], source._includeStatusTool ? new TestToolDefinitionsFixture("status").Definitions : TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(owner.Diagnostics, identity.SessionId, null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(processes), new QueueActiveWorkBlocker(queues, TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker).Callbacks, security, status, new AgentSessionActivity(source._timeProvider), owner.Diagnostics, lifetime);
                 source._sessions.Add(session);
                 return session;
             },

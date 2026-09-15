@@ -6,7 +6,6 @@ using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Questions;
 using Parrot.Skills;
-using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
 using Parrot.Web;
@@ -38,7 +37,6 @@ internal sealed record AgentSessionScopeArguments(
     AgentSessionSecurity Security,
     AgentSkills Skills,
     IPermissionBroker Permissions,
-    IRuntimeStatus Status,
     IAgentRegistry Registry,
     IQuestionBroker UserQuestions,
     TimeProvider TimeProvider,

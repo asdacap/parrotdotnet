@@ -9,7 +9,6 @@ using Parrot.Protocol;
 using Parrot.Queues;
 using Parrot.Security;
 using Parrot.State;
-using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
 
@@ -2309,7 +2308,6 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             _repository,
             mode,
             mode.Profile.SecurityProfile,
-            registry.RequireStatus(),
             registry,
             cancellationToken);
         var second = sessions.Create(
@@ -2320,7 +2318,6 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             _repository,
             mode,
             mode.Profile.SecurityProfile,
-            registry.RequireStatus(),
             registry,
             cancellationToken);
         await using var rejected = second;
@@ -2512,7 +2509,6 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             IEventRepository eventRepository,
             IMode mode,
             SecurityProfile securityProfile,
-            IRuntimeStatus status,
             IAgentRegistry registry,
             CancellationToken lifetime)
         {
@@ -2526,7 +2522,6 @@ internal sealed partial class SubagentTests : IAsyncDisposable
                 eventRepository,
                 mode,
                 securityProfile,
-                status,
                 registry,
                 CancellationToken.None);
             return CreatedScope;
@@ -2546,7 +2541,6 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             IEventRepository eventRepository,
             IMode mode,
             SecurityProfile securityProfile,
-            IRuntimeStatus status,
             IAgentRegistry registry,
             CancellationToken lifetime) =>
             throw new NotSupportedException("This test session does not support spawning subagents.");
@@ -2580,7 +2574,6 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             IEventRepository eventRepository,
             IMode mode,
             SecurityProfile securityProfile,
-            IRuntimeStatus status,
             IAgentRegistry registry,
             CancellationToken lifetime)
         {
@@ -2607,7 +2600,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
                 var processOwner = owningScope.GetService<IProcessOwner>();
                 var queues = owningScope.GetService<IAgentQueues>();
                 var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
-                IAgentSession session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(processOwner), new QueueActiveWorkBlocker(queues, TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker).Callbacks, new SecurityProfileTestFixture(securityProfile).Security, status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
+                IAgentSession session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(processOwner), new QueueActiveWorkBlocker(queues, TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker).Callbacks, new SecurityProfileTestFixture(securityProfile).Security, TestModels.ScopedRuntimeStatus(registry, owningScope), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
                 return session;
             },
                 lifetime);

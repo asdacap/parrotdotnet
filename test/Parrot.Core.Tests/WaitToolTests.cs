@@ -364,7 +364,6 @@ internal sealed class WaitToolTests : IAsyncDisposable
         IDiagnosticLog diagnostics)
     {
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        var status = registry.RequireStatus();
         var scope = TestAgentSessionScope.BuildWithResources(
             identity,
             parentLink,
@@ -376,7 +375,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             (sessionParentScope, owningScope, children, childQuestions) =>
             {
                 var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
-                IAgentSession session = new AgentSession(identity, sessionParentScope, new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : new TestToolDefinitionsFixture("wait").Definitions, TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, new TestProfileFixture().Mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.GetService<IProcessOwner>()), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
+                IAgentSession session = new AgentSession(identity, sessionParentScope, new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : new TestToolDefinitionsFixture("wait").Definitions, TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, new TestProfileFixture().Mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.GetService<IProcessOwner>()), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, TestModels.ScopedRuntimeStatus(registry, owningScope), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
                 return session;
             },
             CancellationToken.None);
@@ -403,7 +402,6 @@ internal sealed class WaitToolTests : IAsyncDisposable
             new RetainedAgentBudget(1024),
             TestDiagnosticLog.Instance,
             CancellationToken.None);
-        registry.AttachStatus(new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(registry, TestModels.PromptTemplates)));
         _registries.Add(registry);
         return registry;
     }
@@ -432,8 +430,6 @@ internal sealed class WaitToolTests : IAsyncDisposable
         public IReadOnlyList<IAgentSessionScope> SnapshotScopes() =>
             throw new InvalidOperationException("Runtime status was observed before timeout.");
 
-        public void AttachStatus(IRuntimeStatus status) => registry.AttachStatus(status);
-
         public void RegisterRootScope(IAgentSessionScope scope) => registry.RegisterRootScope(scope);
 
         public void UnregisterRootScope(IAgentSessionScope scope) => registry.UnregisterRootScope(scope);
@@ -448,12 +444,10 @@ internal sealed class WaitToolTests : IAsyncDisposable
 
         public RetainedAgentReservation ReserveRetainedAgent() => registry.ReserveRetainedAgent();
 
-        public IRuntimeStatus RequireStatus() => registry.RequireStatus();
-
         public bool ContainsScope(IAgentSessionScope candidate) => registry.ContainsScope(candidate);
 
-        public IAgentSessionScope CreateChildScope(AgentIdentity identity, AgentSessionParentLink parentLink, ModelSelector model, IMode mode, SecurityProfile securityProfile, IRuntimeStatus status, IEventRepository childHistory, CancellationToken childLifetime) =>
-            registry.CreateChildScope(identity, parentLink, model, mode, securityProfile, status, childHistory, childLifetime);
+        public IAgentSessionScope CreateChildScope(AgentIdentity identity, AgentSessionParentLink parentLink, ModelSelector model, IMode mode, SecurityProfile securityProfile, IEventRepository childHistory, CancellationToken childLifetime) =>
+            registry.CreateChildScope(identity, parentLink, model, mode, securityProfile, childHistory, childLifetime);
 
         public IEventRepository InitializeChildHistory(string parentSessionId, string childSessionId, HistoryForkBoundary boundary, HistoryForkSelection fork) =>
             registry.InitializeChildHistory(parentSessionId, childSessionId, boundary, fork);
@@ -547,7 +541,6 @@ internal sealed class WaitToolTests : IAsyncDisposable
             IEventRepository eventRepository,
             IMode mode,
             SecurityProfile securityProfile,
-            IRuntimeStatus status,
             IAgentRegistry registry,
             CancellationToken lifetime) =>
             throw new NotSupportedException("This test session does not support spawning subagents.");

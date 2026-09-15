@@ -205,7 +205,6 @@ internal sealed class AgentSpawnerTests
                 repository,
                 profiles.Mode,
                 profiles.Mode.Profile.SecurityProfile,
-                _registry.RequireStatus(),
                 _registry,
                 cancellationToken);
             _registry.RegisterRootScope(Root);

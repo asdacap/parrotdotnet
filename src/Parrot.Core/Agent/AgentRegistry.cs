@@ -26,7 +26,6 @@ internal sealed class AgentRegistry(
     private readonly Lock _gate = new();
 
     private bool _accepting = true;
-    private IRuntimeStatus? _status;
     private Task? _shutdown;
 
     public CancellationToken ChildLifetime => _lifetime.Token;
@@ -41,18 +40,6 @@ internal sealed class AgentRegistry(
             {
                 return _accepting;
             }
-        }
-    }
-
-    public void AttachStatus(IRuntimeStatus status)
-    {
-        ArgumentNullException.ThrowIfNull(status);
-
-        lock (_gate)
-        {
-            _status = _status is null
-                ? status
-                : throw new AgentRegistryException("the runtime status is already attached");
         }
     }
 
@@ -159,15 +146,6 @@ internal sealed class AgentRegistry(
         }
     }
 
-    public IRuntimeStatus RequireStatus()
-    {
-        lock (_gate)
-        {
-            EnsureAccepting();
-            return _status ?? throw new AgentRegistryException("the runtime status is not attached");
-        }
-    }
-
     public bool ContainsScope(IAgentSessionScope candidate)
     {
         ArgumentNullException.ThrowIfNull(candidate);
@@ -188,7 +166,6 @@ internal sealed class AgentRegistry(
         Llm.ModelSelector model,
         IMode mode,
         Security.SecurityProfile securityProfile,
-        IRuntimeStatus status,
         IEventRepository childHistory,
         CancellationToken childLifetime)
     {
@@ -208,7 +185,6 @@ internal sealed class AgentRegistry(
                 childHistory,
                 mode,
                 securityProfile,
-                status,
                 this,
                 childLifetime);
             diagnostics.Write(new DiagnosticEvent("agent", "child_scope_completed", DiagnosticSeverity.Information)

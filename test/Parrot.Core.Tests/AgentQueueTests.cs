@@ -262,8 +262,7 @@ internal sealed class AgentQueueTests : IDisposable
             false,
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
-            static () => new EventBroker(),
-            TestModels.RuntimeStatusProviders);
+            static () => new EventBroker());
 
         _ = await Assert.That(Directory.Exists(resources.AgentQueueRootDirectory)).IsFalse();
         _ = await Assert.That(sessions.Queues.Single().Get("root-work").Description).IsEqualTo("persistent");

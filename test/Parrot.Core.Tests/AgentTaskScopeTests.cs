@@ -53,7 +53,6 @@ internal sealed class AgentTaskScopeTests
                 new SkillCatalogFactory(configuration, directory, Path.Combine(directory, "skills")),
                 TimeSpan.FromSeconds(30),
                 TimeProvider.System,
-                TestModels.RuntimeStatusProviders,
                 AgentTaskParser.ParseArtifact);
             var store = new SessionStore(paths, directory, "host", factory, router, modes, diagnostics);
             await using var session = await store.Open(router.Resolve(model.Selector));
@@ -66,7 +65,6 @@ internal sealed class AgentTaskScopeTests
                 new ModelSelector(model.Selector),
                 session.Mode,
                 session.Mode.Profile.SecurityProfile,
-                session.Status,
                 rejectedHistory,
                 session.Lifetime)).Throws<AgentRegistryException>();
             _ = await Assert.That(session.Registry.SnapshotScopes()).Count().IsEqualTo(1);
@@ -80,7 +78,6 @@ internal sealed class AgentTaskScopeTests
                     new ModelSelector(model.Selector),
                     session.Mode,
                     session.Mode.Profile.SecurityProfile,
-                    session.Status,
                     session.Registry.InitializeChildHistory(root.Session.SessionId, identity.SessionId, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty")),
                     session.Lifetime);
                 _ = await Assert.That(root.ChildRegistry.TryAdd(child)).IsTrue();
@@ -127,8 +124,8 @@ internal sealed class AgentTaskScopeTests
                 _ = await Assert.That(scope.GetService<IAgentTaskRunCatalog>().Snapshot().Single().OwnerAgentSessionId).IsEqualTo(scope.Session.SessionId);
                 var reminder = new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(scope.ChildRegistry, scope.Session.Identity), new ProcessActiveWorkBlocker(scope.GetService<IProcessOwner>()), new AgentTaskActiveWorkBlocker(scope.GetService<IAgentTaskRunCatalog>(), configuration.PromptTemplates), new QueueActiveWorkBlocker(scope.GetService<IAgentQueues>(), configuration.PromptTemplates)], configuration.PromptTemplates).Build();
                 _ = await Assert.That(reminder).Contains($"{scope.Session.SessionId}/shared-run");
-                var status = await new AgentTaskStatusProvider(configuration.PromptTemplates).Observe(
-                    new StatusQuery(scope.Session.SessionId, root.Session.SessionId, root.Session.Name, "profile", "model", scope), cancellationToken);
+                var status = await new AgentTaskStatusProvider(scope.GetService<IAgentTaskRunCatalog>(), configuration.PromptTemplates).Observe(
+                    new StatusQuery(scope.Session.SessionId, root.Session.SessionId, root.Session.Name, "profile", "model"), cancellationToken);
                 _ = await Assert.That(status.Available).IsTrue();
                 _ = await Assert.That(status.Text).Contains(scope.Session.Name);
                 _ = await Assert.That(status.Text).DoesNotContain(scopes.Single(other => !ReferenceEquals(other, scope)).Session.Name);

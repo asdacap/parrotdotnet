@@ -149,8 +149,7 @@ internal sealed class StatusDrainTests : IDisposable
             false,
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
-            static () => new EventBroker(),
-            TestModels.RuntimeStatusProviders);
+            static () => new EventBroker());
 
         _ = await session.Send([ConversationPart.TextPart("plan")], "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -229,8 +228,7 @@ internal sealed class StatusDrainTests : IDisposable
             false,
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
-            static () => new EventBroker(),
-            TestModels.RuntimeStatusProviders);
+            static () => new EventBroker());
 
         _ = await session.Send([ConversationPart.TextPart("plan")], "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -447,8 +445,7 @@ internal sealed class StatusDrainTests : IDisposable
             false,
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
-            static () => new EventBroker(),
-            TestModels.RuntimeStatusProviders);
+            static () => new EventBroker());
     }
 
     private ModeRegistry Modes()

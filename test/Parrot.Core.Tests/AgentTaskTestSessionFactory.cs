@@ -5,7 +5,6 @@ using Parrot.Process;
 using Parrot.Queues;
 using Parrot.Security;
 using Parrot.State;
-using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -49,7 +48,6 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
         IEventRepository eventRepository,
         IMode mode,
         SecurityProfile securityProfile,
-        IRuntimeStatus status,
         IAgentRegistry registry,
         CancellationToken lifetime)
     {
@@ -105,7 +103,7 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
             mode,
             completionCallbacks,
             new SecurityProfileTestFixture(securityProfile).Security,
-            status,
+            TestModels.ScopedRuntimeStatus(registry, owningScope),
             new AgentSessionActivity(TimeProvider.System),
             TestDiagnosticLog.Instance,
             lifetime);

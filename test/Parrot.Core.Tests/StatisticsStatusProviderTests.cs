@@ -38,7 +38,7 @@ internal sealed class StatisticsStatusProviderTests
             statistics.Capture() with { HasIncompleteLegacyToolCounts = populated },
             TestModels.PromptTemplates);
         var observation = await provider.Observe(
-            new StatusQuery("agent", string.Empty, string.Empty, "build", "alias", null), cancellationToken);
+            new StatusQuery("agent", string.Empty, string.Empty, "build", "alias"), cancellationToken);
 
         _ = await Assert.That(observation.Available).IsTrue();
         _ = await Assert.That(observation.Text).Contains("Statistics (lifetime):");
@@ -76,7 +76,7 @@ internal sealed class StatisticsStatusProviderTests
             null));
         IStatusProvider provider = new StatisticsStatusProvider(statistics.Capture(), TestModels.PromptTemplates);
         var observation = await provider.Observe(
-            new StatusQuery("agent", string.Empty, string.Empty, "build", "alias", null), cancellationToken);
+            new StatusQuery("agent", string.Empty, string.Empty, "build", "alias"), cancellationToken);
 
         var expectedTotals = $"{formattedTokens} (100.00% cache) / {formattedTokens}; " +
             "1 tool; cost $4.23 (input $3.80, output $0.43)";

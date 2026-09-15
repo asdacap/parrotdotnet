@@ -26,8 +26,6 @@ internal sealed class AgentSessionParentScope(
     public string OwnerSessionId => owner?.SessionId
         ?? throw new InvalidOperationException("The parent scope is not bound to an agent scope.");
 
-    public IAgentSessionScope? OwnerScope => ownerScopeAccessor?.Invoke();
-
     public static IAgentParentScope Root() =>
         new AgentSessionParentScope(null, null, null, null, null, AgentCompletionDeliveryPolicy.RetainedOnly);
 
