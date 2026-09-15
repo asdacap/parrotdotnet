@@ -70,6 +70,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<IChildRegistry>(out var children);
                 return new AgentSpawner(arguments.Identity, arguments.Registry, parentSessionScope, children);
             })
+            .Bind<IChildQuestion>().As(Lifetime.Scoped).To<ChildQuestion>()
             .Bind<IChildQuestionCoordinator>().As(Lifetime.Scoped).To<ChildQuestionCoordinator>()
             .Bind<ModelSelector>().To(ctx =>
             {
@@ -424,6 +425,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Root<IAgentTaskRunCatalog>("AgentTaskRuns")
             .Root<IChildRegistry>("ChildRegistry")
             .Root<IAgentParentScope>("ParentScope")
+            .Root<IChildQuestion>("ChildQuestion")
             .Root<IChildQuestionCoordinator>("ChildQuestions")
             .Root<IProcessOwner>("Processes")
             .Root<IAgentQueues>("Queues")

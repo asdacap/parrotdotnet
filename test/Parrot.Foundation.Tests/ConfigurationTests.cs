@@ -1767,7 +1767,7 @@ internal sealed class ConfigurationTests : IDisposable
             .IsEqualTo("questions");
         _ = await Assert.That(answerSchema.GetProperty("additionalProperties").GetBoolean()).IsFalse();
         _ = await Assert.That(string.Join(",", answerSchema.GetProperty("required").EnumerateArray().Select(item => item.GetString())))
-            .IsEqualTo("agent_session_id,answers");
+            .IsEqualTo("agent_name,answers");
         var answerItem = answerSchema.GetProperty("properties").GetProperty("answers").GetProperty("items");
         _ = await Assert.That(answerItem.GetProperty("type").GetString()).IsEqualTo("string");
         _ = await Assert.That(answerItem.GetProperty("minLength").GetInt32()).IsEqualTo(1);

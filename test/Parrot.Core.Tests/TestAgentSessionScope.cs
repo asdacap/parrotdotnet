@@ -20,6 +20,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
     private readonly IAgentQueues _queues;
     private readonly IProcessOwner _processes;
     private readonly IAgentTaskRunCatalog _agentTaskRuns;
+    private readonly IChildQuestion _childQuestion;
     private readonly IReadOnlyList<IInventoryPublisher> _publishers;
     private readonly IPromptTemplateCatalog _promptTemplates;
     private readonly AgentSessionParentLink _parentLink;
@@ -40,6 +41,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         _parentLink = parentLink;
         ChildRegistry = new ChildRegistry(owner, QueueChildAdmissionValidator.Validate);
         _agentTaskRuns = new AgentTaskRunCatalog(owner.SessionId, diagnostics, lifetime);
+        _childQuestion = new ChildQuestion(owner);
         _processes = new ShellProcessOwner(owner, resources, new AgentPathEnvironment(resources, resources.AgentScratch(owner.SessionId)), runner, diagnostics, lifetime);
         _queues = new AgentQueues(owner, parentLink.Parent?.GetService<IAgentQueues>(), resources, ChildRegistry, static queueIdentity => new QueueInventory(queueIdentity), diagnostics);
         var root = parentLink.Parent;
@@ -52,10 +54,11 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         _services.Register<IAgentQueues>(_queues);
         _services.Register<IProcessOwner>(_processes);
         _services.Register<IAgentTaskRunCatalog>(_agentTaskRuns);
+        _services.Register<IChildQuestion>(_childQuestion);
         _queues.Initialize();
         ParentScope = AgentSessionParentScope.Bind(owner, registry, () => this, ChildRegistry, parentLink);
         AgentSpawner = new AgentSpawner(owner, registry, ParentScope, ChildRegistry);
-        ChildQuestions = new ChildQuestionCoordinator(ParentScope, promptTemplates);
+        ChildQuestions = new ChildQuestionCoordinator(ParentScope, ChildRegistry, promptTemplates);
     }
 
     public IAgentSession Session
@@ -221,6 +224,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
 
         _queues.Dispose();
         _events.Dispose();
+        _childQuestion.Close();
         _parentLink.ReleaseRetention();
         if (failure is not null)
         {

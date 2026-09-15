@@ -45,6 +45,7 @@ internal sealed class QueueTestScope : IAgentSessionScope
         _services.Register<IAgentQueues>(_queues);
         _services.Register<IProcessOwner>(_processes);
         _services.Register<IAgentTaskRunCatalog>(_agentTaskRuns);
+        _services.Register<IChildQuestion>(new ChildQuestion(identity));
         _queues.Initialize();
         ParentScope = parent is null ? AgentSessionParentScope.Root() : AgentSessionParentScope.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly);
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));

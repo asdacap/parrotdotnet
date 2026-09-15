@@ -37,6 +37,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
             _services.Register<IAgentQueues>(_composition.Queues);
             _services.Register<IProcessOwner>(_composition.Processes);
             _services.Register<IAgentTaskRunCatalog>(_composition.AgentTaskRuns);
+            _services.Register<IChildQuestion>(_composition.ChildQuestion);
             ChildRegistry = _composition.ChildRegistry;
             ParentScope = _composition.ParentScope;
             ChildQuestions = _composition.ChildQuestions;
@@ -152,6 +153,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
                     finally
                     {
                         _composition.Queues.Dispose();
+                        _composition.ChildQuestion.Close();
                         _parentLink.ReleaseRetention();
                         await Task.WhenAll(_publications ?? []).ConfigureAwait(false);
                     }

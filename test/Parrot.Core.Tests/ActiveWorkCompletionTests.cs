@@ -301,12 +301,12 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             message.Role == LLMRole.Assistant && message.Content == "premature");
         _ = await Assert.That(parentProvider.Requests[1].Messages).Contains(message =>
             message.Role == LLMRole.System
-            && message.Content.Contains($"first ({firstChild.SessionId})", StringComparison.Ordinal)
-            && message.Content.Contains($"second ({secondChild.SessionId})", StringComparison.Ordinal)
+            && message.Content.Contains($"- {firstChild.Name}", StringComparison.Ordinal)
+            && message.Content.Contains($"- {secondChild.Name}", StringComparison.Ordinal)
             && message.Content.Contains("answer", StringComparison.Ordinal));
 
-        ownedChildQuestions.ReplyFromParent(TestModels.ScopeOf(parent).ParentScope, firstChild.SessionId, new QuestionReply([new Parrot.Questions.QuestionAnswer("first")]));
-        ownedChildQuestions.ReplyFromParent(TestModels.ScopeOf(parent).ParentScope, secondChild.SessionId, new QuestionReply([new Parrot.Questions.QuestionAnswer("second")]));
+        ownedChildQuestions.ReplyFromParent(TestModels.ScopeOf(parent).ParentScope, firstChild.Name, new QuestionReply([new Parrot.Questions.QuestionAnswer("first")]));
+        ownedChildQuestions.ReplyFromParent(TestModels.ScopeOf(parent).ParentScope, secondChild.Name, new QuestionReply([new Parrot.Questions.QuestionAnswer("second")]));
         _ = await Task.WhenAll(firstQuestion, secondQuestion);
         parentProvider.Release();
         _ = await parent.Wait(0, cancellationToken);

@@ -29,20 +29,19 @@ internal sealed class AnswerTool(IChildQuestionCoordinator questions) : ITool
                 invocation.ArgumentsJson,
                 QuestionJsonContext.Default.AnswerToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
-            var agentSessionId = input.AgentSessionId
-                ?? throw new FormatException("Tool arguments require a string 'agent_session_id'.");
+            var agentName = input.AgentName
+                ?? throw new FormatException("Tool arguments require a string 'agent_name'.");
             var wireAnswers = input.Answers
                 ?? throw new FormatException("Tool arguments require an array 'answers'.");
             var reply = new QuestionReply([.. wireAnswers.Select(answer => new QuestionAnswer(answer ?? string.Empty))]);
-            var agentName = questions.ResolveDirectChildName(agentSessionId);
 
             if (_parentScope is null)
             {
-                questions.Reply(agentSessionId, reply);
+                questions.Reply(agentName, reply);
             }
             else
             {
-                questions.ReplyFromParent(_parentScope, agentSessionId, reply);
+                questions.ReplyFromParent(_parentScope, agentName, reply);
             }
 
             return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.QuestionReplied(invocation, agentName));
@@ -59,8 +58,8 @@ internal sealed class AnswerTool(IChildQuestionCoordinator questions) : ITool
 
     internal sealed class Input
     {
-        [JsonPropertyName("agent_session_id")]
-        public string? AgentSessionId { get; init; }
+        [JsonPropertyName("agent_name")]
+        public string? AgentName { get; init; }
 
         [JsonPropertyName("answers")]
         public string[]? Answers { get; init; }

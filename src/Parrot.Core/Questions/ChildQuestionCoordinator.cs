@@ -8,10 +8,10 @@ namespace Parrot.Questions;
 
 internal sealed class ChildQuestionCoordinator(
     IAgentParentScope ownerScope,
+    IChildRegistry children,
     IPromptTemplateCatalog promptTemplates) : IChildQuestionCoordinator
 {
     private readonly Lock _gate = new();
-    private readonly Dictionary<string, PendingRequest> _pending = new(StringComparer.Ordinal);
     private TaskCompletionSource? _completionReservation;
     private bool _disposed;
 
@@ -27,62 +27,60 @@ internal sealed class ChildQuestionCoordinator(
             throw new QuestionException("only child agents may ask questions");
         }
 
-        _ = ownerScope.AuthorizeDirectChild(askingChild.SessionId);
+        var childScope = children.FindNamedChildScope(askingChild.Name);
+        if (childScope is null || !ReferenceEquals(childScope.Session, askingChild))
+        {
+            throw new AgentRegistryException($"child agent not found: {askingChild.Name}");
+        }
+
         var parent = ownerScope.RequireOwnerScope().Session;
+        var question = childScope.GetService<IChildQuestion>();
+        OpenChildQuestion? open = null;
 
-        var pending = new PendingRequest(Identifier.QuestionRequestId(), askingChild, ownerScope.OwnerSessionId, copied);
-
-        while (true)
+        while (open is null)
         {
             Task? completion = null;
             lock (_gate)
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
-                if (_pending.ContainsKey(askingChild.SessionId))
-                {
-                    throw new QuestionRejectedException("the child already has a pending question");
-                }
-
                 if (_completionReservation is not null)
                 {
                     completion = _completionReservation.Task;
                 }
                 else
                 {
-                    _pending.Add(askingChild.SessionId, pending);
+                    open = question.Open(copied);
                 }
             }
 
-            if (completion is null)
+            if (completion is not null)
             {
-                break;
+                await completion.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
-
-            await completion.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
 
         try
         {
             _ = await parent.Send(
-                [ConversationPart.TextPart(FormatSteer(pending))],
-                pending.Id,
+                [ConversationPart.TextPart(FormatSteer(askingChild.Name, open))],
+                open.Id,
                 Delivery.Steer,
                 new IncomingActivity(string.Empty, null),
                 CancellationToken.None).ConfigureAwait(false);
-            return await pending.Answer.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return await open.Answer.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            if (Remove(pending))
+            if (question.Withdraw(open))
             {
                 throw;
             }
 
-            return pending.RequireOutcome();
+            return open.RequireOutcome();
         }
         catch
         {
-            _ = Remove(pending);
+            _ = question.Withdraw(open);
             throw;
         }
     }
@@ -91,9 +89,7 @@ internal sealed class ChildQuestionCoordinator(
     {
         lock (_gate)
         {
-            return [.. _pending.Values
-                .OrderBy(item => item.Id, StringComparer.Ordinal)
-                .Select(item => item.Snapshot())];
+            return _disposed ? [] : [.. SnapshotOpenQuestions().OrderBy(item => item.Id, StringComparer.Ordinal)];
         }
     }
 
@@ -111,8 +107,8 @@ internal sealed class ChildQuestionCoordinator(
                 return ChildQuestionCompletionAttempt.Reserve(static () => { });
             }
 
-            var pending = _pending.Values
-                .OrderBy(item => item.AskingAgentSessionId, StringComparer.Ordinal)
+            var pending = SnapshotOpenQuestions()
+                .OrderBy(item => item.AskingAgentName, StringComparer.Ordinal)
                 .ToArray();
             if (pending.Length > 0)
             {
@@ -139,48 +135,26 @@ internal sealed class ChildQuestionCoordinator(
         return BeginCompletion();
     }
 
-    public void Reply(string childSessionId, QuestionReply reply)
+    public void Reply(string childName, QuestionReply reply)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(childSessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(childName);
         ArgumentNullException.ThrowIfNull(reply);
-        _ = ownerScope.AuthorizeDirectChild(childSessionId);
-
-        PendingRequest pending;
-        QuestionReply copied;
-        lock (_gate)
-        {
-            if (!_pending.TryGetValue(childSessionId, out var found))
-            {
-                throw new QuestionRejectedException("child question request is no longer pending");
-            }
-
-            pending = found;
-            copied = QuestionValidation.CopyReply(reply);
-            QuestionValidation.ValidateReply(pending.Questions, copied);
-            pending.PublishOutcome(copied);
-            _ = _pending.Remove(childSessionId);
-        }
-
-        pending.Complete();
+        children.ResolveNamedChildScope(childName).GetService<IChildQuestion>().Reply(reply);
     }
 
-    public void ReplyFromParent(IAgentParentScope parentScope, string childSessionId, QuestionReply reply)
+    public void ReplyFromParent(IAgentParentScope parentScope, string childName, QuestionReply reply)
     {
         if (!string.Equals(parentScope.OwnerSessionId, ownerScope.OwnerSessionId, StringComparison.Ordinal))
         {
-            _ = parentScope.AuthorizeDirectChild(childSessionId);
+            _ = parentScope.RequireOwnerScope().ChildRegistry.ResolveNamedChildScope(childName);
             throw new QuestionException("only the owning parent may answer a child question");
         }
 
-        Reply(childSessionId, reply);
+        Reply(childName, reply);
     }
-
-    public string ResolveDirectChildName(string childSessionId) =>
-        ownerScope.AuthorizeDirectChild(childSessionId).Session.Name;
 
     public void Dispose()
     {
-        PendingRequest[] pending;
         TaskCompletionSource? reservation;
         lock (_gate)
         {
@@ -190,40 +164,33 @@ internal sealed class ChildQuestionCoordinator(
             }
 
             _disposed = true;
-            pending = [.. _pending.Values];
             reservation = _completionReservation;
-            foreach (var item in pending)
-            {
-                item.PublishFailure(new QuestionRejectedException("question session closed"));
-            }
-
-            _pending.Clear();
             _completionReservation = null;
-        }
-
-        foreach (var item in pending)
-        {
-            item.Complete();
+            foreach (var child in children.SnapshotChildScopes())
+            {
+                child.GetService<IChildQuestion>().Close();
+            }
         }
 
         _ = reservation?.TrySetResult();
     }
 
-    private string FormatCompletionReminder(IReadOnlyList<PendingRequest> pending)
+    private IEnumerable<PendingChildQuestionRequest> SnapshotOpenQuestions() =>
+        children.SnapshotChildScopes()
+            .Select(static child => child.GetService<IChildQuestion>().Snapshot())
+            .OfType<PendingChildQuestionRequest>();
+
+    private string FormatCompletionReminder(IReadOnlyList<PendingChildQuestionRequest> pending)
     {
-        var children = new StringBuilder();
+        var childNames = new StringBuilder();
         foreach (var request in pending)
         {
-            _ = children.Append("\n- ")
-                .Append(request.AskingAgentName)
-                .Append(" (")
-                .Append(request.AskingAgentSessionId)
-                .Append(')');
+            _ = childNames.Append("\n- ").Append(request.AskingAgentName);
         }
 
         return promptTemplates.Render(
             "agent-session.pending-child-question-reminder",
-            [new PromptTemplateArgument("children", children.ToString())]);
+            [new PromptTemplateArgument("children", childNames.ToString())]);
     }
 
     private void ReleaseCompletion()
@@ -238,12 +205,12 @@ internal sealed class ChildQuestionCoordinator(
         _ = reservation?.TrySetResult();
     }
 
-    private string FormatSteer(PendingRequest pending)
+    private string FormatSteer(string askingAgentName, OpenChildQuestion open)
     {
         var questions = new StringBuilder();
-        for (var index = 0; index < pending.Questions.Count; index++)
+        for (var index = 0; index < open.Questions.Count; index++)
         {
-            var question = pending.Questions[index];
+            var question = open.Questions[index];
             if (index > 0)
             {
                 _ = questions.AppendLine();
@@ -266,68 +233,8 @@ internal sealed class ChildQuestionCoordinator(
         return promptTemplates.Render(
             "agent-session.child-question",
             [
-                new PromptTemplateArgument("agent_name", pending.AskingAgentName),
-                new PromptTemplateArgument("agent_session_id", pending.AskingAgentSessionId),
+                new PromptTemplateArgument("agent_name", askingAgentName),
                 new PromptTemplateArgument("questions", questions.ToString().TrimEnd()),
             ]);
-    }
-
-    private bool Remove(PendingRequest expected)
-    {
-        lock (_gate)
-        {
-            return _pending.TryGetValue(expected.AskingAgentSessionId, out var found)
-                && ReferenceEquals(found, expected)
-                && _pending.Remove(expected.AskingAgentSessionId);
-        }
-    }
-
-    private sealed class PendingRequest(
-        string id,
-        IAgentSession askingAgent,
-        string parentAgentSessionId,
-        IReadOnlyList<QuestionDefinition> questions)
-    {
-        private QuestionRejectedException? _failure;
-        private QuestionReply? _outcome;
-
-        public string Id { get; } = id;
-
-        public string AskingAgentSessionId => askingAgent.SessionId;
-
-        public string AskingAgentName => askingAgent.Name;
-
-        public string ParentAgentSessionId { get; } = parentAgentSessionId;
-
-        public IReadOnlyList<QuestionDefinition> Questions { get; } = questions;
-
-        public TaskCompletionSource<QuestionReply> Answer { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public PendingChildQuestionRequest Snapshot() => new(
-            Id,
-            AskingAgentSessionId,
-            AskingAgentName,
-            ParentAgentSessionId,
-            QuestionValidation.CopyQuestions(Questions));
-
-        public QuestionReply RequireOutcome() => _failure is not null
-            ? throw _failure
-            : _outcome ?? throw new InvalidOperationException("The child question has no settled outcome.");
-
-        public void PublishOutcome(QuestionReply outcome) => _outcome = outcome;
-
-        public void PublishFailure(QuestionRejectedException failure) => _failure = failure;
-
-        public void Complete()
-        {
-            if (_failure is not null)
-            {
-                _ = Answer.TrySetException(_failure);
-            }
-            else
-            {
-                _ = Answer.TrySetResult(RequireOutcome());
-            }
-        }
     }
 }

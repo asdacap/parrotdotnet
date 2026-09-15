@@ -19,14 +19,12 @@ internal interface IChildQuestionCoordinator
     /// <summary>Authorizes the parent before reserving its completion boundary.</summary>
     ChildQuestionCompletionAttempt BeginParentCompletion(IAgentSession parent);
 
-    void Reply(string childSessionId, QuestionReply reply);
+    /// <summary>Answers the pending question of the direct child with that name.</summary>
+    void Reply(string childName, QuestionReply reply);
 
     /// <summary>Authorizes the parent scope before answering its direct child.</summary>
-    void ReplyFromParent(IAgentParentScope parentScope, string childSessionId, QuestionReply reply);
+    void ReplyFromParent(IAgentParentScope parentScope, string childName, QuestionReply reply);
 
-    /// <summary>Resolves a direct child's friendly name after authorizing it against this coordinator's owner.</summary>
-    string ResolveDirectChildName(string childSessionId);
-
-    /// <summary>Rejects pending requests and releases completion waiters.</summary>
+    /// <summary>Fails pending child questions and releases completion waiters.</summary>
     void Dispose();
 }

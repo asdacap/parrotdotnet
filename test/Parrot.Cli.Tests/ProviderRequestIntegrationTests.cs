@@ -69,7 +69,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
         await using var children = new ChildRegistry(identity, QueueChildAdmissionValidator.Validate);
         using IAgentQueues queues = new AgentQueues(identity, null, resources, children, static queueIdentity => new QueueInventory(queueIdentity), diagnostics.Log);
         queues.Initialize();
-        var questions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), templates);
+        var questions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), children, templates);
         await using IAgentSession agent = new AgentSession(
             identity, AgentSessionParentScope.Root(), new ModelSelector("provider/model"), router, broker, repository, [], new ToolDefinitionCatalog(new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal)), new ConfiguredSystemPromptProvider("test:integration", "Reply briefly.").Materialize(identity), new ToolOutputBlobStore(_root), new CompactionGroupBlobStore(resources.AgentScratch(identity.SessionId)), new Compactor(int.MaxValue, 30, 60_000, 1024, templates), new ProviderSessions(diagnostics.Log, identity.SessionId, null), new ContextCadence(), templates, questions, new ExitReminder(repository, templates, identity.SessionId), mode, [], new AgentSessionSecurity(profile.SecurityProfile, resources.Workspace, resources.ScratchRootDirectory), status, new AgentSessionActivity(TimeProvider.System), diagnostics.Log, cancellationToken);
         queues.Attach(agent);
