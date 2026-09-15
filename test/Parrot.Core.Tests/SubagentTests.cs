@@ -88,7 +88,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var replay = _repository.ReplayStatistics();
         _ = await Assert.That(replay.Agents[root.SessionId].Cumulative.Totals).IsEqualTo(root.CaptureStatistics().Cumulative.Totals);
         _ = await Assert.That(replay.Agents[child.Session.SessionId].Cumulative.Totals).IsEqualTo(child.Session.CaptureStatistics().Cumulative.Totals);
-        var usage = _repository.GetRuntimeStatistics().CaptureUsage(root.SessionId);
+        var usage = _repository.GetRuntimeStatistics().CaptureUsage(root);
         _ = await Assert.That(usage.InputTokens).IsEqualTo(50);
         _ = await Assert.That(usage.ContextSize).IsEqualTo(root.CaptureStatistics().ContextSize);
         _ = await Assert.That(usage.InputCost + usage.OutputCost).IsEqualTo(root.CaptureStatistics().Cumulative.Totals.TotalCost);

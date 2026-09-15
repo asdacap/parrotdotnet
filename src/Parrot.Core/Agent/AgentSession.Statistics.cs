@@ -91,6 +91,6 @@ internal sealed partial class AgentSession
             ancestor = ancestor.ParentScope.Parent;
         }
 
-        userStatistics.RecordUsage(eventRepository, eventBroker, fact, increment, AddOwnUsage, root.SessionId);
+        userStatistics.RecordUsage(eventRepository, eventBroker, fact, increment, AddOwnUsage, this, root);
     }
 }

@@ -31,23 +31,11 @@ internal sealed class UserSessionStatistics(AgentStatisticsReplay replay) : IUse
         }
     }
 
-    public SessionUsageSnapshot CaptureUsage(string rootSessionId)
+    public SessionUsageSnapshot CaptureUsage(IAgentSession root)
     {
         lock (_gate)
         {
-            var statistics = GetAgentStatistics(rootSessionId).Capture();
-            var totals = statistics.Cumulative.Totals;
-            return new()
-            {
-                Revision = checked((ulong)_revision),
-                InputTokens = totals.InputTokens,
-                CachedInputTokens = totals.CachedInputTokens,
-                OutputTokens = totals.OutputTokens,
-                InputCost = totals.InputCost,
-                OutputCost = totals.OutputCost,
-                ContextSize = statistics.ContextSize,
-                ContextLimit = statistics.ContextLimit,
-            };
+            return CaptureUsageLocked(root);
         }
     }
 
@@ -57,7 +45,8 @@ internal sealed class UserSessionStatistics(AgentStatisticsReplay replay) : IUse
         Event fact,
         AgentUsageIncrement increment,
         Action<AgentUsageIncrement> apply,
-        string rootSessionId)
+        IAgentSession agent,
+        IAgentSession root)
     {
         lock (_gate)
         {
@@ -73,9 +62,9 @@ internal sealed class UserSessionStatistics(AgentStatisticsReplay replay) : IUse
             broker.Publish(new Event
             {
                 AgentSessionId = fact.AgentSessionId,
-                AgentStatisticsUpdated = AgentStatisticsUpdatedEvent.From(GetAgentStatistics(fact.AgentSessionId).Capture().ToSelfStatistics()),
+                AgentStatisticsUpdated = AgentStatisticsUpdatedEvent.From(agent.CaptureStatistics().ToSelfStatistics()),
             });
-            broker.Publish(new Event { SessionUsageSnapshot = CaptureUsage(rootSessionId) });
+            broker.Publish(new Event { SessionUsageSnapshot = CaptureUsageLocked(root) });
         }
     }
 
@@ -96,5 +85,22 @@ internal sealed class UserSessionStatistics(AgentStatisticsReplay replay) : IUse
         }
 
         return false;
+    }
+
+    private SessionUsageSnapshot CaptureUsageLocked(IAgentSession root)
+    {
+        var statistics = root.CaptureStatistics();
+        var totals = statistics.Cumulative.Totals;
+        return new()
+        {
+            Revision = checked((ulong)_revision),
+            InputTokens = totals.InputTokens,
+            CachedInputTokens = totals.CachedInputTokens,
+            OutputTokens = totals.OutputTokens,
+            InputCost = totals.InputCost,
+            OutputCost = totals.OutputCost,
+            ContextSize = statistics.ContextSize,
+            ContextLimit = statistics.ContextLimit,
+        };
     }
 }

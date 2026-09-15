@@ -311,13 +311,13 @@ internal sealed class UserSession : IUserSession
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         using var events = _eventBroker.Subscribe();
-        _ = Main();
+        var main = Main();
         foreach (var published in Registry.SnapshotScopes().SelectMany(static scope => scope.CaptureSnapshotEvents()))
         {
             yield return published;
         }
 
-        yield return new Event { SessionUsageSnapshot = _eventRepository.GetRuntimeStatistics().CaptureUsage(_mainSessionId) };
+        yield return new Event { SessionUsageSnapshot = _eventRepository.GetRuntimeStatistics().CaptureUsage(main) };
         await foreach (var published in events.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
             yield return published;

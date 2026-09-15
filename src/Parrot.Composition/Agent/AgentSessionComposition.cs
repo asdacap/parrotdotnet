@@ -92,6 +92,12 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.EventRepository.GetRuntimeStatistics();
             })
+            .Bind<AgentSessionStatistics>().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                ctx.Inject<IUserSessionStatistics>(out var userStatistics);
+                return userStatistics.GetAgentStatistics(arguments.Identity.SessionId);
+            })
             .Bind<IEventRepository>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
