@@ -185,21 +185,9 @@ internal sealed class AgentRegistry(
     public IAgentSessionScope? FindScope(string sessionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        foreach (var root in SnapshotRoots())
-        {
-            if (string.Equals(root.Session.SessionId, sessionId, StringComparison.Ordinal))
-            {
-                return root;
-            }
-
-            var descendant = root.ChildRegistry.FindDescendantScope(sessionId);
-            if (descendant is not null)
-            {
-                return descendant;
-            }
-        }
-
-        return null;
+        return SnapshotRoots()
+            .Select(root => FindDescendant(root, sessionId))
+            .FirstOrDefault(static found => found is not null);
     }
 
     public IAgentSessionScope CreateChildScope(
@@ -267,6 +255,13 @@ internal sealed class AgentRegistry(
 
     private static IEnumerable<IAgentSessionScope> EnumerateScopes(IAgentSessionScope scope) =>
         scope.ChildRegistry.SnapshotChildScopes().SelectMany(EnumerateScopes).Prepend(scope);
+
+    private static IAgentSessionScope? FindDescendant(IAgentSessionScope scope, string sessionId) =>
+        string.Equals(scope.Session.SessionId, sessionId, StringComparison.Ordinal)
+            ? scope
+            : scope.ChildRegistry.SnapshotChildScopes()
+                .Select(child => FindDescendant(child, sessionId))
+                .FirstOrDefault(static found => found is not null);
 
     private IAgentSessionScope[] SnapshotRoots()
     {

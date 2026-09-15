@@ -13,9 +13,8 @@ internal sealed class QueueInventory(AgentIdentity identity) : IQueueInventory
 
     public string InstanceId { get; } = $"queue-inventory-{Guid.CreateVersion7():n}";
 
-    public void RegisterOwner(string ownerAgentSessionId, IReadOnlyList<QueueState> queues)
+    public void RegisterOwner(IReadOnlyList<QueueState> queues)
     {
-        ValidateOwner(ownerAgentSessionId);
         ArgumentNullException.ThrowIfNull(queues);
 
         lock (_gate)
@@ -23,14 +22,14 @@ internal sealed class QueueInventory(AgentIdentity identity) : IQueueInventory
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_registered)
             {
-                throw new InvalidOperationException($"Queue owner '{ownerAgentSessionId}' is already registered.");
+                throw new InvalidOperationException($"Queue owner '{identity.SessionId}' is already registered.");
             }
 
             _registered = true;
             var changed = false;
             foreach (var queue in queues)
             {
-                var state = queue with { OwnerAgentSessionId = ownerAgentSessionId };
+                var state = queue with { OwnerAgentSessionId = identity.SessionId };
                 _queues.Add(state.Name, state);
                 changed = true;
             }
@@ -58,10 +57,8 @@ internal sealed class QueueInventory(AgentIdentity identity) : IQueueInventory
         }
     }
 
-    public void UnregisterOwner(string ownerAgentSessionId)
+    public void UnregisterOwner()
     {
-        ValidateOwner(ownerAgentSessionId);
-
         lock (_gate)
         {
             if (_disposed || !_registered)

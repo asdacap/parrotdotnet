@@ -2,9 +2,7 @@ using Parrot.Agent;
 
 namespace Parrot.Tools;
 
-internal sealed class AgentStatusToolFactory(
-    IAgentResolver resolver,
-    IAgentParentScope parentScope) : IToolFactory
+internal sealed class AgentStatusToolFactory(IAgentResolver resolver) : IToolFactory
 {
-    public ITool Create(IAgentSession session) => new AgentStatusTool(resolver, parentScope);
+    public ITool Create(IAgentSession session) => new AgentStatusTool(resolver);
 }

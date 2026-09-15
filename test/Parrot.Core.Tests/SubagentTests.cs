@@ -588,10 +588,10 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
 
-        _ = await Assert.That(new AgentResolver(secondParent.Identity, ParentScope(secondParent, registry), TestModels.ScopeOf(secondParent), registry).ResolveStatusTarget(target.SessionId)).IsSameReferenceAs(target);
+        _ = await Assert.That(() => new AgentResolver(secondParent.Identity, ParentScope(secondParent, registry), TestModels.ScopeOf(secondParent), registry).ResolveStatusTarget(target.SessionId)).Throws<AgentRegistryException>();
         var unrelated = await Assert.That(() => new AgentResolver(secondParent.Identity, ParentScope(secondParent, registry), TestModels.ScopeOf(secondParent), registry).ResolveRecipient(target.SessionId))
             .Throws<AgentRegistryException>();
-        _ = await Assert.That(unrelated?.Message).IsEqualTo("only parent/child may be sent");
+        _ = await Assert.That(unrelated?.Message).IsEqualTo($"child agent not found: {target.SessionId}");
         _ = await Assert.That(() => new AgentResolver(secondParent.Identity, ParentScope(secondParent, registry), TestModels.ScopeOf(secondParent), registry).ResolveStatusTarget("helper")).Throws<AgentRegistryException>();
         _ = await Assert.That(() => new AgentResolver(secondParent.Identity, ParentScope(secondParent, registry), TestModels.ScopeOf(secondParent), registry).ResolveRecipient("helper")).Throws<AgentRegistryException>();
     }
@@ -651,7 +651,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     }
 
     [Test]
-    public async Task Send_resolution_prefers_canonical_ids_then_the_parent_name(CancellationToken cancellationToken)
+    public async Task Send_resolution_prefers_the_parent_name_over_a_child_name(CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider();
         await using var registry = TestModels.Registry(
@@ -707,7 +707,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await Assert.That(new AgentResolver(caller.Identity, ParentScope(caller, registry), TestModels.ScopeOf(caller), registry).ResolveStatusTarget(parent.Name)).IsSameReferenceAs(parentNameCollision);
         _ = await Assert.That(canonicalCollision.Name).IsEqualTo(parentNameCollision.SessionId);
         _ = await Assert.That(new AgentResolver(caller.Identity, ParentScope(caller, registry), TestModels.ScopeOf(caller), registry).ResolveRecipient(canonicalCollision.Name))
-            .IsSameReferenceAs(parentNameCollision);
+            .IsSameReferenceAs(canonicalCollision);
     }
 
     [Test]
@@ -758,11 +758,11 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var result = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{grandparent.SessionId}}","message":"skip parent"}"""),
+                $$"""{"session_id":"{{grandparent.Name}}","message":"skip parent"}"""),
             new TurnFixture(sender, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
 
-        _ = await Assert.That(result).IsEqualTo("error: only parent/child may be sent");
+        _ = await Assert.That(result).IsEqualTo($"error: child agent not found: {grandparent.Name}");
         _ = await Assert.That(result).DoesNotContain(grandparent.SessionId);
         _ = await Assert.That(grandparent.IsActive()).IsFalse();
         _ = await Assert.That(provider.Requests).IsEmpty();
@@ -852,10 +852,8 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
 
         _ = await Assert.That(new AgentResolver(caller.Identity, ParentScope(caller, registry), TestModels.ScopeOf(caller), registry).ResolveRecipient("parent")).IsSameReferenceAs(parent);
-        _ = await Assert.That(new AgentResolver(caller.Identity, ParentScope(caller, registry), TestModels.ScopeOf(caller), registry).ResolveRecipient(parent.SessionId)).IsSameReferenceAs(parent);
         _ = await Assert.That(new AgentResolver(caller.Identity, ParentScope(caller, registry), TestModels.ScopeOf(caller), registry).ResolveRecipient(parent.Name)).IsSameReferenceAs(parent);
         _ = await Assert.That(new AgentResolver(caller.Identity, ParentScope(caller, registry), TestModels.ScopeOf(caller), registry).ResolveStatusTarget("parent")).IsSameReferenceAs(namedParent);
-        _ = await Assert.That(new AgentResolver(caller.Identity, ParentScope(caller, registry), TestModels.ScopeOf(caller), registry).ResolveStatusTarget(namedParent.SessionId)).IsSameReferenceAs(namedParent);
     }
 
     [Test]
@@ -923,12 +921,10 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await Assert.That(definition.Description).Contains("slash-separated friendly-name paths");
         _ = await Assert.That(definition.Description).Contains("child/grandchild");
         _ = await Assert.That(definition.Description).Contains("paths only travel downward");
-        _ = await Assert.That(sessionIdDescription).Contains("direct parent or direct child");
         _ = await Assert.That(sessionIdDescription).Contains("literal 'parent'");
         _ = await Assert.That(sessionIdDescription).Contains("direct-child friendly name");
         _ = await Assert.That(sessionIdDescription).Contains("slash-separated relative");
         _ = await Assert.That(sessionIdDescription).Contains("child/grandchild");
-        _ = await Assert.That(sessionIdDescription).Contains("do not accept canonical IDs for descendants");
         _ = await Assert.That(sessionIdDescription).Contains("direct-parent alias precedence");
     }
 
@@ -1133,7 +1129,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await Assert.That(_repository.Replay().Select(item => item.PayloadCase))
             .Contains(Event.PayloadOneofCase.AgentStarted)
             .And.Contains(Event.PayloadOneofCase.AgentFinished);
-        var retained = new AgentResolver(parent.Identity, ParentScope(parent, registry), TestModels.ScopeOf(parent), registry).ResolveStatusTarget(child.SessionId).Activity.Capture();
+        var retained = new AgentResolver(parent.Identity, ParentScope(parent, registry), TestModels.ScopeOf(parent), registry).ResolveStatusTarget(child.Name).Activity.Capture();
         _ = await Assert.That(retained.State).IsEqualTo(DrainState.Idle);
         _ = await Assert.That(retained.TerminalOutcome?.Status).IsEqualTo(AgentExecutionStatus.Succeeded);
         _ = await Assert.That(retained.TerminalOutcome?.Output).IsEqualTo("child result");
@@ -1428,7 +1424,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var followedUpJson = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.SessionId}}","message":"follow up"}"""),
+                $$"""{"session_id":"{{spawned.Name}}","message":"follow up"}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         using var followedUp = JsonDocument.Parse(followedUpJson);
@@ -1477,7 +1473,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var sent = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{parent.SessionId}}","message":"task completed"}"""),
+                $$"""{"session_id":"parent","message":"task completed"}"""),
             new TurnFixture(child, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         using var result = JsonDocument.Parse(sent);
@@ -1564,7 +1560,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var sending = send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.SessionId}}","message":"boundary"}"""),
+                $$"""{"session_id":"{{spawned.Name}}","message":"boundary"}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken);
         provider.Release();
@@ -1607,7 +1603,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var sentJson = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.SessionId}}","message":"{{boundary}}"}"""),
+                $$"""{"session_id":"{{spawned.Name}}","message":"{{boundary}}"}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
 
@@ -1647,7 +1643,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var blank = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.SessionId}}","message":" "}"""),
+                $$"""{"session_id":"{{spawned.Name}}","message":" "}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         var missing = (await send.Execute(
@@ -1660,26 +1656,26 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var invisible = (await strangerSend.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.SessionId}}","message":"hello"}"""),
+                $$"""{"session_id":"{{spawned.Name}}","message":"hello"}"""),
             new TurnFixture(stranger, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         var oversized = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.SessionId}}","message":"{{new string('x', (32 * 1024) + 1)}}"}"""),
+                $$"""{"session_id":"{{spawned.Name}}","message":"{{new string('x', (32 * 1024) + 1)}}"}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         var oversizedUnicode = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.SessionId}}","message":"{{new string('界', 10_923)}}"}"""),
+                $$"""{"session_id":"{{spawned.Name}}","message":"{{new string('界', 10_923)}}"}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
 
         _ = await Assert.That(malformed).StartsWith("error:");
         _ = await Assert.That(blank).IsEqualTo("error: no message given");
         _ = await Assert.That(missing).IsEqualTo("error: child agent not found: missing");
-        _ = await Assert.That(invisible).IsEqualTo("error: only parent/child may be sent");
+        _ = await Assert.That(invisible).IsEqualTo($"error: child agent not found: {spawned.Name}");
         _ = await Assert.That(invisible).DoesNotContain(spawned.SessionId);
         _ = await Assert.That(oversized)
             .IsEqualTo("error: agent message exceeds 32768 UTF-8 bytes; split it into smaller messages");
@@ -2022,7 +2018,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.SessionId}}","message":"wait forever"}"""),
+                $$"""{"session_id":"{{spawned.Name}}","message":"wait forever"}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         await provider.Arrived(cancellationToken);
@@ -2052,7 +2048,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var rejected = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.SessionId}}","message":"again"}"""),
+                $$"""{"session_id":"{{spawned.Name}}","message":"again"}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         _ = await Assert.That(rejected).IsEqualTo("error: the user session is shutting down");
@@ -2331,11 +2327,8 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
         _ = await Assert.That(parentScope.ChildRegistry.TryAdd(first)).IsTrue();
         _ = await Assert.That(() => parentScope.ChildRegistry.TryAdd(second)).Throws<ChildNameConflictException>();
-        _ = await Assert.That(parentScope.ChildRegistry.ResolveDirectChildScope(first.Session.SessionId))
-            .IsSameReferenceAs(first);
         _ = await Assert.That(parentScope.ChildRegistry.ResolveNamedChildScope("duplicate"))
             .IsSameReferenceAs(first);
-        _ = await Assert.That(parentScope.ChildRegistry.FindDirectChildScope(second.Session.SessionId)).IsNull();
         _ = await Assert.That(parentScope.ChildRegistry.SnapshotDescendants()).HasSingleItem()
             .And.Contains(first.Session);
     }

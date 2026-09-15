@@ -492,51 +492,6 @@ internal sealed partial class SubagentTests
         _ = await Assert.That(coordinator.PendingForParent(parent)).IsEmpty();
     }
 
-    [Test]
-    public async Task Direct_child_authorization_rejects_grandchildren_and_cross_edges(
-        CancellationToken cancellationToken)
-    {
-        using var provider = new SteppedProvider();
-        var router = new RouterFixture(provider, []).Router;
-        await using var registry = TestModels.Registry(
-            new TestAgentSessions(router),
-            _broker,
-            _repository,
-            new TestProfileFixture().Registry,
-            TestModels.PromptTemplates,
-            cancellationToken);
-        await using var root = Session(provider, 0, "root", registry, cancellationToken);
-        var unrelated = Session(provider, 0, "unrelated", registry, cancellationToken);
-        var child = TestModels.ScopeOf(root).AgentSpawner.SpawnScope(new AgentLaunchRequest(
-            root,
-            new TurnFixture(root, router).Selection,
-            "worker",
-            root.CurrentSelection().RequestedModel,
-            "child",
-            string.Empty,
-            HistoryForkSelection.Parse(string.Empty),
-            new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
-        var grandchild = TestModels.ScopeOf(child).AgentSpawner.SpawnScope(new AgentLaunchRequest(
-            child,
-            new TurnFixture(child, router).Selection,
-            "worker",
-            child.CurrentSelection().RequestedModel,
-            "grandchild",
-            string.Empty,
-            HistoryForkSelection.Parse(string.Empty),
-            new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
-
-        _ = await Assert.That(TestModels.ScopeOf(root).ParentScope.AuthorizeDirectChild(child.SessionId)).IsSameReferenceAs(TestModels.ScopeOf(child));
-        _ = await Assert.That(() => TestModels.ScopeOf(root).ParentScope.AuthorizeDirectChild(grandchild.SessionId))
-            .Throws<AgentRegistryException>();
-        _ = await Assert.That(() => TestModels.ScopeOf(unrelated).ParentScope.AuthorizeDirectChild(child.SessionId))
-            .Throws<AgentRegistryException>();
-        _ = await Assert.That(() => TestModels.ScopeOf(root).ParentScope.AuthorizeDirectChild(child.Name))
-            .Throws<AgentRegistryException>();
-    }
-
     private static async Task<PendingChildQuestionRequest> WaitForChildQuestion(
         IChildQuestionCoordinator coordinator,
         IAgentSession parent,

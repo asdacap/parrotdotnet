@@ -119,14 +119,14 @@ internal sealed class QueueChildAdmissionTests
                 .Any(queue => queue.Name == "racing");
             var childHasQueue = child.GetService<IAgentQueues>().Local.List()
                 .Any(queue => queue.Name == "racing");
-            var childIsAdmitted = source.ChildRegistry.FindDirectChildScope(child.Session.SessionId) is not null;
+            var childIsAdmitted = source.ChildRegistry.SnapshotChildScopes().Contains(child);
             _ = await Assert.That(childHasQueue).IsTrue();
             _ = await Assert.That(childIsAdmitted).IsEqualTo(admissionSucceeded);
             _ = await Assert.That(parentOwnsQueue).IsEqualTo(!admissionSucceeded);
         }
         finally
         {
-            if (source.ChildRegistry.FindDirectChildScope(child.Session.SessionId) is not null)
+            if (source.ChildRegistry.SnapshotChildScopes().Contains(child))
             {
                 _ = source.ChildRegistry.DetachDirectChildScope(child);
             }

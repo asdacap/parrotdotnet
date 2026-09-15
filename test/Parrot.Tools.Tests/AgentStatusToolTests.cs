@@ -96,8 +96,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         time.Advance(TimeSpan.FromSeconds(2));
         var toolExecution = child.Activity.BeginTool("wait");
         ITool tool = new AgentStatusTool(
-            new AgentResolver(parent.Identity, TestModels.ScopeOf(parent).ParentScope, TestModels.ScopeOf(parent), registry),
-            TestModels.ScopeOf(parent).ParentScope);
+            new AgentResolver(parent.Identity, TestModels.ScopeOf(parent).ParentScope, TestModels.ScopeOf(parent), registry));
 
         var report = (await tool.Execute(
             new ToolInvocation("call", "{\"session_id\":\"child\"}"),
@@ -154,8 +153,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         registry.RegisterRootScope(parentScope);
         var parent = parentScope.Session;
         ITool tool = new AgentStatusTool(
-            new AgentResolver(parent.Identity, TestModels.ScopeOf(parent).ParentScope, TestModels.ScopeOf(parent), registry),
-            TestModels.ScopeOf(parent).ParentScope);
+            new AgentResolver(parent.Identity, TestModels.ScopeOf(parent).ParentScope, TestModels.ScopeOf(parent), registry));
 
         var blank = (await tool.Execute(
             new ToolInvocation("call", "{\"session_id\":\"  \"}"),

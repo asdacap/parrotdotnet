@@ -14,20 +14,11 @@ internal interface IChildRegistry
     /// <summary>Returns accepting direct child scopes in admission order.</summary>
     IReadOnlyList<IAgentSessionScope> SnapshotChildScopes();
 
-    /// <summary>Returns the direct child with the canonical session id, or null when absent or shutting down.</summary>
-    IAgentSessionScope? FindDirectChildScope(string childSessionId);
-
     /// <summary>
     /// Removes the exact registered scope and transfers disposal responsibility to the caller.
     /// Returns null if shutdown already took ownership; otherwise a missing or mismatched scope throws.
     /// </summary>
     IAgentSessionScope? DetachDirectChildScope(IAgentSessionScope scope);
-
-    /// <summary>Resolves a child name before a canonical id; throws when absent or shutting down.</summary>
-    IAgentSessionScope ResolveDirectChildScope(string sessionIdOrName);
-
-    /// <summary>Searches accepting child registries recursively by canonical id, returning null when absent.</summary>
-    IAgentSessionScope? FindDescendantScope(string sessionId);
 
     /// <summary>Checks scope identity within accepting descendant registries.</summary>
     bool ContainsDescendantScope(IAgentSessionScope candidate);

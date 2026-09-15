@@ -8,67 +8,47 @@ internal sealed class AgentResolver(
 {
     private const string ParentRecipient = "parent";
 
-    public IAgentSessionScope ResolveStatusTargetScope(string sessionIdOrName)
+    public IAgentSessionScope ResolveStatusTargetScope(string name)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sessionIdOrName);
-        if (!authority.IsAccepting)
-        {
-            throw new AgentRegistryException("the user session is shutting down");
-        }
-
-        if (!authority.ContainsScope(ownerScope))
-        {
-            throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
-        }
-
-        var canonical = authority.FindScope(sessionIdOrName);
-        return canonical is not null && canonical.Session.Depth > 0
-            ? canonical
-            : ownerScope.ChildRegistry.ResolveDirectChildScope(sessionIdOrName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        RequireRegisteredOwner();
+        return ownerScope.ChildRegistry.ResolveNamedChildScope(name);
     }
 
-    public IAgentSession ResolveStatusTarget(string sessionIdOrName) =>
-        ResolveStatusTargetScope(sessionIdOrName).Session;
+    public IAgentSession ResolveStatusTarget(string name) =>
+        ResolveStatusTargetScope(name).Session;
 
-    public IAgentSession ResolveRecipient(string sessionIdOrName)
+    public IAgentSession ResolveRecipient(string nameOrPath)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sessionIdOrName);
-        if (!authority.IsAccepting)
-        {
-            throw new AgentRegistryException("the user session is shutting down");
-        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(nameOrPath);
+        RequireRegisteredOwner();
 
-        if (!authority.ContainsScope(ownerScope))
+        if (nameOrPath.Contains('/', StringComparison.Ordinal))
         {
-            throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
-        }
-
-        if (sessionIdOrName.Contains('/', StringComparison.Ordinal))
-        {
-            return ResolveDescendantPath(sessionIdOrName).Session;
-        }
-
-        var canonical = authority.FindScope(sessionIdOrName);
-        if (canonical is not null)
-        {
-            if (string.Equals(canonical.Session.SessionId, owner.ParentSessionId, StringComparison.Ordinal)
-                || string.Equals(canonical.Session.ParentSessionId, owner.SessionId, StringComparison.Ordinal))
-            {
-                return canonical.Session;
-            }
-
-            throw new AgentRegistryException("only parent/child may be sent");
+            return ResolveDescendantPath(nameOrPath).Session;
         }
 
         if (parentScope.Parent is { } parent
-            && (string.Equals(sessionIdOrName, ParentRecipient, StringComparison.Ordinal)
-                || string.Equals(sessionIdOrName, owner.ParentSessionId, StringComparison.Ordinal)
-                || string.Equals(sessionIdOrName, owner.ParentSessionName, StringComparison.Ordinal)))
+            && (string.Equals(nameOrPath, ParentRecipient, StringComparison.Ordinal)
+                || string.Equals(nameOrPath, owner.ParentSessionName, StringComparison.Ordinal)))
         {
             return parent.Session;
         }
 
-        return ownerScope.ChildRegistry.ResolveDirectChildScope(sessionIdOrName).Session;
+        return ownerScope.ChildRegistry.ResolveNamedChildScope(nameOrPath).Session;
+    }
+
+    private void RequireRegisteredOwner()
+    {
+        if (!authority.IsAccepting)
+        {
+            throw new AgentRegistryException("the user session is shutting down");
+        }
+
+        if (!authority.ContainsScope(ownerScope))
+        {
+            throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
+        }
     }
 
     private IAgentSessionScope ResolveDescendantPath(string path)

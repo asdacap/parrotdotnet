@@ -83,24 +83,7 @@ internal sealed class AgentInterruptToolTests
         public IReadOnlyList<IAgentSessionScope> SnapshotChildScopes() =>
             [.. children.Select(child => new StaticChildScope(child.Session))];
 
-        public IAgentSessionScope? FindDirectChildScope(string childSessionId) => null;
-
         public IAgentSessionScope? DetachDirectChildScope(IAgentSessionScope scope) => null;
-
-        public IAgentSessionScope ResolveDirectChildScope(string sessionIdOrName)
-        {
-            foreach (var (name, session) in children)
-            {
-                if (name == sessionIdOrName)
-                {
-                    return new StaticChildScope(session);
-                }
-            }
-
-            throw new AgentRegistryException($"direct child not found: {sessionIdOrName}");
-        }
-
-        public IAgentSessionScope? FindDescendantScope(string sessionId) => null;
 
         public bool ContainsDescendantScope(IAgentSessionScope candidate) => false;
 

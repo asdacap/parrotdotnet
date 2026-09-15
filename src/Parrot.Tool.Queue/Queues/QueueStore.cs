@@ -48,7 +48,7 @@ internal sealed class QueueStore(string directory) : IQueueStore
 
             try
             {
-                inventory.RegisterOwner(owner.SessionId, states);
+                inventory.RegisterOwner(states);
             }
             catch
             {
@@ -100,7 +100,7 @@ internal sealed class QueueStore(string directory) : IQueueStore
 
                 if (disposed)
                 {
-                    inventory.UnregisterOwner(owner.SessionId);
+                    inventory.UnregisterOwner();
                     throw new ObjectDisposedException(nameof(QueueStore));
                 }
 
@@ -319,7 +319,7 @@ internal sealed class QueueStore(string directory) : IQueueStore
 
         if (inventory is not null && owner is not null)
         {
-            inventory.UnregisterOwner(owner.SessionId);
+            inventory.UnregisterOwner();
         }
 
         _gate.Dispose();

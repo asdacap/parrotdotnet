@@ -19,13 +19,6 @@ internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionSco
         }
     }
 
-    public IAgentSessionScope? FindDirectChildScope(string childSessionId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(childSessionId);
-        return SnapshotChildScopes().FirstOrDefault(child =>
-            string.Equals(child.Session.SessionId, childSessionId, StringComparison.Ordinal));
-    }
-
     public IAgentSessionScope? DetachDirectChildScope(IAgentSessionScope scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
@@ -95,30 +88,6 @@ internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionSco
 
         _ = completion.TrySetException(failure);
         await shutdown.ConfigureAwait(false);
-    }
-
-    public IAgentSessionScope ResolveDirectChildScope(string sessionIdOrName) =>
-        FindNamedChildScope(sessionIdOrName)
-        ?? FindDirectChildScope(sessionIdOrName)
-        ?? throw new AgentRegistryException($"child agent not found: {sessionIdOrName}");
-
-    public IAgentSessionScope? FindDescendantScope(string sessionId)
-    {
-        foreach (var child in SnapshotChildScopes())
-        {
-            if (string.Equals(child.Session.SessionId, sessionId, StringComparison.Ordinal))
-            {
-                return child;
-            }
-
-            var descendant = child.ChildRegistry.FindDescendantScope(sessionId);
-            if (descendant is not null)
-            {
-                return descendant;
-            }
-        }
-
-        return null;
     }
 
     public bool ContainsDescendantScope(IAgentSessionScope candidate)

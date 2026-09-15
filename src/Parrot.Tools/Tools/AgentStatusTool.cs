@@ -8,9 +8,7 @@ using Parrot.Statuses;
 
 namespace Parrot.Tools;
 
-internal sealed class AgentStatusTool(
-    IAgentResolver resolver,
-    IAgentParentScope parentScope) : ITool
+internal sealed class AgentStatusTool(IAgentResolver resolver) : ITool
 {
     public string Name => "agent_status";
 
@@ -46,7 +44,6 @@ internal sealed class AgentStatusTool(
         try
         {
             var childScope = resolver.ResolveStatusTargetScope(sessionId);
-            _ = parentScope.AuthorizeDirectChild(childScope.Session.SessionId);
             var activity = childScope.Session.Activity.Capture();
             return Task.FromResult<ToolExecutionResult>(Format(childScope, activity));
         }

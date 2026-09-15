@@ -37,7 +37,7 @@ internal sealed class AgentInterruptTool(IChildRegistry registry) : ITool
         IAgentSession childSession;
         try
         {
-            childSession = registry.ResolveDirectChildScope(name).Session;
+            childSession = registry.ResolveNamedChildScope(name).Session;
         }
         catch (AgentRegistryException failure)
         {

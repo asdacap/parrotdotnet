@@ -20,9 +20,6 @@ internal interface IAgentParentScope
     /// <summary>Validates that an identity matches this parent topology.</summary>
     void Validate(AgentIdentity identity);
 
-    /// <summary>Resolves a direct child only while the owner still accepts work.</summary>
-    IAgentSessionScope AuthorizeDirectChild(string childSessionId);
-
     /// <summary>Returns the registered owner scope or rejects an unbound or shutting-down scope.</summary>
     IAgentSessionScope RequireOwnerScope();
 

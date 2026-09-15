@@ -1038,11 +1038,10 @@ tools:
         session_id:
           type: string
           minLength: 1
-          description: Exact canonical session ID for this agent's direct parent or direct child; or the case-sensitive literal
-            'parent', actual parent ID, actual parent friendly name, a direct-child friendly name, or a slash-separated relative
-            descendant friendly-name path such as child/grandchild. Descendant paths stay within this sender's descendant tree
-            and user session, travel only downward, and do not accept canonical IDs for descendants. Resolution follows the
-            direct-parent alias precedence.
+          description: The case-sensitive literal 'parent', the parent's friendly name, a direct-child friendly name, or a
+            slash-separated relative descendant friendly-name path such as child/grandchild. Descendant paths stay within this
+            sender's descendant tree and user session and travel only downward. Resolution follows the direct-parent alias
+            precedence.
         message:
           type: string
           minLength: 1
@@ -1059,7 +1058,7 @@ tools:
         session_id:
           type: string
           minLength: 1
-          description: Exact canonical session ID or friendly name of this agent's direct child.
+          description: Friendly name of this agent's direct child.
       required:
       - session_id
       additionalProperties: false
