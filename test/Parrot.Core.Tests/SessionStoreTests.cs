@@ -58,7 +58,7 @@ internal sealed class SessionStoreTests : IDisposable
         await using var resumed = await Open(workingDirectory);
 
         _ = await Assert.That(await File.ReadAllTextAsync(history.Path)).Contains("inactive durable history").And.DoesNotContain("stale projection");
-        _ = await Assert.That(resumed.Registry.FindScope("inactive-child")).IsNull();
+        _ = await Assert.That(resumed.Registry.SnapshotScopes().Any(scope => scope.Session.SessionId == "inactive-child")).IsFalse();
     }
 
     [Test]

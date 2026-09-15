@@ -182,12 +182,12 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
         _ = await Assert.That(reminder).Contains("Running AgentTask graphs:");
         _ = await Assert.That(reminder).Contains($"{runtime.Parent.SessionId}/first (name: first)");
         _ = await Assert.That(reminder).Contains($"{runtime.Parent.SessionId}/second (name: second)");
-        var statusProvider = new AgentTaskStatusProvider(registry, TestModels.PromptTemplates);
+        var statusProvider = new AgentTaskStatusProvider(TestModels.PromptTemplates);
         var status = await statusProvider.Observe(
-            new StatusQuery(runtime.Parent.SessionId, string.Empty, string.Empty, "profile", "model"),
+            new StatusQuery(runtime.Parent.SessionId, string.Empty, string.Empty, "profile", "model", runtime.ParentScope),
             cancellationToken);
         var otherStatus = await statusProvider.Observe(
-            new StatusQuery("other-owner", string.Empty, string.Empty, "profile", "model"),
+            new StatusQuery("other-owner", string.Empty, string.Empty, "profile", "model", null),
             cancellationToken);
         _ = await Assert.That(status.Available).IsTrue();
         _ = await Assert.That(status.Text.IndexOf("first", StringComparison.Ordinal))
@@ -204,8 +204,8 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
                 new HashSet<string>(["section", "agents", "runs"], StringComparer.Ordinal),
                 new ScribanPromptTemplateEngine("prompt_templates.status.runtime", "{{ section }}:{{ for run in runs }}{{ run.run_id }}={{ for node in run.nodes }}{{ node.name }};{{ end }}{{ end }}")),
         });
-        var customizedStatus = await new AgentTaskStatusProvider(registry, customTemplates).Observe(
-            new StatusQuery(runtime.Parent.SessionId, string.Empty, string.Empty, "profile", "model"),
+        var customizedStatus = await new AgentTaskStatusProvider(customTemplates).Observe(
+            new StatusQuery(runtime.Parent.SessionId, string.Empty, string.Empty, "profile", "model", runtime.ParentScope),
             cancellationToken);
         _ = await Assert.That(statusProvider.Key).IsEqualTo("runtime:agent-tasks");
         _ = await Assert.That(customizedStatus.Text).IsEqualTo("agent-tasks:first=first;second=second;");

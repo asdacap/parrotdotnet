@@ -1,4 +1,3 @@
-using Parrot.Agent;
 using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Protocol;
@@ -6,9 +5,7 @@ using Scriban.Runtime;
 
 namespace Parrot.Statuses;
 
-internal sealed class AgentTaskStatusProvider(
-    IAgentRegistry agents,
-    IPromptTemplateCatalog templates) : IStatusProvider
+internal sealed class AgentTaskStatusProvider(IPromptTemplateCatalog templates) : IStatusProvider
 {
     public string Key => "runtime:agent-tasks";
 
@@ -17,7 +14,7 @@ internal sealed class AgentTaskStatusProvider(
         ArgumentNullException.ThrowIfNull(query);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var snapshots = agents.FindScope(query.SessionId)?.GetService<IAgentTaskRunCatalog>().Snapshot();
+        var snapshots = query.Scope?.GetService<IAgentTaskRunCatalog>().Snapshot();
         if (snapshots is null || snapshots.Count == 0)
         {
             return ValueTask.FromResult(StatusObservation.Unavailable);

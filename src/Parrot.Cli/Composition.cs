@@ -248,7 +248,7 @@ internal partial class Composition
                     skillCatalogFactory,
                     configuration.UserInputTimeout,
                     TimeProvider.System,
-                    static (agents, templates) => [new RuntimeTreeStatusProvider(agents, templates), new AgentTaskStatusProvider(agents, templates)],
+                    static (agents, templates) => [new RuntimeTreeStatusProvider(agents, templates), new AgentTaskStatusProvider(templates)],
                     AgentTaskParser.ParseArtifact);
             })
 

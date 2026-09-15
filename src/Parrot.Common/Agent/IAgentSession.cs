@@ -20,6 +20,9 @@ internal interface IAgentSession : IAsyncDisposable
 
     AgentIdentity Identity { get; }
 
+    /// <summary>Gets the scope owning this session, or null when the session runs outside an agent scope.</summary>
+    IAgentSessionScope? Scope { get; }
+
     AgentSessionActivity Activity { get; }
 
     /// <summary>Gets the signal that requests the drain to enter its final phase the way the turn limit does.</summary>

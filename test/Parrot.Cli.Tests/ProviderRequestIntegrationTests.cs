@@ -63,7 +63,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
         IMode mode = new NoopMode(profile, profile.SecurityProfile);
         await using IAgentRegistry registry = new AgentRegistry(
             new UnsupportedAgentSessionFactory(), broker, repository, profiles, templates, new RetainedAgentBudget(1), diagnostics.Log, cancellationToken);
-        var status = new RuntimeStatus(templates, TimeProvider.System, [new RuntimeTreeStatusProvider(registry, templates), new AgentTaskStatusProvider(registry, templates)]);
+        var status = new RuntimeStatus(templates, TimeProvider.System, [new RuntimeTreeStatusProvider(registry, templates), new AgentTaskStatusProvider(templates)]);
         registry.AttachStatus(status);
         var resources = new UserSessionResources(new StatePaths(_root, _root, _root), UserSessionId.Parse("request-integration"), ProjectWorkspace.FromLaunchDirectory(_root));
         await using var children = new ChildRegistry(identity, QueueChildAdmissionValidator.Validate);

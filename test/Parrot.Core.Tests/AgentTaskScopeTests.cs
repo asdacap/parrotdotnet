@@ -127,8 +127,8 @@ internal sealed class AgentTaskScopeTests
                 _ = await Assert.That(scope.GetService<IAgentTaskRunCatalog>().Snapshot().Single().OwnerAgentSessionId).IsEqualTo(scope.Session.SessionId);
                 var reminder = new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(scope.ChildRegistry, scope.Session.Identity), new ProcessActiveWorkBlocker(scope.GetService<IProcessOwner>()), new AgentTaskActiveWorkBlocker(scope.GetService<IAgentTaskRunCatalog>(), configuration.PromptTemplates), new QueueActiveWorkBlocker(scope.GetService<IAgentQueues>(), configuration.PromptTemplates)], configuration.PromptTemplates).Build();
                 _ = await Assert.That(reminder).Contains($"{scope.Session.SessionId}/shared-run");
-                var status = await new AgentTaskStatusProvider(session.Registry, configuration.PromptTemplates).Observe(
-                    new StatusQuery(scope.Session.SessionId, root.Session.SessionId, root.Session.Name, "profile", "model"), cancellationToken);
+                var status = await new AgentTaskStatusProvider(configuration.PromptTemplates).Observe(
+                    new StatusQuery(scope.Session.SessionId, root.Session.SessionId, root.Session.Name, "profile", "model", scope), cancellationToken);
                 _ = await Assert.That(status.Available).IsTrue();
                 _ = await Assert.That(status.Text).Contains(scope.Session.Name);
                 _ = await Assert.That(status.Text).DoesNotContain(scopes.Single(other => !ReferenceEquals(other, scope)).Session.Name);

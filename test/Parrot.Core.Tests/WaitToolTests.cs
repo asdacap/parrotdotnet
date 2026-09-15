@@ -452,8 +452,6 @@ internal sealed class WaitToolTests : IAsyncDisposable
 
         public bool ContainsScope(IAgentSessionScope candidate) => registry.ContainsScope(candidate);
 
-        public IAgentSessionScope? FindScope(string sessionId) => registry.FindScope(sessionId);
-
         public IAgentSessionScope CreateChildScope(AgentIdentity identity, AgentSessionParentLink parentLink, ModelSelector model, IMode mode, SecurityProfile securityProfile, IRuntimeStatus status, IEventRepository childHistory, CancellationToken childLifetime) =>
             registry.CreateChildScope(identity, parentLink, model, mode, securityProfile, status, childHistory, childLifetime);
 

@@ -171,6 +171,8 @@ internal sealed partial class AgentSession(
 
     public AgentIdentity Identity => identity;
 
+    public IAgentSessionScope? Scope => parentScope.OwnerScope;
+
     // Status reporting observes this session-scoped, synchronized activity log.
     public AgentSessionActivity Activity { get; } = activity
         ?? throw new ArgumentNullException(nameof(activity));

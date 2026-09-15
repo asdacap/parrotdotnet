@@ -44,9 +44,6 @@ internal interface IAgentRegistry : IAsyncDisposable
     /// <summary>Tests scope identity among registered roots and descendants.</summary>
     bool ContainsScope(IAgentSessionScope candidate);
 
-    /// <summary>Finds a root or descendant by session identity.</summary>
-    IAgentSessionScope? FindScope(string sessionId);
-
     /// <summary>Constructs a child scope using this registry's shared session resources.</summary>
     IAgentSessionScope CreateChildScope(
         AgentIdentity identity,

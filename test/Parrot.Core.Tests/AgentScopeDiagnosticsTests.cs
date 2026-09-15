@@ -59,7 +59,7 @@ internal sealed class AgentScopeDiagnosticsTests
                 logPath = session.Resources.LogPath;
                 var rootId = Directory.GetDirectories(session.Resources.ScratchRootDirectory)
                     .Select(Path.GetFileName).Single() ?? throw new InvalidOperationException("Missing root agent");
-                var parent = session.Registry.FindScope(rootId) ?? throw new InvalidOperationException("Missing root scope");
+                var parent = session.Registry.SnapshotScopes().Single(scope => scope.Session.SessionId == rootId);
                 var identity = AgentIdentity.Child(
                     "diagnostic-child", rootId, "main", "child", 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates);
                 await using var child = session.Registry.CreateChildScope(

@@ -143,6 +143,8 @@ internal sealed class AgentInterruptToolTests
 
         public int Depth => 1;
 
+        public IAgentSessionScope? Scope => null;
+
         public AgentIdentity Identity { get; } = AgentIdentity.Main("child-session", "worker", TestModels.PromptTemplates);
 
         public AgentSessionActivity Activity { get; } = new(TimeProvider.System);

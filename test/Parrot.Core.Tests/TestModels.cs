@@ -190,7 +190,7 @@ internal static class TestModels
     }
 
     public static IReadOnlyList<IStatusProvider> RuntimeStatusProviders(IAgentRegistry registry, IPromptTemplateCatalog promptTemplates) =>
-        [new RuntimeTreeStatusProvider(registry, promptTemplates), new AgentTaskStatusProvider(registry, promptTemplates)];
+        [new RuntimeTreeStatusProvider(registry, promptTemplates), new AgentTaskStatusProvider(promptTemplates)];
 
     public static AgentSessionDependencies Dependencies(
         AgentIdentity identity,

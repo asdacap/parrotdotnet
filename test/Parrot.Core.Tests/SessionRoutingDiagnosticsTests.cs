@@ -76,8 +76,8 @@ internal sealed class SessionRoutingDiagnosticsTests
                     ?? throw new InvalidOperationException("Missing first root agent");
                 secondAgentId = Directory.GetDirectories(second.Resources.ScratchRootDirectory).Select(Path.GetFileName).Single()
                     ?? throw new InvalidOperationException("Missing second root agent");
-                var firstScope = first.Registry.FindScope(firstAgentId) ?? throw new InvalidOperationException("Missing first root scope");
-                var secondScope = second.Registry.FindScope(secondAgentId) ?? throw new InvalidOperationException("Missing second root scope");
+                var firstScope = first.Registry.SnapshotScopes().Single(scope => scope.Session.SessionId == firstAgentId);
+                var secondScope = second.Registry.SnapshotScopes().Single(scope => scope.Session.SessionId == secondAgentId);
                 var childIdentity = AgentIdentity.Child(
                     childId,
                     firstAgentId,

@@ -2419,7 +2419,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             return AgentSessionParentScope.Root();
         }
 
-        var parent = registry.FindScope(session.ParentSessionId)
+        var parent = registry.SnapshotScopes().SingleOrDefault(scope => scope.Session.SessionId == session.ParentSessionId)
             ?? throw new AgentRegistryException($"parent agent not found: {session.ParentSessionId}");
         return AgentSessionParentScope.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly);
     }
