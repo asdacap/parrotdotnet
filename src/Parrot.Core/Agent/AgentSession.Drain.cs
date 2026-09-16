@@ -1343,6 +1343,7 @@ internal sealed partial class AgentSession
         var completed = LLMEvent.Completed(string.Empty, 0, 0, 0, string.Empty, []);
         uint requestAttempt = 0;
         var awaitingFirstData = false;
+        var streamedText = false;
 
         try
         {
@@ -1370,6 +1371,11 @@ internal sealed partial class AgentSession
                 {
                     awaitingFirstData = false;
                     PublishProviderRequestPhase(ProviderRequestPhase.Idle, requestAttempt);
+                    if (streamedText)
+                    {
+                        await outputFile.Append("\n[retry]\n").ConfigureAwait(false);
+                        streamedText = false;
+                    }
                 }
 
                 if (awaitingFirstData && llmEvent.Kind switch
@@ -1403,6 +1409,12 @@ internal sealed partial class AgentSession
                     continue;
                 }
 
+                if (llmEvent.Kind == LLMEventKind.TextDelta && llmEvent.Text.Length > 0)
+                {
+                    await outputFile.Append(llmEvent.Text).ConfigureAwait(false);
+                    streamedText = true;
+                }
+
                 Activity.ObserveProviderEvent(llmEvent);
                 await EmitEvent(TranslateProviderEvent(llmEvent), null, null, cancellationToken).ConfigureAwait(false);
             }
@@ -1413,6 +1425,10 @@ internal sealed partial class AgentSession
         {
             PublishProviderRequestPhase(ProviderRequestPhase.Idle, requestAttempt);
             Activity.FinishProviderRequest();
+            if (streamedText)
+            {
+                await outputFile.Append("\n").ConfigureAwait(false);
+            }
         }
     }
 

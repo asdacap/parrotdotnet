@@ -145,6 +145,8 @@ internal sealed class AgentInterruptToolTests
 
         public AgentIdentity Identity { get; } = AgentIdentity.Main("child-session", "worker", TestModels.PromptTemplates);
 
+        public string OutputPath => throw new NotSupportedException();
+
         public AgentSessionActivity Activity { get; } = new(TimeProvider.System);
 
         public TurnInterruptionRequest TurnInterruption { get; } = new();

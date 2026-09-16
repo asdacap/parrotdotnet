@@ -421,6 +421,11 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return new AgentOutputFile(arguments.Scratch.BlobDirectory);
+            })
+            .Bind().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new AgentSessionActivity(arguments.TimeProvider);
             })
             .Bind<IAgentResolver>().As(Lifetime.Scoped).To(ctx =>

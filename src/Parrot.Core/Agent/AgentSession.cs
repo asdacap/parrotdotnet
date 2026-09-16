@@ -35,6 +35,7 @@ internal sealed partial class AgentSession(
     ToolDefinitionCatalog toolDefinitions,
     ISystemPrompt systemPrompt,
     ToolOutputBlobStore toolOutputBlobs,
+    AgentOutputFile outputFile,
     CompactionGroupBlobStore compactionGroupBlobs,
     Compactor compactor,
     ProviderSessions providerSessions,
@@ -115,6 +116,7 @@ internal sealed partial class AgentSession(
         ToolDefinitionCatalog toolDefinitions,
         ISystemPrompt systemPrompt,
         ToolOutputBlobStore toolOutputBlobs,
+        AgentOutputFile outputFile,
         CompactionGroupBlobStore compactionGroupBlobs,
         Compactor compactor,
         ProviderSessions providerSessions,
@@ -142,6 +144,7 @@ internal sealed partial class AgentSession(
             toolDefinitions,
             systemPrompt,
             toolOutputBlobs,
+            outputFile,
             compactionGroupBlobs,
             compactor,
             providerSessions,
@@ -172,6 +175,8 @@ internal sealed partial class AgentSession(
     public int Depth => identity.Depth;
 
     public AgentIdentity Identity => identity;
+
+    public string OutputPath => outputFile.OutputPath;
 
     // Status reporting observes this session-scoped, synchronized activity log.
     public AgentSessionActivity Activity { get; } = activity
@@ -295,6 +300,7 @@ internal sealed partial class AgentSession(
 
         await Interrupt(CancellationToken.None).ConfigureAwait(false);
         await _providerSessions.Close().ConfigureAwait(false);
+        await outputFile.Close().ConfigureAwait(false);
     }
 
     public Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken)

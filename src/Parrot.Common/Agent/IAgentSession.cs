@@ -20,6 +20,9 @@ internal interface IAgentSession : IAsyncDisposable
 
     AgentIdentity Identity { get; }
 
+    /// <summary>Gets the absolute path of the file that receives this session's assistant text as it streams.</summary>
+    string OutputPath { get; }
+
     AgentSessionActivity Activity { get; }
 
     /// <summary>Gets the signal that requests the drain to enter its final phase the way the turn limit does.</summary>

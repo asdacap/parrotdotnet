@@ -1074,7 +1074,7 @@ tools:
       - name
       additionalProperties: false
   agent_spawn:
-    description: 'Start a child agent in an isolated session and return immediately. The required name identifies the child among this session''s direct children: an existing idle child with the same normalized name is resumed with the new prompt, model, and profile; an existing running child fails the call. Its terminal result is automatically sent to this session.'
+    description: 'Start a child agent in an isolated session and return immediately. The required name identifies the child among this session''s direct children: an existing idle child with the same normalized name is resumed with the new prompt, model, and profile; an existing running child fails the call. Its terminal result is automatically sent to this session. The result also includes the absolute path of a UTF-8 text file in the child''s scratch blob area that receives the child''s assistant messages as they stream; read it for live progress. The file remains after completion.'
     parameters:
       type: object
       properties:

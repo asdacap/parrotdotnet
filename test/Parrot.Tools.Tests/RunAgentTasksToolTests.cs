@@ -550,6 +550,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             TestModels.EmptyToolDefinitions,
             TestModels.MaterializePrompt(identity, _root, _root),
             new ToolOutputBlobStore(_root),
+            new AgentOutputFile(_root),
             TestModels.CompactionGroupBlobs(),
             new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
             new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null),

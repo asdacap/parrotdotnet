@@ -1087,6 +1087,15 @@ session resume; oversized completed output may additionally create the legacy
 formatted blob. This deliberately trades disk space for live and retained
 output. Quotas and garbage collection are not included.
 
+`agent_spawn` returns the same kind of handoff for a child agent: its result
+carries `output`, the absolute path of a UTF-8 text file in the child's scratch
+blob area that receives the child's assistant text as each provider text delta
+arrives, so the parent can `read` it while the child runs. Every assistant
+message, intermediate or final, ends with a newline; when a provider retry
+discards a partially streamed message, a `[retry]` line separates the discarded
+text from the re-streamed message. The file is per agent session: it is
+appended across turns and resumes, and remains after completion.
+
 The service also publishes complete snapshots of the user session's currently
 active shell processes from its authoritative in-memory owners. Enhanced clients
 replace their local process inventory with each snapshot, including the initial
