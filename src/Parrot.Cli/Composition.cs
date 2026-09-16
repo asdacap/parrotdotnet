@@ -224,6 +224,7 @@ internal partial class Composition
                     webFetcher,
                     configuration.ToolDefinitions,
                     configuration.AgentTasks,
+                    configuration.AgentSend,
                     configuration.RequestLimits,
                     configuration.ReadOnlyExecCommandPrefixes,
                     router,

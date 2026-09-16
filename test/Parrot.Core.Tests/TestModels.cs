@@ -126,6 +126,8 @@ internal static class TestModels
 
     public static IPromptTemplateCatalog PromptTemplates { get; } = LoadPromptTemplates();
 
+    public static AgentSendConfig AgentSend { get; } = new(true, PromptTemplates);
+
     public static ToolDefinitionCatalog EmptyToolDefinitions { get; } = new(
         new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal));
 

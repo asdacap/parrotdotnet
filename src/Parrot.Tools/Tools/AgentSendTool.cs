@@ -2,19 +2,25 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
+using Parrot.Config;
 
 namespace Parrot.Tools;
 
 internal sealed class AgentSendTool(
     AgentIdentity identity,
     IAgentResolver resolver,
-    IAgentSession session) : ITool
+    IAgentSession session,
+    AgentSendConfig config) : ITool
 {
     private const int MaximumMessageBytes = 32 * 1024;
 
     public string Name => "agent_send";
 
     public bool IsEnabledAfterInterruption => true;
+
+    public string Describe(string configuredDescription) => config.ToParent
+        ? configuredDescription
+        : config.PromptTemplates.Render("agent-send-tool.description-without-parent", []);
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -44,8 +50,14 @@ internal sealed class AgentSendTool(
         try
         {
             var target = resolver.ResolveRecipient(name);
+            var isParent = string.Equals(target.SessionId, identity.ParentSessionId, StringComparison.Ordinal);
 
-            if (!string.Equals(target.SessionId, identity.ParentSessionId, StringComparison.Ordinal)
+            if (isParent && !config.ToParent)
+            {
+                return ToolResultFormatter.Error(invocation, "sending to the parent agent is disabled; report through the final message instead");
+            }
+
+            if (!isParent
                 && !session.ResolvePolicySelection().SecurityProfile.AllowsDelegationTo(
                     target.ResolvePolicySelection().SecurityProfile))
             {

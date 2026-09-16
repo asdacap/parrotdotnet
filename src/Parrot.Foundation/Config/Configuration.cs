@@ -32,6 +32,7 @@ internal sealed partial class Configuration(string path)
     private const string LiveBufferRowsKey = "live_buffer_rows";
     private const string CompactionKey = "compaction";
     private const string AgentTasksKey = "agent_tasks";
+    private const string AgentSendToParentKey = "agent_send_to_parent";
     private const string RequestLimitsKey = "request_limits";
     private const string ToolsKey = "tools";
     private const string SkillsKey = "skills";
@@ -101,6 +102,10 @@ internal sealed partial class Configuration(string path)
 
     public AgentTaskConfig AgentTasks { get; private set; } = new(
         5,
+        true,
+        new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)));
+
+    public AgentSendConfig AgentSend { get; private set; } = new(
         true,
         new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)));
 
@@ -259,6 +264,7 @@ internal sealed partial class Configuration(string path)
             LiveBufferRows = ReadLiveBufferRows(root),
             Compaction = ReadCompaction(root),
             AgentTasks = ReadAgentTasks(root),
+            AgentSend = new AgentSendConfig(ReadBoolean(root, AgentSendToParentKey, AgentSendToParentKey), promptTemplates),
             ToolDefinitions = ReadToolDefinitions(root),
             Skills = ReadSkills(root),
         };

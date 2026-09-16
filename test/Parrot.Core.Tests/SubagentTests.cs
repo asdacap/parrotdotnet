@@ -796,7 +796,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
-        ITool send = new AgentSendTool(sender.Identity, new AgentResolver(sender.Identity, ParentScope(sender, registry), TestModels.ScopeOf(sender), registry), sender);
+        ITool send = new AgentSendTool(sender.Identity, new AgentResolver(sender.Identity, ParentScope(sender, registry), TestModels.ScopeOf(sender), registry), sender, TestModels.AgentSend);
 
         var result = (await send.Execute(
             new ToolInvocation(
@@ -944,7 +944,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             TestModels.PromptTemplates,
             cancellationToken);
         await using var session = Session(provider, 0, "root-id", registry, cancellationToken);
-        ITool send = new AgentSendTool(session.Identity, new AgentResolver(session.Identity, ParentScope(session, registry), TestModels.ScopeOf(session), registry), session);
+        ITool send = new AgentSendTool(session.Identity, new AgentResolver(session.Identity, ParentScope(session, registry), TestModels.ScopeOf(session), registry), session, TestModels.AgentSend);
         var root = Path.Combine(Path.GetTempPath(), "parrot-agent-send-documentation", Guid.NewGuid().ToString("N"));
         var configuration = Configuration.Load(
             Path.Combine(root, "config.yaml"),
@@ -1020,7 +1020,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await Assert.That(new AgentResolver(nestedDuplicate.Identity, ParentScope(nestedDuplicate, registry), TestModels.ScopeOf(nestedDuplicate), registry).ResolveRecipient("parent/target"))
             .IsSameReferenceAs(target);
 
-        ITool send = new AgentSendTool(root.Identity, new AgentResolver(root.Identity, ParentScope(root, registry), TestModels.ScopeOf(root), registry), root);
+        ITool send = new AgentSendTool(root.Identity, new AgentResolver(root.Identity, ParentScope(root, registry), TestModels.ScopeOf(root), registry), root, TestModels.AgentSend);
         var sent = (await send.Execute(
             new ToolInvocation(
                 "test-call",
@@ -1441,7 +1441,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         _ = await spawned.SendTextMessage("initial", cancellationToken);
-        ITool send = new AgentSendTool(parent.Identity, new AgentResolver(parent.Identity, ParentScope(parent, registry), TestModels.ScopeOf(parent), registry), parent);
+        ITool send = new AgentSendTool(parent.Identity, new AgentResolver(parent.Identity, ParentScope(parent, registry), TestModels.ScopeOf(parent), registry), parent, TestModels.AgentSend);
 
         await provider.Arrived(cancellationToken);
         var steeredJson = (await send.Execute(
@@ -1489,7 +1489,9 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     }
 
     [Test]
-    public async Task Send_delivers_a_child_message_to_its_parent(CancellationToken cancellationToken)
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Send_delivers_a_child_message_to_its_parent_only_when_enabled(bool toParent, CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(
             LLMEvent.Completed("stop", 1, 0, 1, "first", []),
@@ -1511,16 +1513,32 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
-        ITool send = new AgentSendTool(child.Identity, new AgentResolver(child.Identity, ParentScope(child, registry), TestModels.ScopeOf(child), registry), child);
+        ITool send = new AgentSendTool(
+            child.Identity,
+            new AgentResolver(child.Identity, ParentScope(child, registry), TestModels.ScopeOf(child), registry),
+            child,
+            new AgentSendConfig(toParent, TestModels.PromptTemplates));
 
+        var described = send.Describe("Send to the parent.");
         var sent = (await send.Execute(
             new ToolInvocation(
                 "test-call",
                 $$"""{"name":"parent","message":"task completed"}"""),
             new TurnFixture(child, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
+
+        if (!toParent)
+        {
+            _ = await Assert.That(described)
+                .IsEqualTo(TestModels.PromptTemplates.Render("agent-send-tool.description-without-parent", []));
+            _ = await Assert.That(sent)
+                .IsEqualTo("error: sending to the parent agent is disabled; report through the final message instead");
+            return;
+        }
+
         using var result = JsonDocument.Parse(sent);
 
+        _ = await Assert.That(described).IsEqualTo("Send to the parent.");
         _ = await Assert.That(result.RootElement.GetProperty("name").GetString()).IsEqualTo(parent.Name);
         _ = await Assert.That(result.RootElement.GetProperty("status").GetString()).IsEqualTo("running");
         await provider.Arrived(cancellationToken);
@@ -1555,7 +1573,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
-        ITool send = new AgentSendTool(child.Identity, new AgentResolver(child.Identity, ParentScope(child, registry), TestModels.ScopeOf(child), registry), child);
+        ITool send = new AgentSendTool(child.Identity, new AgentResolver(child.Identity, ParentScope(child, registry), TestModels.ScopeOf(child), registry), child, TestModels.AgentSend);
 
         var sent = (await send.Execute(
             new ToolInvocation(
@@ -1599,7 +1617,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await spawned.SendTextMessage("initial", cancellationToken);
 
         await provider.Arrived(cancellationToken);
-        ITool send = new AgentSendTool(parent.Identity, new AgentResolver(parent.Identity, ParentScope(parent, registry), TestModels.ScopeOf(parent), registry), parent);
+        ITool send = new AgentSendTool(parent.Identity, new AgentResolver(parent.Identity, ParentScope(parent, registry), TestModels.ScopeOf(parent), registry), parent, TestModels.AgentSend);
         var sending = send.Execute(
             new ToolInvocation(
                 "test-call",
@@ -1642,7 +1660,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         await provider.Arrived(cancellationToken);
         var boundary = new string('x', 32 * 1024);
 
-        ITool send = new AgentSendTool(parent.Identity, new AgentResolver(parent.Identity, ParentScope(parent, registry), TestModels.ScopeOf(parent), registry), parent);
+        ITool send = new AgentSendTool(parent.Identity, new AgentResolver(parent.Identity, ParentScope(parent, registry), TestModels.ScopeOf(parent), registry), parent, TestModels.AgentSend);
         var sentJson = (await send.Execute(
             new ToolInvocation(
                 "test-call",
@@ -1680,7 +1698,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         _ = await spawned.SendTextMessage("initial", cancellationToken);
-        ITool send = new AgentSendTool(parent.Identity, new AgentResolver(parent.Identity, ParentScope(parent, registry), TestModels.ScopeOf(parent), registry), parent);
+        ITool send = new AgentSendTool(parent.Identity, new AgentResolver(parent.Identity, ParentScope(parent, registry), TestModels.ScopeOf(parent), registry), parent, TestModels.AgentSend);
 
         var malformed = (await send.Execute(new ToolInvocation("test-call", "{}"), new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection, cancellationToken)).Text;
         var blank = (await send.Execute(
@@ -1695,7 +1713,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
                 """{"name":"missing","message":"hello"}"""),
             new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
-        ITool strangerSend = new AgentSendTool(stranger.Identity, new AgentResolver(stranger.Identity, ParentScope(stranger, registry), TestModels.ScopeOf(stranger), registry), stranger);
+        ITool strangerSend = new AgentSendTool(stranger.Identity, new AgentResolver(stranger.Identity, ParentScope(stranger, registry), TestModels.ScopeOf(stranger), registry), stranger, TestModels.AgentSend);
         var invisible = (await strangerSend.Execute(
             new ToolInvocation(
                 "test-call",
@@ -2057,7 +2075,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await spawned.Wait(0, cancellationToken);
-        ITool send = new AgentSendTool(parent.Identity, new AgentResolver(parent.Identity, ParentScope(parent, registry), TestModels.ScopeOf(parent), registry), parent);
+        ITool send = new AgentSendTool(parent.Identity, new AgentResolver(parent.Identity, ParentScope(parent, registry), TestModels.ScopeOf(parent), registry), parent, TestModels.AgentSend);
         _ = (await send.Execute(
             new ToolInvocation(
                 "test-call",

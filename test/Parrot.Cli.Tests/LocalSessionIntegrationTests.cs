@@ -295,6 +295,7 @@ internal sealed class LocalSessionIntegrationTests
                 _webFetcher,
                 configuration.ToolDefinitions,
                 configuration.AgentTasks,
+                configuration.AgentSend,
                 configuration.RequestLimits,
                 configuration.ReadOnlyExecCommandPrefixes,
                 router,

@@ -424,6 +424,7 @@ internal sealed class AgentInventoryStreamTests
                     WebFetcher.Create(new PublicWebAddressPolicy()),
                     configuration.ToolDefinitions,
                     configuration.AgentTasks,
+                    configuration.AgentSend,
                     configuration.RequestLimits,
                     configuration.ReadOnlyExecCommandPrefixes,
                     router,

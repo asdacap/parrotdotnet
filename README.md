@@ -1057,6 +1057,10 @@ flight, the message can join that turn at its next provider boundary. This diffe
 from internal `SendAndWaitForResult` calls, which reserve a distinct subsequent
 execution. When each child execution finishes, Parrot automatically sends its
 terminal status and result to its direct parent as normal steering input.
+Setting `agent_send_to_parent: false` in the user config disables parent
+addressing: the advertised `agent_send` description drops the parent wording
+and a send that resolves to the parent returns a tool error, while descendant
+sends and the automatic completion delivery are unaffected.
 Agent tool outputs (`agent_spawn`, `agent_send`, `agent_status`, `answer`)
 expose agent names instead of agent session ids; tool inputs still accept
 session ids for direct parent and direct child addressing.

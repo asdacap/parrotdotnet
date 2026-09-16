@@ -23,6 +23,7 @@ internal sealed record AgentSessionScopeArguments(
     IImageArtifactRepository Images,
     WebFetcher WebFetcher,
     AgentTaskConfig AgentTasks,
+    AgentSendConfig AgentSend,
     RequestLimitsConfig RequestLimits,
     ToolDefinitionCatalog ToolDefinitions,
     IReadOnlyList<string> ReadOnlyExecCommandPrefixes,

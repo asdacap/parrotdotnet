@@ -43,6 +43,7 @@ internal sealed class SessionRoutingDiagnosticsTests
                 web,
                 configuration.ToolDefinitions,
                 configuration.AgentTasks,
+                configuration.AgentSend,
                 configuration.RequestLimits,
                 configuration.ReadOnlyExecCommandPrefixes,
                 router,

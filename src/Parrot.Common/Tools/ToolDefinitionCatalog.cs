@@ -46,7 +46,7 @@ internal sealed class ToolDefinitionCatalog(IReadOnlyDictionary<string, Configur
         return [.. runtimeTools.Select(tool =>
         {
             var definition = _definitions[tool.Name];
-            return new LLMToolDefinition(tool.Name, definition.Description, definition.ParametersJson);
+            return new LLMToolDefinition(tool.Name, tool.Describe(definition.Description), definition.ParametersJson);
         })];
     }
 }

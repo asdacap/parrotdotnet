@@ -330,6 +330,12 @@ prompt_templates:
     template: 'Exit reminder set: {reminder}'
     allowed_arguments: [reminder]
     required_arguments: [reminder]
+  agent-send-tool.description-without-parent:
+    template: Send a message to a direct child or to a descendant in this sender's own descendant tree. Descendants use
+      relative, slash-separated friendly-name paths such as child/grandchild; paths only travel downward. Sending to the
+      parent is disabled; report to the parent through the final message instead.
+    allowed_arguments: []
+    required_arguments: []
   agent-session.runaway:
     template: 'the turn exceeded its provider-request limit'
     allowed_arguments: []
@@ -794,6 +800,10 @@ read_only_exec_command_prefixes:
 
 # Render changed lines inline. Set to false for a side-by-side diff viewer.
 inline_diff: true
+
+# Let child agents message their direct parent with agent_send. Set to false to
+# force children to report only through their final message.
+agent_send_to_parent: true
 
 # Number of rows retained in the live terminal buffer.
 live_buffer_rows: 20

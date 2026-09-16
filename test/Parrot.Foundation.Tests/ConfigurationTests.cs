@@ -447,6 +447,18 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task Agent_send_to_parent_defaults_to_true_and_rejects_non_boolean_values()
+    {
+        var missing = Load(Path.Combine(_directory, "missing.yaml"));
+        var disabled = Load(Write("agent_send_to_parent: false\n"));
+
+        _ = await Assert.That(missing.AgentSend.ToParent).IsTrue();
+        _ = await Assert.That(disabled.AgentSend.ToParent).IsFalse();
+        _ = await Assert.That(() => Load(Write("agent_send_to_parent: yes\n")))
+            .Throws<InvalidDataException>().WithMessage("agent_send_to_parent must be true or false");
+    }
+
+    [Test]
     public async Task Sandbox_enabled_defaults_to_true_and_accepts_boolean_configuration()
     {
         var missing = Load(Path.Combine(_directory, "missing.yaml"));

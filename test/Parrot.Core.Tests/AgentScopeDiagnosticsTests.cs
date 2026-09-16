@@ -36,6 +36,7 @@ internal sealed class AgentScopeDiagnosticsTests
                 web,
                 configuration.ToolDefinitions,
                 configuration.AgentTasks,
+                configuration.AgentSend,
                 configuration.RequestLimits,
                 configuration.ReadOnlyExecCommandPrefixes,
                 router,
