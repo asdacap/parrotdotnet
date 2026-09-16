@@ -15,6 +15,12 @@ internal sealed class ToolDefinitionCatalog(IReadOnlyDictionary<string, Configur
 
     public IReadOnlyDictionary<string, ConfiguredToolDefinition> Definitions => _definitions;
 
+    public ToolDefinitionCatalog ReplaceDescription(string name, string description) =>
+        new(new Dictionary<string, ConfiguredToolDefinition>(_definitions, StringComparer.Ordinal)
+        {
+            [name] = _definitions[name] with { Description = description },
+        });
+
     public IReadOnlyList<LLMToolDefinition> Document(IReadOnlyList<ITool> runtimeTools)
     {
         ArgumentNullException.ThrowIfNull(runtimeTools);
@@ -46,7 +52,7 @@ internal sealed class ToolDefinitionCatalog(IReadOnlyDictionary<string, Configur
         return [.. runtimeTools.Select(tool =>
         {
             var definition = _definitions[tool.Name];
-            return new LLMToolDefinition(tool.Name, tool.Describe(definition.Description), definition.ParametersJson);
+            return new LLMToolDefinition(tool.Name, definition.Description, definition.ParametersJson);
         })];
     }
 }

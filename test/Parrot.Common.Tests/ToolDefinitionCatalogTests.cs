@@ -17,12 +17,9 @@ internal sealed class ToolDefinitionCatalogTests
             });
 
         var definition = catalog.Document([new StructuralTool("work")]).Single();
-        var described = catalog.Document([new DescribingTool("work")]).Single();
 
         _ = await Assert.That(definition.Description).IsEqualTo("Does work.");
         _ = await Assert.That(definition.ParametersJson).IsEqualTo(parameters);
-        _ = await Assert.That(described.Description).IsEqualTo("Does work. Described by the tool.");
-        _ = await Assert.That(described.ParametersJson).IsEqualTo(parameters);
         using var schema = JsonDocument.Parse(definition.ParametersJson);
         _ = await Assert.That(schema.RootElement.GetProperty("properties").GetProperty("description")
             .GetProperty("description").GetString()).IsEqualTo("Semantic value.");
@@ -70,18 +67,6 @@ internal sealed class ToolDefinitionCatalogTests
     private sealed class StructuralTool(string name) : ITool
     {
         public string Name => name;
-
-        public Task<ToolExecutionResult> Execute(
-            ToolInvocation invocation,
-            AgentTurnSelection selection,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-    }
-
-    private sealed class DescribingTool(string name) : ITool
-    {
-        public string Name => name;
-
-        public string Describe(string configuredDescription) => configuredDescription + " Described by the tool.";
 
         public Task<ToolExecutionResult> Execute(
             ToolInvocation invocation,

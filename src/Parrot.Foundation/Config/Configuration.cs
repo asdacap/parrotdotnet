@@ -105,9 +105,7 @@ internal sealed partial class Configuration(string path)
         true,
         new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)));
 
-    public AgentSendConfig AgentSend { get; private set; } = new(
-        true,
-        new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)));
+    public AgentSendConfig AgentSend { get; private set; } = new(true);
 
     public ToolDefinitionCatalog ToolDefinitions { get; private set; } = new(
         new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal));
@@ -264,7 +262,7 @@ internal sealed partial class Configuration(string path)
             LiveBufferRows = ReadLiveBufferRows(root),
             Compaction = ReadCompaction(root),
             AgentTasks = ReadAgentTasks(root),
-            AgentSend = new AgentSendConfig(ReadBoolean(root, AgentSendToParentKey, AgentSendToParentKey), promptTemplates),
+            AgentSend = new AgentSendConfig(ReadBoolean(root, AgentSendToParentKey, AgentSendToParentKey)),
             ToolDefinitions = ReadToolDefinitions(root),
             Skills = ReadSkills(root),
         };

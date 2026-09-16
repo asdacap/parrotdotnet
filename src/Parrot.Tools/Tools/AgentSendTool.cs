@@ -18,10 +18,6 @@ internal sealed class AgentSendTool(
 
     public bool IsEnabledAfterInterruption => true;
 
-    public string Describe(string configuredDescription) => config.ToParent
-        ? configuredDescription
-        : config.PromptTemplates.Render("agent-send-tool.description-without-parent", []);
-
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
         AgentTurnSelection selection,

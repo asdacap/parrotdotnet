@@ -1517,9 +1517,8 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             child.Identity,
             new AgentResolver(child.Identity, ParentScope(child, registry), TestModels.ScopeOf(child), registry),
             child,
-            new AgentSendConfig(toParent, TestModels.PromptTemplates));
+            new AgentSendConfig(toParent));
 
-        var described = send.Describe("Send to the parent.");
         var sent = (await send.Execute(
             new ToolInvocation(
                 "test-call",
@@ -1529,16 +1528,23 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
         if (!toParent)
         {
-            _ = await Assert.That(described)
-                .IsEqualTo(TestModels.PromptTemplates.Render("agent-send-tool.description-without-parent", []));
+            var configured = new ToolDefinitionCatalog(new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal)
+            {
+                ["agent_send"] = new ConfiguredToolDefinition("Send to the parent.", "{}"),
+            });
+            var amended = new AgentSendWithoutParentAmendment(TestModels.PromptTemplates).Amend(configured).Definitions["agent_send"];
+
             _ = await Assert.That(sent)
                 .IsEqualTo("error: sending to the parent agent is disabled; report through the final message instead");
+            _ = await Assert.That(amended.Description)
+                .IsEqualTo(TestModels.PromptTemplates.Render("agent-send-tool.description-without-parent", []));
+            _ = await Assert.That(amended.ParametersJson).IsEqualTo("{}");
+            _ = await Assert.That(configured.Definitions["agent_send"].Description).IsEqualTo("Send to the parent.");
             return;
         }
 
         using var result = JsonDocument.Parse(sent);
 
-        _ = await Assert.That(described).IsEqualTo("Send to the parent.");
         _ = await Assert.That(result.RootElement.GetProperty("name").GetString()).IsEqualTo(parent.Name);
         _ = await Assert.That(result.RootElement.GetProperty("status").GetString()).IsEqualTo("running");
         await provider.Arrived(cancellationToken);
