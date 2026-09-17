@@ -90,7 +90,6 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
             eventBroker,
             eventRepository,
             [],
-            TestModels.EmptyToolDefinitions,
             TestModels.MaterializePrompt(identity, root, root),
             new ToolOutputBlobStore(root),
             new AgentOutputFile(root),

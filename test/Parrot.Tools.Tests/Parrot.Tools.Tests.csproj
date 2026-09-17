@@ -37,7 +37,6 @@
     <Compile Include="../Parrot.Core.Tests/TestModels.cs" Link="TestModels.cs" />
     <Compile Include="../Parrot.Core.Tests/TestProfileFixture.cs" Link="TestProfileFixture.cs" />
     <Compile Include="../Parrot.Core.Tests/TestSystemPromptFixture.cs" Link="TestSystemPromptFixture.cs" />
-    <Compile Include="../Parrot.Core.Tests/TestToolDefinitionsFixture.cs" Link="TestToolDefinitionsFixture.cs" />
     <Compile Include="../Parrot.Core.Tests/UnusedProvider.cs" Link="UnusedProvider.cs" />
   </ItemGroup>
 

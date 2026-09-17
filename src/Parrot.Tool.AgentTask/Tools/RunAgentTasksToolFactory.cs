@@ -13,8 +13,11 @@ internal sealed class RunAgentTasksToolFactory(
     Func<string, AgentTaskArtifact> parseArtifact,
     Func<string, IAgentTaskProgress> createProgress,
     Func<IAgentSession, IAgentTaskRunCompletion> createCompletion,
-    AgentTaskConfig agentTasks) : IToolFactory
+    AgentTaskConfig agentTasks,
+    ToolDefinitionCatalog definitions) : IToolFactory
 {
+    public IToolDefinition Definition => definitions.Describe("run_agent_tasks");
+
     public ITool Create(IAgentSession session) =>
         new RunAgentTasksTool(
             workspace,

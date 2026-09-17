@@ -1122,13 +1122,15 @@ internal sealed partial class AgentSession
 
         var tools = new List<ITool>(toolFactories.Count);
         var supported = new List<bool>(toolFactories.Count);
+        var definitions = new List<IToolDefinition>(toolFactories.Count);
         foreach (var factory in toolFactories)
         {
             supported.Add(factory.Supports(this));
             tools.Add(factory.Create(this));
+            definitions.Add(factory.Definition);
         }
 
-        _epochContext.Tools = ToolSnapshot.Document(tools, supported, toolDefinitions);
+        _epochContext.Tools = ToolSnapshot.Document(tools, supported, definitions);
         return _epochContext.Tools;
     }
 

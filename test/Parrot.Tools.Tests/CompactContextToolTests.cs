@@ -175,7 +175,7 @@ internal sealed class CompactContextToolTests : IDisposable
         _dependencies.Add(dependencies);
         var factories = new IToolFactory[]
         {
-            new CompactContextToolFactory(TestModels.PromptTemplates),
+            new CompactContextToolFactory(TestModels.PromptTemplates, TestModels.ToolDefinitions),
             new FixedToolFactory(new SettledTool("other result")),
         };
         return new AgentSession(
@@ -186,7 +186,6 @@ internal sealed class CompactContextToolTests : IDisposable
             broker,
             repository,
             factories,
-            new TestToolDefinitionsFixture("compact_context", "settled").Definitions,
             TestModels.MaterializePrompt(identity, _workspace, _workspace),
             new ToolOutputBlobStore(_workspace),
             new AgentOutputFile(_workspace),

@@ -10,7 +10,6 @@ using Parrot.Queues;
 using Parrot.Skills;
 using Parrot.State;
 using Parrot.Store;
-using Parrot.Tools;
 using Parrot.Web;
 using Pure.DI;
 
@@ -218,19 +217,11 @@ internal partial class Composition
                 ctx.Inject<Configuration>(out var configuration);
                 ctx.Inject<IModelRouter>(out var router);
                 ctx.Inject<ISystemPromptProvider>(out var systemPromptProvider);
-                var toolDefinitions = configuration.ToolDefinitions;
-                if (!configuration.AgentSend.ToParent)
-                {
-                    var definitions = new Dictionary<string, IToolDefinition>(toolDefinitions.Definitions, StringComparer.Ordinal);
-                    definitions["agent_send"] = new AgentSendWithoutParentDefinition(definitions["agent_send"], configuration.PromptTemplates);
-                    toolDefinitions = new ToolDefinitionCatalog(definitions);
-                }
-
                 return new AgentSessionFactorySource(
                     processes,
                     compactor,
                     webFetcher,
-                    toolDefinitions,
+                    configuration.ToolDefinitions,
                     configuration.AgentTasks,
                     configuration.AgentSend,
                     configuration.RequestLimits,

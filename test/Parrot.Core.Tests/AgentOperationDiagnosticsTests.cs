@@ -75,7 +75,6 @@ internal sealed class AgentOperationDiagnosticsTests : IDisposable
             events,
             repository,
             [toolFactory],
-            new TestToolDefinitionsFixture(tool.Name).Definitions,
             TestModels.MaterializePrompt(identity, _root, _root),
             new ToolOutputBlobStore(_root),
             new AgentOutputFile(_root),

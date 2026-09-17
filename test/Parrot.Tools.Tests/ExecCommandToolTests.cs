@@ -59,7 +59,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
         var scratch = resources.AgentScratch(identity.SessionId);
-        await using IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(scratch.BlobDirectory), new AgentOutputFile(scratch.BlobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
+        await using IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(scratch.BlobDirectory), new AgentOutputFile(scratch.BlobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
         await using var processes = new ShellProcessOwner(
             identity,
             resources,
@@ -74,8 +74,8 @@ internal sealed class ExecCommandToolTests : IDisposable
             TestModels.Resolve(model),
             new TestProfileFixture().Mode,
             securityProfile);
-        var factoryTool = new ExecCommandToolFactory(processes).Create(session);
-        var writeStdinFactoryTool = new WriteStdinToolFactory(processes).Create(session);
+        var factoryTool = new ExecCommandToolFactory(processes, TestModels.ToolDefinitions).Create(session);
+        var writeStdinFactoryTool = new WriteStdinToolFactory(processes, TestModels.ToolDefinitions).Create(session);
         _ = await Assert.That(factoryTool.Name).IsEqualTo("exec_command");
         _ = await Assert.That(writeStdinFactoryTool.Name).IsEqualTo("write_stdin");
 

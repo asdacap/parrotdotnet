@@ -20,6 +20,8 @@ internal static class TestModels
 {
     private static readonly ConditionalWeakTable<IAgentSession, IAgentSessionScope> Scopes = [];
 
+    private static readonly Configuration LoadedConfiguration = LoadConfiguration();
+
     public static IReadOnlyDictionary<string, ProfileConfig> Profiles { get; } =
         new Dictionary<string, ProfileConfig>(StringComparer.Ordinal)
         {
@@ -124,12 +126,15 @@ internal static class TestModels
                 []),
         };
 
-    public static IPromptTemplateCatalog PromptTemplates { get; } = LoadPromptTemplates();
+    public static IPromptTemplateCatalog PromptTemplates => LoadedConfiguration.PromptTemplates;
+
+    public static ToolDefinitionCatalog ToolDefinitions => LoadedConfiguration.ToolDefinitions;
+
+    public static IToolDefinition ToolDefinition { get; } = new ConfiguredToolDefinition(
+        "Test tool.",
+        """{"type":"object","additionalProperties":false}""");
 
     public static AgentSendConfig AgentSend { get; } = new(true);
-
-    public static ToolDefinitionCatalog EmptyToolDefinitions { get; } = new(
-        new Dictionary<string, IToolDefinition>(StringComparer.Ordinal));
 
     public static CompactionGroupBlobStore CompactionGroupBlobs() =>
         new(new AgentScratchDirectory(Path.Combine(
@@ -259,13 +264,12 @@ internal static class TestModels
 
     public static ResolvedModelSelection Resolve(ProviderModel model) => Route(model).Resolve(model.Selector);
 
-    private static IPromptTemplateCatalog LoadPromptTemplates()
+    private static Configuration LoadConfiguration()
     {
         var root = Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("N"));
         return Configuration.Load(
             Path.Combine(root, "config.yaml"),
-            Path.Combine(root, "predefined_config.yaml"))
-            .PromptTemplates;
+            Path.Combine(root, "predefined_config.yaml"));
     }
 
     private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory

@@ -8,6 +8,9 @@ namespace Parrot.Tools;
 // AgentSession.
 internal interface IToolFactory
 {
+    // The model-facing definition of the tool Create yields.
+    IToolDefinition Definition { get; }
+
     // Returning false excludes this tool from the supplied session's available tools.
     bool Supports(IAgentSession session) => true;
 

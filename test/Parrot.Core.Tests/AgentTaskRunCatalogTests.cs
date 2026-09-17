@@ -350,7 +350,6 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
             _broker,
             _repository,
             [],
-            TestModels.EmptyToolDefinitions,
             TestModels.MaterializePrompt(identity, ".", "."),
             new ToolOutputBlobStore(Path.GetTempPath()),
             new AgentOutputFile(Path.GetTempPath()),

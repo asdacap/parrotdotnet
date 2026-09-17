@@ -285,7 +285,8 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                         callId,
                         arguments.Diagnostics),
                     session => new AgentTaskRunCompletion(session, outputBlobs, arguments.PromptTemplates),
-                    agentTasks);
+                    agentTasks,
+                    arguments.ToolDefinitions);
             })
             .Bind<ICheckpointService>().As(Lifetime.Scoped).To(ctx =>
             {
@@ -297,13 +298,14 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<IExitReminder>(out var reminder);
-                return new SetExitReminderToolFactory(reminder, arguments.PromptTemplates);
+                return new SetExitReminderToolFactory(reminder, arguments.PromptTemplates, arguments.ToolDefinitions);
             })
             .Bind<AgentSendToolFactory>().As(Lifetime.Scoped).To<AgentSendToolFactory>()
             .Bind<AgentInterruptToolFactory>().As(Lifetime.Scoped).To(ctx =>
             {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<IChildRegistry>(out var children);
-                return new AgentInterruptToolFactory(children);
+                return new AgentInterruptToolFactory(children, arguments.ToolDefinitions);
             })
             .Bind<AgentStatusToolFactory>().As(Lifetime.Scoped).To<AgentStatusToolFactory>()
             .Bind<WaitToolFactory>().As(Lifetime.Scoped).To<WaitToolFactory>()

@@ -547,7 +547,6 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             _broker,
             repository,
             [],
-            TestModels.EmptyToolDefinitions,
             TestModels.MaterializePrompt(identity, _root, _root),
             new ToolOutputBlobStore(_root),
             new AgentOutputFile(_root),

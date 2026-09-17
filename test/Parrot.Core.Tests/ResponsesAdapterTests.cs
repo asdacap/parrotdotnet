@@ -36,16 +36,10 @@ internal sealed class ResponsesAdapterTests
             var configuration = Configuration.Load(
                 configurationPath,
                 Path.Combine(directory, "predefined_config.yaml"));
-            var definitions = new ToolDefinitionCatalog(
-                new Dictionary<string, IToolDefinition>(StringComparer.Ordinal)
-                {
-                    ["read"] = configuration.ToolDefinitions.Definitions["read"],
-                    ["glob"] = configuration.ToolDefinitions.Definitions["glob"],
-                });
-            var tools = definitions.Document([
-                new ReadTool(new ToolWorkspace(directory)),
-                new GlobTool(new ToolWorkspace(directory)),
-            ]);
+            var tools = ToolSnapshot.Document(
+                [new ReadTool(new ToolWorkspace(directory)), new GlobTool(new ToolWorkspace(directory))],
+                [true, true],
+                [configuration.ToolDefinitions.Describe("read"), configuration.ToolDefinitions.Describe("glob")]).Definitions;
             var request = new LLMRequest
             {
                 Model = "gpt-5.6-sol",

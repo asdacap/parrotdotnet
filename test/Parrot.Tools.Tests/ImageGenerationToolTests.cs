@@ -310,7 +310,7 @@ internal sealed class ImageGenerationToolTests : IDisposable
     public async Task Participates_in_normal_tool_filtering()
     {
         ITool tool = new ImageGenerationTool(new ToolWorkspace(_root));
-        var snapshot = ToolSnapshot.Document([tool], [true], new TestToolDefinitionsFixture("imagegen").Definitions);
+        var snapshot = ToolSnapshot.Document([tool], [true], [TestModels.ToolDefinition]);
         _ = await Assert.That(snapshot.Find("imagegen")).IsSameReferenceAs(tool);
         _ = await Assert.That(snapshot.PermittedBy(BuildProfile(["imagegen"], [])).Definitions).HasSingleItem();
         _ = await Assert.That(snapshot.PermittedBy(BuildProfile(["read"], [])).Tools).IsEmpty();

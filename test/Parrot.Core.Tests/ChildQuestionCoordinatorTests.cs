@@ -430,8 +430,8 @@ internal sealed partial class SubagentTests
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
         var childQuestions = rootScope.ChildQuestions;
-        var rootFactory = new QuestionToolFactory(userQuestions, AgentSessionParentScope.Root());
-        var childFactory = new QuestionToolFactory(userQuestions, AgentSessionParentScope.Child(rootScope, AgentCompletionDeliveryPolicy.RetainedOnly));
+        var rootFactory = new QuestionToolFactory(userQuestions, AgentSessionParentScope.Root(), TestModels.ToolDefinitions);
+        var childFactory = new QuestionToolFactory(userQuestions, AgentSessionParentScope.Child(rootScope, AgentCompletionDeliveryPolicy.RetainedOnly), TestModels.ToolDefinitions);
         const string request = "{\"questions\":[{\"prompt\":\"Choose\",\"options\":[\"Yes\"]}]}";
 
         var rootExecution = rootFactory.Create(root).Execute(

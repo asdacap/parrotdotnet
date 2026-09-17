@@ -4,7 +4,7 @@ namespace Parrot.Tools;
 
 // A tool the model may call. Display or behavioural differences live on the
 // tool -- never a branch on its name elsewhere (AGENTS.md). Model-facing
-// definitions come from configuration and are paired by ToolSnapshot.
+// definitions come from configuration and are exposed by its IToolFactory.
 //
 // An instance belongs to one AgentSession and is built by its IToolFactory.
 // Turn-varying policy arrives as the immutable selection captured for the call.

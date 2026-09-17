@@ -19,23 +19,30 @@ internal sealed class ToolSnapshot
     public static ToolSnapshot Document(
         IReadOnlyList<ITool> tools,
         IReadOnlyList<bool> supported,
-        ToolDefinitionCatalog catalog)
+        IReadOnlyList<IToolDefinition> definitions)
     {
         ArgumentNullException.ThrowIfNull(tools);
         ArgumentNullException.ThrowIfNull(supported);
-        ArgumentNullException.ThrowIfNull(catalog);
-        if (tools.Count != supported.Count)
+        ArgumentNullException.ThrowIfNull(definitions);
+        if (tools.Count != supported.Count || tools.Count != definitions.Count)
         {
-            throw new ArgumentException("Tool support flags must match the tool inventory.", nameof(supported));
+            throw new ArgumentException("Tool support flags and definitions must match the tool inventory.", nameof(tools));
         }
 
-        var definitions = catalog.Document(tools);
+        var names = new HashSet<string>(StringComparer.Ordinal);
         var entries = new List<ToolEntry>(tools.Count);
         for (var index = 0; index < tools.Count; index++)
         {
+            var tool = tools[index];
+            if (!names.Add(tool.Name))
+            {
+                throw new InvalidDataException($"tool '{tool.Name}' is registered more than once");
+            }
+
             if (supported[index])
             {
-                entries.Add(new ToolEntry(tools[index], definitions[index]));
+                var definition = definitions[index];
+                entries.Add(new ToolEntry(tool, new LLMToolDefinition(tool.Name, definition.Description, definition.ParametersJson)));
             }
         }
 

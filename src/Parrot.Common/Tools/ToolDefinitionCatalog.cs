@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using Parrot.Llm;
 
 namespace Parrot.Tools;
 
@@ -10,38 +9,8 @@ internal sealed class ToolDefinitionCatalog(IReadOnlyDictionary<string, IToolDef
 
     public IReadOnlyDictionary<string, IToolDefinition> Definitions => _definitions;
 
-    public IReadOnlyList<LLMToolDefinition> Document(IReadOnlyList<ITool> runtimeTools)
-    {
-        ArgumentNullException.ThrowIfNull(runtimeTools);
-        var runtimeNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var tool in runtimeTools)
-        {
-            if (!runtimeNames.Add(tool.Name))
-            {
-                throw new InvalidDataException($"tool '{tool.Name}' is registered more than once");
-            }
-        }
-
-        foreach (var name in runtimeNames)
-        {
-            if (!_definitions.ContainsKey(name))
-            {
-                throw new InvalidDataException($"tools.{name} is not defined");
-            }
-        }
-
-        foreach (var name in _definitions.Keys)
-        {
-            if (!runtimeNames.Contains(name))
-            {
-                throw new InvalidDataException($"tools.{name} does not match a registered tool");
-            }
-        }
-
-        return [.. runtimeTools.Select(tool =>
-        {
-            var definition = _definitions[tool.Name];
-            return new LLMToolDefinition(tool.Name, definition.Description, definition.ParametersJson);
-        })];
-    }
+    public IToolDefinition Describe(string name) =>
+        _definitions.TryGetValue(name, out var definition)
+            ? definition
+            : throw new InvalidDataException($"tools.{name} is not defined");
 }

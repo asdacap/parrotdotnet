@@ -23,7 +23,7 @@ internal sealed class ToolSnapshotTests
         var snapshot = ToolSnapshot.Document(
             tools,
             [.. names.Select(_ => true)],
-            new TestToolDefinitionsFixture([.. names]).Definitions);
+            [.. names.Select(_ => TestModels.ToolDefinition)]);
 
         var surviving = snapshot.EnabledAfterInterruption();
         var survivingNames = surviving.Tools.Select(tool => tool.Name).ToArray();
@@ -43,13 +43,24 @@ internal sealed class ToolSnapshotTests
         var snapshot = ToolSnapshot.Document(
             [new FlaggedTool("survivor", true), new FlaggedTool("worker", false)],
             [true, true],
-            new TestToolDefinitionsFixture("survivor", "worker").Definitions);
+            [TestModels.ToolDefinition, TestModels.ToolDefinition]);
 
         var surviving = snapshot.EnabledAfterInterruption();
 
         _ = await Assert.That(surviving.Tools.Select(tool => tool.Name).Single()).IsEqualTo("survivor");
         _ = await Assert.That(snapshot.Tools.Count).IsEqualTo(2);
         _ = await Assert.That(snapshot.Find("worker")).IsNotNull();
+    }
+
+    [Test]
+    public async Task Duplicate_runtime_tool_names_fail_closed()
+    {
+        var exception = Assert.Throws<InvalidDataException>(() => ToolSnapshot.Document(
+            [new FlaggedTool("work", true), new FlaggedTool("work", true)],
+            [true, true],
+            [TestModels.ToolDefinition, TestModels.ToolDefinition]));
+
+        _ = await Assert.That(exception.Message).IsEqualTo("tool 'work' is registered more than once");
     }
 
     private sealed class FlaggedTool(string name, bool survives) : ITool
