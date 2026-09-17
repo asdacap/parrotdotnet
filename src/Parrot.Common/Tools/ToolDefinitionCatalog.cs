@@ -3,23 +3,12 @@ using Parrot.Llm;
 
 namespace Parrot.Tools;
 
-internal sealed class ToolDefinitionCatalog(IReadOnlyDictionary<string, ConfiguredToolDefinition> definitions)
+internal sealed class ToolDefinitionCatalog(IReadOnlyDictionary<string, IToolDefinition> definitions)
 {
-    private readonly ReadOnlyDictionary<string, ConfiguredToolDefinition> _definitions =
-        new(definitions.ToDictionary(
-            definition => definition.Key,
-            definition => new ConfiguredToolDefinition(
-                definition.Value.Description,
-                definition.Value.ParametersJson),
-            StringComparer.Ordinal));
+    private readonly ReadOnlyDictionary<string, IToolDefinition> _definitions =
+        new(new Dictionary<string, IToolDefinition>(definitions, StringComparer.Ordinal));
 
-    public IReadOnlyDictionary<string, ConfiguredToolDefinition> Definitions => _definitions;
-
-    public ToolDefinitionCatalog ReplaceDescription(string name, string description) =>
-        new(new Dictionary<string, ConfiguredToolDefinition>(_definitions, StringComparer.Ordinal)
-        {
-            [name] = _definitions[name] with { Description = description },
-        });
+    public IReadOnlyDictionary<string, IToolDefinition> Definitions => _definitions;
 
     public IReadOnlyList<LLMToolDefinition> Document(IReadOnlyList<ITool> runtimeTools)
     {

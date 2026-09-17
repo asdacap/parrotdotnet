@@ -67,7 +67,7 @@ internal sealed class OpenAICompatibleProviderTests
                 configurationPath,
                 Path.Combine(directory, "predefined_config.yaml"));
             var definitions = new ToolDefinitionCatalog(
-                new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal)
+                new Dictionary<string, IToolDefinition>(StringComparer.Ordinal)
                 {
                     ["read"] = configuration.ToolDefinitions.Definitions["read"],
                     ["glob"] = configuration.ToolDefinitions.Definitions["glob"],

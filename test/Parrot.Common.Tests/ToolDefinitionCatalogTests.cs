@@ -11,7 +11,7 @@ internal sealed class ToolDefinitionCatalogTests
     {
         const string parameters = """{"type":"object","properties":{"description":{"type":"string","description":"Semantic value."}},"required":["description"],"additionalProperties":false}""";
         var catalog = new ToolDefinitionCatalog(
-            new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal)
+            new Dictionary<string, IToolDefinition>(StringComparer.Ordinal)
             {
                 ["work"] = new ConfiguredToolDefinition("Does work.", parameters),
             });
@@ -30,7 +30,7 @@ internal sealed class ToolDefinitionCatalogTests
     [Arguments("extra-tool", "tools.extra does not match a registered tool")]
     public async Task Invalid_catalog_correspondence_fails_closed(string scenario, string message)
     {
-        var definitions = new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal)
+        var definitions = new Dictionary<string, IToolDefinition>(StringComparer.Ordinal)
         {
             ["work"] = new ConfiguredToolDefinition("Does work.", """{"type":"object","additionalProperties":false}"""),
         };
@@ -53,7 +53,7 @@ internal sealed class ToolDefinitionCatalogTests
     public async Task Duplicate_runtime_tool_ids_fail_closed()
     {
         var catalog = new ToolDefinitionCatalog(
-            new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal)
+            new Dictionary<string, IToolDefinition>(StringComparer.Ordinal)
             {
                 ["work"] = new ConfiguredToolDefinition("Does work.", """{"type":"object","additionalProperties":false}"""),
             });

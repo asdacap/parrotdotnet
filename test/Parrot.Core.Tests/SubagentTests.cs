@@ -950,7 +950,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             Path.Combine(root, "config.yaml"),
             Path.Combine(root, "predefined_config.yaml"));
         var definitions = new ToolDefinitionCatalog(
-            new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal)
+            new Dictionary<string, IToolDefinition>(StringComparer.Ordinal)
             {
                 [send.Name] = configuration.ToolDefinitions.Definitions[send.Name],
             });
@@ -1528,18 +1528,15 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
         if (!toParent)
         {
-            var configured = new ToolDefinitionCatalog(new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal)
-            {
-                ["agent_send"] = new ConfiguredToolDefinition("Send to the parent.", "{}"),
-            });
-            var amended = new AgentSendWithoutParentAmendment(TestModels.PromptTemplates).Amend(configured).Definitions["agent_send"];
+            IToolDefinition withoutParent = new AgentSendWithoutParentDefinition(
+                new ConfiguredToolDefinition("Send to the parent.", "{}"),
+                TestModels.PromptTemplates);
 
             _ = await Assert.That(sent)
                 .IsEqualTo("error: sending to the parent agent is disabled; report through the final message instead");
-            _ = await Assert.That(amended.Description)
+            _ = await Assert.That(withoutParent.Description)
                 .IsEqualTo(TestModels.PromptTemplates.Render("agent-send-tool.description-without-parent", []));
-            _ = await Assert.That(amended.ParametersJson).IsEqualTo("{}");
-            _ = await Assert.That(configured.Definitions["agent_send"].Description).IsEqualTo("Send to the parent.");
+            _ = await Assert.That(withoutParent.ParametersJson).IsEqualTo("{}");
             return;
         }
 

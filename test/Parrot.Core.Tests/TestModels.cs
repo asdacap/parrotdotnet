@@ -129,7 +129,7 @@ internal static class TestModels
     public static AgentSendConfig AgentSend { get; } = new(true);
 
     public static ToolDefinitionCatalog EmptyToolDefinitions { get; } = new(
-        new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal));
+        new Dictionary<string, IToolDefinition>(StringComparer.Ordinal));
 
     public static CompactionGroupBlobStore CompactionGroupBlobs() =>
         new(new AgentScratchDirectory(Path.Combine(

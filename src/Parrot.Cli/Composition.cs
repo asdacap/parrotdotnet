@@ -218,9 +218,13 @@ internal partial class Composition
                 ctx.Inject<Configuration>(out var configuration);
                 ctx.Inject<IModelRouter>(out var router);
                 ctx.Inject<ISystemPromptProvider>(out var systemPromptProvider);
-                var toolDefinitions = configuration.AgentSend.ToParent
-                    ? configuration.ToolDefinitions
-                    : new AgentSendWithoutParentAmendment(configuration.PromptTemplates).Amend(configuration.ToolDefinitions);
+                var toolDefinitions = configuration.ToolDefinitions;
+                if (!configuration.AgentSend.ToParent)
+                {
+                    var definitions = new Dictionary<string, IToolDefinition>(toolDefinitions.Definitions, StringComparer.Ordinal);
+                    definitions["agent_send"] = new AgentSendWithoutParentDefinition(definitions["agent_send"], configuration.PromptTemplates);
+                    toolDefinitions = new ToolDefinitionCatalog(definitions);
+                }
 
                 return new AgentSessionFactorySource(
                     processes,

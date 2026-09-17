@@ -108,7 +108,7 @@ internal sealed partial class Configuration(string path)
     public AgentSendConfig AgentSend { get; private set; } = new(true);
 
     public ToolDefinitionCatalog ToolDefinitions { get; private set; } = new(
-        new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal));
+        new Dictionary<string, IToolDefinition>(StringComparer.Ordinal));
 
     public SkillConfiguration Skills { get; private set; } = SkillConfiguration.Default;
 
@@ -1455,7 +1455,7 @@ internal sealed partial class Configuration(string path)
             throw new InvalidDataException($"{ToolsKey} must be a mapping");
         }
 
-        var result = new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal);
+        var result = new Dictionary<string, IToolDefinition>(StringComparer.Ordinal);
         foreach (var entry in tools.Children)
         {
             if (entry.Key is not YamlScalarNode { Value: { Length: > 0 } name } ||
