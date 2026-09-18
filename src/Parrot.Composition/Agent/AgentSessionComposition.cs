@@ -454,6 +454,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Root<IChildQuestionCoordinator>("ChildQuestions")
             .Root<IProcessOwner>("Processes")
             .Root<IAgentQueues>("Queues")
+            .Root<IRuntimeStatus>("Status")
             .Root<IReadOnlyList<IInventoryPublisher>>("Publishers")
             .Root<IReadOnlyList<IAgentWorkOwner>>("WorkOwners");
 }

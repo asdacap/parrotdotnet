@@ -10,6 +10,7 @@ using Parrot.Process;
 using Parrot.Questions;
 using Parrot.Security;
 using Parrot.Skills;
+using Parrot.Statuses;
 using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
@@ -959,6 +960,86 @@ internal sealed class ParrotService(
     // slowest session rather than as long as all of them added up.
     public ValueTask DisposeAsync() => _userSessions.DisposeAsync();
 
+    public override async Task<SessionStatusResponse> SessionStatus(
+        SessionStatusRequest request,
+        ServerCallContext context)
+    {
+        var started = Stopwatch.GetTimestamp();
+        var correlationId = Guid.NewGuid().ToString("N");
+        var operationDiagnostics = diagnostics;
+        var outcome = "succeeded";
+        operationDiagnostics.Write(new DiagnosticEvent("protocol", "session_status_start", DiagnosticSeverity.Information)
+        {
+            CorrelationId = correlationId,
+        });
+        try
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            ArgumentNullException.ThrowIfNull(context);
+            context.CancellationToken.ThrowIfCancellationRequested();
+            var found = Find(request.UserSessionId);
+            operationDiagnostics = found.Diagnostics;
+            var scope = found.Registry.SnapshotScopes()
+                .FirstOrDefault(static scope => scope.Session.Depth == 0)
+                ?? throw new RpcException(new Status(StatusCode.NotFound, "the user session has no agent session"));
+
+            var agent = scope.Session;
+            var captured = agent.ResolvePolicySelection();
+            var resolved = router.Resolve(captured.RequestedModel.Value);
+            var selection = new AgentTurnSelection(resolved.RequestedSelector, resolved, captured.Mode, captured.SecurityProfile);
+            var status = await scope.GetService<IRuntimeStatus>()
+                .ObserveWithContext(agent, selection, selection.Profile, agent.EstimateContext(selection), context.CancellationToken)
+                .ConfigureAwait(false);
+
+            var response = new SessionStatusResponse { Status = status };
+            response.UsageLines.AddRange(await UsageLines(resolved, context.CancellationToken).ConfigureAwait(false));
+            return response;
+        }
+        catch (Exception failure)
+        {
+            outcome = failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? "cancelled" : "failed";
+            operationDiagnostics.Write(new DiagnosticEvent(
+                "protocol", "session_status_failure", failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+            {
+                CorrelationId = correlationId,
+                ErrorCode = failure is RpcException rpcFailure
+                    ? rpcFailure.StatusCode.ToString() : DiagnosticEvent.ClassifyFailure(failure),
+                Outcome = outcome,
+            });
+            throw;
+        }
+        finally
+        {
+            operationDiagnostics.Write(new DiagnosticEvent("protocol", "session_status_complete", DiagnosticSeverity.Information)
+            {
+                CorrelationId = correlationId,
+                Outcome = outcome,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            });
+        }
+    }
+
+    private static List<string> FormatUsage(SubscriptionUsage usage)
+    {
+        var lines = new List<string>();
+        if (usage.PrimaryWindow is { } primary)
+        {
+            lines.Add($"Primary window: {primary.UsedPercent:0}% used, resets {primary.ResetAt:yyyy-MM-ddTHH:mm:ssZ}");
+        }
+
+        if (usage.SecondaryWindow is { } secondary)
+        {
+            lines.Add($"Secondary window: {secondary.UsedPercent:0}% used, resets {secondary.ResetAt:yyyy-MM-ddTHH:mm:ssZ}");
+        }
+
+        if (usage.Credits is { } credits && credits.HasCredits)
+        {
+            lines.Add($"Credits: {credits.Balance}");
+        }
+
+        return lines.Count == 0 ? ["Usage unavailable"] : lines;
+    }
+
     private static UserSessionId ParseSessionId(string value) =>
         UserSessionId.TryParse(value, out var id)
             ? id
@@ -1230,6 +1311,28 @@ internal sealed class ParrotService(
                 DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
             });
             throw;
+        }
+    }
+
+    private async Task<List<string>> UsageLines(ResolvedModelSelection resolved, CancellationToken cancellationToken)
+    {
+        var provider = registry.List().FirstOrDefault(candidate => string.Equals(candidate.Id, resolved.CanonicalModel.Provider.Id, StringComparison.Ordinal));
+        if (provider is null || provider.UsageReporter is null)
+        {
+            return ["Provider does not report usage"];
+        }
+
+        try
+        {
+            return FormatUsage(await provider.UsageReporter.Usage(cancellationToken).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return ["Usage unavailable"];
         }
     }
 

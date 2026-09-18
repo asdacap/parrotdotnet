@@ -8,6 +8,7 @@ using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Questions;
 using Parrot.Queues;
+using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -55,6 +56,10 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         _services.Register<IProcessOwner>(_processes);
         _services.Register<IAgentTaskRunCatalog>(_agentTaskRuns);
         _services.Register<IChildQuestion>(_childQuestion);
+        _services.Register<IRuntimeStatus>(new RuntimeStatus(
+            promptTemplates,
+            TimeProvider.System,
+            [new RuntimeTreeStatusProvider(registry, promptTemplates), new AgentTaskStatusProvider(_agentTaskRuns, promptTemplates)]));
         _queues.Initialize();
         ParentScope = AgentSessionParentScope.Bind(owner, registry, () => this, ChildRegistry, parentLink);
         AgentSpawner = new AgentSpawner(owner, registry, ParentScope, ChildRegistry);

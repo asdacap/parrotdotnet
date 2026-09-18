@@ -217,6 +217,35 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    public async Task Session_status_reports_the_root_agent_and_provider_usage(
+        CancellationToken cancellationToken)
+    {
+        await using var service = Service(Store(new DirectAgentSessions()));
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+        var created = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection }, cancellationToken: cancellationToken);
+
+        var status = await client.SessionStatusAsync(
+            new SessionStatusRequest { UserSessionId = created.Id }, cancellationToken: cancellationToken);
+
+        _ = await Assert.That(status.Status).Contains($"Model: {Selection}");
+        _ = await Assert.That(status.UsageLines).Contains("Provider does not report usage");
+    }
+
+    [Test]
+    public async Task Session_status_rejects_unhosted_sessions(CancellationToken cancellationToken)
+    {
+        await using var service = Service(Store(new DirectAgentSessions()));
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+
+        var missing = await Assert.That(async () => await client.SessionStatusAsync(
+            new SessionStatusRequest { UserSessionId = "missing" }, cancellationToken: cancellationToken))
+            .Throws<RpcException>();
+
+        _ = await Assert.That(missing?.StatusCode).IsEqualTo(StatusCode.NotFound);
+    }
+
+    [Test]
     public async Task Images_are_uploaded_with_canonical_metadata_and_admitted_as_structured_parts(
         CancellationToken cancellationToken)
     {

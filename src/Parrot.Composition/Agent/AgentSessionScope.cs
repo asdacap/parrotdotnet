@@ -4,6 +4,7 @@ using Parrot.Events;
 using Parrot.Process;
 using Parrot.Questions;
 using Parrot.Queues;
+using Parrot.Statuses;
 
 namespace Parrot.Agent;
 
@@ -38,6 +39,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
             _services.Register<IProcessOwner>(_composition.Processes);
             _services.Register<IAgentTaskRunCatalog>(_composition.AgentTaskRuns);
             _services.Register<IChildQuestion>(_composition.ChildQuestion);
+            _services.Register<IRuntimeStatus>(_composition.Status);
             ChildRegistry = _composition.ChildRegistry;
             ParentScope = _composition.ParentScope;
             ChildQuestions = _composition.ChildQuestions;

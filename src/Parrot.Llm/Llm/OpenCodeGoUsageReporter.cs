@@ -29,10 +29,14 @@ internal sealed class OpenCodeGoUsageReporter(OpenAICompatibleOptions options, H
         var root = document.RootElement;
         var useBalance = JsonRead.Bool(root, "useBalance");
 
-        var primary = Window(root, "rollingUsage");
+        var usage = root.TryGetProperty("usage", out var usageElement) && usageElement.ValueKind == JsonValueKind.Object
+            ? usageElement
+            : root;
+
+        var primary = Window(usage, "rolling");
         UsageWindow? secondary = null;
 
-        if (Window(root, "weeklyUsage") is { } weekly)
+        if (Window(usage, "weekly") is { } weekly)
         {
             if (primary is null)
             {
@@ -44,7 +48,29 @@ internal sealed class OpenCodeGoUsageReporter(OpenAICompatibleOptions options, H
             }
         }
 
-        primary ??= Window(root, "monthlyUsage");
+        primary ??= Window(usage, "monthly");
+
+        if (primary is null)
+        {
+            var legacyPrimary = Window(root, "rollingUsage");
+            UsageWindow? legacySecondary = null;
+
+            if (Window(root, "weeklyUsage") is { } legacyWeekly)
+            {
+                if (legacyPrimary is null)
+                {
+                    legacyPrimary = legacyWeekly;
+                }
+                else
+                {
+                    legacySecondary = legacyWeekly;
+                }
+            }
+
+            legacyPrimary ??= Window(root, "monthlyUsage");
+            primary = legacyPrimary;
+            secondary = legacySecondary;
+        }
 
         UsageCredits? credits = null;
 
@@ -64,7 +90,11 @@ internal sealed class OpenCodeGoUsageReporter(OpenAICompatibleOptions options, H
             return null;
         }
 
-        var usedPercent = JsonRead.Number(window, "usedPercent");
+        var usedPercent = JsonRead.Number(window, "percent");
+        if (usedPercent == 0)
+        {
+            usedPercent = JsonRead.Number(window, "usedPercent");
+        }
 
         if (usedPercent == 0)
         {
@@ -76,14 +106,18 @@ internal sealed class OpenCodeGoUsageReporter(OpenAICompatibleOptions options, H
             }
         }
 
-        var resetAt = ParseReset(JsonRead.String(window, "resetAt"));
+        var resetAt = ParseReset(JsonRead.String(window, "resetsAt"));
+        if (resetAt is null || resetAt.Value == DateTimeOffset.UnixEpoch)
+        {
+            resetAt = ParseReset(JsonRead.String(window, "resetAt"));
+        }
 
         if (resetAt is null)
         {
             return null;
         }
 
-        return new UsageWindow(usedPercent, resetAt.Value, (long)JsonRead.Number(window, "window"));
+        return new UsageWindow(usedPercent, resetAt.Value, 0);
     }
 
     private static DateTimeOffset? ParseReset(string value)
