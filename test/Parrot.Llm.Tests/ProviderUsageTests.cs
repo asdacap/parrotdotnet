@@ -29,7 +29,7 @@ internal sealed class ProviderUsageTests
                 """,
             "kimi" => """{"data":{"available_balance":12.50}}""",
             "opencode-go" => """
-                {"useBalance":true,"rollingUsage":{"remainingPercent":75,"resetAt":"2025-01-01T00:00:00Z","window":18000},"weeklyUsage":{"usedPercent":60,"resetAt":"2025-01-08T00:00:00Z","window":604800}}
+                {"useBalance":true,"usage":{"rolling":{"percent":25,"resetsAt":"2025-01-01T00:00:00Z"},"weekly":{"percent":60,"resetsAt":"2025-01-08T00:00:00Z"}}}
                 """,
             _ => "{}",
         };
@@ -94,6 +94,12 @@ internal sealed class ProviderUsageTests
                 Credits = new UsageCredits(true, "12.50"),
             },
             "kimi" => new SubscriptionUsage { Credits = new UsageCredits(true, "12.50") },
+            "opencode-go" => new SubscriptionUsage
+            {
+                PrimaryWindow = new UsageWindow(25, DateTimeOffset.FromUnixTimeSeconds(1735689600), 0),
+                SecondaryWindow = new UsageWindow(60, DateTimeOffset.FromUnixTimeSeconds(1736294400), 0),
+                Credits = new UsageCredits(true, "75% remaining"),
+            },
             _ => new SubscriptionUsage
             {
                 PrimaryWindow = primaryWindow,

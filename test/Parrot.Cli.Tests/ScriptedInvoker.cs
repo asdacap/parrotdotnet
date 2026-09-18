@@ -32,6 +32,7 @@ internal sealed class ScriptedInvoker : CallInvoker
     private readonly List<AttachmentUploadFrame> _uploadedAttachments = [];
     private readonly List<CompactRequest> _compactions = [];
     private readonly List<ConfigureSkillRequest> _configuredSkills = [];
+    private readonly List<SessionStatusRequest> _statuses = [];
     private readonly Dictionary<string, List<Skill>> _skills = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _skillLists = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();
@@ -164,6 +165,23 @@ internal sealed class ScriptedInvoker : CallInvoker
             }
         }
     }
+
+    public IReadOnlyList<SessionStatusRequest> Statuses
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _statuses.Select(request => request.Clone())];
+            }
+        }
+    }
+
+    public string StatusText { get; set; } = "status text";
+
+    public IReadOnlyList<string> UsageLines { get; set; } = ["usage line"];
+
+    public StatusCode? StatusFailure { get; set; }
 
     public IReadOnlyList<AttachmentUploadFrame> UploadedAttachments
     {
@@ -629,6 +647,21 @@ internal sealed class ScriptedInvoker : CallInvoker
                 }
 
                 answered = new CompactResponse();
+                break;
+            case SessionStatusRequest statusRequest:
+                if (StatusFailure is { } statusFailure)
+                {
+                    return Failed<TResponse>(statusFailure, "scripted status failure");
+                }
+
+                lock (_gate)
+                {
+                    _statuses.Add(statusRequest.Clone());
+                }
+
+                var scriptedStatus = new SessionStatusResponse { Status = StatusText };
+                scriptedStatus.UsageLines.Add(UsageLines);
+                answered = scriptedStatus;
                 break;
             case SendMessageRequest send:
                 lock (_gate)

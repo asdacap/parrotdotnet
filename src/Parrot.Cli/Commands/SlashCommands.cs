@@ -37,6 +37,7 @@ internal static class SlashCommands
         commands.Add(new ModelsCommand(client, dialog));
         commands.Add(new ModesCommand(client, dialog));
         commands.Add(new SessionsCommand(client, session, dialog));
+        commands.Add(new StatusCommand(client, session, dialog));
         commands.Add(new SandboxEnableCommand(session, dialog));
         commands.Add(new SetContextLimitCommand(session, dialog));
         commands.Add(new SkillsCommand(session, activity, dialog, refreshSkillCompletion));

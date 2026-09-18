@@ -115,6 +115,8 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
                 await service.SetContextLimit(setContextLimit, context).ConfigureAwait(false),
             SandboxEnableRequest sandboxEnable =>
                 await service.SandboxEnable(sandboxEnable, context).ConfigureAwait(false),
+            SessionStatusRequest sessionStatus =>
+                await service.SessionStatus(sessionStatus, context).ConfigureAwait(false),
             ListPendingQuestionsRequest list =>
                 await service.ListPendingQuestions(list, context).ConfigureAwait(false),
             ReplyQuestionRequest reply => await service.ReplyQuestion(reply, context).ConfigureAwait(false),
