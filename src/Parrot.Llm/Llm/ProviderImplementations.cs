@@ -108,6 +108,7 @@ internal static class ProviderImplementations
                 HeaderTimeout = TimeSpan.FromMilliseconds(config.HeaderTimeoutMs),
                 StreamIdleTimeout = TimeSpan.FromMilliseconds(config.StreamIdleTimeoutMs),
                 ProviderPreferences = supportsProviderPreferences ? config.ProviderPreferences : string.Empty,
+                SessionHeader = config.SessionHeader,
             };
             var provider = build(options, context.HttpClient);
             return new(provider, provider.SeedModels());

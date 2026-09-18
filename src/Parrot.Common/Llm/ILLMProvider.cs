@@ -23,7 +23,7 @@ internal interface ILLMProvider
     Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken);
 
     // The caller owns the session and must dispose it after all calls finish.
-    ILLMProviderSession OpenSession() => new StatelessProviderSession(this);
+    ILLMProviderSession OpenSession() => new StatelessProviderSession(Call);
 
     // Streaming is an IAsyncEnumerable, per MIGRATION.md section 3. The last
     // event is Completed and carries the durable outcome, so there is no second

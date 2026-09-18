@@ -111,6 +111,7 @@ internal sealed class OpenCodeGoUsageReporter(OpenAICompatibleOptions options, H
         return new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["Authorization"] = "Bearer " + apiKey,
+            ["User-Agent"] = $"{BuildInfo.ProductName}/{BuildInfo.Version}",
         };
     }
 }

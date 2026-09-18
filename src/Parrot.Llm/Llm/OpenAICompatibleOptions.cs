@@ -48,4 +48,7 @@ internal sealed record OpenAICompatibleOptions
     // Forwarded as the top-level "provider" object of each request body. Empty
     // unless the provider supports routing preferences (OpenRouter).
     public string ProviderPreferences { get; init; } = string.Empty;
+
+    // Header carrying a random id that is stable for one provider session; empty sends none.
+    public string SessionHeader { get; init; } = string.Empty;
 }

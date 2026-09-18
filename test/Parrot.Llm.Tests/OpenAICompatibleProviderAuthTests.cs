@@ -41,6 +41,56 @@ internal sealed class OpenAICompatibleProviderAuthTests
     }
 
     [Test]
+    [Arguments(CompatibleProtocol.ChatCompletions, "x-opencode-session")]
+    [Arguments(CompatibleProtocol.Responses, "x-opencode-session")]
+    [Arguments(CompatibleProtocol.ChatCompletions, "")]
+    public async Task Session_header_is_stable_per_session_and_user_agent_identifies_parrot(
+        CompatibleProtocol protocol,
+        string sessionHeader,
+        CancellationToken cancellationToken)
+    {
+        var body = protocol == CompatibleProtocol.Responses
+            ? "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n"
+            : "data: {\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"delta\":{}}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n";
+        using var handler = new RecordingHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "text/event-stream") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "text/event-stream") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "text/event-stream") });
+        using var client = new HttpClient(handler, disposeHandler: false);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = protocol,
+                ApiKeySource = new RecordingApiKeySource(["key", "key", "key"]),
+                SessionHeader = sessionHeader,
+            },
+            client);
+        var request = new LLMRequest { Model = "model-a", Messages = [LLMMessage.User("hello")] };
+        await using var first = provider.OpenSession();
+        await using var second = provider.OpenSession();
+
+        _ = await Drain(first.Call(request, cancellationToken));
+        _ = await Drain(first.Call(request, cancellationToken));
+        _ = await Drain(second.Call(request, cancellationToken));
+
+        _ = await Assert.That(handler.RequestCount).IsEqualTo(3);
+        _ = await Assert.That(string.Join("|", handler.UserAgents))
+            .IsEqualTo($"parrot/{BuildInfo.Version}|parrot/{BuildInfo.Version}|parrot/{BuildInfo.Version}");
+        if (sessionHeader.Length == 0)
+        {
+            _ = await Assert.That(string.Join("|", handler.SessionHeaders)).IsEqualTo("||");
+            return;
+        }
+
+        _ = await Assert.That(handler.SessionHeaders[0].Length).IsEqualTo(32);
+        _ = await Assert.That(handler.SessionHeaders[1]).IsEqualTo(handler.SessionHeaders[0]);
+        _ = await Assert.That(handler.SessionHeaders[2].Length).IsEqualTo(32);
+        _ = await Assert.That(handler.SessionHeaders[2]).IsNotEqualTo(handler.SessionHeaders[0]);
+    }
+
+    [Test]
     public async Task Non_success_responses_preserve_their_body(CancellationToken cancellationToken)
     {
         const string body = """{"error":{"type":"invalid_request","code":"bad","message":"broken"},"trace":"abc"}""";
@@ -351,6 +401,10 @@ internal sealed class OpenAICompatibleProviderAuthTests
 
         public List<string> TenantHeaders { get; } = [];
 
+        public List<string> SessionHeaders { get; } = [];
+
+        public List<string> UserAgents { get; } = [];
+
         public List<string> Paths { get; } = [];
 
         public int RequestCount { get; private set; }
@@ -362,6 +416,10 @@ internal sealed class OpenAICompatibleProviderAuthTests
             TenantHeaders.Add(request.Headers.TryGetValues("X-Tenant", out var values)
                 ? values.Single()
                 : string.Empty);
+            SessionHeaders.Add(request.Headers.TryGetValues("x-opencode-session", out var sessions)
+                ? sessions.Single()
+                : string.Empty);
+            UserAgents.Add(request.Headers.UserAgent.ToString());
             Paths.Add(request.RequestUri?.AbsolutePath ?? string.Empty);
             return Task.FromResult(_responses.Dequeue());
         }

@@ -1,13 +1,14 @@
 namespace Parrot.Llm;
 
-internal sealed class StatelessProviderSession(ILLMProvider provider) : ILLMProviderSession
+internal sealed class StatelessProviderSession(
+    Func<LLMRequest, CancellationToken, IAsyncEnumerable<LLMEvent>> call) : ILLMProviderSession
 {
     public void BeginTurn()
     {
     }
 
     public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
-        provider.Call(request, cancellationToken);
+        call(request, cancellationToken);
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

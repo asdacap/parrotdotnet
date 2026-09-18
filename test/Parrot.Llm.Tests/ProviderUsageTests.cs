@@ -108,6 +108,12 @@ internal sealed class ProviderUsageTests
         _ = await Assert.That(handler.Method).IsEqualTo(HttpMethod.Get);
         _ = await Assert.That(handler.Headers["Authorization"]).IsEqualTo("Bearer usage-token");
         _ = await Assert.That(handler.Headers.ContainsKey("session-id")).IsFalse();
+        _ = await Assert.That(handler.Headers.ContainsKey("x-opencode-session")).IsFalse();
+        if (providerId == "opencode-go")
+        {
+            _ = await Assert.That(handler.Headers["User-Agent"]).IsEqualTo($"parrot/{BuildInfo.Version}");
+        }
+
         if (providerId == "chatgpt")
         {
             _ = await Assert.That(handler.Headers["ChatGPT-Account-Id"]).IsEqualTo("usage-account");

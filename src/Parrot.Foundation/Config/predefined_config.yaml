@@ -1663,6 +1663,7 @@ providers:
     base_url: https://openrouter.ai/api/v1
     api_key_env: OPENROUTER_API_KEY
     header_timeout_ms: 60000
+    session_header: x-session-id
     provider_preferences:
       allow_fallbacks: true
       require_parameters: true
@@ -1673,6 +1674,7 @@ providers:
     base_url: https://opencode.ai/zen/go/v1
     api_key_env: OPENCODE_GO_API_KEY
     header_timeout_ms: 60000
+    session_header: x-opencode-session
     model_defaults:
       minimax-m3: { name: MiniMax M3, reasoning: false }
       minimax-m2.7: { name: MiniMax M2.7, reasoning: false }
@@ -1743,6 +1745,9 @@ providers:
 #     # Extra headers to send. Do not store secrets here.
 #     headers:
 #       X-Tenant: non-secret-value
+#     # Header that carries a random id stable for one provider session, so the
+#     # provider can route a conversation consistently. Empty sends none.
+#     session_header: x-session-id
 #     # Allow plain HTTP for localhost endpoints.
 #     allow_insecure_localhost: false
 #     # Allow plain HTTP for remote endpoints. This exposes credentials and content.

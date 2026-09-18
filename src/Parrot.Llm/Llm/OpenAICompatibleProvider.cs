@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 using Parrot.Llm.Wire;
 
 namespace Parrot.Llm;
@@ -24,6 +25,8 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     private readonly TimeSpan _headerTimeout;
     private readonly TimeSpan _streamIdleTimeout;
     private readonly string _providerPreferences;
+    private readonly string _sessionHeader;
+    private readonly string _sessionId = NewSessionId();
     private readonly IResponsesWebSocketConnector _websocketConnector;
     private readonly bool _disableWebSocket;
     private readonly int _maximumRequestBytes;
@@ -76,6 +79,12 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
         _modelInfoEndpoint = HttpStreaming.EndpointUrl(
             options.BaseUrl, "model/info", options.AllowInsecureLocalhost, options.AllowInsecureRemote);
         _headers = HttpStreaming.ValidateHeaders(options.Headers);
+        _sessionHeader = options.SessionHeader;
+        if (_sessionHeader.Length > 0)
+        {
+            _ = HttpStreaming.ValidateHeaders(new Dictionary<string, string>(StringComparer.Ordinal) { [_sessionHeader] = string.Empty });
+        }
+
         _declared = options.Models;
         _defaults = options.ModelDefaults;
         _external = options.ExternalModels;
@@ -105,12 +114,15 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     // The offline catalogue: what is selectable before the endpoint is reached.
     public IReadOnlyList<LLMModel> SeedModels() => ModelCatalogue.Merge(null, _declared, _defaults, _external);
 
-    public ILLMProviderSession OpenSession() =>
-        _protocol == CompatibleProtocol.Responses
+    public ILLMProviderSession OpenSession()
+    {
+        var sessionId = NewSessionId();
+        return _protocol == CompatibleProtocol.Responses
             ? new OpenAICompatibleProviderSession(
                 Prepare,
-                CallHttp,
-                AuthHeadersForSession,
+                (request, turnState, captureTurnState, cancellationToken) =>
+                    CallHttp(sessionId, request, turnState, captureTurnState, cancellationToken),
+                async cancellationToken => await SessionHeaders(sessionId, cancellationToken).ConfigureAwait(false),
                 _disableWebSocket,
                 new ResponsesWebSocketClient(
                     _websocketConnector,
@@ -118,7 +130,9 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
                     _headerTimeout,
                     ResponsesWebSocket.DefaultIdleTimeout,
                     _maximumRequestBytes))
-            : new StatelessProviderSession(this);
+            : new StatelessProviderSession((request, cancellationToken) =>
+                CallHttp(sessionId, request, string.Empty, static _ => { }, cancellationToken));
+    }
 
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) =>
         _apiKeySource.HasCredential(cancellationToken);
@@ -140,7 +154,9 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     }
 
     public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
-        CallHttp(request, string.Empty, static _ => { }, cancellationToken);
+        CallHttp(_sessionId, request, string.Empty, static _ => { }, cancellationToken);
+
+    private static string NewSessionId() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
 
     private static void CaptureTurnState(
         IReadOnlyDictionary<string, string> headers,
@@ -185,6 +201,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     }
 
     private async IAsyncEnumerable<LLMEvent> CallHttp(
+        string sessionId,
         LLMRequest request,
         string turnState,
         Action<string> captureTurnState,
@@ -197,7 +214,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
             ? ResponsesAdapter.Encode(prepared)
             : ChatCompletionsAdapter.Encode(prepared);
 
-        var headers = await AuthHeaders(cancellationToken).ConfigureAwait(false);
+        var headers = await SessionHeaders(sessionId, cancellationToken).ConfigureAwait(false);
         if (turnState.Length > 0)
         {
             headers["x-codex-turn-state"] = turnState;
@@ -253,6 +270,17 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     private async Task<IReadOnlyDictionary<string, string>> AuthHeadersForSession(CancellationToken cancellationToken) =>
         await AuthHeaders(cancellationToken).ConfigureAwait(false);
 
+    private async Task<Dictionary<string, string>> SessionHeaders(string sessionId, CancellationToken cancellationToken)
+    {
+        var headers = await AuthHeaders(cancellationToken).ConfigureAwait(false);
+        if (_sessionHeader.Length > 0)
+        {
+            headers[_sessionHeader] = sessionId;
+        }
+
+        return headers;
+    }
+
     private async Task<Dictionary<string, string>> AuthHeaders(CancellationToken cancellationToken)
     {
         var apiKey = await _apiKeySource.ApiKey(cancellationToken).ConfigureAwait(false);
@@ -262,9 +290,11 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
             throw new LLMProviderException($"provider: \"{Id}\" has no API key");
         }
 
-        return new Dictionary<string, string>(_headers, StringComparer.Ordinal)
+        var headers = new Dictionary<string, string>(_headers, StringComparer.Ordinal)
         {
             ["Authorization"] = "Bearer " + apiKey,
         };
+        _ = headers.TryAdd("User-Agent", $"{BuildInfo.ProductName}/{BuildInfo.Version}");
+        return headers;
     }
 }

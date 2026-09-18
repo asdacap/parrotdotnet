@@ -1820,6 +1820,7 @@ internal sealed partial class Configuration(string path)
                     : 5,
                 Headers = StringMap(item, "headers"),
                 ProviderPreferences = RawJson(item, "provider_preferences"),
+                SessionHeader = Scalar(item, "session_header"),
                 ModelDefaults = ReadModels(item, "model_defaults"),
                 Models = ReadModels(item, "models"),
             };
