@@ -18,6 +18,9 @@ internal sealed partial class ToolWorkspace(string workingDirectory)
     public static bool AllowsRead((string Lexical, string Physical) path, SecurityProfile security) =>
         security.AllowsRead(path.Lexical) && security.AllowsRead(path.Physical);
 
+    public bool ResolvesToRoot(string path) =>
+        string.Equals(Canonicalize(ResolveLexical(path)), Root, StringComparison.Ordinal);
+
     public (string Lexical, string Physical) ResolveRead(string path)
     {
         var lexical = ResolveLexical(path);
