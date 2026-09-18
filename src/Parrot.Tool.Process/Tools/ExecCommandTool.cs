@@ -11,14 +11,10 @@ namespace Parrot.Tools;
 internal sealed class ExecCommandTool(
     IProcessOwner processes,
     IAgentSession session,
+    ToolWorkspace workspace,
     ReadOnlyExecCommandClassifier readOnlyCommandClassifier) : ITool
 {
     private readonly ReadOnlyExecCommandClassifier _readOnlyCommandClassifier = readOnlyCommandClassifier;
-
-    public ExecCommandTool(IProcessOwner processes, IAgentSession session)
-        : this(processes, session, new ReadOnlyExecCommandClassifier([]))
-    {
-    }
 
     public string Name => "exec_command";
 
@@ -96,6 +92,13 @@ internal sealed class ExecCommandTool(
             }
         }
 
+        if (TryRedundantChangeDirectory(command, out var target))
+        {
+            return ToolResultFormatter.Error(
+                invocation,
+                $"current directory is already '{target}'; do not change directory to conserve token.");
+        }
+
         try
         {
             var process = processes.Start(
@@ -118,6 +121,64 @@ internal sealed class ExecCommandTool(
             return ToolResultFormatter.Error(invocation, failure.Message);
         }
     }
+
+    private static bool IsShellWhitespace(char character) => character is ' ' or '\t' or '\r' or '\n';
+
+    private static int FindCommandTerminator(string command, int start)
+    {
+        for (var index = start; index < command.Length; index++)
+        {
+            if (command[index] is ';' or '\n' or '\r' or '&')
+            {
+                return index;
+            }
+        }
+
+        return command.Length;
+    }
+
+    private bool TryRedundantChangeDirectory(string command, out string target)
+    {
+        target = string.Empty;
+        var start = 0;
+        while (start < command.Length && IsShellWhitespace(command[start]))
+        {
+            start++;
+        }
+
+        if (start + 2 >= command.Length
+            || command[start] != 'c'
+            || command[start + 1] != 'd'
+            || !IsShellWhitespace(command[start + 2]))
+        {
+            return false;
+        }
+
+        start += 3;
+        var end = FindCommandTerminator(command, start);
+        target = command[start..end].Trim();
+        if (target.Length > 1 && target.StartsWith('"') && target.EndsWith('"'))
+        {
+            target = target[1..^1];
+        }
+
+        if (target.Length == 0)
+        {
+            return false;
+        }
+
+        return workspace.ResolvesToRoot(ExpandWorkDirectory(target));
+    }
+
+    private string ExpandWorkDirectory(string target) => target switch
+    {
+        "." or "$WORKDIR" or "${WORKDIR}" => workspace.Root,
+        _ when target.StartsWith("$WORKDIR/", StringComparison.Ordinal)
+            || target.StartsWith("${WORKDIR}/", StringComparison.Ordinal) =>
+            target.Replace("$WORKDIR/", workspace.Root + "/", StringComparison.Ordinal)
+                .Replace("${WORKDIR}/", workspace.Root + "/", StringComparison.Ordinal),
+        _ => target,
+    };
 
     internal sealed class Input
     {

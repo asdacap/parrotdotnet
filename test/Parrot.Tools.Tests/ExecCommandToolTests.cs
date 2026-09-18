@@ -68,13 +68,20 @@ internal sealed class ExecCommandToolTests : IDisposable
             TestDiagnosticLog.Instance,
             CancellationToken.None);
         var securityProfile = SecurityProfile.Compose(readOnly: false, [], [], []);
-        ITool tool = new ExecCommandTool(processes, session);
+        ITool tool = new ExecCommandTool(
+            processes,
+            session,
+            new ToolWorkspace(_workspace),
+            new ReadOnlyExecCommandClassifier([]));
         var selection = new AgentTurnSelection(
             new ModelSelector(model.Selector),
             TestModels.Resolve(model),
             new TestProfileFixture().Mode,
             securityProfile);
-        var factoryTool = new ExecCommandToolFactory(processes, TestModels.ToolDefinitions).Create(session);
+        var factoryTool = new ExecCommandToolFactory(
+            processes,
+            new ToolWorkspace(_workspace),
+            TestModels.ToolDefinitions).Create(session);
         var writeStdinFactoryTool = new WriteStdinToolFactory(processes, TestModels.ToolDefinitions).Create(session);
         _ = await Assert.That(factoryTool.Name).IsEqualTo("exec_command");
         _ = await Assert.That(writeStdinFactoryTool.Name).IsEqualTo("write_stdin");
@@ -123,6 +130,32 @@ internal sealed class ExecCommandToolTests : IDisposable
             .IsEqualTo("error: Tool argument 'env' contains an invalid environment value.");
         _ = await Assert.That(invalidEnvironmentValue.Text)
             .IsEqualTo("error: Tool argument 'env' contains an invalid environment value.");
+
+        var jsonWorkspace = _workspace.Replace("\"", "\\\"", StringComparison.Ordinal);
+        var subdirectory = Path.Combine(_workspace, "sub");
+        _ = Directory.CreateDirectory(subdirectory);
+        var redundantAbsolute = await Execute(tool, $$"""{"command":"cd {{jsonWorkspace}} && pwd"}""", selection, cancellationToken);
+        var redundantDot = await Execute(tool, """{"command":"cd . && pwd"}""", selection, cancellationToken);
+        var redundantWorkDirectory = await Execute(tool, """{"command":"cd $WORKDIR && pwd"}""", selection, cancellationToken);
+        var redundantQuoted = await Execute(tool, $$"""{"command":"cd \"{{jsonWorkspace}}\" && pwd"}""", selection, cancellationToken);
+        var redundantNoOperator = await Execute(tool, $$"""{"command":"cd {{jsonWorkspace}}"}""", selection, cancellationToken);
+        var changedSubdirectory = await Execute(tool, """{"command":"cd sub && pwd"}""", selection, cancellationToken);
+        var trailingChangeDirectory = await Execute(tool, $$"""{"command":"printf x && cd {{jsonWorkspace}}"}""", selection, cancellationToken);
+
+        _ = await Assert.That(redundantAbsolute.Text)
+            .IsEqualTo($"error: current directory is already '{_workspace}'; do not change directory to conserve token.");
+        _ = await Assert.That(redundantDot.Text)
+            .IsEqualTo("error: current directory is already '.'; do not change directory to conserve token.");
+        _ = await Assert.That(redundantWorkDirectory.Text)
+            .IsEqualTo("error: current directory is already '$WORKDIR'; do not change directory to conserve token.");
+        _ = await Assert.That(redundantQuoted.Text)
+            .IsEqualTo($"error: current directory is already '{_workspace}'; do not change directory to conserve token.");
+        _ = await Assert.That(redundantNoOperator.Text)
+            .IsEqualTo($"error: current directory is already '{_workspace}'; do not change directory to conserve token.");
+        _ = await Assert.That(changedSubdirectory.Text).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(changedSubdirectory.Text).EndsWith($"s\n[stdout]\n{subdirectory}\n");
+        _ = await Assert.That(trailingChangeDirectory.Text).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(trailingChangeDirectory.Text).EndsWith("s\n[stdout]\nx");
 
         var spilled = await Execute(tool, """{"command":"awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"x\" }'"}""", selection, cancellationToken);
         const string spillNotice = "\nTool output exceeded 64 KiB and was saved to ";
