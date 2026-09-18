@@ -1821,6 +1821,7 @@ internal sealed partial class Configuration(string path)
                 Headers = StringMap(item, "headers"),
                 ProviderPreferences = RawJson(item, "provider_preferences"),
                 SessionHeader = Scalar(item, "session_header"),
+                ModelsDevId = Scalar(item, "models_dev_id"),
                 ModelDefaults = ReadModels(item, "model_defaults"),
                 Models = ReadModels(item, "models"),
             };

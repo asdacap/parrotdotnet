@@ -42,7 +42,8 @@ internal sealed class ProviderRegistryBuilder(
             }
             else
             {
-                externalModels = externalCatalogues.TryGetValue(id, out var models) ? models : [];
+                var modelsDevId = config.ModelsDevId.Length > 0 ? config.ModelsDevId : id;
+                externalModels = externalCatalogues.TryGetValue(modelsDevId, out var models) ? models : [];
             }
 
             var built = implementation.Build(new(id, config, store, httpClient, browser, externalModels)

@@ -232,6 +232,36 @@ internal sealed class ProviderRegistryTests
     }
 
     [Test]
+    public async Task Build_reads_the_models_dev_catalogue_named_by_models_dev_id(CancellationToken cancellationToken)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-models-dev-id", Guid.NewGuid().ToString("n"));
+        _ = Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "config.yaml");
+
+        try
+        {
+            await File.WriteAllTextAsync(path, string.Empty, cancellationToken);
+            var store = new InMemoryCredentialStore();
+            await store.Set("opencode-zen", Credential.ForApiKey("placeholder"), cancellationToken);
+            using var handler = new ModelsDevHandler();
+            using var client = new HttpClient(handler, disposeHandler: false);
+            using var httpClients = new ProviderHttpClientCatalog(client);
+            var registry = await new ProviderRegistryBuilder(
+                Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml")),
+                store,
+                httpClients,
+                new SystemBrowserOpener(static _ => null),
+                new ModelsDevInformationProvider(client)).Build(cancellationToken);
+
+            _ = await Assert.That(registry.Models("opencode-zen").Select(model => model.Id)).Contains("zen-only");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Build_refreshes_catalogues_without_validating_the_configured_model(
         CancellationToken cancellationToken)
     {
@@ -854,6 +884,24 @@ internal sealed class ProviderRegistryTests
                 Content = new StringContent("temporarily unavailable", Encoding.UTF8, "text/plain"),
             });
         }
+    }
+
+    private sealed class ModelsDevHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(request.RequestUri == new Uri("https://models.dev/api.json")
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """{"opencode":{"id":"opencode","models":{"zen":{"id":"zen-only"}}}}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                }
+                : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+                {
+                    Content = new StringContent("temporarily unavailable", Encoding.UTF8, "text/plain"),
+                });
     }
 
     private sealed class ChatGptModelsHandler : HttpMessageHandler

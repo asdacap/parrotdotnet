@@ -1710,6 +1710,13 @@ providers:
           low: { reasoning_effort: low }
           none: { reasoning_effort: none }
       grok-4.5: {}
+  opencode-zen:
+    protocol: chat-completions
+    base_url: https://opencode.ai/zen/v1
+    api_key_env: OPENCODE_ZEN_API_KEY
+    header_timeout_ms: 60000
+    session_header: x-opencode-session
+    models_dev_id: opencode
   kimi-code:
     protocol: chat-completions
     base_url: https://api.kimi.com/coding/v1
@@ -1748,6 +1755,9 @@ providers:
 #     # Header that carries a random id stable for one provider session, so the
 #     # provider can route a conversation consistently. Empty sends none.
 #     session_header: x-session-id
+#     # models.dev provider id whose catalog supplies model metadata when it
+#     # differs from this provider's id.
+#     models_dev_id: opencode
 #     # Allow plain HTTP for localhost endpoints.
 #     allow_insecure_localhost: false
 #     # Allow plain HTTP for remote endpoints. This exposes credentials and content.

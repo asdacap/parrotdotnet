@@ -35,6 +35,9 @@ internal sealed record ProviderConfig
     // Header carrying a random id that is stable for one provider session; empty sends none.
     public string SessionHeader { get; init; } = string.Empty;
 
+    // models.dev provider whose catalog supplies this provider's model metadata; empty means this provider's own id.
+    public string ModelsDevId { get; init; } = string.Empty;
+
     public IReadOnlyDictionary<string, ModelConfig> ModelDefaults { get; init; } =
         new Dictionary<string, ModelConfig>(StringComparer.Ordinal);
 
