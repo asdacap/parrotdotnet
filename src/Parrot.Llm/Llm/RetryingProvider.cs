@@ -7,8 +7,8 @@ namespace Parrot.Llm;
 // is retried, without ever duplicating output that already reached the client.
 // It folds Go's two retry layers into one: header-timeout retries (configurable,
 // 2s..30s), transient engine-overload retries (<=5, shared budget), and stream
-// reconnects on a dropped connection (<=5). Usage and router metadata are
-// bookkeeping and do not count as visible output.
+// reconnects on a dropped connection (<=5). Backoff delays are awaited through
+// an injected TimeProvider (System by default) so tests can collapse them.
 internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
 {
     private const int StreamMaxRetries = 5;
@@ -18,6 +18,8 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
     private static readonly TimeSpan HeaderRetryMaximumDelay = TimeSpan.FromSeconds(30);
 
     public int HeaderTimeoutMaxRetries { get; init; } = 5;
+
+    public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
 
     public string Id => inner.Id;
 
@@ -37,22 +39,25 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
     public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
         inner.ListModels(cancellationToken);
 
-    public ILLMProviderSession OpenSession() => new RetryingProviderSession(inner.OpenSession(), HeaderTimeoutMaxRetries);
+    public ILLMProviderSession OpenSession() =>
+        new RetryingProviderSession(inner.OpenSession(), HeaderTimeoutMaxRetries, TimeProvider);
 
     public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
-        Retry(inner.Call, request, HeaderTimeoutMaxRetries, cancellationToken);
+        Retry(inner.Call, request, HeaderTimeoutMaxRetries, TimeProvider, cancellationToken);
 
     private static IAsyncEnumerable<LLMEvent> Retry(
         Func<LLMRequest, CancellationToken, IAsyncEnumerable<LLMEvent>> call,
         LLMRequest request,
         int headerTimeoutMaxRetries,
+        TimeProvider timeProvider,
         CancellationToken cancellationToken) =>
-        RetryWithoutFallback(call, request, headerTimeoutMaxRetries, cancellationToken);
+        RetryWithoutFallback(call, request, headerTimeoutMaxRetries, timeProvider, cancellationToken);
 
     private static async IAsyncEnumerable<LLMEvent> RetryWithoutFallback(
         Func<LLMRequest, CancellationToken, IAsyncEnumerable<LLMEvent>> call,
         LLMRequest request,
         int headerTimeoutMaxRetries,
+        TimeProvider timeProvider,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var state = new RetryState(request, headerTimeoutMaxRetries);
@@ -99,7 +104,7 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
 
             yield return LLMEvent.Retry(retry.Attempt, retry.Delay, retry.Reason);
 
-            await Task.Delay(retry.Delay, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(retry.Delay, timeProvider, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -249,9 +254,10 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
         return delay > maximum ? maximum : delay;
     }
 
-    private sealed class RetryingProviderSession(ILLMProviderSession innerSession, int headerTimeoutMaxRetries) : ILLMProviderSession
+    private sealed class RetryingProviderSession(ILLMProviderSession innerSession, int headerTimeoutMaxRetries, TimeProvider timeProvider) : ILLMProviderSession
     {
         private readonly ILLMProviderSession _innerSession = innerSession;
+        private readonly TimeProvider _timeProvider = timeProvider;
 
         public ValueTask<bool> TryFallBackToHttp() => _innerSession.TryFallBackToHttp();
 
@@ -317,7 +323,7 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
 
                 yield return LLMEvent.Retry(retry.Attempt, retry.Delay, retry.Reason);
 
-                await Task.Delay(retry.Delay, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(retry.Delay, _timeProvider, cancellationToken).ConfigureAwait(false);
             }
         }
     }

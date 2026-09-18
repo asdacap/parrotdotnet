@@ -1529,8 +1529,8 @@ internal sealed class DrainTests : IDisposable
             ? new OperationCanceledException("private-sentinel")
             : new HeaderTimeoutException("private-sentinel"));
         ILLMProvider provider = maximumRetries == 5
-            ? new RetryingProvider(failingProvider)
-            : new RetryingProvider(failingProvider) { HeaderTimeoutMaxRetries = maximumRetries };
+            ? new RetryingProvider(failingProvider) { TimeProvider = new ImmediateTimeProvider() }
+            : new RetryingProvider(failingProvider) { HeaderTimeoutMaxRetries = maximumRetries, TimeProvider = new ImmediateTimeProvider() };
         var repository = new EventRepository(_database);
         await using var session = Session(provider, repository, [], cancellationToken);
 

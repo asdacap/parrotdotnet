@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <Compile Include="../Parrot.Core.Tests/ControlledTimeProvider.cs" Link="ControlledTimeProvider.cs" />
+    <Compile Include="../Parrot.Core.Tests/ImmediateTimeProvider.cs" Link="ImmediateTimeProvider.cs" />
     <Compile Include="../Parrot.Core.Tests/UnusedProvider.cs" Link="UnusedProvider.cs" />
   </ItemGroup>
 

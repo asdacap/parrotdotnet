@@ -14,6 +14,8 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         {"type":"response.completed","response":{"id":"resp-1","usage":{"input_tokens":1,"output_tokens":1},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer"}]}]}}
         """;
 
+    private static readonly ImmediateTimeProvider Time = new();
+
     [Test]
     [Arguments(0)]
     [Arguments(1250)]
@@ -575,7 +577,7 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         ]);
         using var handler = new ResponsesHandler(2);
         using var client = new HttpClient(handler, disposeHandler: false);
-        ILLMProvider provider = new RetryingProvider(new OpenAICompatibleProvider(
+        OpenAICompatibleProvider compatible = new(
             new OpenAICompatibleOptions
             {
                 Id = "configured",
@@ -585,7 +587,9 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
                 DisableWebSocket = false,
             },
             client,
-            connector));
+            connector);
+        ILLMProvider provider = new RetryingProvider(compatible) { TimeProvider = Time };
+
         await using var failedSession = provider.OpenSession();
         await using var independentSession = provider.OpenSession();
 
@@ -688,7 +692,7 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         ]);
         using var handler = new TransientResponsesHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
-        ILLMProvider provider = new RetryingProvider(new OpenAICompatibleProvider(
+        OpenAICompatibleProvider compatible = new(
             new OpenAICompatibleOptions
             {
                 Id = "configured",
@@ -698,7 +702,9 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
                 DisableWebSocket = false,
             },
             client,
-            connector));
+            connector);
+        ILLMProvider provider = new RetryingProvider(compatible) { TimeProvider = Time };
+
         await using var session = provider.OpenSession();
 
         var events = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("one")] }, cancellationToken));
@@ -718,7 +724,7 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         var connector = new ScriptedConnector([socket]);
         using var handler = new ResponsesHandler(1);
         using var client = new HttpClient(handler, disposeHandler: false);
-        ILLMProvider provider = new RetryingProvider(new OpenAICompatibleProvider(
+        OpenAICompatibleProvider compatible = new(
             new OpenAICompatibleOptions
             {
                 Id = "configured",
@@ -728,7 +734,9 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
                 DisableWebSocket = false,
             },
             client,
-            connector));
+            connector);
+        ILLMProvider provider = new RetryingProvider(compatible) { TimeProvider = Time };
+
         await using var session = provider.OpenSession();
         var observed = new List<LLMEvent>();
 

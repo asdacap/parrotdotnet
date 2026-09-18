@@ -8,6 +8,8 @@ internal sealed class RetryingProviderTests
 {
     private static readonly LLMRequest Request = new() { Model = "m", Messages = [] };
 
+    private static readonly ImmediateTimeProvider Time = new();
+
     [Test]
     [Arguments(false, LLMEventKind.TextDelta)]
     [Arguments(true, LLMEventKind.TextDelta)]
@@ -55,7 +57,7 @@ internal sealed class RetryingProviderTests
         }
 
         var scripted = new ReplayProvider([.. attempts]);
-        ILLMProvider provider = new RetryingProvider(scripted);
+        ILLMProvider provider = new RetryingProvider(scripted) { TimeProvider = Time };
         await using var session = provider.OpenSession();
         var received = new List<LLMEvent>();
         async Task Consume()
@@ -92,7 +94,7 @@ internal sealed class RetryingProviderTests
         var scripted = new ReplayProvider(
             () => ThrowImmediately(new HeaderTimeoutException()),
             () => Yield(LLMEvent.Completed("stop", 0, 0, 0, string.Empty, [])));
-        ILLMProvider provider = new RetryingProvider(scripted) { HeaderTimeoutMaxRetries = 1 };
+        ILLMProvider provider = new RetryingProvider(scripted) { HeaderTimeoutMaxRetries = 1, TimeProvider = Time };
         await using var session = provider.OpenSession();
         var events = useSession ? session.Call(Request, cancellation.Token) : provider.Call(Request, cancellation.Token);
         await using var enumerator = events.GetAsyncEnumerator(cancellation.Token);
@@ -130,7 +132,7 @@ internal sealed class RetryingProviderTests
                 LLMEvent.HttpRequestStarted(),
                 LLMEvent.HttpResponseHeadersReceived(),
                 LLMEvent.Completed("stop", 1, 0, 1, "answer", [])));
-        ILLMProvider provider = new RetryingProvider(scripted) { HeaderTimeoutMaxRetries = 1 };
+        ILLMProvider provider = new RetryingProvider(scripted) { HeaderTimeoutMaxRetries = 1, TimeProvider = Time };
         await using var session = provider.OpenSession();
         var events = new List<LLMEvent>();
         await foreach (var published in useSession
@@ -164,8 +166,8 @@ internal sealed class RetryingProviderTests
         var scripted = new ReplayProvider([.. Enumerable.Range(0, maximumRetries + 1)
             .Select(_ => (Func<IAsyncEnumerable<LLMEvent>>)(() => ThrowImmediately(timeout)))]);
         ILLMProvider provider = maximumRetries == 5
-            ? new RetryingProvider(scripted)
-            : new RetryingProvider(scripted) { HeaderTimeoutMaxRetries = maximumRetries };
+            ? new RetryingProvider(scripted) { TimeProvider = Time }
+            : new RetryingProvider(scripted) { HeaderTimeoutMaxRetries = maximumRetries, TimeProvider = Time };
         await using var session = provider.OpenSession();
         var events = useSession ? session.Call(Request, cancellationToken) : provider.Call(Request, cancellationToken);
         var retries = new List<LLMEvent>();
@@ -202,7 +204,7 @@ internal sealed class RetryingProviderTests
         var scripted = new ReplayProvider(
             () => ThrowImmediately(new IOException("private-sentinel")),
             () => Yield(completed));
-        ILLMProvider provider = new RetryingProvider(scripted);
+        ILLMProvider provider = new RetryingProvider(scripted) { TimeProvider = Time };
         await using var session = provider.OpenSession();
         var observed = new List<(int Attempt, TimeSpan Delay)>();
         var events = new List<LLMEvent>();
@@ -425,7 +427,7 @@ internal sealed class RetryingProviderTests
             () => ThrowImmediately(new IOException("dropped")),
             () => Yield(LLMEvent.TextDelta("hi"), LLMEvent.Completed("stop", 1, 0, 1, "hi", [])));
 
-        var events = await Drain(new RetryingProvider(scripted), cancellationToken);
+        var events = await Drain(new RetryingProvider(scripted) { TimeProvider = Time }, cancellationToken);
         var text = string.Concat(events.Where(e => e.Kind == LLMEventKind.TextDelta).Select(e => e.Text));
 
         _ = await Assert.That(scripted.Calls).IsEqualTo(2);
@@ -595,7 +597,7 @@ internal sealed class RetryingProviderTests
         var scripted = new ReplayProvider([.. Enumerable.Range(0, 6)
             .Select<int, Func<IAsyncEnumerable<LLMEvent>>>(_ =>
                 () => ThrowImmediately(new ResponsesWebSocketTransportException("dropped")))]);
-        ILLMProvider provider = new RetryingProvider(scripted);
+        ILLMProvider provider = new RetryingProvider(scripted) { TimeProvider = Time };
         await using var session = provider.OpenSession();
 
         async Task Consume()
