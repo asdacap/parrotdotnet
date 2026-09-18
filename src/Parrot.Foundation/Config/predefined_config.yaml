@@ -1008,7 +1008,7 @@ profiles:
 # Parameters use standard JSON Schema represented as YAML.
 tools:
   compact_context:
-    description: Compact only this calling agent session's context without affecting its parent or children, then report the post-operation context status. An optional target_context_size accepts positive whole tokens, an integer k suffix, or a whole percentage of the model context window.
+    description: Compact only this calling agent session's context. An optional target_context_size accepts positive whole tokens, an integer k suffix, or a whole percentage of the model context window.
     parameters:
       type: object
       additionalProperties: false
@@ -1061,7 +1061,7 @@ tools:
       - message
       additionalProperties: false
   agent_status:
-    description: Report the current activity of one direct child agent.
+    description: Report the current activity of a child agent.
     parameters:
       type: object
       properties:
@@ -1073,7 +1073,7 @@ tools:
       - name
       additionalProperties: false
   agent_interrupt:
-    description: Interrupt one direct child agent by name. The child's current turn stops and settles like a parent-initiated interrupt; completion is delivered through its normal completion event.
+    description: Interrupt one direct child agent by name. The child's current turn stops and settles like a parent-initiated interrupt.
     parameters:
       type: object
       properties:
@@ -1084,7 +1084,7 @@ tools:
       - name
       additionalProperties: false
   agent_spawn:
-    description: 'Start a child agent in an isolated session and return immediately. The required name identifies the child among this session''s direct children: an existing idle child with the same normalized name is resumed with the new prompt, model, and profile; an existing running child fails the call. Its terminal result is automatically sent to this session. The result also includes the absolute path of a UTF-8 text file in the child''s scratch blob area that receives the child''s assistant messages as they stream; read it for live progress. The file remains after completion.'
+    description: 'Start a child agent in an isolated session. The name identifies the child among this session''s direct children: an existing idle child with the same normalized name is resumed with the new prompt, model, and profile; an existing running child fails the call. Its terminal result is automatically sent to this session.'
     parameters:
       type: object
       properties:
@@ -1102,7 +1102,7 @@ tools:
         name:
           type: string
           minLength: 1
-          description: 'Required friendly name, unique among this session''s direct children after lowercasing and sanitizing to letters, digits, and hyphens. An existing idle child with this name is resumed instead of creating a new agent; a running child fails the call.'
+          description: 'Required friendly name, unique among this session''s direct children. An existing idle child with this name is resumed instead of creating a new agent; a running child fails the call.'
         scope:
           type: string
           description: Optional problem-space scope for the child; omitted or empty inherits the parent's effective scope. Specify this to prevent subagent for doing redundant work with other agent. Ignored when resuming an existing child.
@@ -1118,19 +1118,18 @@ tools:
       additionalProperties: false
   edit:
     description: Replace exact, case-sensitive text in an existing UTF-8 file. With replace_all false exactly one match is
-      required; with replace_all true zero or more matches are replaced. Relative paths resolve within the workspace; absolute
-      paths require explicit write authorization.
+      required; with replace_all true zero or more matches are replaced.
     parameters:
       type: object
       properties:
         path:
           type: string
           minLength: 1
-          description: Path of the existing UTF-8 file to edit.
+          description: Path of the existing ile to edit.
         old_string:
           type: string
           minLength: 1
-          description: Exact, case-sensitive text to replace.
+          description: Exact text to replace.
         new_string:
           type: string
           description: Text that replaces each selected match.
@@ -1146,8 +1145,7 @@ tools:
   exec_command:
     description: Run a shell command. Command run sandbox by default. Optionally reserve a name unique among this agent session's running processes
       and yield without stopping it; completed process names can be reused and omitted names are generated.
-      Yielded run will send notification to caller once done. Additionally, a non-PTY pipe yield's includes text stdout and stderr paths
-      in this agent's scratch blob area for live parsing if needed. The files remain after completion.
+      Yielded run will send notification to caller once done.
     parameters:
       type: object
       properties:
@@ -1191,8 +1189,7 @@ tools:
       - pattern
       additionalProperties: false
   interrupt_process:
-    description: Send a process signal to a running shell process's tracked top-level wrapper. The signal defaults to 2 and
-      does not target the command or its process tree.
+    description: Send a process signal to a running shell process's tracked top-level wrapper.
     parameters:
       type: object
       properties:
@@ -1204,7 +1201,7 @@ tools:
           minimum: 1
           maximum: 64
           default: 2
-          description: Process signal number from 1 through 64 to send to the tracked top-level process
+          description: Process signal number from 1 through 64
       required:
       - name
   question:
@@ -1260,8 +1257,7 @@ tools:
       - questions
       additionalProperties: false
   queue_create:
-    description: Explicitly create a persistent queue owned by the invoking agent. Its direct children can access it. Queue
-      names may contain lowercase ASCII letters, numbers, and hyphens.
+    description: Explicitly create a persistent queue owned by the invoking agent. Its direct children can access it.
     parameters:
       type: object
       properties:
@@ -1290,8 +1286,7 @@ tools:
   queue_push:
     description: Push strings onto an accessible queue owned by the invoking agent or its direct parent, then optionally close
       it. Exactly one of items or source_file is required. Items may be empty to close without adding data. A source file
-      up to 16 MiB contributes one item per nonblank UTF-8 line. Pushing items to a closed queue fails. Direction defaults
-      to back and close defaults to false.
+      up to 16 MiB contributes one item per nonblank UTF-8 line.
     parameters:
       type: object
       properties:
@@ -1553,7 +1548,7 @@ tools:
           - acceptance_criteria
           additionalProperties: false
   wait:
-    description: Wait for incoming activity. Returns early for a new message, direct child-agent completion, AgentTask graph completion, unclaimed yielded-shell completion. A timeout reports an agent tree containing queues and active processes. Use this rather than `sleep` cli.
+    description: Wait for incoming activity. Returns early for a new message, completed child-agent, AgentTask graph completion, process completion. Do not use the sleep shell command. Use this wait tool than `sleep` cli.
     parameters:
       type: object
       properties:
