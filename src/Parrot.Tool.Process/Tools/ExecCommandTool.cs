@@ -99,6 +99,11 @@ internal sealed class ExecCommandTool(
                 $"current directory is already '{target}'; do not change directory to conserve token.");
         }
 
+        if (TryRejectSleep(command, out var sleepMessage))
+        {
+            return ToolResultFormatter.Error(invocation, sleepMessage);
+        }
+
         try
         {
             var process = processes.Start(
@@ -124,6 +129,9 @@ internal sealed class ExecCommandTool(
 
     private static bool IsShellWhitespace(char character) => character is ' ' or '\t' or '\r' or '\n';
 
+    private static bool IsSleepBoundary(char character) =>
+        IsShellWhitespace(character) || character is ';' or '&';
+
     private static int FindCommandTerminator(string command, int start)
     {
         for (var index = start; index < command.Length; index++)
@@ -135,6 +143,30 @@ internal sealed class ExecCommandTool(
         }
 
         return command.Length;
+    }
+
+    private static bool TryRejectSleep(string command, out string message)
+    {
+        message = string.Empty;
+        var start = 0;
+        while (start < command.Length && IsShellWhitespace(command[start]))
+        {
+            start++;
+        }
+
+        if (!command.AsSpan(start).StartsWith("sleep", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var boundary = start + 5;
+        if (boundary < command.Length && !IsSleepBoundary(command[boundary]))
+        {
+            return false;
+        }
+
+        message = "leading 'sleep' is not allowed in exec_command; use the wait tool to pause instead.";
+        return true;
     }
 
     private bool TryRedundantChangeDirectory(string command, out string target)

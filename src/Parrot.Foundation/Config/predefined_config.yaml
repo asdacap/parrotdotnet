@@ -760,7 +760,6 @@ cli_utilities:
     - ruby
     - rustc
     - shellcheck
-    - sleep
     - swift
     - time
     - timeout
