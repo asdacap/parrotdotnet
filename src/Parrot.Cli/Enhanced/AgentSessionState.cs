@@ -132,7 +132,7 @@ internal sealed class AgentSessionState(string agentSessionId)
         var responseComplete = _responseComplete;
         var responseLineBreaks = _responseLineBreaks;
         var response = DrainResponse();
-        if (response.Length == 0)
+        if (IsBlank(response))
         {
             return;
         }
@@ -195,7 +195,7 @@ internal sealed class AgentSessionState(string agentSessionId)
             : interrupted
                 ? new ActivityNoticeScrollbackValue(TerminalIcons.Interrupted, "agent interrupted")
                 : new ActivityNoticeScrollbackValue(TerminalIcons.Agent, "agent finished");
-        return (AgentActivityId, response, notice);
+        return (AgentActivityId, IsBlank(response) ? string.Empty : response, notice);
     }
 
     public (string ActivityId, ActivityNoticeScrollbackValue Notice)? FinishAgent(Event published, bool failed)
@@ -500,6 +500,8 @@ internal sealed class AgentSessionState(string agentSessionId)
     };
 
     private static string FormatContextLimit(long limit) => limit == 0 ? "?" : FormatTokenCount(limit);
+
+    private static bool IsBlank(string response) => string.IsNullOrWhiteSpace(response);
 
     private string DrainResponse()
     {

@@ -24,7 +24,12 @@ internal static class MarkdownRenderer
     public static IReadOnlyList<string> Render(string prefix, string source, int columns, bool color)
     {
         prefix = TerminalText.Sanitize(prefix);
-        source = TerminalText.Sanitize(source).TrimEnd('\r', '\n');
+        source = TerminalText.Sanitize(source).TrimEnd('\r', '\n').TrimStart('\r', '\n');
+        if (source.Trim().Length == 0)
+        {
+            return [];
+        }
+
         var lines = source.Split('\n');
         var output = new List<string>();
         var continuation = new string(' ', TerminalText.Width(prefix));

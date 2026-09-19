@@ -106,4 +106,21 @@ internal sealed class MarkdownLiveRendererTests
         _ = await Assert.That(beforeBoundary.Scrollback).IsNull();
         _ = await Assert.That(string.Join('\n', boundary.Scrollback?.Render(context) ?? [])).Contains("┌───┬───┐");
     }
+
+    [Test]
+    public async Task Drops_a_leading_blank_line_and_never_promotes_it_into_scrollback()
+    {
+        var renderer = new MarkdownLiveRenderer(static () => 80, false);
+
+        var leading = renderer.Append(new LiveTerminalStreamMessage("answer", "● ", "\n"));
+        var text = renderer.Append(new LiveTerminalStreamMessage("answer", "● ", "hello"));
+        var committed = renderer.Commit();
+
+        var context = new ScrollbackRenderContext(80, new TerminalPalette(false));
+        _ = await Assert.That(leading.Scrollback).IsNull();
+        _ = await Assert.That(text.Scrollback).IsNull();
+        _ = await Assert.That(string.Join('\n', text.Preview)).IsEqualTo("hello");
+        var rendered = committed.Scrollback?.Render(context) ?? [];
+        _ = await Assert.That(string.Join('\n', rendered)).IsEqualTo("● hello");
+    }
 }

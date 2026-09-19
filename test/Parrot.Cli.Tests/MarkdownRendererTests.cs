@@ -32,6 +32,20 @@ internal sealed class MarkdownRendererTests
     }
 
     [Test]
+    [Arguments("\n")]
+    [Arguments("  \n")]
+    [Arguments("\r\n")]
+    public async Task Blank_sources_render_nothing_and_leading_blank_lines_are_dropped(string source)
+    {
+        var rendered = MarkdownRenderer.Render("● ", source, 80, false);
+        var leadingNewline = MarkdownRenderer.Render("● ", "\ndef", 80, false);
+
+        _ = await Assert.That(rendered).IsEmpty();
+        _ = await Assert.That(leadingNewline[0]).IsEqualTo("● def");
+        _ = await Assert.That(leadingNewline.Count).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task Formats_tables_and_fenced_code()
     {
         var source = "| Name | Status |\n| --- | --- |\n| Build | Done |\n\n```csharp\npublic var value = 42;\n```";

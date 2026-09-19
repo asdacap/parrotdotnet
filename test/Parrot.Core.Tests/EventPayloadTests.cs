@@ -708,6 +708,25 @@ internal sealed class EventPayloadTests
         _ = await Assert.That(roundtrippedNonempty.ToolFinished.Result).IsEqualTo("done");
     }
 
+    [Test]
+    public async Task Tool_request_received_roundtrips_as_additive_field_forty_five_and_leaves_payloadless_events_empty()
+    {
+        var source = new Event
+        {
+            ToolRequestReceived = new ToolRequestReceived { ToolCallCount = 3 },
+        };
+
+        var bytes = source.ToByteArray();
+        var roundtripped = Event.Parser.ParseFrom(bytes);
+        var withoutPayload = Event.Parser.ParseFrom(new Event { Id = "nothing" }.ToByteArray());
+
+        _ = await Assert.That(roundtripped.PayloadCase).IsEqualTo(Event.PayloadOneofCase.ToolRequestReceived);
+        _ = await Assert.That(roundtripped.ToolRequestReceived.ToolCallCount).IsEqualTo(3);
+        _ = await Assert.That(bytes[0]).IsEqualTo((byte)0xea);
+        _ = await Assert.That(bytes[1]).IsEqualTo((byte)0x02);
+        _ = await Assert.That(withoutPayload.PayloadCase).IsEqualTo(Event.PayloadOneofCase.None);
+    }
+
     // The payload is the only discriminator, so this pins the provider-event mapping through publication.
     [Test]
     [Arguments(LLMEventKind.TextDelta, Event.PayloadOneofCase.TextChunk)]

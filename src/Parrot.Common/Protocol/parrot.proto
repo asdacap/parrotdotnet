@@ -555,6 +555,7 @@ message Event {
     ProviderRequestPhaseChangedEvent provider_request_phase_changed = 42;
     RequestUsageRecorded request_usage_recorded = 43;
     ToolExecutionStarted tool_execution_started = 44;
+    ToolRequestReceived tool_request_received = 45;
   }
 }
 
@@ -619,6 +620,16 @@ message ToolExecutionStarted {
   string provider = 6;
   string model = 7;
   optional string effort = 8;
+}
+
+// The tool calls one assistant message asked for, counted before any of them
+// run. The tools themselves report start and finish separately, so a client
+// that wants to say how many were requested does not have to count them.
+// There is deliberately no correlation id: the count belongs to the message
+// that just arrived on this same stream, and sequencing on the stream is
+// already the correlation.
+message ToolRequestReceived {
+  int32 tool_call_count = 1;
 }
 
 message ProviderCallUsage {
