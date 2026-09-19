@@ -105,7 +105,7 @@ internal sealed partial class Configuration(string path)
         true,
         new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)));
 
-    public AgentSendConfig AgentSend { get; private set; } = new(true);
+    public AgentSendConfig AgentSend { get; private set; } = new(false);
 
     public ToolDefinitionCatalog ToolDefinitions { get; private set; } = new(
         new Dictionary<string, IToolDefinition>(StringComparer.Ordinal));
