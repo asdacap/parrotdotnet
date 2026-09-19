@@ -52,7 +52,43 @@ internal sealed class AgentTaskProgressLiveValueTests
         var lines = Render(snapshot, 14);
 
         _ = await Assert.That(string.Join('|', lines))
-            .IsEqualTo("• Agent tasks:|  ◐ root|  └── ○ 日本語|       alpha b|      eta");
+            .IsEqualTo("• Agent tasks:|  ◐ root|  └── ○ 日本語|         alpha|         beta");
+    }
+
+    [Test]
+    public async Task Render_hangs_wrapped_rows_at_the_description_text_start()
+    {
+        var snapshot = new AgentTaskProgressSnapshot();
+        var root = new AgentTaskProgressNode
+        {
+            Name = "root",
+            Status = AgentTaskProgressStatus.Running,
+        };
+        root.Children.Add(new AgentTaskProgressNode
+        {
+            Description = "Inspect the poetry lock file and pin the transitive dependency",
+            Status = AgentTaskProgressStatus.Pending,
+        });
+        snapshot.RootNodes.Add(root);
+        var loneRoot = new AgentTaskProgressSnapshot();
+        loneRoot.RootNodes.Add(new AgentTaskProgressNode
+        {
+            Description = "Execute an AgentTask payload and verify its observable result and report back",
+            Status = AgentTaskProgressStatus.Running,
+        });
+
+        _ = await Assert.That(Live(snapshot, 30))
+            .IsEqualTo(Scrollback(snapshot, 30));
+        _ = await Assert.That(Live(snapshot, 30))
+            .IsEqualTo(
+                "• Agent tasks:|  ◐ root|  └── ○ Inspect the poetry loc|        k file and pin the tra|" +
+                "        nsitive dependency");
+        _ = await Assert.That(Live(loneRoot, 40))
+            .IsEqualTo(Scrollback(loneRoot, 40));
+        _ = await Assert.That(Live(loneRoot, 40))
+            .IsEqualTo(
+                "• Agent tasks:|  ◐ Execute an AgentTask payload and ver|    ify its observable result and report|" +
+                "     back");
     }
 
     [Test]
@@ -144,4 +180,11 @@ internal sealed class AgentTaskProgressLiveValueTests
         ILiveBufferItem value = new AgentTaskProgressLiveValue(snapshot);
         return [.. value.Render(new LiveBufferRenderContext(columns, Palette)).Lines.Select(static line => line.Text)];
     }
+
+    private static string Live(AgentTaskProgressSnapshot snapshot, int columns) =>
+        string.Join('|', Render(snapshot, columns));
+
+    private static string Scrollback(AgentTaskProgressSnapshot snapshot, int columns) =>
+        string.Join('|', new AgentTaskProgressScrollbackValue(snapshot)
+            .Render(new ScrollbackRenderContext(columns, Palette)));
 }
