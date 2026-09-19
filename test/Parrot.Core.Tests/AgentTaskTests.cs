@@ -78,6 +78,70 @@ internal sealed class AgentTaskTests
     }
 
     [Test]
+    [Arguments("{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
+    [Arguments("Here is my response:\n{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
+    [Arguments("{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}\nLet me know if you need anything else.")]
+    [Arguments("Sure.\n```json\n{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}\n```\nDone.")]
+    [Arguments("Sure.\n```\n{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}\n```")]
+    [Arguments("\uFEFF  {\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}  ")]
+    public async Task Leaf_responses_tolerate_surrounding_prose_and_fences(string json)
+    {
+        var response = AgentTaskParser.ParseLeafResponse(json);
+
+        _ = await Assert.That(response.Result).IsEqualTo("work result");
+        _ = await Assert.That(response.Verdict.Kind).IsEqualTo(AcceptanceVerdictKind.Accept);
+    }
+
+    [Test]
+    public async Task Leaf_responses_keep_braces_and_brackets_inside_string_values()
+    {
+        var response = AgentTaskParser.ParseLeafResponse(
+            "Here it is:\n{\"result\":\"contains {braces} and [brackets] in the text\",\"verdict\":\"accept\",\"evidence\":\"done\"}");
+
+        _ = await Assert.That(response.Result).IsEqualTo("contains {braces} and [brackets] in the text");
+        _ = await Assert.That(response.Verdict.Kind).IsEqualTo(AcceptanceVerdictKind.Accept);
+    }
+
+    [Test]
+    public async Task Leaf_responses_prefer_the_marker_matching_candidate()
+    {
+        var response = AgentTaskParser.ParseLeafResponse(
+            "Example envelope: {\"result\":\"example\",\"verdict\":\"reject_and_halt\",\"feedback\":\"ignore me\"}\n"
+            + "Here is the answer: {\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}");
+
+        _ = await Assert.That(response.Result).IsEqualTo("work result");
+        _ = await Assert.That(response.Verdict.Kind).IsEqualTo(AcceptanceVerdictKind.Accept);
+    }
+
+    [Test]
+    [Arguments("no json here at all")]
+    [Arguments("I could not complete the task.")]
+    [Arguments("Here is a wrapped envelope: {\"result\":\"x\",\"verdict\":\"accept\",\"evidence\":\"done\",\"unknown\":true}")]
+    public async Task Leaf_responses_still_reject_prose_without_an_envelope_and_unknown_fields(string json) =>
+        _ = await Assert.That(() => AgentTaskParser.ParseLeafResponse(json)).Throws<ArgumentException>();
+
+    [Test]
+    [Arguments("Here is the preparation:\n{\"context\":\"preparation\"}")]
+    [Arguments("```json\n{\"context\":\"preparation\"}\n```")]
+    public async Task Prepare_tolerates_surrounding_prose_and_fences(string json) =>
+        _ = await Assert.That(AgentTaskParser.ParsePrepare(json).Context).IsEqualTo("preparation");
+
+    [Test]
+    [Arguments("Here is the verdict:\n{\"verdict\":\"accept\",\"evidence\":\"done\"}")]
+    [Arguments("```\n{\"verdict\":\"accept\",\"evidence\":\"done\"}\n```")]
+    public async Task Verdicts_tolerate_surrounding_prose_and_fences(string json) =>
+        _ = await Assert.That(AgentTaskParser.ParseVerdict(json).Kind).IsEqualTo(AcceptanceVerdictKind.Accept);
+
+    [Test]
+    public async Task Artifacts_tolerate_surrounding_prose()
+    {
+        var artifact = AgentTaskParser.ParseArtifact(
+            "Here is the task graph:\n```json\n{\"schema_version\":1,\"tasks\":[{\"name\":\"single\",\"description\":\"d\",\"payload\":\"p\",\"acceptance_criteria\":\"a\"}]}\n```");
+
+        _ = await Assert.That(artifact.DisplayName).IsEqualTo("single");
+    }
+
+    [Test]
     [Arguments("{\"verdict\":\"accept\",\"evidence\":\"done\"}")]
     [Arguments("{\"context\":\"   \",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
     [Arguments("{\"result\":\"x\",\"verdict\":\"accept\",\"evidence\":\"   \"}")]

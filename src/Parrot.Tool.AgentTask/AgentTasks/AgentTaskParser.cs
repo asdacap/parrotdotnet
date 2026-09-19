@@ -6,8 +6,9 @@ internal static class AgentTaskParser
 {
     internal static AgentTaskArtifact ParseArtifact(string json)
     {
-        var wire = Deserialize<AgentTaskArtifactWire>(json, AgentTaskWireJsonContext.Default.AgentTaskArtifactWire);
-        using var document = JsonDocument.Parse(json);
+        var envelope = JsonEnvelope.Extract(json, "schema_version", "tasks");
+        var wire = Deserialize<AgentTaskArtifactWire>(envelope, AgentTaskWireJsonContext.Default.AgentTaskArtifactWire);
+        using var document = JsonDocument.Parse(envelope);
         var root = document.RootElement;
         RequireObject(root, "artifact");
         RejectUnknown(root, "artifact", "schema_version", "tasks");
@@ -24,8 +25,9 @@ internal static class AgentTaskParser
 
     internal static AgentTaskPrepareResult ParsePrepare(string json)
     {
-        _ = Deserialize<AgentTaskPrepareWire>(json, AgentTaskWireJsonContext.Default.AgentTaskPrepareWire);
-        using var document = JsonDocument.Parse(json);
+        var envelope = JsonEnvelope.Extract(json, "context");
+        _ = Deserialize<AgentTaskPrepareWire>(envelope, AgentTaskWireJsonContext.Default.AgentTaskPrepareWire);
+        using var document = JsonDocument.Parse(envelope);
         var root = document.RootElement;
         RequireObject(root, "prepare response");
         RejectUnknown(root, "prepare response", "context", "task_patch");
@@ -46,8 +48,9 @@ internal static class AgentTaskParser
 
     internal static AcceptanceVerdict ParseVerdict(string json)
     {
-        _ = Deserialize<AcceptanceVerdictWire>(json, AgentTaskWireJsonContext.Default.AcceptanceVerdictWire);
-        using var document = JsonDocument.Parse(json);
+        var envelope = JsonEnvelope.Extract(json, "verdict");
+        _ = Deserialize<AcceptanceVerdictWire>(envelope, AgentTaskWireJsonContext.Default.AcceptanceVerdictWire);
+        using var document = JsonDocument.Parse(envelope);
         var root = document.RootElement;
         RequireObject(root, "acceptance verdict");
         var verdict = RequiredString(root, "verdict", "acceptance verdict");
@@ -62,8 +65,9 @@ internal static class AgentTaskParser
 
     internal static AgentTaskLeafResponse ParseLeafResponse(string json)
     {
-        _ = Deserialize<AgentTaskLeafResponseWire>(json, AgentTaskWireJsonContext.Default.AgentTaskLeafResponseWire);
-        using var document = JsonDocument.Parse(json);
+        var envelope = JsonEnvelope.Extract(json, "verdict");
+        _ = Deserialize<AgentTaskLeafResponseWire>(envelope, AgentTaskWireJsonContext.Default.AgentTaskLeafResponseWire);
+        using var document = JsonDocument.Parse(envelope);
         var root = document.RootElement;
         RequireObject(root, "leaf response");
         var result = RequiredString(root, "result", "leaf response");
