@@ -6,7 +6,7 @@ namespace Parrot.Context;
 
 internal sealed class OptionalCliUtilitiesProvider(CliUtilityAvailability cliUtilities, IPromptTemplateCatalog templates) : ISystemPromptProvider
 {
-    public string Key => "runtime:system-context:08-optional-cli-utilities";
+    public string Key => "runtime:system-context:05b-optional-cli-utilities";
 
     public ISystemPrompt Materialize(AgentIdentity identity)
     {

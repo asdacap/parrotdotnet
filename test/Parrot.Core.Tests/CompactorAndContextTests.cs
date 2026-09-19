@@ -82,11 +82,11 @@ internal sealed class CompactorAndContextTests : IDisposable
         var optionalIndex = built.IndexOf("Available optional CLI utilities: none", StringComparison.Ordinal);
         var subagentsIndex = built.IndexOf("Available subagents;", StringComparison.Ordinal);
         var securityIndex = built.IndexOf("The following configured sandbox rules", StringComparison.Ordinal);
-        _ = await Assert.That(baseIndex).IsLessThan(expectedIndex);
+        _ = await Assert.That(baseIndex).IsLessThan(optionalIndex);
+        _ = await Assert.That(optionalIndex).IsLessThan(expectedIndex);
         _ = await Assert.That(expectedIndex).IsLessThan(platformIndex);
         _ = await Assert.That(platformIndex).IsLessThan(projectIndex);
-        _ = await Assert.That(projectIndex).IsLessThan(optionalIndex);
-        _ = await Assert.That(optionalIndex).IsLessThan(workingDirectoryIndex);
+        _ = await Assert.That(projectIndex).IsLessThan(workingDirectoryIndex);
         _ = await Assert.That(workingDirectoryIndex).IsLessThan(gitRepositoryIndex);
         _ = await Assert.That(gitRepositoryIndex).IsLessThan(subagentsIndex);
         _ = await Assert.That(subagentsIndex).IsLessThan(securityIndex);
@@ -487,13 +487,15 @@ internal sealed class CompactorAndContextTests : IDisposable
                 new PromptTestProvider("runtime:system-context:09b-skills", "skills"),
                 new PromptTestProvider("runtime:system-context:90-agent-path-environment", "paths"),
                 new PromptTestProvider("runtime:system-context:92-agent-scratch", "scratch"),
+                new PromptTestProvider("runtime:system-context:05b-optional-cli-utilities", "optional"),
+                new PromptTestProvider("runtime:system-context:06-cli-utilities", "expected"),
             ]);
 
         var prompt = composite.Materialize(AgentIdentity.Main("main", string.Empty, TestModels.PromptTemplates));
         prompt.RenewEpoch();
 
         _ = await Assert.That(prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value))
-            .IsEqualTo("base\n\nskills\n\nsecurity\n\npaths\n\nscratch\n\nhistory");
+            .IsEqualTo("base\n\noptional\n\nexpected\n\nskills\n\nsecurity\n\npaths\n\nscratch\n\nhistory");
     }
 
     [Test]
