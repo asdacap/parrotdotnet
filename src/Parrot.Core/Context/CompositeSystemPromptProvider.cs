@@ -2,6 +2,8 @@ using Parrot.Agent;
 
 namespace Parrot.Context;
 
+// Keep the provider list flat: never nest a CompositeSystemPromptProvider
+// inside another, so the global section order is a single auditable sort.
 internal sealed class CompositeSystemPromptProvider : ISystemPromptProvider
 {
     private readonly List<ISystemPromptProvider> _providers;

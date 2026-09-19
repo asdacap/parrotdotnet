@@ -43,7 +43,7 @@ internal sealed class AgentTaskScopeTests
                 configuration.RequestLimits,
                 configuration.ReadOnlyExecCommandPrefixes,
                 router,
-                new CompositeSystemPromptProvider("test:task-scopes", []),
+                [],
                 configuration.PromptTemplates,
                 static (arguments, scope) => new AgentSessionComposition(arguments, scope));
             var factory = new UserSessionFactory(

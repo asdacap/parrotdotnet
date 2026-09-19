@@ -16,7 +16,7 @@ internal sealed class AgentSessionFactorySource(
     RequestLimitsConfig requestLimits,
     IReadOnlyList<string> readOnlyExecCommandPrefixes,
     Llm.IModelRouter router,
-    ISystemPromptProvider systemPromptProvider,
+    IReadOnlyList<ISystemPromptProvider> systemPromptProviders,
     IPromptTemplateCatalog promptTemplates,
     Func<AgentSessionScopeArguments, IAgentSessionScope, AgentSessionComposition> composeSession) : IAgentSessionFactorySource
 {
@@ -33,9 +33,7 @@ internal sealed class AgentSessionFactorySource(
             requestLimits,
             readOnlyExecCommandPrefixes,
             router,
-            new CompositeSystemPromptProvider(
-                "runtime:user-session-system-prompt",
-                [systemPromptProvider, new AgentHistoryProvider(owner.Resources, promptTemplates)]),
+            [.. systemPromptProviders, new AgentHistoryProvider(owner.Resources, promptTemplates)],
             promptTemplates,
             composeSession);
 }

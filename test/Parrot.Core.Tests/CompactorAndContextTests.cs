@@ -476,6 +476,26 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    public async Task Composite_system_prompt_flattens_leaf_keys_into_one_ordinal_sort()
+    {
+        var composite = new CompositeSystemPromptProvider(
+            "test:composite",
+            [
+                new PromptTestProvider("runtime:system-context:01-base", "base"),
+                new PromptTestProvider("runtime:user-session-context:02-agent-history", "history"),
+                new PromptTestProvider("runtime:skills", "skills"),
+                new PromptTestProvider("runtime:agent-session-path-environment", "paths"),
+                new PromptTestProvider("runtime:user-session-context:01-agent-scratch", "scratch"),
+            ]);
+
+        var prompt = composite.Materialize(AgentIdentity.Main("main", string.Empty, TestModels.PromptTemplates));
+        prompt.RenewEpoch();
+
+        _ = await Assert.That(prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value))
+            .IsEqualTo("paths\n\nskills\n\nbase\n\nscratch\n\nhistory");
+    }
+
+    [Test]
     public async Task Configured_system_prompts_are_ordered_with_runtime_providers()
     {
         var runtime = new PromptTestProvider("test:m-runtime", "runtime");

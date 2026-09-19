@@ -23,7 +23,7 @@ internal sealed class AgentSessionFactory(
     RequestLimitsConfig requestLimits,
     IReadOnlyList<string> readOnlyExecCommandPrefixes,
     IModelRouter router,
-    ISystemPromptProvider systemPromptProvider,
+    IReadOnlyList<ISystemPromptProvider> systemPromptProviders,
     IPromptTemplateCatalog promptTemplates,
     Func<AgentSessionScopeArguments, IAgentSessionScope, AgentSessionComposition> composeSession) : IAgentSessionFactory
 {
@@ -56,7 +56,7 @@ internal sealed class AgentSessionFactory(
         var prompts = new CompositeSystemPromptProvider(
             "runtime:agent-session-system-prompt",
             [
-                systemPromptProvider,
+                .. systemPromptProviders,
                 new AgentPathEnvironmentProvider(pathEnvironment, promptTemplates),
                 new ScratchDirectoryProvider(scratch, promptTemplates),
                 new AgentSkillPromptProvider(agentSkills),

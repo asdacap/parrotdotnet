@@ -167,7 +167,7 @@ internal partial class Composition
                     [],
                     configuration.DisabledTools);
             })
-            .Bind().As(Lifetime.Singleton).To<ISystemPromptProvider>(ctx =>
+            .Bind().As(Lifetime.Singleton).To(ctx =>
             {
                 ctx.Inject<Configuration>(out var configuration);
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
@@ -194,7 +194,7 @@ internal partial class Composition
                         sandboxGate,
                         configuration.PromptTemplates),
                 ];
-                return new CompositeSystemPromptProvider("runtime:system-prompt", systemPromptProviders);
+                return systemPromptProviders;
             })
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
@@ -216,7 +216,7 @@ internal partial class Composition
                 ctx.Inject<WebFetcher>(out var webFetcher);
                 ctx.Inject<Configuration>(out var configuration);
                 ctx.Inject<IModelRouter>(out var router);
-                ctx.Inject<ISystemPromptProvider>(out var systemPromptProvider);
+                ctx.Inject<IReadOnlyList<ISystemPromptProvider>>(out var systemPromptProviders);
                 return new AgentSessionFactorySource(
                     processes,
                     compactor,
@@ -227,7 +227,7 @@ internal partial class Composition
                     configuration.RequestLimits,
                     configuration.ReadOnlyExecCommandPrefixes,
                     router,
-                    systemPromptProvider,
+                    systemPromptProviders,
                     configuration.PromptTemplates,
                     static (arguments, scope) => new AgentSessionComposition(arguments, scope));
             })

@@ -428,7 +428,7 @@ internal sealed class AgentInventoryStreamTests
                     configuration.RequestLimits,
                     configuration.ReadOnlyExecCommandPrefixes,
                     router,
-                    new CompositeSystemPromptProvider("test:inventory", []),
+                    [],
                     configuration.PromptTemplates,
                     static (arguments, scope) => new AgentSessionComposition(arguments, scope));
                 var factory = new UserSessionFactory(source, modes, configuration.PromptTemplates, profiles, new SkillCatalogFactory(configuration, directory, Path.Combine(directory, "skills")), TimeSpan.FromSeconds(30), TimeProvider.System, AgentTaskParser.ParseArtifact);

@@ -40,7 +40,7 @@ internal sealed class AgentScopeDiagnosticsTests
                 configuration.RequestLimits,
                 configuration.ReadOnlyExecCommandPrefixes,
                 router,
-                new CompositeSystemPromptProvider("test:diagnostics", []),
+                [],
                 configuration.PromptTemplates,
                 static (arguments, scope) => new AgentSessionComposition(arguments, scope));
             var factory = new UserSessionFactory(

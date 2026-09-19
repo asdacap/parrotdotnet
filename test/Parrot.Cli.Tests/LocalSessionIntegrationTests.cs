@@ -299,7 +299,7 @@ internal sealed class LocalSessionIntegrationTests
                 configuration.RequestLimits,
                 configuration.ReadOnlyExecCommandPrefixes,
                 router,
-                new CompositeSystemPromptProvider("test:integration", []),
+                [],
                 configuration.PromptTemplates,
                 static (arguments, scope) => new AgentSessionComposition(arguments, scope));
             var factory = new UserSessionFactory(
