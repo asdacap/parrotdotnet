@@ -482,17 +482,18 @@ internal sealed class CompactorAndContextTests : IDisposable
             "test:composite",
             [
                 new PromptTestProvider("runtime:system-context:01-base", "base"),
-                new PromptTestProvider("runtime:user-session-context:02-agent-history", "history"),
-                new PromptTestProvider("runtime:skills", "skills"),
-                new PromptTestProvider("runtime:agent-session-path-environment", "paths"),
-                new PromptTestProvider("runtime:user-session-context:01-agent-scratch", "scratch"),
+                new PromptTestProvider("runtime:system-context:16-security-profile", "security"),
+                new PromptTestProvider("runtime:system-context:93-agent-history", "history"),
+                new PromptTestProvider("runtime:system-context:91-skills", "skills"),
+                new PromptTestProvider("runtime:system-context:90-agent-path-environment", "paths"),
+                new PromptTestProvider("runtime:system-context:92-agent-scratch", "scratch"),
             ]);
 
         var prompt = composite.Materialize(AgentIdentity.Main("main", string.Empty, TestModels.PromptTemplates));
         prompt.RenewEpoch();
 
         _ = await Assert.That(prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value))
-            .IsEqualTo("paths\n\nskills\n\nbase\n\nscratch\n\nhistory");
+            .IsEqualTo("base\n\nsecurity\n\npaths\n\nskills\n\nscratch\n\nhistory");
     }
 
     [Test]

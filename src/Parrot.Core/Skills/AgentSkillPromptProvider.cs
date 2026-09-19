@@ -10,7 +10,7 @@ internal sealed class AgentSkillPromptProvider(AgentSkills skills) : ISystemProm
     private const int MaximumCatalogBytes = 64 * 1024;
     private const string CatalogPlaceholder = "{skills}";
 
-    public string Key => "runtime:skills";
+    public string Key => "runtime:system-context:91-skills";
 
     public ISystemPrompt Materialize(AgentIdentity identity)
     {

@@ -6,7 +6,7 @@ namespace Parrot.Context;
 
 internal sealed class ScratchDirectoryProvider(AgentScratchDirectory scratch, IPromptTemplateCatalog templates) : ISystemPromptProvider
 {
-    public string Key => "runtime:user-session-context:01-agent-scratch";
+    public string Key => "runtime:system-context:92-agent-scratch";
 
     public ISystemPrompt Materialize(AgentIdentity identity)
     {

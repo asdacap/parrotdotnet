@@ -6,7 +6,7 @@ namespace Parrot.Context;
 
 internal sealed class AgentPathEnvironmentProvider(IAgentPathEnvironment environment, IPromptTemplateCatalog templates) : ISystemPromptProvider
 {
-    public string Key => "runtime:agent-session-path-environment";
+    public string Key => "runtime:system-context:90-agent-path-environment";
 
     public ISystemPrompt Materialize(AgentIdentity identity)
     {
