@@ -102,6 +102,7 @@ internal sealed partial class Configuration(string path)
 
     public AgentTaskConfig AgentTasks { get; private set; } = new(
         5,
+        3,
         true,
         new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)));
 
@@ -1441,9 +1442,10 @@ internal sealed partial class Configuration(string path)
             throw new InvalidDataException($"{AgentTasksKey} must be a mapping");
         }
 
-        ValidateKeys(agentTasks, AgentTasksKey, "maximum_attempts", "fork_parent_history");
+        ValidateKeys(agentTasks, AgentTasksKey, "maximum_attempts", "maximum_response_repairs", "fork_parent_history");
         return new AgentTaskConfig(
             PositiveInteger(agentTasks, "maximum_attempts", $"{AgentTasksKey}.maximum_attempts"),
+            PositiveInteger(agentTasks, "maximum_response_repairs", $"{AgentTasksKey}.maximum_response_repairs"),
             ReadOptionalBoolean(agentTasks, "fork_parent_history", $"{AgentTasksKey}.fork_parent_history"),
             ReadPromptTemplates(root, static templates => new PromptTemplateCatalog(templates)));
     }

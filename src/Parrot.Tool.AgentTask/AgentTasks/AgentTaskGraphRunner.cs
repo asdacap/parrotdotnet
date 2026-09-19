@@ -281,6 +281,23 @@ internal sealed class AgentTaskGraphRunner(
         _ = prompt.Append(Render("agent-task.feedback", ("items", items.ToString())));
     }
 
+    private AgentTaskPrepareResult ParsePreparation(string output, EffectiveAgentTask declared)
+    {
+        var preparation = AgentTaskParser.ParsePrepare(output);
+        if (preparation.TaskPatch is not null)
+        {
+            AgentTaskParser.ValidateEffective(declared.Apply(preparation.TaskPatch));
+        }
+
+        return preparation with { Context = Bound(preparation.Context, MaxContextCharacters) };
+    }
+
+    private AgentTaskLeafResponse ParseLeafResponse(string output)
+    {
+        var response = AgentTaskParser.ParseLeafResponse(output);
+        return response with { Result = Bound(response.Result, MaxContextCharacters) };
+    }
+
     private string Bound(string text, int limit) => text.Length <= limit
         ? text
         : Render("agent-task.truncated", ("value", text.AsSpan(0, limit).ToString()));
@@ -462,13 +479,15 @@ internal sealed class AgentTaskGraphRunner(
         }
 
         var childHandles = progress.GetChildren(handle);
-        var prepareRun = await RunRole(
+        var declared = effective;
+        var prepareRun = await RunRoleAndParse(
             effective.Model,
             "prepare",
             approved.Name,
             owningAgentScope,
             null,
             BuildPreparePrompt(effective, siblings, ancestors, inheritedContexts, dependencies, path),
+            output => ParsePreparation(output, declared),
             cancellationToken).ConfigureAwait(false);
         var prepare = prepareRun.Execution;
         if (prepare.Status != AgentExecutionStatus.Succeeded)
@@ -476,26 +495,19 @@ internal sealed class AgentTaskGraphRunner(
             return AgentTaskResult.CreateFailed(approved.Name, RoleFailure("prepare", prepare));
         }
 
-        AgentTaskPrepareResult preparation;
-        try
+        if (prepareRun.Value is not { } preparation)
         {
-            preparation = AgentTaskParser.ParsePrepare(prepare.Output);
-            preparation = preparation with { Context = Bound(preparation.Context, MaxContextCharacters) };
-            if (preparation.TaskPatch is not null)
-            {
-                var patched = effective.Apply(preparation.TaskPatch);
-                AgentTaskParser.ValidateEffective(patched);
-                effective = patched;
-                childHandles = progress.UpdatePreparedTask(
-                    handle,
-                    effective.Description,
-                    preparation.TaskPatch.Payload,
-                    cancellationToken);
-            }
+            return AgentTaskResult.CreateFailed(approved.Name, $"prepare response invalid: {prepareRun.Failure}");
         }
-        catch (Exception failure) when (failure is ArgumentException or LLMProviderException)
+
+        if (preparation.TaskPatch is not null)
         {
-            return AgentTaskResult.CreateFailed(approved.Name, $"prepare response invalid: {failure.Message}");
+            effective = effective.Apply(preparation.TaskPatch);
+            childHandles = progress.UpdatePreparedTask(
+                handle,
+                effective.Description,
+                preparation.TaskPatch.Payload,
+                cancellationToken);
         }
 
         var currentContexts = inheritedContexts
@@ -544,13 +556,14 @@ internal sealed class AgentTaskGraphRunner(
         {
             cancellationToken.ThrowIfCancellationRequested();
             var promptContexts = inheritedContexts;
-            var payloadRun = await RunRole(
+            var payloadRun = await RunRoleAndParse(
                 effective.Model,
                 "execute",
                 approved.Name,
                 owningAgentScope,
                 payloadAgentScope,
                 BuildLeafPrompt(effective, siblings, ancestors, promptContexts, dependencies, feedback, currentResult),
+                ParseLeafResponse,
                 cancellationToken).ConfigureAwait(false);
             payloadAgentScope = payloadRun.Scope;
             var executed = payloadRun.Execution;
@@ -569,13 +582,7 @@ internal sealed class AgentTaskGraphRunner(
                     RoleFailure("execution", executed));
             }
 
-            AgentTaskLeafResponse response;
-            try
-            {
-                response = AgentTaskParser.ParseLeafResponse(executed.Output);
-                response = response with { Result = Bound(response.Result, MaxContextCharacters) };
-            }
-            catch (ArgumentException failure)
+            if (payloadRun.Value is not { } response)
             {
                 return AgentTaskResult.CreateCompletedFailure(
                     approved.Name,
@@ -587,7 +594,7 @@ internal sealed class AgentTaskGraphRunner(
                     null,
                     RetainFeedback(feedback),
                     null,
-                    $"leaf response invalid: {failure.Message}");
+                    $"leaf response invalid: {payloadRun.Failure}");
             }
 
             var verdict = response.Verdict with
@@ -681,13 +688,15 @@ internal sealed class AgentTaskGraphRunner(
             }
 
             var retryContexts = inheritedContexts;
-            var prepareRun = await RunRole(
+            var declared = effective;
+            var prepareRun = await RunRoleAndParse(
                 effective.Model,
                 "prepare",
                 approved.Name,
                 owningAgentScope,
                 null,
                 BuildPreparePromptWithResult(effective, siblings, ancestors, retryContexts, dependencies, path, currentResult ?? throw new InvalidOperationException("A leaf retry requires a result.")),
+                output => ParsePreparation(output, declared),
                 cancellationToken).ConfigureAwait(false);
             var prepare = prepareRun.Execution;
             if (prepare.Status != AgentExecutionStatus.Succeeded)
@@ -705,24 +714,7 @@ internal sealed class AgentTaskGraphRunner(
                     RoleFailure("prepare", prepare));
             }
 
-            AgentTaskPrepareResult preparation;
-            try
-            {
-                preparation = AgentTaskParser.ParsePrepare(prepare.Output);
-                preparation = preparation with { Context = Bound(preparation.Context, MaxContextCharacters) };
-                if (preparation.TaskPatch is not null)
-                {
-                    var patched = effective.Apply(preparation.TaskPatch);
-                    AgentTaskParser.ValidateEffective(patched);
-                    effective = patched;
-                    childHandles = progress.UpdatePreparedTask(
-                        handle,
-                        effective.Description,
-                        preparation.TaskPatch.Payload,
-                        cancellationToken);
-                }
-            }
-            catch (Exception failure) when (failure is ArgumentException or LLMProviderException)
+            if (prepareRun.Value is not { } preparation)
             {
                 return AgentTaskResult.CreateCompletedFailure(
                     approved.Name,
@@ -734,7 +726,17 @@ internal sealed class AgentTaskGraphRunner(
                     verdict,
                     RetainFeedback(feedback),
                     null,
-                    $"prepare response invalid: {failure.Message}");
+                    $"prepare response invalid: {prepareRun.Failure}");
+            }
+
+            if (preparation.TaskPatch is not null)
+            {
+                effective = effective.Apply(preparation.TaskPatch);
+                childHandles = progress.UpdatePreparedTask(
+                    handle,
+                    effective.Description,
+                    preparation.TaskPatch.Payload,
+                    cancellationToken);
             }
 
             var currentContexts = inheritedContexts
@@ -846,13 +848,14 @@ internal sealed class AgentTaskGraphRunner(
             }
 
             var acceptanceResult = carriedResult;
-            var acceptanceRun = await RunRole(
+            var acceptanceRun = await RunRoleAndParse(
                 effective.Model,
                 "accept",
                 approved.Name,
                 compositeAgentScope,
                 compositeAgentScope,
                 BuildAcceptancePrompt(effective, siblings, ancestors, currentContexts, dependencies, feedback, execution, nested, acceptanceResult),
+                AgentTaskParser.ParseVerdict,
                 cancellationToken).ConfigureAwait(false);
             carriedResult = null;
             var reviewed = acceptanceRun.Execution;
@@ -871,11 +874,7 @@ internal sealed class AgentTaskGraphRunner(
                     RoleFailure("acceptance", reviewed));
             }
 
-            try
-            {
-                verdict = AgentTaskParser.ParseVerdict(reviewed.Output);
-            }
-            catch (ArgumentException failure)
+            if (acceptanceRun.Value is not { } reviewedVerdict)
             {
                 return AgentTaskResult.CreateCompletedFailure(
                     approved.Name,
@@ -887,8 +886,10 @@ internal sealed class AgentTaskGraphRunner(
                     verdict,
                     RetainFeedback(feedback),
                     nested,
-                    $"acceptance response invalid: {failure.Message}");
+                    $"acceptance response invalid: {acceptanceRun.Failure}");
             }
+
+            verdict = reviewedVerdict;
 
             if (verdict.Kind == AcceptanceVerdictKind.Accept)
             {
@@ -983,6 +984,50 @@ internal sealed class AgentTaskGraphRunner(
         throw new InvalidOperationException("The attempt loop terminated unexpectedly.");
     }
 
+    private async Task<ParsedRoleRun<T>> RunRoleAndParse<T>(
+        string? requestedModel,
+        string role,
+        string taskName,
+        IAgentSessionScope owningAgentScope,
+        IAgentSessionScope? retainedAgentScope,
+        string prompt,
+        Func<string, T> parse,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        var run = await RunRole(requestedModel, role, taskName, owningAgentScope, retainedAgentScope, prompt, cancellationToken)
+            .ConfigureAwait(false);
+        var repairs = 0;
+        while (true)
+        {
+            if (run.Execution.Status != AgentExecutionStatus.Succeeded)
+            {
+                return new ParsedRoleRun<T>(run.Scope, run.Execution, null, null);
+            }
+
+            try
+            {
+                return new ParsedRoleRun<T>(run.Scope, run.Execution, parse(run.Execution.Output), null);
+            }
+            catch (ArgumentException failure) when (repairs >= configuration.MaximumResponseRepairs)
+            {
+                return new ParsedRoleRun<T>(run.Scope, run.Execution, null, failure.Message);
+            }
+            catch (ArgumentException failure)
+            {
+                repairs++;
+                run = await RunRole(
+                    requestedModel,
+                    role,
+                    taskName,
+                    owningAgentScope,
+                    run.Scope,
+                    Render("agent-task.response-repair", ("error", failure.Message)),
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
     private async Task<AgentRoleRun> RunRole(
         string? requestedModel,
         string role,
@@ -1073,4 +1118,7 @@ internal sealed class AgentTaskGraphRunner(
     }
 
     private sealed record AgentRoleRun(IAgentSessionScope Scope, AgentExecution Execution);
+
+    private sealed record ParsedRoleRun<T>(IAgentSessionScope Scope, AgentExecution Execution, T? Value, string? Failure)
+        where T : class;
 }

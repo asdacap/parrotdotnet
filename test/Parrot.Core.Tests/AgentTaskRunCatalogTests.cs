@@ -78,7 +78,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
                     runtime.ParentScope,
                     runtime.Selection,
                     new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "run-id", diagnostics),
-                    new AgentTaskConfig(1, true, TestModels.PromptTemplates),
+                    new AgentTaskConfig(1, 3, true, TestModels.PromptTemplates),
                     new HistoryForkBoundary.AfterCompletedHistory(),
                     completion),
                 cancellationToken);
@@ -131,7 +131,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
                 runtime.ParentScope,
                 runtime.Selection,
                 first,
-                new AgentTaskConfig(1, true, TestModels.PromptTemplates),
+                new AgentTaskConfig(1, 3, true, TestModels.PromptTemplates),
                 new HistoryForkBoundary.AfterCompletedHistory(),
                 firstCompletion),
             call.Token);
@@ -146,7 +146,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
                 runtime.ParentScope,
                 runtime.Selection,
                 second,
-                new AgentTaskConfig(1, true, TestModels.PromptTemplates),
+                new AgentTaskConfig(1, 3, true, TestModels.PromptTemplates),
                 new HistoryForkBoundary.AfterCompletedHistory(),
                 secondCompletion),
             call.Token);
@@ -218,7 +218,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
                     runtime.ParentScope,
                     runtime.Selection,
                     new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "third", TestDiagnosticLog.Instance),
-                    new AgentTaskConfig(1, true, TestModels.PromptTemplates),
+                    new AgentTaskConfig(1, 3, true, TestModels.PromptTemplates),
                     new HistoryForkBoundary.AfterCompletedHistory(),
                     new Completion()),
                 cancellationToken))
@@ -256,7 +256,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
             runtime.ParentScope,
             runtime.Selection,
             progress,
-            new AgentTaskConfig(1, true, TestModels.PromptTemplates),
+            new AgentTaskConfig(1, 3, true, TestModels.PromptTemplates),
             new HistoryForkBoundary.AfterCompletedHistory(),
             completion);
 
@@ -295,7 +295,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
                     runtime.ParentScope,
                     runtime.Selection,
                     new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, $"call-{attempt}", TestDiagnosticLog.Instance),
-                    new AgentTaskConfig(1, true, TestModels.PromptTemplates),
+                    new AgentTaskConfig(1, 3, true, TestModels.PromptTemplates),
                     new HistoryForkBoundary.AfterCompletedHistory(),
                     completion),
                 cancellationToken);

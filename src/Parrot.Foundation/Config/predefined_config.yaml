@@ -523,6 +523,11 @@ prompt_templates:
       A reject_and_retry context replaces this task's preparation context for later attempts and descendants; omit it to retain the existing context.
     allowed_arguments: [header, feedback, execution, nested]
     required_arguments: [header, feedback, execution, nested]
+  agent-task.response-repair:
+    template: >-
+      Your previous response was not accepted: {error} Reply again with only the required strict JSON object for this role and nothing else.
+    allowed_arguments: [error]
+    required_arguments: [error]
   agent-task.role-failure:
     template: '{role} agent {status}: {error}'
     allowed_arguments: [role, status, error]
@@ -813,6 +818,8 @@ compaction:
 # Maximum payload execution attempts for each AgentTask invocation.
 agent_tasks:
   maximum_attempts: 5
+  # Maximum re-prompts per role turn when the response is not the required strict JSON.
+  maximum_response_repairs: 3
   # Fork the owning parent's conversation history into fresh AgentTask children.
   fork_parent_history: true
 

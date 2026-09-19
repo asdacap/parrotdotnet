@@ -578,11 +578,15 @@ internal sealed class ConfigurationTests : IDisposable
     {
         var maximumAttempts = Load(Write("agent_tasks:\n  maximum_attempts: 2\n")).AgentTasks;
         var forkParentHistory = Load(Write("agent_tasks:\n  fork_parent_history: false\n")).AgentTasks;
+        var responseRepairs = Load(Write("agent_tasks:\n  maximum_response_repairs: 1\n")).AgentTasks;
 
         _ = await Assert.That(maximumAttempts.MaximumAttempts).IsEqualTo(2);
+        _ = await Assert.That(maximumAttempts.MaximumResponseRepairs).IsEqualTo(3);
         _ = await Assert.That(maximumAttempts.ForkParentHistory).IsTrue();
         _ = await Assert.That(forkParentHistory.MaximumAttempts).IsEqualTo(5);
         _ = await Assert.That(forkParentHistory.ForkParentHistory).IsFalse();
+        _ = await Assert.That(responseRepairs.MaximumResponseRepairs).IsEqualTo(1);
+        _ = await Assert.That(responseRepairs.MaximumAttempts).IsEqualTo(5);
     }
 
     [Test]
@@ -609,16 +613,18 @@ internal sealed class ConfigurationTests : IDisposable
             .Throws<InvalidDataException>().WithMessage("agent_tasks contains an unsupported key");
 
     [Test]
-    [Arguments("0")]
-    [Arguments("-1")]
-    [Arguments("1.5")]
-    [Arguments("true")]
-    [Arguments("null")]
-    [Arguments("words")]
-    [Arguments("2147483648")]
-    public async Task Agent_task_configuration_requires_a_positive_integer_maximum_attempts(string value) =>
-        _ = await Assert.That(() => Load(Write($"agent_tasks:\n  maximum_attempts: {value}\n")))
-            .Throws<InvalidDataException>().WithMessage("agent_tasks.maximum_attempts must be a positive integer");
+    [Arguments("maximum_attempts", "0")]
+    [Arguments("maximum_attempts", "-1")]
+    [Arguments("maximum_attempts", "1.5")]
+    [Arguments("maximum_attempts", "true")]
+    [Arguments("maximum_attempts", "null")]
+    [Arguments("maximum_attempts", "words")]
+    [Arguments("maximum_attempts", "2147483648")]
+    [Arguments("maximum_response_repairs", "0")]
+    [Arguments("maximum_response_repairs", "words")]
+    public async Task Agent_task_configuration_requires_positive_integer_bounds(string key, string value) =>
+        _ = await Assert.That(() => Load(Write($"agent_tasks:\n  {key}: {value}\n")))
+            .Throws<InvalidDataException>().WithMessage($"agent_tasks.{key} must be a positive integer");
 
     [Test]
     public async Task Compaction_fields_partially_override_predefined_definitions()

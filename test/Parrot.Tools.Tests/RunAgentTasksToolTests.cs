@@ -49,7 +49,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
     {
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, 3, false, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(new ToolInvocation("call", arguments), runtime.Selection, cancellationToken);
 
@@ -72,7 +72,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
     {
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, 3, false, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(new ToolInvocation("call", arguments), runtime.Selection, cancellationToken);
 
@@ -90,7 +90,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, 3, false, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(new ToolInvocation("multi-root-call", arguments), runtime.Selection, cancellationToken);
         var terminal = await runtime.Completion.Wait("multi-root-call", cancellationToken);
@@ -124,7 +124,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, 3, false, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(
             new ToolInvocation("multi-root-path-call", "{\"path\":\"multi-root.json\"}"),
@@ -156,7 +156,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         using var provider = new AgentTaskBlockingProvider();
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, 3, false, TestModels.PromptTemplates), _root, _broker).Tool;
         using var invocation = new CancellationTokenSource();
 
         var result = await tool.Execute(new ToolInvocation("background-call", arguments), runtime.Selection, invocation.Token);
@@ -187,7 +187,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = new ToolFixture(runtime, new AgentTaskConfig(2, false, TestModels.PromptTemplates), _root, _broker).Tool;
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(2, 3, false, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(new ToolInvocation("retry-call", arguments), runtime.Selection, cancellationToken);
         var terminal = await runtime.Completion.Wait("retry-call", cancellationToken);
@@ -239,7 +239,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         AppendCompletedRootHistory(runtime, "prior user history", "prior assistant history");
         const long assistantSequence = 3;
         AppendCurrentToolBatch(runtime, assistantSequence, "history-call", arguments);
-        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, forkParentHistory, TestModels.PromptTemplates), _root, _broker).Tool;
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, 3, forkParentHistory, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(
             new ToolInvocation("history-call", arguments, assistantSequence),
@@ -273,7 +273,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, 3, false, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(new ToolInvocation("transition-call", arguments), runtime.Selection, cancellationToken);
         var terminal = await runtime.Completion.Wait("transition-call", cancellationToken);
@@ -316,7 +316,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, 3, false, TestModels.PromptTemplates), _root, _broker).Tool;
         var denied = runtime.Selection with
         {
             SecurityProfile = SecurityProfile.Compose(false, [], [new SandboxRule(_root, SandboxRuleAction.DenyRead)], []),
@@ -350,7 +350,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         await File.WriteAllTextAsync(artifact, "{}", cancellationToken);
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, 3, false, TestModels.PromptTemplates), _root, _broker).Tool;
         var denied = runtime.Selection with
         {
             SecurityProfile = SecurityProfile.Compose(
@@ -376,7 +376,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         _ = File.CreateSymbolicLink(Path.Combine(_root, "alias.json"), artifact);
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, 3, false, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(
             new ToolInvocation("call", "{\"path\":\"alias.json\"}"),
@@ -403,7 +403,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
         using var subscription = _broker.Subscribe();
-        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, 3, false, TestModels.PromptTemplates), _root, _broker).Tool;
         var running = tool.Execute(
             new ToolInvocation("distinctive-call", "{\"path\":\"artifact.json\"}"),
             runtime.Selection,
@@ -444,7 +444,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         await File.WriteAllTextAsync(Path.Combine(_root, "artifact.json"), "{}", cancellationToken);
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, false, TestModels.PromptTemplates), _root, _broker).Tool;
+        var tool = new ToolFixture(runtime, new AgentTaskConfig(5, 3, false, TestModels.PromptTemplates), _root, _broker).Tool;
 
         var result = await tool.Execute(
             new ToolInvocation("call", "{\"path\":\"artifact.json\"}"),

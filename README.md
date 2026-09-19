@@ -510,7 +510,10 @@ reservation. On each retry the same retained session receives a new user prompt
 while its previous exchange remains retained; no new fork occurs, and its
 non-system message count grows from its inherited baseline by 1, 3, 5, ... across
 attempts. The leaf response is parsed directly, rather than producing a separate
-execution transcript. Every AgentTask role prompt uses the session's
+execution transcript. When a role reply is not the required strict JSON (including
+an empty reply or one that fails schema validation), the same retained session is
+re-prompted with the diagnostic up to `agent_tasks.maximum_response_repairs`
+times before the task fails. Every AgentTask role prompt uses the session's
 `SendAndWaitForResult` path. Calls on one session reserve full executions in FIFO
 order: a later prompt is not admitted until its predecessor has completed its
 turn-completion callbacks and retries, terminal bookkeeping, and parent-completion
@@ -597,6 +600,10 @@ composite result, but no replacement payload runs and the task fails. Composite
 payloads recursively rerun their sibling graph on each retry. Large limits and
 composite retries can repeat costly or side-effecting work; choose a small bound
 and declare dependencies for mutation ordering.
+
+`agent_tasks.maximum_response_repairs` bounds how many times one role turn is
+re-prompted after an invalid, empty, or schema-violating reply. It accepts any
+positive `Int32`, defaults to 3, and does not count toward `maximum_attempts`.
 
 Ready sibling tasks run concurrently. A failed, blocked, or canceled dependency
 blocks only its descendants; independent siblings continue. The returned JSON
