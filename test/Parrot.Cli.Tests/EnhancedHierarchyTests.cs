@@ -383,6 +383,175 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
+    [Arguments(null)]
+    [Arguments("\n")]
+    [Arguments(" \n\t")]
+    [Arguments("child\nresponse")]
+    public async Task Child_response_commits_scrollback_only_when_it_has_visible_content(
+        string? fragment,
+        CancellationToken cancellationToken)
+    {
+        var committed = new List<string>();
+        var drawn = new List<string>();
+        var liveContext = new LiveBufferRenderContext(80, new TerminalPalette(false));
+        var scrollbackContext = new ScrollbackRenderContext(80, liveContext.Palette);
+
+        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            drawn.Add(string.Join('|', items.SelectMany(item => item.Render(liveContext).Lines).Select(line => line.Text)));
+            return Task.CompletedTask;
+        }
+
+        Task Commit(
+            IScrollbackItem item,
+            IReadOnlyList<ILiveBufferItem> items,
+            CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            _ = items;
+            committed.Add(string.Join('|', item.Render(scrollbackContext)));
+            return Task.CompletedTask;
+        }
+
+        await using var view = new RawActivityView(
+            Draw,
+            Commit,
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await view.Render(
+            new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        if (fragment is not null)
+        {
+            for (var index = 0; index < 2; index++)
+            {
+                await view.Render(
+                    new Event { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = fragment } },
+                    cancellationToken);
+            }
+        }
+
+        await view.Render(
+            new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentFinished = new AgentFinished
+                {
+                    ParentAgentSessionId = "root",
+                    Name = "worker",
+                    ElapsedMs = 7_000,
+                },
+            },
+            cancellationToken);
+
+        var rendered = string.Join('|', committed);
+        if (fragment is null || fragment.Trim().Length == 0)
+        {
+            _ = await Assert.That(rendered).IsEqualTo("  ♟ [worker] agent finished (7s)");
+            _ = await Assert.That(rendered).DoesNotContain("●");
+            _ = await Assert.That(drawn[^1]).DoesNotContain("●  [worker]");
+        }
+        else
+        {
+            _ = await Assert.That(committed).Count().IsEqualTo(2);
+            _ = await Assert.That(committed[0]).Contains("  ● [worker] child");
+            _ = await Assert.That(committed[0]).Contains("    [worker] response");
+            _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [worker] agent finished (7s)");
+        }
+    }
+
+    [Test]
+    [Arguments("root", 3, "⚙ requested 3 tool calls")]
+    [Arguments("child", 3, "  ⚙ [worker] requested 3 tool calls")]
+    [Arguments("root", 1, null)]
+    [Arguments("child", 1, null)]
+    public async Task Tool_request_count_notice_is_committed_only_above_one_tool_call(
+        string ownerAgentSessionId,
+        int toolCallCount,
+        string? expected,
+        CancellationToken cancellationToken)
+    {
+        var committed = new List<string>();
+        var liveContext = new LiveBufferRenderContext(80, new TerminalPalette(false));
+        var scrollbackContext = new ScrollbackRenderContext(80, liveContext.Palette);
+
+        Task Commit(
+            IScrollbackItem item,
+            IReadOnlyList<ILiveBufferItem> items,
+            CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            _ = items;
+            committed.Add(string.Join('|', item.Render(scrollbackContext)));
+            return Task.CompletedTask;
+        }
+
+        await using var view = new RawActivityView(
+            static (_, _) => Task.CompletedTask,
+            Commit,
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await view.Render(
+            new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = ownerAgentSessionId,
+                ToolRequestReceived = new ToolRequestReceived { ToolCallCount = toolCallCount },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = ownerAgentSessionId,
+                ToolStarted = new ToolStarted { ToolCallId = "tool", ToolName = "read" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = ownerAgentSessionId,
+                ToolFinished = new ToolFinished { ToolCallId = "tool", ToolName = "read", Result = "ok" },
+            },
+            cancellationToken);
+
+        // The tool line is committed either way; only the count notice is conditional.
+        _ = await Assert.That(committed).Contains(value => value.Contains("read", StringComparison.Ordinal));
+        if (expected is null)
+        {
+            _ = await Assert.That(committed).DoesNotContain(value => value.Contains('⚙'));
+            return;
+        }
+
+        _ = await Assert.That(committed).Count().IsEqualTo(2);
+        _ = await Assert.That(committed[0]).IsEqualTo(expected);
+        _ = await Assert.That(committed[0]).DoesNotContain("\u001b");
+        _ = await Assert.That(committed[1]).Contains("read");
+    }
+
+    [Test]
     public async Task Child_completion_renders_markdown_with_hierarchy_labels(
         CancellationToken cancellationToken)
     {

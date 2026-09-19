@@ -449,6 +449,17 @@ internal sealed class RawActivityView(
                         cancellationToken).ConfigureAwait(false);
                     break;
 
+                case Event.PayloadOneofCase.ToolRequestReceived when published.ToolRequestReceived.ToolCallCount > 1:
+                    await commit(
+                        Wrap(
+                            GetNamedAgentSession(published.AgentSessionId),
+                            new ActivityNoticeScrollbackValue(
+                                TerminalIcons.ToolRequest,
+                                $"requested {published.ToolRequestReceived.ToolCallCount} tool calls")),
+                        Snapshot(),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+
                 case Event.PayloadOneofCase.ReasoningChunk:
                 {
                     var fragment = TerminalText.Sanitize(published.ReasoningChunk.Fragment);

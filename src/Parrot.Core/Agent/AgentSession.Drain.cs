@@ -867,6 +867,19 @@ internal sealed partial class AgentSession
                     _history.Add(LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls));
                     await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
                     Activity.RecordAssistantMessage(completed.AssistantText);
+                    await EmitEvent(
+                        new Event
+                        {
+                            Id = Identifier.EventId(),
+                            AgentSessionId = SessionId,
+                            ToolRequestReceived = new ToolRequestReceived
+                            {
+                                ToolCallCount = completed.ToolCalls.Count,
+                            },
+                        },
+                        null,
+                        null,
+                        cancellationToken).ConfigureAwait(false);
                     await ReconcileToolBatches(
                         activeSelection,
                         snapshot,

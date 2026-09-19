@@ -560,6 +560,123 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    public async Task Tool_request_count_is_recorded_per_assistant_batch_and_not_for_retried_batches(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer(string.Empty, new LLMToolCall("call-1", "settled", "{}")),
+            Answer("done"));
+        var repository = new EventRepository(_database);
+        await using var session = Session(
+            provider,
+            repository,
+            [new TestTool(new SettledTool("settled"))],
+            new DrainProfile(maxTurns: 2).Mode,
+            cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await session.Settled();
+        await session.DisposeAsync();
+
+        var replay = repository.Replay().ToList();
+        var counts = replay
+            .Where(published => published.PayloadCase == Event.PayloadOneofCase.ToolRequestReceived)
+            .Select(published => published.ToolRequestReceived.ToolCallCount)
+            .ToArray();
+
+        // One event for the single-tool batch, carrying the count of that batch.
+        _ = await Assert.That(string.Join(',', counts)).IsEqualTo("1");
+
+        // Durable: the record survives replay and sits after the assistant message
+        // that asked for the tools and before the first tool line.
+        var requestIndex = replay.FindIndex(published =>
+            published.PayloadCase == Event.PayloadOneofCase.ToolRequestReceived);
+        var firstToolIndex = replay.FindIndex(published =>
+            published.PayloadCase == Event.PayloadOneofCase.ToolStarted);
+        _ = await Assert.That(requestIndex).IsGreaterThanOrEqualTo(0);
+        _ = await Assert.That(requestIndex).IsLessThan(firstToolIndex);
+    }
+
+    [Test]
+    public async Task Multiple_tool_calls_in_one_batch_are_counted_together(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer(
+                string.Empty,
+                new LLMToolCall("call-1", "settled", "{}"),
+                new LLMToolCall("call-2", "settled", "{}"),
+                new LLMToolCall("call-3", "settled", "{}")),
+            Answer("done"));
+        var repository = new EventRepository(_database);
+        await using var session = Session(
+            provider,
+            repository,
+            [new TestTool(new SettledTool("settled"))],
+            new DrainProfile(maxTurns: 2).Mode,
+            cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await session.Settled();
+        await session.DisposeAsync();
+
+        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.ToolRequestReceived)).IsEqualTo(1);
+        _ = await Assert.That(repository.Replay()
+            .Single(published => published.PayloadCase == Event.PayloadOneofCase.ToolRequestReceived)
+            .ToolRequestReceived.ToolCallCount).IsEqualTo(3);
+    }
+
+    [Test]
+    public async Task Truncated_and_invalid_tool_batches_record_no_request_count(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed(
+                "length",
+                10,
+                0,
+                32_768,
+                "partial",
+                [new LLMToolCall("truncated", "settled", "{}")]),
+            LLMEvent.Completed(
+                "stop",
+                10,
+                0,
+                32_768,
+                "partial",
+                [new LLMToolCall("invalid", "settled", "{\"value\":\"")]),
+            Answer("done"));
+        var repository = new EventRepository(_database);
+        await using var session = Session(
+            provider,
+            repository,
+            [new TestTool(new SettledTool("settled"))],
+            new DrainProfile(maxTurns: 4).Mode,
+            cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await session.Settled();
+        await session.DisposeAsync();
+
+        // Neither retried batch was accepted, so neither is counted.
+        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.ToolRequestReceived)).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task A_steer_admitted_during_a_tool_round_joins_the_turn_already_running(
         CancellationToken cancellationToken)
     {
