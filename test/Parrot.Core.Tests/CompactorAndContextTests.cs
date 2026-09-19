@@ -484,7 +484,7 @@ internal sealed class CompactorAndContextTests : IDisposable
                 new PromptTestProvider("runtime:system-context:01-base", "base"),
                 new PromptTestProvider("runtime:system-context:16-security-profile", "security"),
                 new PromptTestProvider("runtime:system-context:93-agent-history", "history"),
-                new PromptTestProvider("runtime:system-context:91-skills", "skills"),
+                new PromptTestProvider("runtime:system-context:09b-skills", "skills"),
                 new PromptTestProvider("runtime:system-context:90-agent-path-environment", "paths"),
                 new PromptTestProvider("runtime:system-context:92-agent-scratch", "scratch"),
             ]);
@@ -493,7 +493,25 @@ internal sealed class CompactorAndContextTests : IDisposable
         prompt.RenewEpoch();
 
         _ = await Assert.That(prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value))
-            .IsEqualTo("base\n\nsecurity\n\npaths\n\nskills\n\nscratch\n\nhistory");
+            .IsEqualTo("base\n\nskills\n\nsecurity\n\npaths\n\nscratch\n\nhistory");
+    }
+
+    [Test]
+    public async Task Composite_system_prompt_sorts_skills_after_queue_guidance()
+    {
+        var composite = new CompositeSystemPromptProvider(
+            "test:composite",
+            [
+                new PromptTestProvider("runtime:system-context:09b-skills", "skills"),
+                new PromptTestProvider("runtime:system-context:09-queue-guidance", "queues"),
+                new PromptTestProvider("runtime:system-context:10-model-prompt", "models"),
+            ]);
+
+        var prompt = composite.Materialize(AgentIdentity.Main("main", string.Empty, TestModels.PromptTemplates));
+        prompt.RenewEpoch();
+
+        _ = await Assert.That(prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value))
+            .IsEqualTo("queues\n\nskills\n\nmodels");
     }
 
     [Test]
