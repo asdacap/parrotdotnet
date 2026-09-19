@@ -6,7 +6,6 @@ using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
-using Parrot.Queues;
 using Parrot.Skills;
 using Parrot.State;
 using Parrot.Store;
@@ -188,7 +187,6 @@ internal partial class Composition
                     new SessionIdentityProvider(),
                     new SubagentsProvider(profiles, configuration.PromptTemplates),
                     new ModelPromptProvider(configuration.ModelAugmentSystemPrompts, configuration.PromptTemplates),
-                    new QueueGuidanceProvider(configuration.PromptTemplates),
                     new SecurityProfileProvider(
                         configuration.SandboxRules,
                         sandboxGate,

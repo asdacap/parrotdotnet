@@ -5,7 +5,6 @@ using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
-using Parrot.Queues;
 using Parrot.Security;
 using Parrot.Store;
 using SixLabors.ImageSharp;
@@ -419,43 +418,6 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
-    public async Task Queue_guidance_requires_queue_creation_pushing_and_taking()
-    {
-        var prompt = new QueueGuidancePrompt(TestModels.PromptTemplates);
-        var enabled = prompt.Build(new SelectionFixture(new ModeFixture(
-            allowedTools: null,
-            new HashSet<string>(StringComparer.Ordinal)).Mode).Value);
-        var permitted = prompt.Build(new SelectionFixture(new ModeFixture(
-            ["queue_create", "queue_push", "queue_take"],
-            new HashSet<string>(StringComparer.Ordinal)).Mode).Value);
-        var withoutPush = prompt.Build(new SelectionFixture(new ModeFixture(
-            ["queue_create", "queue_take"],
-            new HashSet<string>(StringComparer.Ordinal)).Mode).Value);
-        var withoutTake = prompt.Build(new SelectionFixture(new ModeFixture(
-            ["queue_create", "queue_push"],
-            new HashSet<string>(StringComparer.Ordinal)).Mode).Value);
-        var withoutCreate = prompt.Build(new SelectionFixture(new ModeFixture(
-            ["queue_push", "queue_take"],
-            new HashSet<string>(StringComparer.Ordinal)).Mode).Value);
-        var disabled = prompt.Build(new SelectionFixture(new ModeFixture(
-            ["queue_create", "queue_push", "queue_take"],
-            new HashSet<string>(["queue_push"], StringComparer.Ordinal)).Mode).Value);
-
-        _ = await Assert.That(enabled).Contains("use a parent-owned queue");
-        _ = await Assert.That(enabled).Contains("queue_push(close:true)");
-        _ = await Assert.That(enabled).Contains("items may be empty when closing");
-        _ = await Assert.That(enabled).Contains("queue_take reports closed with no items");
-        _ = await Assert.That(permitted).IsEqualTo(enabled);
-        _ = await Assert.That(withoutPush).Contains("use a parent-owned queue");
-        _ = await Assert.That(withoutPush).DoesNotContain("queue_push(close:true)");
-        _ = await Assert.That(withoutTake).Contains("use a parent-owned queue");
-        _ = await Assert.That(withoutTake).DoesNotContain("queue_push(close:true)");
-        _ = await Assert.That(withoutCreate).IsEmpty();
-        _ = await Assert.That(disabled).Contains("use a parent-owned queue");
-        _ = await Assert.That(disabled).DoesNotContain("queue_push(close:true)");
-    }
-
-    [Test]
     public async Task Composite_system_prompt_validates_orders_and_materializes_per_session()
     {
         var first = new PromptTestProvider("test:z", "z");
@@ -496,24 +458,6 @@ internal sealed class CompactorAndContextTests : IDisposable
 
         _ = await Assert.That(prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value))
             .IsEqualTo("base\n\noptional\n\nexpected\n\nskills\n\nsecurity\n\npaths\n\nscratch\n\nhistory");
-    }
-
-    [Test]
-    public async Task Composite_system_prompt_sorts_skills_after_queue_guidance()
-    {
-        var composite = new CompositeSystemPromptProvider(
-            "test:composite",
-            [
-                new PromptTestProvider("runtime:system-context:09b-skills", "skills"),
-                new PromptTestProvider("runtime:system-context:09-queue-guidance", "queues"),
-                new PromptTestProvider("runtime:system-context:10-model-prompt", "models"),
-            ]);
-
-        var prompt = composite.Materialize(AgentIdentity.Main("main", string.Empty, TestModels.PromptTemplates));
-        prompt.RenewEpoch();
-
-        _ = await Assert.That(prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value))
-            .IsEqualTo("queues\n\nskills\n\nmodels");
     }
 
     [Test]
