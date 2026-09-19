@@ -199,6 +199,31 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
     }
 
     [Test]
+    public async Task Leaf_accepts_a_reply_that_wraps_json_in_prose_and_a_fence(CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskQueueProvider([
+            "I inspected the repository and ran the tests.\n\n```json\n{\"result\":\"contract evidence\",\"verdict\":\"accept\",\"evidence\":\"tests passed\"}\n```\n\nLet me know if you need anything else.",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"leaf","description":"Implement leaf","payload":"Do leaf work","acceptance_criteria":"Leaf is proven"}]}
+            """);
+
+        var result = await new RunnerFixture(runtime, "prose-wrapped-leaf", 5, _broker, _repository).Runner
+            .Run(artifact, cancellationToken);
+
+        var task = result.Tasks.Single();
+        _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
+        _ = await Assert.That(task.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
+        _ = await Assert.That(task.AttemptCount).IsEqualTo(1);
+        _ = await Assert.That(task.Result).IsEqualTo("contract evidence");
+        _ = await Assert.That(task.Verdict?.Kind).IsEqualTo(AcceptanceVerdictKind.Accept);
+        _ = await Assert.That(task.Verdict?.Evidence).IsEqualTo("tests passed");
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
+    }
+
+    [Test]
     public async Task Unexpected_graph_failure_leaves_a_fully_terminal_progress_tree()
     {
         var progress = new AgentTaskProgress(_broker, _repository, "owner", "failure-call", TestDiagnosticLog.Instance);
