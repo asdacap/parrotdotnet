@@ -157,6 +157,39 @@ internal sealed class ExecCommandToolTests : IDisposable
         _ = await Assert.That(trailingChangeDirectory.Text).StartsWith("Process exited with code 0 after ");
         _ = await Assert.That(trailingChangeDirectory.Text).EndsWith("s\n[stdout]\nx");
 
+        const string sleepRejection =
+            "error: leading 'sleep' is not allowed in exec_command; use the wait tool to pause instead.";
+        var rejectedSleepWithArgument = await Execute(tool, """{"command":"sleep 30"}""", selection, cancellationToken);
+        var rejectedSleepWithoutArgument = await Execute(tool, """{"command":"sleep"}""", selection, cancellationToken);
+        var rejectedSleepWithLeadingWhitespace = await Execute(tool, "{\"command\":\"   \\tsleep 1\"}", selection, cancellationToken);
+        var rejectedSleepSemicolon = await Execute(tool, """{"command":"sleep;echo done"}""", selection, cancellationToken);
+        var rejectedSleepConjunction = await Execute(tool, """{"command":"sleep 1 && echo done"}""", selection, cancellationToken);
+        var rejectedSleepMultiline = await Execute(tool, "{\"command\":\"sleep 1\\nprintf done\"}", selection, cancellationToken);
+        var sleepyFirstWord = await Execute(tool, """{"command":"sleepy 2"}""", selection, cancellationToken);
+        var embeddedSleep = await Execute(tool, """{"command":"printf x; sleep 0.05; printf y"}""", selection, cancellationToken);
+        var qualifiedSleep = await Execute(tool, """{"command":"command sleep 0"}""", selection, cancellationToken);
+        var rejectedNamedSleep = await Execute(tool, """{"command":"sleep 30","name":"not-reserved","yield_after_ms":0}""", selection, cancellationToken);
+        var reusedSleepName = await Execute(tool, """{"command":"printf free","name":"not-reserved"}""", selection, cancellationToken);
+
+        _ = await Assert.That(rejectedSleepWithArgument.Text).IsEqualTo(sleepRejection);
+        _ = await Assert.That(rejectedSleepWithArgument.YieldedProcess).IsNull();
+        _ = await Assert.That(rejectedSleepWithoutArgument.Text).IsEqualTo(sleepRejection);
+        _ = await Assert.That(rejectedSleepWithLeadingWhitespace.Text).IsEqualTo(sleepRejection);
+        _ = await Assert.That(rejectedSleepSemicolon.Text).IsEqualTo(sleepRejection);
+        _ = await Assert.That(rejectedSleepConjunction.Text).IsEqualTo(sleepRejection);
+        _ = await Assert.That(rejectedSleepMultiline.Text).IsEqualTo(sleepRejection);
+        _ = await Assert.That(sleepyFirstWord.Text).StartsWith("Process exited with code ");
+        _ = await Assert.That(sleepyFirstWord.Text).DoesNotContain("leading 'sleep' is not allowed");
+        _ = await Assert.That(embeddedSleep.Text).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(embeddedSleep.Text).EndsWith("s\n[stdout]\nxy");
+        _ = await Assert.That(qualifiedSleep.Text).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(qualifiedSleep.Text).DoesNotContain("[stdout]");
+        _ = await Assert.That(qualifiedSleep.Text).DoesNotContain("[stderr]");
+        _ = await Assert.That(rejectedNamedSleep.Text).IsEqualTo(sleepRejection);
+        _ = await Assert.That(rejectedNamedSleep.YieldedProcess).IsNull();
+        _ = await Assert.That(reusedSleepName.Text).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(reusedSleepName.Text).EndsWith("s\n[stdout]\nfree");
+
         var spilled = await Execute(tool, """{"command":"awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"x\" }'"}""", selection, cancellationToken);
         const string spillNotice = "\nTool output exceeded 64 KiB and was saved to ";
         const string spilledSuffix = ".";
@@ -167,12 +200,12 @@ internal sealed class ExecCommandToolTests : IDisposable
         _ = await Assert.That(Path.IsPathFullyQualified(spilledPath)).IsTrue();
         _ = await Assert.That(Path.GetDirectoryName(spilledPath)).IsEqualTo(scratch.BlobDirectory);
 
-        var yielded = await Execute(tool, """{"command":"sleep 0.05; printf '%s' \"$LATER_VALUE\"","env":{"LATER_VALUE":"later"},"name":"later","yield_after_ms":0}""", selection, cancellationToken);
+        var yielded = await Execute(tool, """{"command":"printf ''; sleep 0.05; printf '%s' \"$LATER_VALUE\"","env":{"LATER_VALUE":"later"},"name":"later","yield_after_ms":0}""", selection, cancellationToken);
         var waited = (await processes.Claim("later").Wait(null, cancellationToken)).Format();
         var reusedAfterCompletion = await Execute(tool, """{"command":"printf reused","name":"later"}""", selection, cancellationToken);
         var defaultSignalProcess = await Execute(
             tool,
-            """{"command":"sleep 30","name":"default-signal","yield_after_ms":0}""",
+            """{"command":"printf ''; sleep 30","name":"default-signal","yield_after_ms":0}""",
             selection,
             cancellationToken);
         var defaultSignaled = await Execute(
@@ -181,7 +214,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             selection,
             cancellationToken);
         var defaultCompletion = (await processes.Claim("default-signal").Wait(null, cancellationToken)).Format();
-        var running = await Execute(tool, """{"command":"sleep 30","name":"running","yield_after_ms":0}""", selection, cancellationToken);
+        var running = await Execute(tool, """{"command":"printf ''; sleep 30","name":"running","yield_after_ms":0}""", selection, cancellationToken);
         var runningDuplicate = await Execute(tool, """{"command":"true","name":"running"}""", selection, cancellationToken);
         var signaled = await Execute(
             new InterruptProcessTool(processes),
