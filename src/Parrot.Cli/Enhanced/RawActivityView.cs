@@ -432,6 +432,15 @@ internal sealed class RawActivityView(
                     break;
                 }
 
+                case Event.PayloadOneofCase.ActiveWorkReminderInjected when _hierarchy.IsChild(published.AgentSessionId):
+                    await commit(
+                        Wrap(
+                            GetNamedAgentSession(published.AgentSessionId),
+                            new ActivityNoticeScrollbackValue(TerminalIcons.StatusNotice, "Active work reminder injected")),
+                        Snapshot(),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+
                 case Event.PayloadOneofCase.ExitReminderInjected when _hierarchy.IsChild(published.AgentSessionId):
                     await commit(
                         Wrap(

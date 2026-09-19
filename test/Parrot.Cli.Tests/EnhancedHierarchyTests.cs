@@ -144,6 +144,9 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
         await view.Render(
+            new Event { AgentSessionId = "child", ActiveWorkReminderInjected = new ActiveWorkReminderInjected() },
+            cancellationToken);
+        await view.Render(
             new Event { AgentSessionId = "child", ExitReminderInjected = new ExitReminderInjected() },
             cancellationToken);
         await view.Render(
@@ -155,7 +158,9 @@ internal sealed class EnhancedHierarchyTests
             cancellationToken);
 
         _ = await Assert.That(string.Join('|', committed)).IsEqualTo(
-            "  ↻ [worker] Exit reminder injected|  ↻ [worker] Skill loaded: /skills/example[2J/SKILL.md");
+            "  ↻ [worker] Active work reminder injected" +
+            "|  ↻ [worker] Exit reminder injected" +
+            "|  ↻ [worker] Skill loaded: /skills/example[2J/SKILL.md");
     }
 
     [Test]
