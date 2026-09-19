@@ -7,7 +7,7 @@ namespace Parrot.Cli.Tests;
 internal sealed class StatusCommandTests
 {
     [Test]
-    public async Task Command_shows_the_agent_status_and_usage_lines(CancellationToken cancellationToken)
+    public async Task Command_prints_the_agent_status_and_usage_lines(CancellationToken cancellationToken)
     {
         var invoker = new ScriptedInvoker { StatusText = "Model: provider/model", UsageLines = ["Credits: 5.00"] };
         var dialog = new TestSlashDialog();
@@ -16,9 +16,10 @@ internal sealed class StatusCommandTests
 
         await command.Run(string.Empty, cancellationToken);
 
+        _ = await Assert.That(dialog.Shown).IsEmpty();
         _ = await Assert.That(invoker.Statuses).HasSingleItem();
         _ = await Assert.That(invoker.Statuses[0].UserSessionId).IsEqualTo("session-0");
-        _ = await Assert.That(string.Join('|', dialog.Shown)).IsEqualTo("Model: provider/model|Credits: 5.00");
+        _ = await Assert.That(string.Join('|', dialog.Printed)).IsEqualTo("Model: provider/model|Credits: 5.00");
     }
 
     [Test]
@@ -31,7 +32,7 @@ internal sealed class StatusCommandTests
 
         await command.Run(string.Empty, cancellationToken);
 
-        _ = await Assert.That(string.Join('|', dialog.Shown)).IsEqualTo("no status is currently available");
+        _ = await Assert.That(string.Join('|', dialog.Printed)).IsEqualTo("no status is currently available");
     }
 
     [Test]

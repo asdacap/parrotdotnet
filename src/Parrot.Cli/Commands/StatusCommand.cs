@@ -48,6 +48,6 @@ internal sealed class StatusCommand(
             lines.Add("no status is currently available");
         }
 
-        await dialog.Show(lines, cancellationToken).ConfigureAwait(false);
+        await dialog.Print(lines, cancellationToken).ConfigureAwait(false);
     }
 }

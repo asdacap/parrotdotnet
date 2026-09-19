@@ -2,7 +2,9 @@ using Parrot.Cli.Commands;
 
 namespace Parrot.Cli.Enhanced;
 
-internal sealed class EnhancedSlashDialog(ILiveInputHost input) : ISlashDialog
+internal sealed class EnhancedSlashDialog(
+    ILiveInputHost input,
+    Func<IScrollbackItem, CancellationToken, Task> commit) : ISlashDialog
 {
     private const int MaximumInputRunes = 4096;
     private const int MaximumVisibleMessageLines = 9;
@@ -91,6 +93,12 @@ internal sealed class EnhancedSlashDialog(ILiveInputHost input) : ISlashDialog
     {
         ArgumentNullException.ThrowIfNull(lines);
         _ = await ShowMessage(string.Join('\n', lines), false, cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task Print(IReadOnlyList<string> lines, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+        return commit(ImmediateScrollbackValue.Muted(lines), cancellationToken);
     }
 
     public Task<bool> Confirm(IReadOnlyList<string> lines, CancellationToken cancellationToken)

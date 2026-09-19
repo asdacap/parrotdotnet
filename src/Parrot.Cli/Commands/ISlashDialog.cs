@@ -15,6 +15,9 @@ internal interface ISlashDialog
 
     Task Show(IReadOnlyList<string> lines, CancellationToken cancellationToken);
 
+    /// <summary>Writes permanent output without waiting for dismissal.</summary>
+    Task Print(IReadOnlyList<string> lines, CancellationToken cancellationToken);
+
     Task<bool> Confirm(IReadOnlyList<string> lines, CancellationToken cancellationToken);
 
     Task ShowError(string message, CancellationToken cancellationToken);

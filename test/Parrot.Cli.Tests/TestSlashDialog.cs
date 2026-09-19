@@ -9,6 +9,8 @@ internal sealed class TestSlashDialog : ISlashDialog
 
     public List<string> Shown { get; } = [];
 
+    public List<string> Printed { get; } = [];
+
     public List<string> Errors { get; } = [];
 
     public List<(string Title, IReadOnlyList<SlashDialogOption> Options)> Pickers { get; } = [];
@@ -54,6 +56,12 @@ internal sealed class TestSlashDialog : ISlashDialog
     public Task Show(IReadOnlyList<string> lines, CancellationToken cancellationToken)
     {
         Shown.AddRange(lines);
+        return Task.CompletedTask;
+    }
+
+    public Task Print(IReadOnlyList<string> lines, CancellationToken cancellationToken)
+    {
+        Printed.AddRange(lines);
         return Task.CompletedTask;
     }
 

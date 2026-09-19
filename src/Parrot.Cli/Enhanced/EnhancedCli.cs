@@ -282,7 +282,7 @@ internal sealed class EnhancedCli(
 
         _replaceSession = ReplaceSession;
         var liveInput = EnhancedLiveInputHost.Create(terminal, renderingSession.ReplaceInput);
-        ISlashDialog dialog = new EnhancedSlashDialog(liveInput);
+        ISlashDialog dialog = new EnhancedSlashDialog(liveInput, renderingSession.Commit);
         var commands = SlashCommands.Create(
             client,
             dialog,

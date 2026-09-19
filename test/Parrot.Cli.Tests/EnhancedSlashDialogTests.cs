@@ -6,10 +6,32 @@ namespace Parrot.Cli.Tests;
 internal sealed class EnhancedSlashDialogTests
 {
     [Test]
+    public async Task Print_commits_all_lines_without_opening_a_dialog(CancellationToken cancellationToken)
+    {
+        var host = new ScriptedLiveInputHost();
+        List<IScrollbackItem> committed = [];
+        ISlashDialog dialog = new EnhancedSlashDialog(host, (item, token) =>
+        {
+            token.ThrowIfCancellationRequested();
+            committed.Add(item);
+            return Task.CompletedTask;
+        });
+        string[] lines = [.. Enumerable.Range(0, 20).Select(index => $"Status {index}")];
+
+        await dialog.Print(lines, cancellationToken);
+
+        _ = await Assert.That(host.Frames).IsEmpty();
+        _ = await Assert.That(committed).HasSingleItem();
+        _ = await Assert.That(string.Join('|', committed[0].Render(
+            new ScrollbackRenderContext(80, new TerminalPalette(false)))))
+            .IsEqualTo(string.Join('|', lines));
+    }
+
+    [Test]
     public async Task Picker_filters_navigates_and_selects_through_live_items(CancellationToken cancellationToken)
     {
         var host = new ScriptedLiveInputHost("al", "\u001b[B", "\r");
-        ISlashDialog dialog = new EnhancedSlashDialog(host);
+        ISlashDialog dialog = new EnhancedSlashDialog(host, (_, _) => throw new InvalidOperationException());
         var options = new SlashDialogOption[]
         {
             new("alpha", "Alpha", "first"),
@@ -36,7 +58,7 @@ internal sealed class EnhancedSlashDialogTests
     public async Task Picker_places_prompt_before_no_matches(CancellationToken cancellationToken)
     {
         var host = new ScriptedLiveInputHost("z\u001b", string.Empty);
-        ISlashDialog dialog = new EnhancedSlashDialog(host);
+        ISlashDialog dialog = new EnhancedSlashDialog(host, (_, _) => throw new InvalidOperationException());
 
         _ = await dialog.Select(
             "Question: ",
@@ -60,7 +82,7 @@ internal sealed class EnhancedSlashDialogTests
         CancellationToken cancellationToken)
     {
         var host = flush is null ? new ScriptedLiveInputHost(key) : new ScriptedLiveInputHost(key, flush);
-        ISlashDialog dialog = new EnhancedSlashDialog(host);
+        ISlashDialog dialog = new EnhancedSlashDialog(host, (_, _) => throw new InvalidOperationException());
 
         var selected = await dialog.Select(
             "Pick: ",
@@ -75,7 +97,7 @@ internal sealed class EnhancedSlashDialogTests
     {
         using var cancellation = new CancellationTokenSource();
         var host = new CancellingLiveInputHost(cancellation, new TerminalKey(TerminalKeyKind.Submit));
-        ISlashDialog dialog = new EnhancedSlashDialog(host);
+        ISlashDialog dialog = new EnhancedSlashDialog(host, (_, _) => throw new InvalidOperationException());
 
         _ = await Assert.That(async () => await dialog.Select(
             "Pick: ",
@@ -90,7 +112,7 @@ internal sealed class EnhancedSlashDialogTests
     {
         using var cancellation = new CancellationTokenSource();
         var host = new CancellingLiveInputHost(cancellation, new TerminalKey(TerminalKeyKind.Character, "x"));
-        ISlashDialog dialog = new EnhancedSlashDialog(host);
+        ISlashDialog dialog = new EnhancedSlashDialog(host, (_, _) => throw new InvalidOperationException());
 
         _ = await Assert.That(async () => await dialog.ReadText("Name: ", cancellation.Token))
             .Throws<OperationCanceledException>();
@@ -101,7 +123,7 @@ internal sealed class EnhancedSlashDialogTests
     [Test]
     public async Task Confirmation_reports_escape_as_cancellation(CancellationToken cancellationToken)
     {
-        ISlashDialog dialog = new EnhancedSlashDialog(new ScriptedLiveInputHost("\u001b", string.Empty));
+        ISlashDialog dialog = new EnhancedSlashDialog(new ScriptedLiveInputHost("\u001b", string.Empty), (_, _) => throw new InvalidOperationException());
 
         var confirmed = await dialog.Confirm(["Continue"], cancellationToken);
 
@@ -115,11 +137,11 @@ internal sealed class EnhancedSlashDialogTests
         string secretText, int secretRunes, CancellationToken cancellationToken)
     {
         var textHost = new ScriptedLiveInputHost("hello\r");
-        ISlashDialog textDialog = new EnhancedSlashDialog(textHost);
+        ISlashDialog textDialog = new EnhancedSlashDialog(textHost, (_, _) => throw new InvalidOperationException());
         var text = await textDialog.ReadText("Name: ", cancellationToken);
 
         var secretHost = new ScriptedLiveInputHost($"{secretText}\u001b[D\r", "\r", "\r");
-        ISlashDialog secretDialog = new EnhancedSlashDialog(secretHost);
+        ISlashDialog secretDialog = new EnhancedSlashDialog(secretHost, (_, _) => throw new InvalidOperationException());
         var secret = await secretDialog.ReadSecret("Key: ", cancellationToken);
 
         await secretDialog.Show(["first", "second"], cancellationToken);
@@ -146,7 +168,7 @@ internal sealed class EnhancedSlashDialogTests
     public async Task Load_shows_spinner_frames_returns_the_result_and_clears_the_input(CancellationToken cancellationToken)
     {
         var host = new ScriptedLiveInputHost();
-        var dialog = new EnhancedSlashDialog(host);
+        var dialog = new EnhancedSlashDialog(host, (_, _) => throw new InvalidOperationException());
 
         var loaded = await dialog.Load(
             "Loading models…",
@@ -169,7 +191,7 @@ internal sealed class EnhancedSlashDialogTests
     {
         using var cancellation = new CancellationTokenSource();
         var host = new ScriptedLiveInputHost();
-        var dialog = new EnhancedSlashDialog(host);
+        var dialog = new EnhancedSlashDialog(host, (_, _) => throw new InvalidOperationException());
 
         _ = await Assert.That(async () => await dialog.Load<string>(
             "Loading models…",
@@ -212,13 +234,13 @@ internal sealed class EnhancedSlashDialogTests
         string contextText, int columns, string expectedLines, CancellationToken cancellationToken)
     {
         var pickerHost = new ScriptedLiveInputHost("a\r");
-        ISlashDialog picker = new EnhancedSlashDialog(pickerHost);
+        ISlashDialog picker = new EnhancedSlashDialog(pickerHost, (_, _) => throw new InvalidOperationException());
         _ = await picker.Select(
             contextText,
             [new SlashDialogOption("answer", "Answer", string.Empty)],
             cancellationToken);
         var textHost = new ScriptedLiveInputHost("ab\r");
-        ISlashDialog text = new EnhancedSlashDialog(textHost);
+        ISlashDialog text = new EnhancedSlashDialog(textHost, (_, _) => throw new InvalidOperationException());
         _ = await text.ReadText(contextText, cancellationToken);
         foreach (var frame in pickerHost.Frames.Concat(textHost.Frames))
         {

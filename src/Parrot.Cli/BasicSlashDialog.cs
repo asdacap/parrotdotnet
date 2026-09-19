@@ -73,6 +73,12 @@ internal sealed class BasicSlashDialog(TextReader input, TextWriter output, Text
         }
     }
 
+    public async Task Print(IReadOnlyList<string> lines, CancellationToken cancellationToken)
+    {
+        await Show(lines, cancellationToken).ConfigureAwait(false);
+        await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<bool> Confirm(IReadOnlyList<string> lines, CancellationToken cancellationToken)
     {
         await Show(lines, cancellationToken).ConfigureAwait(false);
