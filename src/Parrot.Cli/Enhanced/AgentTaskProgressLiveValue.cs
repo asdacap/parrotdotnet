@@ -10,7 +10,7 @@ internal sealed class AgentTaskProgressLiveValue(AgentTaskProgressSnapshot snaps
         var rows = new List<string>();
         foreach (var row in AgentTaskProgressFormatter.FormatRows(snapshot))
         {
-            rows.AddRange(TerminalText.LayoutHanging(row.Text, columns, row.HangingIndent));
+            rows.AddRange(TerminalText.LayoutWordsHanging(row.Text, columns, row.HangingIndent));
         }
 
         return new MultiLine(

@@ -18,7 +18,7 @@ internal sealed class ShellProcessLiveValue(
         var marker = TerminalIcons.SpinnerFrames[frame % TerminalIcons.SpinnerFrames.Length].ToString();
         var lines = context.Decoration.Apply(
                 marker,
-                TerminalText.Layout(TerminalText.Sanitize(label), context.Decoration.ContentColumns(context.Columns)).Take(10))
+                TerminalText.LayoutWords(TerminalText.Sanitize(label), context.Decoration.ContentColumns(context.Columns)).Take(10))
             .Select(value => new TerminalLine(value, context.Palette.Marker))
             .ToList();
         return new MultiLine(lines, null, LiveBufferRetention.Fixed);

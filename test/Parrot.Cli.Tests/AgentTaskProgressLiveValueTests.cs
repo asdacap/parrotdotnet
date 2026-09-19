@@ -52,7 +52,7 @@ internal sealed class AgentTaskProgressLiveValueTests
         var lines = Render(snapshot, 14);
 
         _ = await Assert.That(string.Join('|', lines))
-            .IsEqualTo("• Agent tasks:|  ◐ root|  └── ○ 日本語|         alpha|         beta");
+            .IsEqualTo("• Agent tasks:|  ◐ root|  └── ○ 日本語|        alpha|        beta");
     }
 
     [Test]
@@ -81,14 +81,14 @@ internal sealed class AgentTaskProgressLiveValueTests
             .IsEqualTo(Scrollback(snapshot, 30));
         _ = await Assert.That(Live(snapshot, 30))
             .IsEqualTo(
-                "• Agent tasks:|  ◐ root|  └── ○ Inspect the poetry loc|        k file and pin the tra|" +
-                "        nsitive dependency");
+                "• Agent tasks:|  ◐ root|  └── ○ Inspect the poetry|        lock file and pin the|" +
+                "        transitive dependency");
         _ = await Assert.That(Live(loneRoot, 40))
             .IsEqualTo(Scrollback(loneRoot, 40));
         _ = await Assert.That(Live(loneRoot, 40))
             .IsEqualTo(
-                "• Agent tasks:|  ◐ Execute an AgentTask payload and ver|    ify its observable result and report|" +
-                "     back");
+                "• Agent tasks:|  ◐ Execute an AgentTask payload and|    verify its observable result and|" +
+                "    report back");
     }
 
     [Test]

@@ -1403,7 +1403,8 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(scrollback.All(line => TerminalText.Width(line) <= columns)).IsTrue();
         if (columns == 18 && label == "worker")
         {
-            _ = await Assert.That(string.Join('|', live.Lines.Select(line => line.Text))).Contains("$ a");
+            _ = await Assert.That(string.Join('|', live.Lines.Select(line => line.Text)))
+                .Contains("$|    [worker] alpha|    [worker] beta");
         }
     }
 

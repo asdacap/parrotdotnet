@@ -16,7 +16,7 @@ internal sealed class BlockScrollbackValue(string text, bool muted) : IScrollbac
     {
         var clean = TerminalText.Sanitize(text).TrimEnd('\r', '\n');
         var style = muted ? context.Palette.Muted : default;
-        return [.. clean.Split('\n').SelectMany(line => TerminalText.Layout(line.TrimEnd('\r'), context.Columns))
+        return [.. clean.Split('\n').SelectMany(line => TerminalText.LayoutWords(line.TrimEnd('\r'), context.Columns))
             .Select(style.Apply)];
     }
 }

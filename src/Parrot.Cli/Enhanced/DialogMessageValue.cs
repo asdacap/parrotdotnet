@@ -4,7 +4,7 @@ internal readonly record struct DialogMessageValue(string Text, bool Error) : IL
 {
     public MultiLine Render(LiveBufferRenderContext context)
     {
-        var lines = TerminalText.Layout(TerminalText.Sanitize(Text), context.Columns);
+        var lines = TerminalText.LayoutWords(TerminalText.Sanitize(Text), context.Columns);
         var style = Error ? context.Palette.Failure : context.Palette.LiveSurface;
         return new MultiLine(
             [.. lines.Select(value => new TerminalLine(value, style))],

@@ -26,6 +26,141 @@ internal static class TerminalText
         return clean.ToString();
     }
 
+    public static List<string> LayoutWords(string value, int width) =>
+        LayoutWordsHanging(value, width, string.Empty);
+
+    public static List<string> LayoutWordsHanging(string value, int width, string indent)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        width = Math.Max(1, width);
+        indent = Sanitize(indent).Replace("\n", string.Empty, StringComparison.Ordinal);
+        if (Width(indent) >= width)
+        {
+            indent = string.Empty;
+        }
+
+        var indentWidth = Width(indent);
+        var contentWidth = Math.Max(1, width - indentWidth);
+        var rows = new List<string>();
+        var row = new StringBuilder();
+        var cells = 0;
+        var rowStart = 0;
+
+        void FinishRow() => rows.Add(row.ToString());
+
+        void BeginContinuation()
+        {
+            FinishRow();
+            _ = row.Clear().Append(indent);
+            cells = indentWidth;
+            rowStart = indentWidth;
+        }
+
+        void AppendBroken(string text)
+        {
+            foreach (var grapheme in EnumerateGraphemes(text))
+            {
+                var graphemeWidth = WidthGrapheme(grapheme);
+                if (cells > rowStart && cells + graphemeWidth > width)
+                {
+                    BeginContinuation();
+                }
+
+                _ = row.Append(grapheme);
+                cells += graphemeWidth;
+            }
+        }
+
+        void AppendWord(string word, string spacing)
+        {
+            var wordWidth = Width(word);
+            var gapWidth = Width(spacing);
+            if (cells + gapWidth + wordWidth <= width)
+            {
+                _ = row.Append(spacing).Append(word);
+                cells += gapWidth + wordWidth;
+                return;
+            }
+
+            if (wordWidth > contentWidth)
+            {
+                if (cells + gapWidth <= width)
+                {
+                    _ = row.Append(spacing);
+                    cells += gapWidth;
+                }
+
+                AppendBroken(word);
+                return;
+            }
+
+            if (cells > rowStart)
+            {
+                BeginContinuation();
+            }
+
+            _ = row.Append(word);
+            cells += wordWidth;
+        }
+
+        void AppendLine(string line)
+        {
+            var word = new StringBuilder();
+            var spacing = new StringBuilder();
+            foreach (var grapheme in EnumerateGraphemes(line))
+            {
+                if (IsWordBreak(grapheme))
+                {
+                    if (word.Length > 0)
+                    {
+                        AppendWord(word.ToString(), spacing.ToString());
+                        _ = word.Clear();
+                        _ = spacing.Clear();
+                    }
+
+                    _ = spacing.Append(grapheme);
+                }
+                else
+                {
+                    _ = word.Append(grapheme);
+                }
+            }
+
+            if (word.Length > 0)
+            {
+                AppendWord(word.ToString(), spacing.ToString());
+                _ = spacing.Clear();
+            }
+
+            foreach (var grapheme in EnumerateGraphemes(spacing.ToString()))
+            {
+                var graphemeWidth = WidthGrapheme(grapheme);
+                if (cells + graphemeWidth > width)
+                {
+                    break;
+                }
+
+                _ = row.Append(grapheme);
+                cells += graphemeWidth;
+            }
+        }
+
+        var lines = value.Split('\n');
+        for (var index = 0; index < lines.Length; index++)
+        {
+            if (index > 0)
+            {
+                BeginContinuation();
+            }
+
+            AppendLine(lines[index]);
+        }
+
+        FinishRow();
+        return rows;
+    }
+
     public static List<string> Layout(string value, int width) => LayoutHanging(value, width, string.Empty);
 
     public static List<string> LayoutHanging(string value, int width, string indent)
@@ -127,6 +262,16 @@ internal static class TerminalText
         {
             yield return (string)elements.Current;
         }
+    }
+
+    private static bool IsWordBreak(string grapheme)
+    {
+        foreach (var rune in grapheme.EnumerateRunes())
+        {
+            return Rune.IsWhiteSpace(rune);
+        }
+
+        return false;
     }
 
     private static int WidthGrapheme(string grapheme)

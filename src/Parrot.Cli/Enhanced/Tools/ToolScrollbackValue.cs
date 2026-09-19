@@ -56,7 +56,7 @@ internal sealed class ToolScrollbackValue(
 
     private static List<string> LayoutHeader(string label, int columns, bool multiline)
     {
-        var lines = TerminalText.Layout(label, columns);
+        var lines = TerminalText.LayoutWords(label, columns);
         if (!multiline || lines.Count <= 5)
         {
             return [.. lines.Take(10)];
@@ -111,7 +111,7 @@ internal sealed class ToolScrollbackValue(
         if (Report.Block.Kind == ToolBlockKind.Status)
         {
             return TerminalText.Sanitize(Report.Block.Text).Split('\n')
-                .SelectMany(line => TerminalText.Layout(line, context.Columns));
+                .SelectMany(line => TerminalText.LayoutWords(line, context.Columns));
         }
 
         var blockLines = Report.Block.Kind switch

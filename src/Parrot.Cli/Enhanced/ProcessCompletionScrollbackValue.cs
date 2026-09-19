@@ -19,7 +19,7 @@ internal sealed class ProcessCompletionScrollbackValue(string command, long? ela
             : command;
         return [.. context.Decoration.Apply(
                 TerminalIcons.Shell,
-                TerminalText.Layout(TerminalText.Sanitize(label), context.Decoration.ContentColumns(context.Columns)))
+                TerminalText.LayoutWords(TerminalText.Sanitize(label), context.Decoration.ContentColumns(context.Columns)))
             .Select(context.Palette.Muted.Apply)];
     }
 }

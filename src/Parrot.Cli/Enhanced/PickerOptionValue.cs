@@ -11,7 +11,7 @@ internal readonly record struct PickerOptionValue(string Label, string Descripti
         var clipped = string.Concat(text.EnumerateRunes().Take(Math.Max(1, context.Columns)));
         var style = Selected ? context.Palette.Selection : context.Palette.LiveSurface;
         return new MultiLine(
-            [.. TerminalText.Layout(clipped, context.Columns).Take(1).Select(value => new TerminalLine(value, style))],
+            [.. TerminalText.LayoutWords(clipped, context.Columns).Take(1).Select(value => new TerminalLine(value, style))],
             null,
             LiveBufferRetention.Fixed);
     }
