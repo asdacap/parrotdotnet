@@ -134,7 +134,7 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public ILiveBufferItem CreateRawReasoningItem(int frame) =>
         new SpinnerValue(
-            $"Thinking ({TokenEstimator.EstimateTokens(_rawReasoning.ToString()).ToString(CultureInfo.InvariantCulture)} tokens)…",
+            $"Thinking ({FormatTokenCount(TokenEstimator.EstimateTokens(_rawReasoning.ToString()))} tokens)…",
             frame);
 
     public ActivityNoticeScrollbackValue? EndRawReasoning()
@@ -144,7 +144,7 @@ internal sealed class AgentSessionState(string agentSessionId)
             return null;
         }
 
-        var count = TokenEstimator.EstimateTokens(_rawReasoning.ToString()).ToString(CultureInfo.InvariantCulture);
+        var count = FormatTokenCount(TokenEstimator.EstimateTokens(_rawReasoning.ToString()));
         _ = _rawReasoning.Clear();
         return new ActivityNoticeScrollbackValue(TerminalIcons.Reasoning, $"Reasoned for {count} tokens…");
     }

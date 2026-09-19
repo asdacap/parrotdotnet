@@ -85,6 +85,19 @@ internal sealed class RawReasoningActivityTests
     }
 
     [Test]
+    public async Task Raw_reasoning_count_is_humanized_once_it_is_large(CancellationToken cancellationToken)
+    {
+        var fragment = new string('a', 16_400);
+        await using var fixture = new RawReasoningFixture();
+        await fixture.View.Render(TurnStart("root"), cancellationToken);
+        await fixture.View.Render(RawChunk("root", fragment, completed: false), cancellationToken);
+        _ = await Assert.That(fixture.LastDrawn).Contains(LiveLine(isRoot: true, "4.1k"));
+
+        await fixture.View.Prepare(PhaseChange("root"), cancellationToken);
+        _ = await Assert.That(fixture.CommittedText).Contains(NoticeLine(isRoot: true, "4.1k"));
+    }
+
+    [Test]
     public async Task Raw_reasoning_state_is_isolated_per_agent(CancellationToken cancellationToken)
     {
         await using var fixture = new RawReasoningFixture();
