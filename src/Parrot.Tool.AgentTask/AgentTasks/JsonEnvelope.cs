@@ -6,16 +6,12 @@ internal static class JsonEnvelope
 {
     private const int MinimumFenceLength = 3;
 
-    internal static string Extract(string text, params string[] markerProperties)
+    internal static string Extract(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
         var trimmed = TrimByteOrderMark(text);
-        if (IsEnvelope(trimmed))
-        {
-            return trimmed;
-        }
-
-        return SelectFencedValue(trimmed) ?? SelectBalancedValue(trimmed, markerProperties);
+        return SelectFencedValue(trimmed) ?? SelectTrailingValue(trimmed)
+            ?? throw new ArgumentException("The response does not end with a JSON object or array envelope.");
     }
 
     private static string? SelectFencedValue(string text)
@@ -33,86 +29,17 @@ internal static class JsonEnvelope
         return null;
     }
 
-    private static string SelectBalancedValue(string text, string[] markerProperties)
+    private static string? SelectTrailingValue(string text)
     {
-        Range? marker = null;
-        Range? objectValue = null;
-        Range? arrayValue = null;
-        var start = -1;
-        var depth = 0;
-        var inString = false;
-        var escaped = false;
-
         for (var index = 0; index < text.Length; index++)
         {
-            var character = text[index];
-
-            if (inString)
+            if (text[index] is '{' or '[' && IsEnvelope(text[index..]))
             {
-                if (escaped)
-                {
-                    escaped = false;
-                }
-                else if (character == '\\')
-                {
-                    escaped = true;
-                }
-                else if (character == '"')
-                {
-                    inString = false;
-                }
-
-                continue;
-            }
-
-            switch (character)
-            {
-                case '"' when depth > 0:
-                    inString = true;
-                    break;
-                case '{' or '[':
-                    if (depth == 0)
-                    {
-                        start = index;
-                    }
-
-                    depth++;
-                    break;
-                case '}' or ']' when depth > 0:
-                    depth--;
-                    if (depth == 0)
-                    {
-                        RecordCandidate(new Range(start, index + 1));
-                    }
-
-                    break;
+                return text[index..];
             }
         }
 
-        return text[marker ?? objectValue ?? arrayValue
-            ?? throw new ArgumentException("The response does not contain a JSON object or array envelope.")];
-
-        void RecordCandidate(Range range)
-        {
-            using var document = ParseEnvelopeOrNull(text[range]);
-            if (document is null)
-            {
-                return;
-            }
-
-            if (document.RootElement.ValueKind == JsonValueKind.Object)
-            {
-                objectValue = range;
-                if (HasMarker(document.RootElement, markerProperties))
-                {
-                    marker = range;
-                }
-            }
-            else
-            {
-                arrayValue = range;
-            }
-        }
+        return null;
     }
 
     private static List<Range> CollectFencedBlocks(string text)
@@ -176,52 +103,22 @@ internal static class JsonEnvelope
         return backticks >= MinimumFenceLength;
     }
 
-    private static bool HasMarker(JsonElement root, string[] markerProperties)
-    {
-        foreach (var property in root.EnumerateObject())
-        {
-            foreach (var marker in markerProperties)
-            {
-                if (string.Equals(property.Name, marker, StringComparison.Ordinal))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
     private static bool IsEnvelope(string text)
     {
-        using var document = ParseEnvelopeOrNull(text);
-        return document is not null;
-    }
-
-    private static JsonDocument? ParseEnvelopeOrNull(string json)
-    {
-        JsonDocument document;
         try
         {
-            document = JsonDocument.Parse(json);
+            using var document = JsonDocument.Parse(text);
+            return document.RootElement.ValueKind is JsonValueKind.Object or JsonValueKind.Array;
         }
         catch (JsonException)
         {
-            return null;
+            return false;
         }
-
-        if (document.RootElement.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
-        {
-            return document;
-        }
-
-        document.Dispose();
-        return null;
     }
 
     private static string TrimByteOrderMark(string text)
     {
         var trimmed = text.Trim();
-        return trimmed.Length > 0 && trimmed[0] == '\uFEFF' ? trimmed[1..].Trim() : trimmed;
+        return trimmed.Length > 0 && trimmed[0] == '﻿' ? trimmed[1..].Trim() : trimmed;
     }
 }

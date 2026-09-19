@@ -80,7 +80,11 @@ internal sealed class AgentTaskTests
     [Test]
     [Arguments("{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
     [Arguments("Here is my response:\n{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
-    [Arguments("{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}\nLet me know if you need anything else.")]
+    [Arguments("Add `foo() {` to the file.\n{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
+    [Arguments("Match with regex [^\"]+ then output:\n{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
+    [Arguments("```c\nprintf(\"{\");\n```\n{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
+    [Arguments("Example: {\"result\":\"oops\n{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
+    [Arguments("Example envelope: {\"result\":\"example\",\"verdict\":\"reject_and_halt\",\"feedback\":\"ignore me\"}\nHere is the answer: {\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
     [Arguments("Sure.\n```json\n{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}\n```\nDone.")]
     [Arguments("Sure.\n```\n{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}\n```")]
     [Arguments("\uFEFF  {\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}  ")]
@@ -103,21 +107,11 @@ internal sealed class AgentTaskTests
     }
 
     [Test]
-    public async Task Leaf_responses_prefer_the_marker_matching_candidate()
-    {
-        var response = AgentTaskParser.ParseLeafResponse(
-            "Example envelope: {\"result\":\"example\",\"verdict\":\"reject_and_halt\",\"feedback\":\"ignore me\"}\n"
-            + "Here is the answer: {\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}");
-
-        _ = await Assert.That(response.Result).IsEqualTo("work result");
-        _ = await Assert.That(response.Verdict.Kind).IsEqualTo(AcceptanceVerdictKind.Accept);
-    }
-
-    [Test]
     [Arguments("no json here at all")]
     [Arguments("I could not complete the task.")]
     [Arguments("Here is a wrapped envelope: {\"result\":\"x\",\"verdict\":\"accept\",\"evidence\":\"done\",\"unknown\":true}")]
-    public async Task Leaf_responses_still_reject_prose_without_an_envelope_and_unknown_fields(string json) =>
+    [Arguments("{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}\nLet me know if you need anything else.")]
+    public async Task Leaf_responses_still_reject_prose_without_an_envelope_trailing_prose_and_unknown_fields(string json) =>
         _ = await Assert.That(() => AgentTaskParser.ParseLeafResponse(json)).Throws<ArgumentException>();
 
     [Test]
