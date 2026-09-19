@@ -117,7 +117,7 @@ internal sealed class ToolScrollbackValue(
         var blockLines = Report.Block.Kind switch
         {
             ToolBlockKind.Diff => DiffScrollbackValue.MaximumRows + 2,
-            ToolBlockKind.Code or ToolBlockKind.CompletedInput => 100,
+            ToolBlockKind.CompletedInput => 100,
             ToolBlockKind.Queue => 30,
             _ => 10,
         };
@@ -135,7 +135,6 @@ internal sealed class ToolScrollbackValue(
 
         return Report.Block.Kind switch
         {
-            ToolBlockKind.Code => RenderCode(context, maximumLines),
             ToolBlockKind.Queue => ToolDisplayText.LayoutDetails(
                 [Report.Block.Text], context.Columns, maximumLines, maximumLines),
             ToolBlockKind.CompletedInput => RenderCompletedInput(context, maximumLines),
@@ -146,24 +145,6 @@ internal sealed class ToolScrollbackValue(
             _ => ToolDisplayText.LayoutDetails([Report.Block.Text], context.Columns, maximumLines)
                 .Select(statusStyle.Apply),
         };
-    }
-
-    private IReadOnlyList<string> RenderCode(ScrollbackRenderContext context, int maximumLines)
-    {
-        var location = Report.Block.Path.Length == 0
-            ? string.Empty
-            : Report.Block.Line > 0
-                ? $"{Report.Block.Path}:{Report.Block.Line}"
-                : Report.Block.Path;
-        var source = $"```{Report.Block.Language}\n{Report.Block.Text}\n```";
-        var rendered = MarkdownRenderer.Render(string.Empty, source, context.Columns, context.Palette.ColorEnabled)
-            .ToList();
-        if (location.Length > 0)
-        {
-            rendered.Insert(0, context.Palette.Muted.Apply(TerminalText.Clip(location, context.Columns)));
-        }
-
-        return Bound(rendered, maximumLines, context, "… code output truncated");
     }
 
     private IReadOnlyList<string> RenderCompletedInput(ScrollbackRenderContext context, int maximumLines)

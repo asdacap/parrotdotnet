@@ -19,9 +19,7 @@ internal sealed class AgentTaskDetachedProgressTests
             static value => value);
 
         _ = await Assert.That(state.OfferAgentTaskProgress(new ProgressFixture("call", 2, AgentTaskProgressStatus.Succeeded).Snapshot)).IsTrue();
-        _ = await Assert.That(state.IsDetachedAgentTask("call")).IsTrue();
         _ = await Assert.That(state.RetireDetachedAgentTaskProgress("call", 2)).IsTrue();
-        _ = await Assert.That(state.IsDetachedAgentTask("call")).IsFalse();
     }
 
     [Test]
@@ -36,7 +34,6 @@ internal sealed class AgentTaskDetachedProgressTests
             new ToolPresenterRegistry([], new GenericToolPresenter()),
             static value => value);
 
-        _ = await Assert.That(state.IsDetachedAgentTask("call")).IsFalse();
         _ = await Assert.That(state.OfferAgentTaskProgress(new ProgressFixture("call", 2, AgentTaskProgressStatus.Succeeded).Snapshot)).IsFalse();
     }
 
@@ -50,7 +47,6 @@ internal sealed class AgentTaskDetachedProgressTests
             new ToolPresenterRegistry([], new GenericToolPresenter()),
             static value => value);
 
-        _ = await Assert.That(state.IsDetachedAgentTask("missing")).IsFalse();
         _ = await Assert.That(state.DetachedAgentTaskProgressIds()).IsEmpty();
     }
 

@@ -308,11 +308,6 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public bool IsToolActive(string toolCallId) => _activities.Contains(ToolActivityPrefix + toolCallId);
 
-    public bool IsDetachedAgentTask(string toolCallId) => _detachedAgentTasks.Contains(toolCallId);
-
-    public bool IsTerminalAgentTaskProgress(string toolCallId) =>
-        _terminalAgentTaskProgress.Contains(toolCallId);
-
     public IReadOnlyList<string> DetachedAgentTaskProgressIds() =>
         [.. _detachedAgentTasks.Where(_toolLive.ContainsKey).Order(StringComparer.Ordinal)];
 

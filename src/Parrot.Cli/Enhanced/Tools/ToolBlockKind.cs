@@ -7,7 +7,6 @@ internal enum ToolBlockKind
     Output,
     Status,
     Diff,
-    Code,
     Queue,
     CompletedInput,
     Error,

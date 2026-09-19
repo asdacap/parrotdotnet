@@ -6,8 +6,6 @@ internal readonly record struct ToolReport(
     ToolBlock Block,
     ToolPresentationMetadata Metadata)
 {
-    public bool IsTerminal => Status.HasValue;
-
     public static ToolReport DescribeLive(
         string label,
         ToolBlock block,
