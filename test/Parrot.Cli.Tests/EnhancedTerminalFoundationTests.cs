@@ -104,7 +104,7 @@ internal sealed class EnhancedTerminalFoundationTests
         await renderer.Commit(new SequencedScrollbackValue("open", sequence, false), frame, cancellationToken);
         await renderer.Commit(ImmediateScrollbackValue.Muted(["compact one"]), frame, cancellationToken);
         await renderer.Commit(ImmediateScrollbackValue.Muted(["compact two"]), frame, cancellationToken);
-        await renderer.Commit(BlockScrollbackValue.Text("block"), frame, cancellationToken);
+        await renderer.Commit(new DiffScrollbackValue("block", string.Empty), frame, cancellationToken);
         await renderer.Commit(ImmediateScrollbackValue.Muted(["after block"]), frame, cancellationToken);
         await renderer.Commit(ImmediateScrollbackValue.User("question"), frame, cancellationToken);
         await renderer.Commit(ImmediateScrollbackValue.Assistant("answer"), frame, cancellationToken);

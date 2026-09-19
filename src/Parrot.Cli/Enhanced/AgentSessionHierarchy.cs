@@ -94,11 +94,6 @@ internal sealed class AgentSessionHierarchy
             : agentSessionId;
     }
 
-    public string? GetParentSessionId(string agentSessionId) =>
-        _sessions.TryGetValue(agentSessionId, out var node) && node.ParentSessionId.Length > 0
-            ? node.ParentSessionId
-            : null;
-
     public string ResolveAgentReference(string ownerAgentSessionId, string reference)
     {
         var targetSessionId = reference;

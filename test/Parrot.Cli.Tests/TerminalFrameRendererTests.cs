@@ -213,7 +213,7 @@ internal sealed class TerminalFrameRendererTests
         {
             ScrollbackLayout.User => ImmediateScrollbackValue.User("shell output"),
             ScrollbackLayout.Assistant => ImmediateScrollbackValue.Assistant("shell output"),
-            _ => BlockScrollbackValue.Text("shell output"),
+            _ => new DiffScrollbackValue("shell output", string.Empty),
         };
         await renderer.Commit(message, frame, cancellationToken);
         var committed = output.ToString()[boundary..];
