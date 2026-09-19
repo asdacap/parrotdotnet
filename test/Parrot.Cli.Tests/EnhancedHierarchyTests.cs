@@ -1057,7 +1057,7 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(committed[1]).IsEqualTo("  ● [child] Buffered response");
         _ = await Assert.That(committed[2]).IsEqualTo("  ✦ [child] Findings|    [child] • bold");
         _ = await Assert.That(committed[3]).IsEqualTo("    ✦ [grandchild] Deep result");
-        _ = await Assert.That(drawn[^1]).Contains("Thinking…");
+        _ = await Assert.That(drawn[^1]).Contains("Thinking (");
         _ = await Assert.That(string.Join('|', committed)).DoesNotContain("• [child] ✦");
     }
 

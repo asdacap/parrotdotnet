@@ -36,10 +36,10 @@ internal sealed class Compactor(
         ArgumentNullException.ThrowIfNull(tools);
         ArgumentNullException.ThrowIfNull(messages);
 
-        return EstimateStringTokens(instructions)
-            + tools.Sum(tool => EstimateStringTokens(tool.Name)
-                + EstimateStringTokens(tool.Description)
-                + EstimateStringTokens(tool.ParametersJson)
+        return TokenEstimator.EstimateTokens(instructions)
+            + tools.Sum(tool => TokenEstimator.EstimateTokens(tool.Name)
+                + TokenEstimator.EstimateTokens(tool.Description)
+                + TokenEstimator.EstimateTokens(tool.ParametersJson)
                 + 12L)
             + EstimateTokens(selectedModel, messages)
             + 4;
@@ -240,13 +240,13 @@ internal sealed class Compactor(
     private static long EstimateMessageTokens(ProviderModel selectedModel, LLMMessage message) =>
         message.Contents.Sum(content => content.Kind switch
         {
-            LLMContentKind.Text => EstimateStringTokens(content.Text),
+            LLMContentKind.Text => TokenEstimator.EstimateTokens(content.Text),
             LLMContentKind.Image => selectedModel.Provider.CalculateImageTokens(selectedModel.Model, content),
             _ => throw new InvalidOperationException($"unsupported LLM content kind {content.Kind}"),
         })
-        + message.ToolCalls.Sum(call => EstimateStringTokens(call.Id) + EstimateStringTokens(call.Name)
-            + EstimateStringTokens(call.ArgumentsJson))
-        + EstimateStringTokens(message.ToolCallId)
+        + message.ToolCalls.Sum(call => TokenEstimator.EstimateTokens(call.Id) + TokenEstimator.EstimateTokens(call.Name)
+            + TokenEstimator.EstimateTokens(call.ArgumentsJson))
+        + TokenEstimator.EstimateTokens(message.ToolCallId)
         + 8;
 
     private static IEnumerable<IReadOnlyList<LLMMessage>> Groups(IReadOnlyList<LLMMessage> messages)
@@ -268,8 +268,6 @@ internal sealed class Compactor(
 
     private static List<LLMMessage> MessagesOf(IEnumerable<IReadOnlyList<LLMMessage>> groups) =>
         [.. groups.SelectMany(group => group)];
-
-    private static long EstimateStringTokens(string value) => (value.Length + 3L) / 4L;
 
     private static long PercentageBudget(int contextWindow, int percentage)
     {

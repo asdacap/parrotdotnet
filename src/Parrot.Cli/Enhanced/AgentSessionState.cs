@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Parrot.Cli.Enhanced.Tools;
+using Parrot.Context;
 using Parrot.Protocol;
 
 namespace Parrot.Cli.Enhanced;
@@ -23,6 +24,7 @@ internal sealed class AgentSessionState(string agentSessionId)
     private readonly HashSet<string> _detachedAgentTasks = new(StringComparer.Ordinal);
     private readonly HashSet<string> _terminalAgentTaskProgress = new(StringComparer.Ordinal);
     private readonly StringBuilder _response = new();
+    private readonly StringBuilder _rawReasoning = new();
 
     private bool _terminalCommitted;
     private uint _requestAttempt;
@@ -47,6 +49,8 @@ internal sealed class AgentSessionState(string agentSessionId)
     public bool IsAgentActive => _activities.Contains(AgentActivityId);
 
     public LiveModelAliasIcon? ModelAliasIcon { get; private set; }
+
+    public bool HasRawReasoning => _rawReasoning.Length > 0;
 
     public void UpdateName(string name) => _name = name;
 
@@ -75,6 +79,7 @@ internal sealed class AgentSessionState(string agentSessionId)
         _foldedTools.Clear();
         _foldedToolOrder = 0;
         _ = _response.Clear();
+        _ = _rawReasoning.Clear();
         _responseComplete = false;
         _responseLineBreaks = 0;
         return AgentActivityId;
@@ -123,6 +128,25 @@ internal sealed class AgentSessionState(string agentSessionId)
                 _responseLineBreaks++;
             }
         }
+    }
+
+    public void CollectRawReasoning(string fragment) => _ = _rawReasoning.Append(fragment);
+
+    public ILiveBufferItem CreateRawReasoningItem(int frame) =>
+        new SpinnerValue(
+            $"Thinking ({TokenEstimator.EstimateTokens(_rawReasoning.ToString()).ToString(CultureInfo.InvariantCulture)} tokens)…",
+            frame);
+
+    public ActivityNoticeScrollbackValue? EndRawReasoning()
+    {
+        if (_rawReasoning.Length == 0)
+        {
+            return null;
+        }
+
+        var count = TokenEstimator.EstimateTokens(_rawReasoning.ToString()).ToString(CultureInfo.InvariantCulture);
+        _ = _rawReasoning.Clear();
+        return new ActivityNoticeScrollbackValue(TerminalIcons.Reasoning, $"Reasoned for {count} tokens…");
     }
 
     public async Task FlushResponse(Func<string, Task> flush)

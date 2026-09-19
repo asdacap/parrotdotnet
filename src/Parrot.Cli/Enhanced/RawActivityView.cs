@@ -1,5 +1,4 @@
 using System.Runtime.ExceptionServices;
-using System.Text;
 using System.Text.Json;
 using Parrot.Cli.Enhanced.Tools;
 using Parrot.Protocol;
@@ -34,7 +33,6 @@ internal sealed class RawActivityView(
     private readonly object _shutdownLock = new();
     private readonly TimeProvider _timeProvider = TimeProvider.System;
 
-    private readonly StringBuilder _reasoning = new();
     private readonly SemaphoreSlim _rendering = new(1, 1);
 
     private bool _progressShutdown;
@@ -176,7 +174,9 @@ internal sealed class RawActivityView(
     {
         ArgumentNullException.ThrowIfNull(published);
 
-        if (_reasoning.Length == 0 || published.PayloadCase == Event.PayloadOneofCase.ReasoningChunk)
+        if (published.PayloadCase == Event.PayloadOneofCase.ReasoningChunk
+            || !_agentSessions.TryGetValue(published.AgentSessionId, out var state)
+            || !state.HasRawReasoning)
         {
             return;
         }
@@ -184,7 +184,10 @@ internal sealed class RawActivityView(
         await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _ = _reasoning.Clear();
+            if (state.EndRawReasoning() is { } notice)
+            {
+                await commit(Wrap(state, notice), Snapshot(), cancellationToken).ConfigureAwait(false);
+            }
         }
         finally
         {
@@ -452,33 +455,40 @@ internal sealed class RawActivityView(
                 case Event.PayloadOneofCase.ReasoningChunk:
                 {
                     var fragment = TerminalText.Sanitize(published.ReasoningChunk.Fragment);
+                    var state = GetNamedAgentSession(published.AgentSessionId);
                     if (published.ReasoningChunk.Kind == ReasoningKind.Summary)
                     {
                         var isRoot = _hierarchy.IsRoot(published.AgentSessionId);
-                        if (isRoot)
+                        if (state.EndRawReasoning() is { } flushed)
                         {
-                            _ = _reasoning.Clear();
+                            await commit(Wrap(state, flushed), Snapshot(), cancellationToken).ConfigureAwait(false);
                         }
-                        else
+
+                        if (!isRoot)
                         {
-                            await CommitResponse(
-                                GetNamedAgentSession(published.AgentSessionId),
-                                cancellationToken).ConfigureAwait(false);
+                            await CommitResponse(state, cancellationToken).ConfigureAwait(false);
                         }
 
                         if (fragment.Length > 0)
                         {
                             var summary = new ReasoningSummaryScrollbackValue(fragment);
                             await commit(
-                                isRoot ? summary : Wrap(GetNamedAgentSession(published.AgentSessionId), summary),
+                                isRoot ? summary : Wrap(state, summary),
                                 Snapshot(),
                                 cancellationToken).ConfigureAwait(false);
                         }
                     }
-                    else if (_hierarchy.IsRoot(published.AgentSessionId))
+                    else
                     {
-                        _ = _reasoning.Append(fragment);
-                        await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+                        state.CollectRawReasoning(fragment);
+                        if (published.ReasoningChunk.Completed && state.EndRawReasoning() is { } flushed)
+                        {
+                            await commit(Wrap(state, flushed), Snapshot(), cancellationToken).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+                        }
                     }
 
                     break;
@@ -802,9 +812,11 @@ internal sealed class RawActivityView(
     {
         var items = new List<ILiveBufferItem>(_content.Count + _activities.Count + 1);
         items.AddRange(_content.Select(item => item.AnimateSinceCapture(_frame)));
-        if (_reasoning.Length > 0)
+        if (_hierarchy.RootSessionId is { } rootSessionId
+            && _agentSessions.TryGetValue(rootSessionId, out var rootState)
+            && rootState.HasRawReasoning)
         {
-            items.Add(new SpinnerValue("Thinking…", _frame));
+            items.Add(rootState.CreateRawReasoningItem(_frame));
         }
 
         // Keep main-agent activity on the modeline, never in the live buffer.
@@ -820,6 +832,8 @@ internal sealed class RawActivityView(
         var ownerIds = activities.Select(static activity => activity.State.AgentSessionId)
             .Concat(processes.Select(static process => process.Process.OwnerAgentSessionId))
             .Concat(_queues.Keys.Select(static key => key.OwnerAgentSessionId))
+            .Concat(_agentSessions.Values.Where(state => state.HasRawReasoning && _hierarchy.IsChild(state.AgentSessionId))
+                .Select(static state => state.AgentSessionId))
             .Concat(_agentSessions.Values.Where(static state => state.DetachedAgentTaskProgressIds().Count > 0)
                 .Select(static state => state.AgentSessionId))
             .Where(static ownerId => ownerId.Length > 0)
@@ -848,6 +862,17 @@ internal sealed class RawActivityView(
                     _hierarchy.GetDepth(state.AgentSessionId),
                     _hierarchy.GetLabel(state.AgentSessionId),
                     null)))));
+        rows.AddRange(_agentSessions.Values
+            .Where(state => state.HasRawReasoning && _hierarchy.IsChild(state.AgentSessionId))
+            .Select(state => (
+                state.AgentSessionId,
+                0,
+                "reasoning",
+                (ILiveBufferItem)new HierarchicalLiveValue(
+                    state.CreateRawReasoningItem(_frame),
+                    _hierarchy.GetDepth(state.AgentSessionId),
+                    _hierarchy.GetLabel(state.AgentSessionId),
+                    null))));
         rows.AddRange(activities.Select(activity => (
             activity.State.AgentSessionId,
             activity.State.IsAgentActivity(activity.ActivityId) ? 3 : 0,
