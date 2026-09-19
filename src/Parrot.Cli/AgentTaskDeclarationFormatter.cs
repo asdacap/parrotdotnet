@@ -25,7 +25,7 @@ internal static class AgentTaskDeclarationFormatter
         {
             var indent = line.HangingIndent;
             var layoutWidth = Math.Max(width, TerminalText.Width(indent) + 1);
-            result.AddRange(TerminalText.LayoutHanging(line.Text, layoutWidth, indent));
+            result.AddRange(TerminalText.LayoutWordsHanging(line.Text, layoutWidth, indent));
         }
 
         return result;

@@ -48,7 +48,7 @@ internal sealed class ImmediateScrollbackValue(
         var prefix = icon + " ";
         var clean = prefix + TerminalText.Sanitize(text).TrimEnd('\r', '\n');
         var indent = new string(' ', TerminalText.Width(prefix));
-        return [.. TerminalText.LayoutHanging(clean, columns, indent).Select(style.Apply)];
+        return [.. TerminalText.LayoutWordsHanging(clean, columns, indent).Select(style.Apply)];
     }
 
     private static string TrimLegacyUserPrefix(string text)

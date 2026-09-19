@@ -315,21 +315,114 @@ internal static class MarkdownRenderer
         int columns,
         bool color)
     {
+        columns = Math.Max(1, columns);
+        var continuationWidth = TerminalText.Width(continuation);
+        var contentColumns = Math.Max(1, columns - continuationWidth);
         var rows = new List<List<Run>> { new() };
         var cells = 0;
-        foreach (var run in source)
+        var rowStart = 0;
+        var word = new List<Run>();
+        var spacing = new List<Run>();
+
+        void BeginRow()
         {
-            foreach (var rune in run.Text.EnumerateRunes())
+            rows.Add([new Run(continuation, default)]);
+            cells = continuationWidth;
+            rowStart = continuationWidth;
+        }
+
+        void Emit(List<Run> text)
+        {
+            foreach (var run in text)
             {
-                var runeWidth = TerminalText.Width(rune);
-                if (cells > 0 && cells + runeWidth > Math.Max(1, columns))
+                foreach (var grapheme in TerminalText.EnumerateGraphemes(run.Text))
                 {
-                    rows.Add([new Run(continuation, default)]);
-                    cells = TerminalText.Width(continuation);
+                    Add(rows[^1], grapheme, run.Style);
+                    cells += TerminalText.Width(grapheme);
+                }
+            }
+        }
+
+        void EmitBroken(List<Run> text)
+        {
+            foreach (var run in text)
+            {
+                foreach (var grapheme in TerminalText.EnumerateGraphemes(run.Text))
+                {
+                    var graphemeWidth = TerminalText.Width(grapheme);
+                    if (cells > rowStart && cells + graphemeWidth > columns)
+                    {
+                        BeginRow();
+                    }
+
+                    Add(rows[^1], grapheme, run.Style);
+                    cells += graphemeWidth;
+                }
+            }
+        }
+
+        void FlushWord()
+        {
+            if (word.Count == 0)
+            {
+                return;
+            }
+
+            var wordWidth = Width(word);
+            var spacingWidth = Width(spacing);
+            if (cells + spacingWidth + wordWidth > columns && wordWidth <= contentColumns)
+            {
+                BeginRow();
+                Emit(word);
+            }
+            else if (cells + spacingWidth + wordWidth > columns)
+            {
+                if (cells + spacingWidth <= columns)
+                {
+                    Emit(spacing);
                 }
 
-                Add(rows[^1], rune.ToString(), run.Style);
-                cells += runeWidth;
+                EmitBroken(word);
+            }
+            else
+            {
+                Emit(spacing);
+                Emit(word);
+            }
+
+            word.Clear();
+            spacing.Clear();
+        }
+
+        foreach (var run in source)
+        {
+            foreach (var grapheme in TerminalText.EnumerateGraphemes(run.Text))
+            {
+                if (IsWordBreak(grapheme))
+                {
+                    FlushWord();
+                    Add(spacing, grapheme, run.Style);
+                }
+                else
+                {
+                    Add(word, grapheme, run.Style);
+                }
+            }
+        }
+
+        FlushWord();
+        foreach (var run in spacing)
+        {
+            foreach (var grapheme in TerminalText.EnumerateGraphemes(run.Text))
+            {
+                var graphemeWidth = TerminalText.Width(grapheme);
+                if (cells + graphemeWidth > columns)
+                {
+                    break;
+                }
+
+                Add(rows[^1], grapheme, run.Style);
+                cells += graphemeWidth;
             }
         }
 
@@ -343,6 +436,27 @@ internal static class MarkdownRenderer
 
             output.Add(rendered.ToString());
         }
+    }
+
+    private static int Width(List<Run> runs)
+    {
+        var width = 0;
+        foreach (var run in runs)
+        {
+            width += TerminalText.Width(run.Text);
+        }
+
+        return width;
+    }
+
+    private static bool IsWordBreak(string grapheme)
+    {
+        foreach (var rune in grapheme.EnumerateRunes())
+        {
+            return Rune.IsWhiteSpace(rune);
+        }
+
+        return false;
     }
 
     private static string Ansi(string value, Style style, bool color)

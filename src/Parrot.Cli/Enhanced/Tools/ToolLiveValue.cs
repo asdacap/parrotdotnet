@@ -59,7 +59,7 @@ internal sealed class ToolLiveValue : ILiveBufferItem
         var label = _runningDuration is null
             ? Report.Label
             : $"{Report.Label} (running {_runningDuration.Format()})";
-        var header = TerminalText.Layout(label, columns).Take(10).ToArray();
+        var header = TerminalText.LayoutWords(label, columns).Take(10).ToArray();
         var headerStyle = Report.Metadata.Style == ToolPresentationStyle.Muted
             ? context.Palette.LiveMuted
             : context.Palette.Marker;

@@ -10,6 +10,6 @@ internal sealed class ActivityNoticeScrollbackValue(string marker, string text) 
     public IReadOnlyList<string> Render(ScrollbackRenderContext context) =>
         [.. context.Decoration.Apply(
                 marker,
-                TerminalText.Layout(TerminalText.Sanitize(text), context.Decoration.ContentColumns(context.Columns)))
+                TerminalText.LayoutWords(TerminalText.Sanitize(text), context.Decoration.ContentColumns(context.Columns)))
             .Select(context.Palette.Muted.Apply)];
 }

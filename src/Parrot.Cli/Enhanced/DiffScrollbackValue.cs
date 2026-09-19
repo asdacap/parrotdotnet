@@ -33,7 +33,7 @@ internal sealed class DiffScrollbackValue(string status, string diff) : IScrollb
         var cleanStatus = TerminalText.Sanitize(status).TrimEnd('\r', '\n');
         if (cleanStatus.Length > 0)
         {
-            output.AddRange(TerminalText.Layout(cleanStatus, context.Columns).Select(context.Palette.Muted.Apply));
+            output.AddRange(TerminalText.LayoutWords(cleanStatus, context.Columns).Select(context.Palette.Muted.Apply));
         }
 
         var (source, sourceOmitted) = BoundSource(diff);
