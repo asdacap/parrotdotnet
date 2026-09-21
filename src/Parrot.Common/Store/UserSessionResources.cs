@@ -21,7 +21,7 @@ internal sealed class UserSessionResources
         ArtifactDirectory = RequireContained(Root, Path.Combine(Root, "artifacts"));
         QueueDirectory = RequireContained(Root, Path.Combine(Root, "queues"));
         AgentQueueRootDirectory = RequireContained(QueueDirectory, Path.Combine(QueueDirectory, "agents"));
-        ScratchRootDirectory = RequireContained(Root, Path.Combine(Root, "scratch"));
+        ScratchRootDirectory = RequireContained(Root, Path.Combine(Root, "root-agents"));
     }
 
     public UserSessionId Id { get; }
@@ -55,24 +55,41 @@ internal sealed class UserSessionResources
     public string AgentQueueDirectory(string sessionId) =>
         AgentPath(AgentQueueRootDirectory, sessionId);
 
-    public AgentScratchDirectory AgentScratch(string sessionId) =>
-        new(AgentPath(ScratchRootDirectory, sessionId));
-
-    public string AgentHistoryFile(string sessionId) => AgentScratch(sessionId).HistoryPath;
-
-    private static string AgentPath(string root, string sessionId)
+    public AgentScratchDirectory AgentScratch(IReadOnlyList<string> namePath)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        if (sessionId is "." or ".."
-            || sessionId.Any(char.IsWhiteSpace)
-            || sessionId.Contains('/', StringComparison.Ordinal)
-            || sessionId.Contains('\\', StringComparison.Ordinal)
-            || !string.Equals(Path.GetFileName(sessionId), sessionId, StringComparison.Ordinal))
+        ArgumentNullException.ThrowIfNull(namePath);
+        if (namePath.Count == 0)
         {
-            throw new ArgumentException("An agent session id must be one path segment.", nameof(sessionId));
+            throw new ArgumentException("An agent name path must have at least the root agent name.", nameof(namePath));
         }
 
-        return RequireContained(root, Path.Combine(root, sessionId));
+        var path = AgentPath(ScratchRootDirectory, namePath[0]);
+        foreach (var name in namePath.Skip(1))
+        {
+            if (AgentScratchDirectory.ReservedNames.Contains(name))
+            {
+                throw new ArgumentException($"An agent name is reserved: {name}", nameof(namePath));
+            }
+
+            path = AgentPath(path, name);
+        }
+
+        return new(path);
+    }
+
+    private static string AgentPath(string root, string segment)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(segment);
+        if (segment is "." or ".."
+            || segment.Any(char.IsWhiteSpace)
+            || segment.Contains('/', StringComparison.Ordinal)
+            || segment.Contains('\\', StringComparison.Ordinal)
+            || !string.Equals(Path.GetFileName(segment), segment, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("An agent path segment must be one path segment.", nameof(segment));
+        }
+
+        return RequireContained(root, Path.Combine(root, segment));
     }
 
     private static string RequireContained(string root, string path)

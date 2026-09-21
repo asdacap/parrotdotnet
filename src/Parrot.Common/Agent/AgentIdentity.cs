@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Parrot.Config;
 
 namespace Parrot.Agent;
@@ -7,6 +8,7 @@ internal sealed record AgentIdentity(
     string ParentSessionId,
     string ParentSessionName,
     string Name,
+    ImmutableArray<string> NamePath,
     int Depth,
     AgentScope Scope,
     AgentPolicyLineage PolicyLineage,
@@ -46,6 +48,7 @@ internal sealed record AgentIdentity(
             string.Empty,
             string.Empty,
             rootAgentName,
+            [rootAgentName],
             0,
             AgentScope.Empty(promptTemplates),
             AgentPolicyLineage.Root(),
@@ -53,30 +56,32 @@ internal sealed record AgentIdentity(
 
     public static AgentIdentity Child(
         string sessionId,
-        string parentSessionId,
-        string parentSessionName,
+        AgentIdentity parent,
         string name,
         int depth,
         AgentScope scope,
         IPromptTemplateCatalog promptTemplates) =>
-        new(
-            sessionId,
-            parentSessionId,
-            parentSessionName,
-            name,
-            depth,
-            scope,
-            AgentPolicyLineage.Root(),
-            promptTemplates);
+        ChildWithPolicyLineage(sessionId, parent, name, depth, scope, AgentPolicyLineage.Root(), promptTemplates);
 
     public static AgentIdentity ChildWithPolicyLineage(
         string sessionId,
-        string parentSessionId,
-        string parentSessionName,
+        AgentIdentity parent,
         string name,
         int depth,
         AgentScope scope,
         AgentPolicyLineage policyLineage,
-        IPromptTemplateCatalog promptTemplates) =>
-        new(sessionId, parentSessionId, parentSessionName, name, depth, scope, policyLineage, promptTemplates);
+        IPromptTemplateCatalog promptTemplates)
+    {
+        ArgumentNullException.ThrowIfNull(parent);
+        return new(
+            sessionId,
+            parent.SessionId,
+            parent.Name,
+            name,
+            parent.NamePath.Add(name),
+            depth,
+            scope,
+            policyLineage,
+            promptTemplates);
+    }
 }

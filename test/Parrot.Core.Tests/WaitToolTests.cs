@@ -51,7 +51,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         _ = await queues.Push("work", ["item"], QueueDirection.Back, false, cancellationToken);
         _ = scope.GetService<IProcessOwner>().StartUnattributed("process", "sleep 60", ProcessEnvironmentOverrides.Empty, session, SecurityProfile.Compose(readOnly: false, [], [], []), ShellProcessTerminalMode.Pipe);
         using var childProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
-        await using var childScope = BuildSession(childProvider, [], new EventRepository(_database), registry, AgentIdentity.Child("child", "agent", "main", "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(scope, AgentCompletionDeliveryPolicy.RetainedOnly, registry.ReserveRetainedAgent()), QueueResources("agent"), TestDiagnosticLog.Instance);
+        await using var childScope = BuildSession(childProvider, [], new EventRepository(_database), registry, AgentIdentity.Child("child", AgentIdentity.Main("agent", "main", TestModels.PromptTemplates), "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(scope, AgentCompletionDeliveryPolicy.RetainedOnly, registry.ReserveRetainedAgent()), QueueResources("agent"), TestDiagnosticLog.Instance);
         _ = await childScope.Session.Send([ConversationPart.TextPart("work")], "child-message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await childProvider.Arrived(cancellationToken);
         var selection = new SelectionFixture(provider).Selection;
@@ -449,8 +449,8 @@ internal sealed class WaitToolTests : IAsyncDisposable
         public IAgentSessionScope CreateChildScope(AgentIdentity identity, AgentSessionParentLink parentLink, ModelSelector model, IMode mode, SecurityProfile securityProfile, IEventRepository childHistory, CancellationToken childLifetime) =>
             registry.CreateChildScope(identity, parentLink, model, mode, securityProfile, childHistory, childLifetime);
 
-        public IEventRepository InitializeChildHistory(string parentSessionId, string childSessionId, HistoryForkBoundary boundary, HistoryForkSelection fork) =>
-            registry.InitializeChildHistory(parentSessionId, childSessionId, boundary, fork);
+        public IEventRepository InitializeChildHistory(AgentIdentity child, HistoryForkBoundary boundary, HistoryForkSelection fork) =>
+            registry.InitializeChildHistory(child, boundary, fork);
 
         public ValueTask DisposeAsync() => registry.DisposeAsync();
     }
@@ -530,7 +530,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
 
     private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory
     {
-        public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
+        public IEventRepository PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
             throw new NotSupportedException("This test session does not support spawning subagents.");
 
         public IAgentSessionScope Create(

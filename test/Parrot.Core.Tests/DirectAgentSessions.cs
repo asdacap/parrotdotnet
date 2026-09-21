@@ -49,8 +49,8 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
 
     private sealed class OwnerAgentSessions(DirectAgentSessions source, IUserSession owner) : IAgentSessionFactory
     {
-        public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
-            repository.BindAgentHistory(new AgentHistoryFile(owner.Resources, agentSessionId));
+        public IEventRepository PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
+            repository.BindAgentHistory(new AgentHistoryFile(owner.Resources.AgentScratch(identity.NamePath), [identity.SessionId]));
 
         public IAgentSessionScope Create(
             AgentIdentity identity,

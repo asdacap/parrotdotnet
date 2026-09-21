@@ -690,8 +690,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         IEventBroker broker,
         string workspace) : IAgentSessionFactory
     {
-        public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
-            repository.BindAgentHistory(new AgentHistoryFile(resources, agentSessionId));
+        public IEventRepository PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
+            repository.BindAgentHistory(new AgentHistoryFile(resources.AgentScratch(identity.NamePath), [identity.SessionId]));
 
         public IAgentSessionScope Create(
             AgentIdentity identity,

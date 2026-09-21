@@ -212,7 +212,7 @@ internal static class TestModels
         CancellationToken lifetime)
     {
         var resources = Resources();
-        var owner = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime);
+        var owner = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.NamePath)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime);
         var children = new ChildRegistry(identity, QueueChildAdmissionValidator.Validate);
         IAgentQueues queues = new AgentQueues(identity, null, resources, children, static queueIdentity => new QueueInventory(queueIdentity), TestDiagnosticLog.Instance);
         queues.Initialize();
@@ -274,7 +274,7 @@ internal static class TestModels
 
     private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory
     {
-        public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
+        public IEventRepository PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
             throw new NotSupportedException("This test session does not support spawning subagents.");
 
         public IAgentSessionScope Create(

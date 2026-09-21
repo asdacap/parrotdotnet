@@ -72,16 +72,13 @@ internal sealed class SessionRoutingDiagnosticsTests
                 firstId = first.Id;
                 firstLogPath = first.Resources.LogPath;
                 secondLogPath = second.Resources.LogPath;
-                firstAgentId = Directory.GetDirectories(first.Resources.ScratchRootDirectory).Select(Path.GetFileName).Single()
-                    ?? throw new InvalidOperationException("Missing first root agent");
-                secondAgentId = Directory.GetDirectories(second.Resources.ScratchRootDirectory).Select(Path.GetFileName).Single()
-                    ?? throw new InvalidOperationException("Missing second root agent");
-                var firstScope = first.Registry.SnapshotScopes().Single(scope => scope.Session.SessionId == firstAgentId);
-                var secondScope = second.Registry.SnapshotScopes().Single(scope => scope.Session.SessionId == secondAgentId);
+                var firstScope = first.Registry.SnapshotScopes().Single();
+                var secondScope = second.Registry.SnapshotScopes().Single();
+                firstAgentId = firstScope.Session.SessionId;
+                secondAgentId = secondScope.Session.SessionId;
                 var childIdentity = AgentIdentity.Child(
                     childId,
-                    firstAgentId,
-                    "main",
+                    firstScope.Session.Identity,
                     "child",
                     1,
                     AgentScope.Empty(configuration.PromptTemplates),
@@ -92,7 +89,7 @@ internal sealed class SessionRoutingDiagnosticsTests
                     new ModelSelector(model.Selector),
                     first.Mode,
                     first.Mode.Profile.SecurityProfile,
-                    first.Registry.InitializeChildHistory(firstScope.Session.SessionId, childIdentity.SessionId, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty")),
+                    first.Registry.InitializeChildHistory(childIdentity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty")),
                     first.Lifetime);
 
                 _ = await first.SendText("private-root-prompt-sentinel https://example.invalid/?token=private-url-sentinel", "first-message", Delivery.Steer, cancellationToken);

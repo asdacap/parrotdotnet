@@ -22,8 +22,7 @@ internal sealed class QueueChildAdmissionTests
         var child = new QueueTestScope(
             AgentIdentity.Child(
                 "child",
-                "parent",
-                "parent",
+                AgentIdentity.Main("parent", "parent", TestModels.PromptTemplates),
                 "worker",
                 1,
                 AgentScope.Empty(TestModels.PromptTemplates),
@@ -64,8 +63,7 @@ internal sealed class QueueChildAdmissionTests
         var child = new QueueTestScope(
             AgentIdentity.Child(
                 "child",
-                "parent",
-                "parent",
+                AgentIdentity.Main("parent", "parent", TestModels.PromptTemplates),
                 "worker",
                 1,
                 AgentScope.Empty(TestModels.PromptTemplates),
@@ -157,8 +155,7 @@ internal sealed class QueueChildAdmissionTests
         await using var child = new QueueTestScope(
             AgentIdentity.Child(
                 "child",
-                childParent.Session.Identity.SessionId,
-                childParent.Session.Identity.Name,
+                childParent.Session.Identity,
                 "worker",
                 1,
                 AgentScope.Empty(TestModels.PromptTemplates),
@@ -201,8 +198,7 @@ internal sealed class QueueChildAdmissionTests
         await using var child = new QueueTestScope(
             AgentIdentity.Child(
                 "child",
-                "parent",
-                "parent",
+                AgentIdentity.Main("parent", "parent", TestModels.PromptTemplates),
                 "worker",
                 1,
                 AgentScope.Empty(TestModels.PromptTemplates),

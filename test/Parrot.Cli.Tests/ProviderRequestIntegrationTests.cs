@@ -56,7 +56,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
         using var broker = new EventBroker();
         using var subscription = broker.Subscribe();
         var templates = configuration.PromptTemplates;
-        var identity = AgentIdentity.Main("root", string.Empty, templates);
+        var identity = AgentIdentity.Main("root", "main", templates);
         var profiles = new ProfileRegistry(configuration.Profiles, [], [], new HashSet<string>(StringComparer.Ordinal));
         var profile = profiles.Resolve("build");
         IMode mode = new NoopMode(profile, profile.SecurityProfile);
@@ -69,7 +69,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
         queues.Initialize();
         var questions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), children, templates);
         await using IAgentSession agent = new AgentSession(
-            identity, AgentSessionParentScope.Root(), new ModelSelector("provider/model"), router, broker, repository, [], new ConfiguredSystemPromptProvider("test:integration", "Reply briefly.").Materialize(identity), new ToolOutputBlobStore(_root), new AgentOutputFile(_root), new CompactionGroupBlobStore(resources.AgentScratch(identity.SessionId)), new Compactor(int.MaxValue, 30, 60_000, 1024, templates), new ProviderSessions(diagnostics.Log, identity.SessionId, null), new ContextCadence(), templates, questions, new ExitReminder(repository, templates, identity.SessionId), mode, [], new AgentSessionSecurity(profile.SecurityProfile, resources.Workspace, resources.ScratchRootDirectory), status, new AgentSessionActivity(TimeProvider.System), diagnostics.Log, cancellationToken);
+            identity, AgentSessionParentScope.Root(), new ModelSelector("provider/model"), router, broker, repository, [], new ConfiguredSystemPromptProvider("test:integration", "Reply briefly.").Materialize(identity), new ToolOutputBlobStore(_root), new AgentOutputFile(_root), new CompactionGroupBlobStore(resources.AgentScratch(identity.NamePath)), new Compactor(int.MaxValue, 30, 60_000, 1024, templates), new ProviderSessions(diagnostics.Log, identity.SessionId, null), new ContextCadence(), templates, questions, new ExitReminder(repository, templates, identity.SessionId), mode, [], new AgentSessionSecurity(profile.SecurityProfile, resources.Workspace, resources.ScratchRootDirectory), status, new AgentSessionActivity(TimeProvider.System), diagnostics.Log, cancellationToken);
         queues.Attach(agent);
 
         using var output = new StringWriter();
@@ -247,7 +247,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
 
     private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory
     {
-        public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
+        public IEventRepository PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
             throw new NotSupportedException("This test does not spawn agents.");
 
         public IAgentSessionScope Create(

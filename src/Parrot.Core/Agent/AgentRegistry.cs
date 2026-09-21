@@ -211,13 +211,13 @@ internal sealed class AgentRegistry(
     }
 
     public IEventRepository InitializeChildHistory(
-        string parentSessionId,
-        string childSessionId,
+        AgentIdentity child,
         HistoryForkBoundary boundary,
         HistoryForkSelection fork)
     {
-        var childHistory = agentSessions.PrepareHistory(childSessionId, eventRepository);
-        childHistory.InitializeForkedAgentHistory(parentSessionId, childSessionId, boundary, fork);
+        ArgumentNullException.ThrowIfNull(child);
+        var childHistory = agentSessions.PrepareHistory(child, eventRepository);
+        childHistory.InitializeForkedAgentHistory(child.ParentSessionId, child.SessionId, boundary, fork);
         return childHistory;
     }
 

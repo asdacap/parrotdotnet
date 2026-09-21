@@ -322,7 +322,7 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
         var processOwner = new ShellProcessOwner(
             identity,
             processResources,
-            new AgentPathEnvironment(processResources, processResources.AgentScratch(identity.SessionId)),
+            new AgentPathEnvironment(processResources, processResources.AgentScratch(identity.NamePath)),
             new ProcessRunner(string.Empty),
             TestDiagnosticLog.Instance,
             cancellationToken);

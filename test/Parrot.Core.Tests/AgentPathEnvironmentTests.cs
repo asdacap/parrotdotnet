@@ -31,7 +31,8 @@ internal sealed class AgentPathEnvironmentTests : IDisposable
             Path.Combine(_workspace, "config"),
             Path.Combine(_workspace, "data"));
         var resources = new UserSessionResources(paths, UserSessionId.Parse(userSessionId), ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var scratch = resources.AgentScratch(agentSessionId);
+        var identity = AgentIdentity.Main(agentSessionId, agentSessionId, TestModels.PromptTemplates);
+        var scratch = resources.AgentScratch(identity.NamePath);
         var environment = new AgentPathEnvironment(resources, scratch);
         var expected = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -40,7 +41,6 @@ internal sealed class AgentPathEnvironmentTests : IDisposable
             ["AGENT_SCRATCH_DIR"] = scratch.Root,
             ["AGENT_HISTORY_DIR"] = scratch.Root,
         };
-        var identity = AgentIdentity.Main(agentSessionId, string.Empty, TestModels.PromptTemplates);
         var templates = new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)
         {
             ["context.agent-path-environment"] = new(new HashSet<string>(["entries"], StringComparer.Ordinal), new HashSet<string>(["entries"], StringComparer.Ordinal), new ScribanPromptTemplateEngine("environment", "{{ for entry in entries }}{{ if !for.first }}\n{{ end }}{{ entry.name }}={{ entry.path }}{{ end }}")),
@@ -59,13 +59,13 @@ internal sealed class AgentPathEnvironmentTests : IDisposable
         var rendered = prompt.Build(selection);
         var defaultRendered = new AgentPathEnvironmentProvider(environment, TestModels.PromptTemplates).Materialize(identity).Build(selection);
         _ = await Assert.That(string.Join('\n', defaultRendered.Split('\n').Skip(1).Take(4)))
-            .IsEqualTo($"WORKDIR = {_workspace}\nSCRATCH_DIR = $WORKDIR/state/sessions/{userSessionId}/scratch\nAGENT_SCRATCH_DIR = $SCRATCH_DIR/{agentSessionId}\nAGENT_HISTORY_DIR = $AGENT_SCRATCH_DIR");
+            .IsEqualTo($"WORKDIR = {_workspace}\nSCRATCH_DIR = $WORKDIR/state/sessions/{userSessionId}/root-agents\nAGENT_SCRATCH_DIR = $SCRATCH_DIR/{agentSessionId}\nAGENT_HISTORY_DIR = $AGENT_SCRATCH_DIR");
         _ = await Assert.That(defaultRendered).Contains("\"${AGENT_SCRATCH_DIR}/somefile.txt\"");
         _ = await Assert.That(defaultRendered.Split('\n')).Count().IsEqualTo(7);
         _ = await Assert.That(new WorkingDirectoryProvider(_workspace, templates).Materialize(identity).Build(selection)).IsEqualTo(_workspace);
         _ = await Assert.That(new ScratchDirectoryProvider(scratch, templates).Materialize(identity).Build(selection)).IsEqualTo(scratch.Root);
         _ = await Assert.That(new AgentHistoryProvider(resources, templates).Materialize(identity).Build(selection))
-            .IsEqualTo(resources.AgentHistoryFile(identity.SessionId));
+            .IsEqualTo(scratch.HistoryPath);
         var displayed = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var line in rendered.Split('\n'))
         {
@@ -83,7 +83,7 @@ internal sealed class AgentPathEnvironmentTests : IDisposable
         }
 
         var restoredResources = new UserSessionResources(paths, UserSessionId.Parse(userSessionId), ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var restoredEnvironment = new AgentPathEnvironment(restoredResources, restoredResources.AgentScratch(agentSessionId));
+        var restoredEnvironment = new AgentPathEnvironment(restoredResources, restoredResources.AgentScratch(identity.NamePath));
         var defaults = environment.Merge(ProcessEnvironmentOverrides.Empty).Entries.ToDictionary(StringComparer.Ordinal);
         var restored = restoredEnvironment.Materialize().ToDictionary(StringComparer.Ordinal);
         _ = await Assert.That(displayed.Count).IsEqualTo(4);
@@ -95,9 +95,9 @@ internal sealed class AgentPathEnvironmentTests : IDisposable
             _ = await Assert.That(restored[entry.Key]).IsEqualTo(entry.Value);
         }
 
-        var sibling = new AgentPathEnvironment(resources, resources.AgentScratch("agent-sibling")).Materialize().ToDictionary(StringComparer.Ordinal);
+        var sibling = new AgentPathEnvironment(resources, resources.AgentScratch(["agent-sibling"])).Materialize().ToDictionary(StringComparer.Ordinal);
         var otherResources = new UserSessionResources(paths, UserSessionId.Parse("session-other"), ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var other = new AgentPathEnvironment(otherResources, otherResources.AgentScratch(agentSessionId)).Materialize().ToDictionary(StringComparer.Ordinal);
+        var other = new AgentPathEnvironment(otherResources, otherResources.AgentScratch(identity.NamePath)).Materialize().ToDictionary(StringComparer.Ordinal);
         _ = await Assert.That(sibling["SCRATCH_DIR"]).IsEqualTo(defaults["SCRATCH_DIR"]);
         _ = await Assert.That(sibling["AGENT_SCRATCH_DIR"]).IsNotEqualTo(defaults["AGENT_SCRATCH_DIR"]);
         _ = await Assert.That(sibling["AGENT_HISTORY_DIR"]).IsNotEqualTo(defaults["AGENT_HISTORY_DIR"]);

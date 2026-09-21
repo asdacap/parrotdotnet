@@ -60,7 +60,7 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
                 diagnostics,
                 cancellationToken);
             var identity = AgentIdentity.Child(
-                "agent-child", runtime.Parent.SessionId, "secret-parent", "secret-child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates);
+                "agent-child", AgentIdentity.Main(runtime.Parent.SessionId, "secret-parent", TestModels.PromptTemplates), "secret-child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates);
             using var dependencies = TestModels.Dependencies(runtime.Parent.Identity, _broker, _repository, cancellationToken);
             IAgentSessionScope CreateChild() => registry.CreateChildScope(
                 identity,
@@ -1591,7 +1591,7 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
 
     private sealed class DiagnosticChildFactory(IAgentSessionScope scope, bool fail) : IAgentSessionFactory
     {
-        public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
+        public IEventRepository PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
             repository;
 
         public IAgentSessionScope Create(

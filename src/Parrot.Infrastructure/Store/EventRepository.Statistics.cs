@@ -87,6 +87,24 @@ internal sealed partial class EventRepository
         }
     }
 
+    public IReadOnlyList<AgentLineageRecord> AgentLineage()
+    {
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            var lineage = ReadStatisticsEvents(transaction, null)
+                .Where(static fact => fact.Published.PayloadCase == Event.PayloadOneofCase.AgentStarted)
+                .DistinctBy(static fact => fact.Published.AgentSessionId, StringComparer.Ordinal)
+                .Select(static fact => new AgentLineageRecord(
+                    fact.Published.AgentSessionId,
+                    fact.Published.AgentStarted.ParentAgentSessionId,
+                    fact.Published.AgentStarted.Name))
+                .ToArray();
+            transaction.Commit();
+            return lineage;
+        }
+    }
+
     public AgentStatisticsReplay ReplayStatistics()
     {
         lock (_database.Gate)

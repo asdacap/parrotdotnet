@@ -442,14 +442,9 @@ internal sealed class AgentInventoryStreamTests
             }
         }
 
-        public IAgentSessionScope CreateChild(IAgentSessionScope parent, string name) => Session.Registry.CreateChildScope(
-            AgentIdentity.Child(name, parent.Session.SessionId, parent.Session.Name, name, 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates),
-            AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly, Session.Registry.ReserveRetainedAgent()),
-            new ModelSelector(model.Selector),
-            Session.Mode,
-            Session.Mode.Profile.SecurityProfile,
-            Session.Registry.InitializeChildHistory(parent.Session.SessionId, name, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty")),
-            Session.Lifetime);
+        public IAgentSessionScope CreateChild(IAgentSessionScope parent, string name) => CreateIdentifiedChild(
+            parent,
+            AgentIdentity.Child(name, parent.Session.Identity, name, 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates));
 
         public async ValueTask DisposeAsync()
         {
@@ -462,5 +457,14 @@ internal sealed class AgentInventoryStreamTests
                 Directory.Delete(directory, recursive: true);
             }
         }
+
+        private IAgentSessionScope CreateIdentifiedChild(IAgentSessionScope parent, AgentIdentity identity) => Session.Registry.CreateChildScope(
+            identity,
+            AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly, Session.Registry.ReserveRetainedAgent()),
+            new ModelSelector(model.Selector),
+            Session.Mode,
+            Session.Mode.Profile.SecurityProfile,
+            Session.Registry.InitializeChildHistory(identity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty")),
+            Session.Lifetime);
     }
 }

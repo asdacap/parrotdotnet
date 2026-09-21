@@ -63,8 +63,8 @@ internal sealed class IdentityStorageTests : IDisposable
             paths, UserSessionId.Parse("session-two"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
 
         _ = await Assert.That(first.Owns(first.MetadataPath)).IsTrue();
-        var firstScratch = first.AgentScratch("agent-one");
-        var secondScratch = second.AgentScratch("agent-two");
+        var firstScratch = first.AgentScratch(["agent-one"]);
+        var secondScratch = second.AgentScratch(["agent-two"]);
         _ = await Assert.That(first.Owns(firstScratch.Root)).IsTrue();
         _ = await Assert.That(firstScratch.Contains(firstScratch.BlobDirectory)).IsTrue();
         _ = await Assert.That(firstScratch.Contains(firstScratch.PlanDirectory)).IsTrue();
@@ -81,13 +81,13 @@ internal sealed class IdentityStorageTests : IDisposable
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
             new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
-        var expectedRoot = Path.Combine(resources.ScratchRootDirectory, "agent-session-child");
+        var expectedRoot = Path.Combine(resources.ScratchRootDirectory, "main", "worker", "sub");
         var expectedBlobs = Path.Combine(expectedRoot, "blobs");
 
         _ = await Assert.That(Directory.Exists(expectedRoot)).IsFalse();
         _ = await Assert.That(Directory.Exists(expectedBlobs)).IsFalse();
 
-        var scratch = resources.AgentScratch("agent-session-child");
+        var scratch = resources.AgentScratch(["main", "worker", "sub"]);
 
         _ = await Assert.That(scratch.Root).IsEqualTo(expectedRoot);
         _ = await Assert.That(scratch.BlobDirectory).IsEqualTo(expectedBlobs);
@@ -135,18 +135,36 @@ internal sealed class IdentityStorageTests : IDisposable
     }
 
     [Test]
+    [Arguments("blobs")]
+    [Arguments("plan")]
+    [Arguments("history.jsonl")]
+    [Arguments("last_request.json")]
+    public async Task Agent_scratch_rejects_reserved_child_names_but_not_root_names(string reserved)
+    {
+        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
+        var resources = new UserSessionResources(
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
+
+        _ = await Assert.That(() => resources.AgentScratch(["main", reserved])).Throws<ArgumentException>();
+        _ = await Assert.That(() => resources.AgentScratch(["main", "worker", reserved])).Throws<ArgumentException>();
+        _ = await Assert.That(() => resources.AgentScratch([])).Throws<ArgumentException>();
+        _ = await Assert.That(resources.AgentScratch([reserved]).Root)
+            .IsEqualTo(Path.Combine(resources.ScratchRootDirectory, reserved));
+    }
+
+    [Test]
     public async Task Agent_history_files_are_isolated_under_the_session_agents_root()
     {
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
             new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
-        var history = new AgentHistoryFile(resources, "agent-session-child");
+        var history = new AgentHistoryFile(resources.AgentScratch(["main", "child"]), ["agent-session-child"]);
 
         _ = await Assert.That(history.Path)
-            .IsEqualTo(Path.Combine(resources.ScratchRootDirectory, "agent-session-child", "history.jsonl"));
+            .IsEqualTo(Path.Combine(resources.ScratchRootDirectory, "main", "child", "history.jsonl"));
         _ = await Assert.That(resources.Owns(history.Path)).IsTrue();
         _ = await Assert.That(Path.GetRelativePath(resources.Root, history.Path))
-            .IsEqualTo(Path.Combine("scratch", "agent-session-child", "history.jsonl"));
+            .IsEqualTo(Path.Combine("root-agents", "main", "child", "history.jsonl"));
     }
 
     [Test]
@@ -155,7 +173,7 @@ internal sealed class IdentityStorageTests : IDisposable
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
             new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
-        var history = new AgentHistoryFile(resources, "agent-session-child");
+        var history = new AgentHistoryFile(resources.AgentScratch(["main"]), ["agent-session-child"]);
 
         history.ReplaceEntries([new AgentHistoryCompactionEntry(7, "summary", 4)]);
 
@@ -169,7 +187,7 @@ internal sealed class IdentityStorageTests : IDisposable
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
             new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
-        var history = new AgentHistoryFile(resources, "agent-session-child");
+        var history = new AgentHistoryFile(resources.AgentScratch(["main"]), ["agent-session-child"]);
         var entry = new AgentHistoryMessageEntry(
             2,
             9,
@@ -193,12 +211,13 @@ internal sealed class IdentityStorageTests : IDisposable
     [Arguments("../other")]
     [Arguments("other/session")]
     [Arguments("other\\session")]
-    public async Task Agent_history_files_reject_unsafe_agent_session_ids(string value)
+    public async Task Agent_scratch_rejects_unsafe_agent_names(string value)
     {
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
             new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
-        _ = await Assert.That(() => new AgentHistoryFile(resources, value).Path).Throws<ArgumentException>();
+        _ = await Assert.That(() => resources.AgentScratch([value])).Throws<ArgumentException>();
+        _ = await Assert.That(() => resources.AgentScratch(["main", value])).Throws<ArgumentException>();
     }
 
     [Test]

@@ -16,7 +16,7 @@ internal sealed class ShellProcessOwner(
     CancellationToken lifetime) : IProcessOwner
 {
     private readonly ShellProcessInventory _inventory = new(identity);
-    private readonly AgentScratchDirectory _scratch = resources.AgentScratch(identity.SessionId);
+    private readonly AgentScratchDirectory _scratch = resources.AgentScratch(identity.NamePath);
     private readonly CancellationTokenSource _lifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
     private readonly Dictionary<string, IManagedShellProcess> _processes = new(StringComparer.Ordinal);
     private readonly List<IManagedShellProcess> _ownedProcesses = [];

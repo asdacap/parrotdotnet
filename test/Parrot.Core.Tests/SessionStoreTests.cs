@@ -31,33 +31,52 @@ internal sealed class SessionStoreTests : IDisposable
     }
 
     [Test]
-    public async Task Resume_rebuilds_inactive_agent_history_before_live_agents_are_constructed()
+    public async Task Resume_rebuilds_inactive_agent_history_by_lineage_and_reports_unresolved_agents()
     {
         var workingDirectory = Directory.CreateDirectory(Path.Combine(_root, "history-work")).FullName;
         UserSessionResources resources;
+        string mainSessionId;
         await using (var initial = await Open(workingDirectory))
         {
             resources = initial.Resources;
+            mainSessionId = initial.Registry.SnapshotScopes().Single().Session.SessionId;
         }
 
         using (var database = SessionDatabase.Open(resources.DatabasePath))
         {
             var repository = new EventRepository(database);
-            repository.AppendConversation(
-                new Parrot.Protocol.Event { Id = "historical-message", AgentSessionId = "inactive-child" },
-                ConversationOrigin.UserInput,
-                LLMRole.User,
-                [ConversationPart.TextPart("inactive durable history")],
-                [],
-                string.Empty);
+            foreach (var (agentSessionId, parentSessionId, name) in new[] { (mainSessionId, string.Empty, "main"), ("inactive-child", mainSessionId, "helper") })
+            {
+                _ = repository.Append(
+                    new Parrot.Protocol.Event
+                    {
+                        Id = $"{agentSessionId}-started",
+                        AgentSessionId = agentSessionId,
+                        AgentStarted = new Parrot.Protocol.AgentStarted { ParentAgentSessionId = parentSessionId, Name = name },
+                    },
+                    null,
+                    null);
+            }
+
+            foreach (var agentSessionId in new[] { "inactive-child", "orphan" })
+            {
+                repository.AppendConversation(
+                    new Parrot.Protocol.Event { Id = $"historical-message-{agentSessionId}", AgentSessionId = agentSessionId },
+                    ConversationOrigin.UserInput,
+                    LLMRole.User,
+                    [ConversationPart.TextPart($"inactive durable history of {agentSessionId}")],
+                    [],
+                    string.Empty);
+            }
         }
 
-        var history = new AgentHistoryFile(resources, "inactive-child");
-        _ = Directory.CreateDirectory(Path.GetDirectoryName(history.Path) ?? throw new InvalidOperationException());
+        var history = new AgentHistoryFile(resources.AgentScratch(["main", "helper"]), ["inactive-child"]);
         await File.WriteAllTextAsync(history.Path, "stale projection");
         await using var resumed = await Open(workingDirectory);
 
-        _ = await Assert.That(await File.ReadAllTextAsync(history.Path)).Contains("inactive durable history").And.DoesNotContain("stale projection");
+        _ = await Assert.That(await File.ReadAllTextAsync(history.Path)).Contains("inactive durable history of inactive-child").And.DoesNotContain("stale projection");
+        _ = await Assert.That(Directory.EnumerateFiles(resources.ScratchRootDirectory, "history.jsonl", SearchOption.AllDirectories).Count()).IsEqualTo(2);
+        _ = await Assert.That(await File.ReadAllTextAsync(resources.LogPath)).Contains("event=\"agent_history_unresolved\"").And.Contains("orphan");
         _ = await Assert.That(resumed.Registry.SnapshotScopes().Any(scope => scope.Session.SessionId == "inactive-child")).IsFalse();
     }
 

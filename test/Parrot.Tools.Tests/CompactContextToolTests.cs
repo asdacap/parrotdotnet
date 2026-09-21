@@ -170,7 +170,7 @@ internal sealed class CompactContextToolTests : IDisposable
         {
             ContextWindow = contextWindow,
         });
-        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
         _dependencies.Add(dependencies);
         var factories = new IToolFactory[]

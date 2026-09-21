@@ -29,8 +29,14 @@ internal sealed class AgentSessionFactory(
 {
     private readonly IImageArtifactRepository _images = owner.Images;
 
-    public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
-        repository.BindAgentHistory(new AgentHistoryFile(owner.Resources, agentSessionId));
+    public IEventRepository PrepareHistory(AgentIdentity identity, IEventRepository repository)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(repository);
+        var occupants = AgentDirectoryLineage.Resolve(repository.AgentLineage())
+            .OccupantsOf(identity.NamePath, identity.SessionId);
+        return repository.BindAgentHistory(new AgentHistoryFile(owner.Resources.AgentScratch(identity.NamePath), occupants));
+    }
 
     public IAgentSessionScope Create(
         AgentIdentity identity,
@@ -44,7 +50,7 @@ internal sealed class AgentSessionFactory(
         CancellationToken lifetime)
     {
         ArgumentNullException.ThrowIfNull(parentLink);
-        var scratch = owner.Resources.AgentScratch(identity.SessionId);
+        var scratch = owner.Resources.AgentScratch(identity.NamePath);
         eventRepository.RefreshAgentHistory(identity.SessionId);
         var workspace = new ToolWorkspace(workingDirectory);
         IAgentPathEnvironment pathEnvironment = new AgentPathEnvironment(owner.Resources, scratch);

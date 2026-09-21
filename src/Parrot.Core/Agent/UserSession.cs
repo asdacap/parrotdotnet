@@ -37,7 +37,7 @@ internal sealed class UserSession : IUserSession
     // initialized so recovered durable work can resume immediately. Its id is
     // settled first so History can address it throughout construction.
     private readonly string _mainSessionId;
-    private readonly string _rootAgentName;
+    private readonly AgentIdentity _mainIdentity;
     private ModelSelector _model;
     private IAgentSessionScope? _main;
     private Task? _disposal;
@@ -77,7 +77,6 @@ internal sealed class UserSession : IUserSession
         ArgumentNullException.ThrowIfNull(agentSessionFactories);
 
         Id = id;
-        _rootAgentName = rootAgentName;
         _model = model.RequestedSelector;
         ProviderId = model.CanonicalModel.Provider.Id;
         CanonicalModel = model.CanonicalModel.Selector;
@@ -87,8 +86,9 @@ internal sealed class UserSession : IUserSession
         SkillCatalog = skillCatalogFactory.Create(resources.Resources.Workspace);
         var state = _eventRepository.SessionState(id, modes.Resolve(mode).Profile.Id);
         _mainSessionId = state.AgentSessionId;
+        _mainIdentity = AgentIdentity.Main(_mainSessionId, rootAgentName, _promptTemplates);
         _ = _eventRepository.GetRuntimeStatistics();
-        _modes.Attach(resources.Resources.AgentScratch(_mainSessionId));
+        _modes.Attach(resources.Resources.AgentScratch(_mainIdentity.NamePath));
         Mode = modes.Resolve(state.Mode);
         TimeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         Questions = new QuestionBroker(userInputTimeout, TimeProvider, Diagnostics);
@@ -195,10 +195,7 @@ internal sealed class UserSession : IUserSession
                 cleanup,
                 lifetime);
             session.Diagnostics.Write(new("session", "recovering", DiagnosticSeverity.Information));
-            foreach (var agentSessionId in session._eventRepository.AgentHistorySessionIds())
-            {
-                new AgentHistoryFile(session.Resources, agentSessionId).Refresh(session._eventRepository, agentSessionId);
-            }
+            session.RefreshAgentHistories();
 
             var main = session.InitializeMain();
             main.UseResolvedSelection(model);
@@ -484,14 +481,35 @@ internal sealed class UserSession : IUserSession
 
     private IAgentSession Main() => MainScope().Session;
 
+    // Every agent's history projection is rebuilt from the database, located by
+    // walking the agent tree from its root; an agent whose lineage was never
+    // recorded has no directory to rebuild into.
+    private void RefreshAgentHistories()
+    {
+        var lineage = AgentDirectoryLineage.Resolve(_eventRepository.AgentLineage());
+        foreach (var directory in lineage.Directories)
+        {
+            new AgentHistoryFile(Resources.AgentScratch(directory.NamePath), directory.SessionIds)
+                .Refresh(_eventRepository, directory.SessionIds[^1]);
+        }
+
+        foreach (var agentSessionId in _eventRepository.AgentHistorySessionIds().Where(id => !lineage.Contains(id)))
+        {
+            Diagnostics.Write(new("session", "agent_history_unresolved", DiagnosticSeverity.Warning)
+            {
+                AgentSessionId = agentSessionId,
+            });
+        }
+    }
+
     private IAgentSession InitializeMain()
     {
         var scope = _agentSessions.Create(
-            AgentIdentity.Main(_mainSessionId, _rootAgentName, _promptTemplates),
+            _mainIdentity,
             AgentSessionParentLink.Root(),
             _model,
             _eventBroker,
-            _agentSessions.PrepareHistory(_mainSessionId, _eventRepository),
+            _agentSessions.PrepareHistory(_mainIdentity, _eventRepository),
             Mode,
             Mode.Profile.SecurityProfile,
             Registry,

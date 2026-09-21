@@ -98,7 +98,7 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
                 Path.Combine(_workspace, ".test-data")),
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var siblingScratch = resources.AgentScratch("agent-session-sibling");
+        var siblingScratch = resources.AgentScratch(["sibling"]);
         var profile = SecurityProfile.ForAgent(
             SecurityProfile.Compose(
                 false,
@@ -164,5 +164,5 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
         .Replace("\"", "\\\"", StringComparison.Ordinal);
 
     private static AgentScratchDirectory Scratch(UserSessionResources resources) =>
-        resources.AgentScratch("agent-session-test");
+        resources.AgentScratch(["main"]);
 }

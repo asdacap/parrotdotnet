@@ -46,19 +46,19 @@ internal sealed class ShellProcessOwnersTests : IDisposable
                 Path.Combine(_workspace, ".data")),
             UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        await using var firstAgent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
-        await using var secondAgent = CreateAgent("agent-2", model, events, repository, resources.AgentScratch("agent-2").BlobDirectory, lifetime.Token);
+        await using var firstAgent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch(["agent-1"]).BlobDirectory, lifetime.Token);
+        await using var secondAgent = CreateAgent("agent-2", model, events, repository, resources.AgentScratch(["agent-2"]).BlobDirectory, lifetime.Token);
         await using var first = new ShellProcessOwner(
             AgentIdentity.Main(firstAgent.SessionId, firstAgent.Name, TestModels.PromptTemplates),
             resources,
-            new AgentPathEnvironment(resources, resources.AgentScratch(firstAgent.SessionId)),
+            new AgentPathEnvironment(resources, resources.AgentScratch(firstAgent.Identity.NamePath)),
             new ProcessRunner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             lifetime.Token);
         await using var second = new ShellProcessOwner(
             AgentIdentity.Main(secondAgent.SessionId, secondAgent.Name, TestModels.PromptTemplates),
             resources,
-            new AgentPathEnvironment(resources, resources.AgentScratch(secondAgent.SessionId)),
+            new AgentPathEnvironment(resources, resources.AgentScratch(secondAgent.Identity.NamePath)),
             new ProcessRunner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             lifetime.Token);
@@ -140,11 +140,11 @@ internal sealed class ShellProcessOwnersTests : IDisposable
                 Path.Combine(_workspace, ".data")),
             UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
+        await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch(["agent-1"]).BlobDirectory, lifetime.Token);
         await using var owner = new ShellProcessOwner(
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
-            new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)),
+            new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
             new ProcessRunner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             lifetime.Token);
@@ -195,11 +195,11 @@ internal sealed class ShellProcessOwnersTests : IDisposable
                 Path.Combine(_workspace, ".data")),
             UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
+        await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch(["agent-1"]).BlobDirectory, lifetime.Token);
         await using var owner = new ShellProcessOwner(
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
-            new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)),
+            new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
             new ProcessRunner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             lifetime.Token);
@@ -277,11 +277,11 @@ internal sealed class ShellProcessOwnersTests : IDisposable
                 Path.Combine(_workspace, ".data")),
             UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
+        await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch(["agent-1"]).BlobDirectory, lifetime.Token);
         await using var owner = new ShellProcessOwner(
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
-            new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)),
+            new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
             new ProcessRunner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             lifetime.Token);
@@ -300,7 +300,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         var active = await subscription.Reader.ReadAsync(cancellationToken);
         _ = await Assert.That(active.Processes).HasSingleItem();
         var claimed = process;
-        var blobDirectory = resources.AgentScratch(agent.SessionId).BlobDirectory;
+        var blobDirectory = resources.AgentScratch(agent.Identity.NamePath).BlobDirectory;
         var movedBlobDirectory = blobDirectory + "-moved";
         Directory.Move(blobDirectory, movedBlobDirectory);
         await File.WriteAllTextAsync(blobDirectory, string.Empty, cancellationToken);
@@ -395,11 +395,11 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
         using var diagnostics = FileDiagnosticLog.OpenSession(resources, "test", TextWriter.Null, TimeProvider.System);
-        await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
+        await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch(["agent-1"]).BlobDirectory, lifetime.Token);
         await using var owner = new ShellProcessOwner(
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
-            new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)),
+            new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
             new ProcessRunner(exitCode == -3 ? string.Empty : CreateSandboxPassThrough()),
             diagnostics,
             lifetime.Token);

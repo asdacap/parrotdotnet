@@ -197,8 +197,8 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
     {
         var resources = Resources("checkpoint-fork");
         using var database = SessionDatabase.Open(resources.DatabasePath);
-        var history = new AgentHistoryFile(resources, "agent");
-        var childHistory = new AgentHistoryFile(resources, "child");
+        var history = new AgentHistoryFile(resources.AgentScratch(["agent"]), ["agent"]);
+        var childHistory = new AgentHistoryFile(resources.AgentScratch(["child"]), ["child"]);
         var repository = new EventRepository(database).BindAgentHistory(history);
         var childRepository = repository.BindAgentHistory(childHistory);
         repository.AppendConversation(
@@ -388,8 +388,8 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         var resources = Resources("concurrent-history");
         using var database = SessionDatabase.Open(resources.DatabasePath);
         var repository = new EventRepository(database);
-        var firstHistory = new AgentHistoryFile(resources, "first");
-        var secondHistory = new AgentHistoryFile(resources, "second");
+        var firstHistory = new AgentHistoryFile(resources.AgentScratch(["first"]), ["first"]);
+        var secondHistory = new AgentHistoryFile(resources.AgentScratch(["second"]), ["second"]);
         var first = repository.BindAgentHistory(firstHistory);
         var second = repository.BindAgentHistory(secondHistory);
         await Task.WhenAll(Enumerable.Range(0, 24).Select(index => Task.Run(() =>
@@ -421,12 +421,40 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
     }
 
     [Test]
+    public async Task Agent_history_projection_lists_earlier_occupants_before_the_current_agent()
+    {
+        var resources = Resources("occupant-history");
+        using var database = SessionDatabase.Open(resources.DatabasePath);
+        var repository = new EventRepository(database);
+        foreach (var sessionId in new[] { "first", "second" })
+        {
+            repository.AppendConversation(
+                new Event { Id = $"message-{sessionId}", AgentSessionId = sessionId },
+                ConversationOrigin.UserInput,
+                LLMRole.User,
+                [ConversationPart.TextPart($"{sessionId} occupant")],
+                [],
+                string.Empty);
+        }
+
+        var history = new AgentHistoryFile(resources.AgentScratch(["main", "worker"]), ["first", "second"]);
+        var current = repository.BindAgentHistory(history);
+
+        _ = await Assert.That(() => current.RefreshAgentHistory("first")).Throws<InvalidOperationException>();
+        current.RefreshAgentHistory("second");
+        var lines = await File.ReadAllLinesAsync(history.Path);
+        _ = await Assert.That(lines.Length).IsEqualTo(2);
+        _ = await Assert.That(lines[0]).Contains("first occupant");
+        _ = await Assert.That(lines[1]).Contains("second occupant");
+    }
+
+    [Test]
     public async Task Agent_history_failure_recovers_committed_changes_with_the_same_file_owner()
     {
         var resources = Resources("failed-history");
         using var database = SessionDatabase.Open(resources.DatabasePath);
         var repository = new EventRepository(database);
-        var history = new AgentHistoryFile(resources, "agent");
+        var history = new AgentHistoryFile(resources.AgentScratch(["agent"]), ["agent"]);
         var agent = repository.BindAgentHistory(history);
         var historyPath = history.Path;
         var directory = Path.GetDirectoryName(historyPath) ?? throw new InvalidOperationException();
@@ -455,8 +483,8 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         var resources = Resources("projected-fork");
         using var database = SessionDatabase.Open(resources.DatabasePath);
         var repository = new EventRepository(database);
-        var parentHistory = new AgentHistoryFile(resources, "parent");
-        var childHistory = new AgentHistoryFile(resources, "child");
+        var parentHistory = new AgentHistoryFile(resources.AgentScratch(["parent"]), ["parent"]);
+        var childHistory = new AgentHistoryFile(resources.AgentScratch(["child"]), ["child"]);
         var parent = repository.BindAgentHistory(parentHistory);
         var child = repository.BindAgentHistory(childHistory);
         _ = parent.Admit("parent", "input", "promoted input", Delivery.Queue, input => new Event { Id = input.Id, AgentSessionId = "parent" });
@@ -479,7 +507,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
     {
         var resources = Resources("cleanup-history");
         using var database = SessionDatabase.Open(resources.DatabasePath);
-        var history = new AgentHistoryFile(resources, "agent");
+        var history = new AgentHistoryFile(resources.AgentScratch(["agent"]), ["agent"]);
         var repository = new EventRepository(database, new ImageArtifactStore(resources)).BindAgentHistory(history);
         repository.AppendConversation(
             new Event { Id = "message", AgentSessionId = "agent" },

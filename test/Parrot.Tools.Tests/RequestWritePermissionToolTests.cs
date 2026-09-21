@@ -39,7 +39,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             [],
             []);
         ITool tool = new RequestWritePermissionTool(
-            AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
+            AgentIdentity.Main("requesting", "main", TestModels.PromptTemplates),
             new SecurityProfileTestFixture(profile).Security,
             broker);
         var path = Path.Combine(_root, "dependency");
@@ -98,7 +98,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
         var security = new SecurityProfileTestFixture(profile).Security;
         await using var session = Session(database, events, security);
         ITool tool = new RequestWritePermissionTool(
-            AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates), security, broker);
+            AgentIdentity.Main("requesting", "main", TestModels.PromptTemplates), security, broker);
 
         var result = (await tool.Execute(
             new ToolInvocation(
@@ -131,7 +131,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             [],
             []);
         ITool tool = new RequestWritePermissionTool(
-            AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
+            AgentIdentity.Main("requesting", "main", TestModels.PromptTemplates),
             new SecurityProfileTestFixture(profile).Security,
             broker);
         var path = Path.Combine(_root, "dependency");
@@ -164,7 +164,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             TestDiagnosticLog.Instance);
         var profile = SecurityProfile.Compose(readOnly: true, [], [], []);
         ITool tool = new RequestWritePermissionTool(
-            AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
+            AgentIdentity.Main("requesting", "main", TestModels.PromptTemplates),
             new SecurityProfileTestFixture(profile).Security,
             broker);
         var path = Path.Combine(_root, "dependency");
@@ -206,7 +206,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
     {
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
         var repository = new EventRepository(database);
-        var identity = AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates);
+        var identity = AgentIdentity.Main("requesting", "main", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
         return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new AgentOutputFile(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
     }

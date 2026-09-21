@@ -182,8 +182,8 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         UserSessionResources resources,
         TimeProvider timeProvider) : IAgentSessionFactory
     {
-        public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) =>
-            repository.BindAgentHistory(new AgentHistoryFile(resources, agentSessionId));
+        public IEventRepository PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
+            repository.BindAgentHistory(new AgentHistoryFile(resources.AgentScratch(identity.NamePath), [identity.SessionId]));
 
         public TestAgentSessionScope Build(
             AgentIdentity identity,

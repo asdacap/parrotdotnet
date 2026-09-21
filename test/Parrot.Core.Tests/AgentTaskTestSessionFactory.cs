@@ -38,7 +38,7 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
         }
     }
 
-    public IEventRepository PrepareHistory(string agentSessionId, IEventRepository repository) => repository;
+    public IEventRepository PrepareHistory(AgentIdentity identity, IEventRepository repository) => repository;
 
     public IAgentSessionScope Create(
         AgentIdentity identity,

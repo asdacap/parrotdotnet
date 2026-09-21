@@ -52,8 +52,7 @@ internal interface IAgentRegistry : IAsyncDisposable
 
     /// <summary>Initializes child history at the requested parent fork boundary.</summary>
     IEventRepository InitializeChildHistory(
-        string parentSessionId,
-        string childSessionId,
+        AgentIdentity child,
         HistoryForkBoundary boundary,
         HistoryForkSelection fork);
 }

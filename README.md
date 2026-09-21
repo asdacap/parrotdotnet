@@ -373,11 +373,16 @@ knob. Disabling the sandbox also removes read-only shell confinement, because
 that confinement is the sandbox itself.
 
 Each agent receives an individually owned scratch directory beneath its user
-session. It is automatically created for that agent's history projection,
-process and tool output blobs, and plan artifacts. Every agent in the same user
-session can write anywhere beneath the shared scratch root, including when it
-uses a read-only profile (provided the profile exposes a shell tool). This grant
-does not include another user session or non-scratch session infrastructure.
+session, laid out as the agent tree by name:
+`<session>/root-agents/<root>/<child>/<grandchild>/...`. Each agent directory
+holds that agent's history projection (`history.jsonl`), process and tool
+output blobs (`blobs/`), plan artifacts (`plan/`) and `last_request.json`, plus
+one sub-directory per child agent; those special names are reserved and are
+rejected as child agent names. A later agent that takes an already used name
+path lands in the same directory. Every agent in the same user session can
+write anywhere beneath the shared `root-agents` root, including when it uses a
+read-only profile (provided the profile exposes a shell tool). This grant does
+not include another user session or non-scratch session infrastructure.
 Parrot does not override `HOME`, `XDG_CACHE_HOME`, or `TMPDIR`, and the read-only
 host baseline does not hide scratch contents from filesystem reads.
 
@@ -784,7 +789,12 @@ Each agent also has an inspectable history timeline projection in its scratch
 directory. SQLite remains the authoritative durable history: the JSON Lines file
 is rebuilt from it rather than becoming a second source of truth. Its records
 include durable messages and compactions, so the projection describes both the
-conversation and the history cutoffs that reshape later context. Filesystem reads
+conversation and the history cutoffs that reshape later context. When several
+agents have occupied the same directory (a re-used name), the file lists every
+occupant's history in start order, the current agent last. On resume each
+directory is located by walking the recorded agent tree from its root; an agent
+whose lineage was never recorded is reported with an
+`agent_history_unresolved` diagnostic and left as is. Filesystem reads
 follow the host-wide readable baseline and any configured `deny_read` rules;
 agent ownership still governs runtime history APIs and writes.
 

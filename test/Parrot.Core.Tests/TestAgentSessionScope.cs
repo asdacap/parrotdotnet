@@ -43,7 +43,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         ChildRegistry = new ChildRegistry(owner, QueueChildAdmissionValidator.Validate);
         _agentTaskRuns = new AgentTaskRunCatalog(owner.SessionId, diagnostics, lifetime);
         _childQuestion = new ChildQuestion(owner);
-        _processes = new ShellProcessOwner(owner, resources, new AgentPathEnvironment(resources, resources.AgentScratch(owner.SessionId)), runner, diagnostics, lifetime);
+        _processes = new ShellProcessOwner(owner, resources, new AgentPathEnvironment(resources, resources.AgentScratch(owner.NamePath)), runner, diagnostics, lifetime);
         _queues = new AgentQueues(owner, parentLink.Parent?.GetService<IAgentQueues>(), resources, ChildRegistry, static queueIdentity => new QueueInventory(queueIdentity), diagnostics);
         var root = parentLink.Parent;
         while (root?.ParentScope.Parent is { } parent)

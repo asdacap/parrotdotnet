@@ -219,11 +219,20 @@ internal sealed class AgentSpawner : IAgentSpawner
 
                 var sessionId = Identifier.AgentSession();
                 var name = SelectName(request.RequestedName, sessionId, conflictingNames);
+                if (AgentScratchDirectory.ReservedNames.Contains(name))
+                {
+                    throw new AgentRegistryException($"child agent name '{name}' is reserved");
+                }
+
+                if (_children.FindNamedChildScope(name) is not null)
+                {
+                    throw new ChildNameConflictException($"child agent name is already registered: {name}");
+                }
+
                 var scope = _owner.Scope.DeriveChild(name, depth, request.RequestedScope);
                 childIdentity = AgentIdentity.ChildWithPolicyLineage(
                     sessionId,
-                    _owner.SessionId,
-                    _owner.Name,
+                    _owner,
                     name,
                     depth,
                     scope,
@@ -243,8 +252,7 @@ internal sealed class AgentSpawner : IAgentSpawner
         try
         {
             childHistory = _authority.InitializeChildHistory(
-                _owner.SessionId,
-                childIdentity.SessionId,
+                childIdentity,
                 request.Boundary,
                 request.Fork);
             var securityProfile = childParentLink.PolicyLineage.Resolve(profile.SecurityProfile);

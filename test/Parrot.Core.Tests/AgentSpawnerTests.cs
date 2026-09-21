@@ -40,6 +40,23 @@ internal sealed class AgentSpawnerTests
     }
 
     [Test]
+    [Arguments("blobs")]
+    [Arguments("plan")]
+    public async Task Rejects_reserved_child_names_and_extends_the_parent_name_path(
+        string reservedName,
+        CancellationToken cancellationToken)
+    {
+        await using var fixture = new SpawnerFixture(10, cancellationToken);
+
+        _ = await Assert.That(() => fixture.Root.AgentSpawner.SpawnScope(fixture.Request with { RequestedName = reservedName }))
+            .Throws<AgentRegistryException>();
+        var child = fixture.Root.AgentSpawner.SpawnScope(fixture.Request);
+        var grandchild = child.AgentSpawner.SpawnScope(fixture.Request with { Parent = child.Session, RequestedName = "leaf" });
+        _ = await Assert.That(string.Join('/', child.Session.Identity.NamePath)).IsEqualTo("main/helper");
+        _ = await Assert.That(string.Join('/', grandchild.Session.Identity.NamePath)).IsEqualTo("main/helper/leaf");
+    }
+
+    [Test]
     public async Task Concurrent_reuse_constructs_once_and_consumes_one_retained_reservation(
         CancellationToken cancellationToken)
     {

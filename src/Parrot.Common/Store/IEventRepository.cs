@@ -90,6 +90,9 @@ internal interface IEventRepository
 
     IReadOnlyList<string> AgentHistorySessionIds();
 
+    /// <summary>Lists every agent that ever started, by its first start, with its parent and name.</summary>
+    IReadOnlyList<AgentLineageRecord> AgentLineage();
+
     IReadOnlyList<AgentHistoryEntry> AgentHistory(string agentSessionId);
 
     bool RecordCheckpoint(string agentSessionId, string title, long assistantSequence, string toolCallId);

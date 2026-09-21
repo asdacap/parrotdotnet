@@ -57,18 +57,18 @@ internal sealed class AgentScopeDiagnosticsTests
             await using (var session = await store.Open(router.Resolve(model.Selector)))
             {
                 logPath = session.Resources.LogPath;
-                var rootId = Directory.GetDirectories(session.Resources.ScratchRootDirectory)
-                    .Select(Path.GetFileName).Single() ?? throw new InvalidOperationException("Missing root agent");
-                var parent = session.Registry.SnapshotScopes().Single(scope => scope.Session.SessionId == rootId);
+                var parent = session.Registry.SnapshotScopes().Single();
+                _ = await Assert.That(Directory.GetDirectories(session.Resources.ScratchRootDirectory).Select(Path.GetFileName).Single())
+                    .IsEqualTo(parent.Session.Name);
                 var identity = AgentIdentity.Child(
-                    "diagnostic-child", rootId, "main", "child", 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates);
+                    "diagnostic-child", parent.Session.Identity, "child", 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates);
                 await using var child = session.Registry.CreateChildScope(
                     identity,
                     AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly, session.Registry.ReserveRetainedAgent()),
                     new ModelSelector(model.Selector),
                     session.Mode,
                     session.Mode.Profile.SecurityProfile,
-                    session.Registry.InitializeChildHistory(rootId, identity.SessionId, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty")),
+                    session.Registry.InitializeChildHistory(identity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty")),
                     session.Lifetime);
                 _ = await Assert.That(child.Session.SessionId).IsEqualTo(identity.SessionId);
                 var text = await File.ReadAllTextAsync(logPath);

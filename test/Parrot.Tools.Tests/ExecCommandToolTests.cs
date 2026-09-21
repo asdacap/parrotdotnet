@@ -48,7 +48,7 @@ internal sealed class ExecCommandToolTests : IDisposable
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
-        var identity = AgentIdentity.Main("session", string.Empty, TestModels.PromptTemplates);
+        var identity = AgentIdentity.Main("session", "main", TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
         var resources = new UserSessionResources(
@@ -58,7 +58,7 @@ internal sealed class ExecCommandToolTests : IDisposable
                 Path.Combine(_workspace, ".data")),
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var scratch = resources.AgentScratch(identity.SessionId);
+        var scratch = resources.AgentScratch(identity.NamePath);
         await using IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(scratch.BlobDirectory), new AgentOutputFile(scratch.BlobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
         await using var processes = new ShellProcessOwner(
             identity,

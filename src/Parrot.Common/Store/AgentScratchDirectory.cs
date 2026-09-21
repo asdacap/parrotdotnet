@@ -1,7 +1,12 @@
+using System.Collections.Immutable;
+
 namespace Parrot.Store;
 
 internal sealed class AgentScratchDirectory
 {
+    public static readonly ImmutableHashSet<string> ReservedNames =
+        ["history.jsonl", "blobs", "plan", "last_request.json"];
+
     private const UnixFileMode DirectoryMode =
         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
 

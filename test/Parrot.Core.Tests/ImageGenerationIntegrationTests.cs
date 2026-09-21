@@ -61,7 +61,7 @@ internal sealed class ImageGenerationIntegrationTests : IDisposable
                 },
                 client));
         var model = new ProviderModel(provider, new LLMModel("text-model", provider.Id));
-        var identity = AgentIdentity.Main("session", string.Empty, TestModels.PromptTemplates);
+        var identity = AgentIdentity.Main("session", "main", TestModels.PromptTemplates);
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
         var repository = new EventRepository(database);

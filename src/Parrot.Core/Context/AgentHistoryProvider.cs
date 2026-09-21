@@ -11,7 +11,7 @@ internal sealed class AgentHistoryProvider(UserSessionResources resources, IProm
     public ISystemPrompt Materialize(AgentIdentity identity)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        var path = resources.AgentHistoryFile(identity.SessionId);
+        var path = resources.AgentScratch(identity.NamePath).HistoryPath;
         return new StaticSystemPrompt(templates.Render("context.agent-history", [
             new PromptTemplateArgument("path", path),
         ]));

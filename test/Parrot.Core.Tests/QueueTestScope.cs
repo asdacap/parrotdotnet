@@ -33,7 +33,7 @@ internal sealed class QueueTestScope : IAgentSessionScope
         _agentTaskRuns = new AgentTaskRunCatalog(identity.SessionId, TestDiagnosticLog.Instance, CancellationToken.None);
         var repository = new EventRepository(_database);
         _dependencies = TestModels.Dependencies(identity, _events, repository, CancellationToken.None);
-        _processes = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.SessionId)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, CancellationToken.None);
+        _processes = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.NamePath)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, CancellationToken.None);
         _queues = new AgentQueues(identity, parent?.GetService<IAgentQueues>(), resources, _children, static queueIdentity => new QueueInventory(queueIdentity), TestDiagnosticLog.Instance);
         IAgentSessionScope? root = parent;
         while (root?.ParentScope.Parent is { } ancestor)
@@ -49,7 +49,7 @@ internal sealed class QueueTestScope : IAgentSessionScope
         _queues.Initialize();
         ParentScope = parent is null ? AgentSessionParentScope.Root() : AgentSessionParentScope.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly);
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
-        Session = new AgentSession(identity, ParentScope, new ModelSelector(model.Selector), TestModels.Route(model), _events, repository, [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(resources.AgentScratch(identity.SessionId).Root), new AgentOutputFile(resources.AgentScratch(identity.SessionId).Root), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, identity.SessionId, null), new ContextCadence(), TestModels.PromptTemplates, ChildQuestions, _dependencies.ExitReminder, _dependencies.Profile, [], new SecurityProfileTestFixture(SecurityProfile.Compose(false, [], [], [])).Security, _dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
+        Session = new AgentSession(identity, ParentScope, new ModelSelector(model.Selector), TestModels.Route(model), _events, repository, [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(resources.AgentScratch(identity.NamePath).Root), new AgentOutputFile(resources.AgentScratch(identity.NamePath).Root), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, identity.SessionId, null), new ContextCadence(), TestModels.PromptTemplates, ChildQuestions, _dependencies.ExitReminder, _dependencies.Profile, [], new SecurityProfileTestFixture(SecurityProfile.Compose(false, [], [], [])).Security, _dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
         if (parent is not null && !parent.ChildRegistry.TryAdd(this))
         {
             throw new InvalidOperationException("The parent is no longer accepting children.");

@@ -64,7 +64,7 @@ internal sealed class AgentOperationDiagnosticsTests : IDisposable
             LLMEvent.Completed("stop", 1, 0, 1, "private-final-sentinel", [])]);
         ILLMProvider selectedProvider = outcome == "turn_failed" ? new TerminalFailureProvider("private-exception-sentinel") : provider;
         var model = new ProviderModel(selectedProvider, new LLMModel("model", selectedProvider.Id));
-        var identity = AgentIdentity.Main("agent-diagnostics", string.Empty, TestModels.PromptTemplates);
+        var identity = AgentIdentity.Main("agent-diagnostics", "main", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, events, repository, cancellationToken);
         IToolFactory toolFactory = new FixedToolFactory(tool);
         await using IAgentSession session = new AgentSession(

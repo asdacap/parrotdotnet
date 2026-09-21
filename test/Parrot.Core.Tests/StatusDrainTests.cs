@@ -97,7 +97,7 @@ internal sealed class StatusDrainTests : IDisposable
                 message.Role == LLMRole.System && message.Content.Contains("Active profile:", StringComparison.Ordinal)))
                 .IsEqualTo(2);
             var planArtifact = Directory.GetFiles(
-                Path.Combine(_root, "sessions", "user", "scratch", agentSessionId, "plan"),
+                Path.Combine(_root, "sessions", "user", "root-agents", "main-agent", "plan"),
                 "plan-*.md").Single();
             await File.WriteAllTextAsync(planArtifact, "# Plan", cancellationToken);
             await File.WriteAllTextAsync(
@@ -154,13 +154,7 @@ internal sealed class StatusDrainTests : IDisposable
         _ = await session.Send([ConversationPart.TextPart("plan")], "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
         var planArtifact = Directory.GetFiles(
-            Path.Combine(
-                _root,
-                "sessions",
-                "repair-user",
-                "scratch",
-                repository.SessionState("repair-user", ModeRegistry.Build).AgentSessionId,
-                "plan"),
+            Path.Combine(_root, "sessions", "repair-user", "root-agents", "main-agent", "plan"),
             "plan-*.md").Single();
         var taskArtifact = string.Concat(planArtifact.AsSpan(0, planArtifact.Length - 3), ".tasks.json");
         await File.WriteAllTextAsync(
@@ -233,7 +227,7 @@ internal sealed class StatusDrainTests : IDisposable
         _ = await session.Send([ConversationPart.TextPart("plan")], "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
         var planArtifact = Directory.GetFiles(
-            Path.Combine(_root, "sessions", "user", "scratch", AgentSessionId(repository), "plan"),
+            Path.Combine(_root, "sessions", "user", "root-agents", "main-agent", "plan"),
             "plan-*.md").Single();
         await File.WriteAllTextAsync(planArtifact, "  # Plan\n", cancellationToken);
         var taskArtifact = string.Concat(planArtifact.AsSpan(0, planArtifact.Length - 3), ".tasks.json");

@@ -2309,7 +2309,7 @@ internal sealed class DrainTests : IDisposable
             ContextWindow = contextWindow,
             MaxInputTokens = maximumInputTokens,
         });
-        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
         _dependencies.Add(dependencies);
         return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), new AgentOutputFile(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
@@ -2325,7 +2325,7 @@ internal sealed class DrainTests : IDisposable
         CancellationToken lifetime)
     {
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
         _dependencies.Add(dependencies);
         var security = new AgentSessionSecurity(
@@ -2377,7 +2377,7 @@ internal sealed class DrainTests : IDisposable
         CancellationToken lifetime)
     {
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
         _dependencies.Add(dependencies);
         var skills = new AgentSkills(new SkillCatalog([], () => (SkillConfiguration.Default, 0L)), TestModels.PromptTemplates);
@@ -2424,7 +2424,7 @@ internal sealed class DrainTests : IDisposable
         CancellationToken lifetime)
     {
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
         _dependencies.Add(dependencies);
         return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), new AgentOutputFile(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile, completionCallbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
@@ -2451,7 +2451,7 @@ internal sealed class DrainTests : IDisposable
                 | ModelMetadataFields.OutputPrice
                 | (cachedInputPrice > 0 ? ModelMetadataFields.CachedInputPrice : ModelMetadataFields.None),
         });
-        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
         return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [.. toolFactories.Select(tool => tool.Factory)], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), new AgentOutputFile(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile ?? dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
     }

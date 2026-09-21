@@ -83,11 +83,11 @@ internal sealed class ShellProcessInteractionTests : IDisposable
                 Path.Combine(_workspace, ".data")),
             UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        await using var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
+        await using var agent = CreateAgent(events, database, resources.AgentScratch(["agent"]).BlobDirectory, lifetime.Token);
         await using var owner = new ShellProcessOwner(
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
-            new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)),
+            new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
             new ProcessRunner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             lifetime.Token);
@@ -145,8 +145,8 @@ internal sealed class ShellProcessInteractionTests : IDisposable
                 Path.Combine(workspace, ".data")),
             UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
             ProjectWorkspace.FromLaunchDirectory(workspace));
-        await using var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
-        var scratch = resources.AgentScratch(agent.SessionId);
+        await using var agent = CreateAgent(events, database, resources.AgentScratch(["agent"]).BlobDirectory, lifetime.Token);
+        var scratch = resources.AgentScratch(agent.Identity.NamePath);
         await using var owner = new ShellProcessOwner(
             agent.Identity,
             resources,
@@ -222,11 +222,11 @@ internal sealed class ShellProcessInteractionTests : IDisposable
                 Path.Combine(_workspace, ".data")),
             UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        await using var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
+        await using var agent = CreateAgent(events, database, resources.AgentScratch(["agent"]).BlobDirectory, lifetime.Token);
         await using var owner = new ShellProcessOwner(
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
-            new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)),
+            new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
             new ProcessRunner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             lifetime.Token);
@@ -243,9 +243,9 @@ internal sealed class ShellProcessInteractionTests : IDisposable
 
         _ = await Assert.That(initial.Running).IsTrue();
         _ = await Assert.That(result.Spilled).IsTrue();
-        await WaitForNoTranscriptSpools(resources.AgentScratch(agent.SessionId).BlobDirectory, cancellationToken);
+        await WaitForNoTranscriptSpools(resources.AgentScratch(agent.Identity.NamePath).BlobDirectory, cancellationToken);
         _ = await Assert.That(File.Exists(result.BlobPath)).IsTrue();
-        _ = await Assert.That(Directory.EnumerateFiles(resources.AgentScratch(agent.SessionId).BlobDirectory, ".process-*.tmp")).IsEmpty();
+        _ = await Assert.That(Directory.EnumerateFiles(resources.AgentScratch(agent.Identity.NamePath).BlobDirectory, ".process-*.tmp")).IsEmpty();
         var durable = await File.ReadAllTextAsync(result.BlobPath, cancellationToken);
         _ = await Assert.That(durable).Contains("[stdout]\n");
         _ = await Assert.That(durable).DoesNotContain("prefix");
@@ -275,11 +275,11 @@ internal sealed class ShellProcessInteractionTests : IDisposable
                 Path.Combine(_workspace, ".data")),
             UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        await using var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
+        await using var agent = CreateAgent(events, database, resources.AgentScratch(["agent"]).BlobDirectory, lifetime.Token);
         await using var owner = new ShellProcessOwner(
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
-            new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)),
+            new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
             new ProcessRunner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             lifetime.Token);
@@ -324,11 +324,11 @@ internal sealed class ShellProcessInteractionTests : IDisposable
                 Path.Combine(_workspace, ".data")),
             UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        await using var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
+        await using var agent = CreateAgent(events, database, resources.AgentScratch(["agent"]).BlobDirectory, lifetime.Token);
         await using var owner = new ShellProcessOwner(
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
-            new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)),
+            new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
             new ProcessRunner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             lifetime.Token);
@@ -390,11 +390,11 @@ internal sealed class ShellProcessInteractionTests : IDisposable
                 Path.Combine(_workspace, ".data")),
             UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        await using var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
+        await using var agent = CreateAgent(events, database, resources.AgentScratch(["agent"]).BlobDirectory, lifetime.Token);
         await using var owner = new ShellProcessOwner(
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
-            new AgentPathEnvironment(resources, resources.AgentScratch(agent.SessionId)),
+            new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
             new ProcessRunner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             lifetime.Token);

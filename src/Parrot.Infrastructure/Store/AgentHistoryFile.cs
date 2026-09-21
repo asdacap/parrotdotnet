@@ -2,16 +2,16 @@ using System.Text.Json;
 
 namespace Parrot.Store;
 
-internal sealed class AgentHistoryFile(UserSessionResources resources, string agentSessionId) : IAgentHistoryFile
+// Projects the history of every agent that occupied a scratch directory, the
+// current occupant last, so a re-used agent name appends to its predecessors.
+internal sealed class AgentHistoryFile(AgentScratchDirectory scratch, IReadOnlyList<string> occupantSessionIds) : IAgentHistoryFile
 {
-    private const UnixFileMode DirectoryMode =
-        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
-
     private const UnixFileMode HistoryFileMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
 
     private readonly Lock _gate = new();
+    private readonly string _agentSessionId = occupantSessionIds[^1];
 
-    public string Path => resources.AgentHistoryFile(agentSessionId);
+    public string Path => scratch.HistoryPath;
 
     public void Refresh(IEventRepository repository, string sessionId)
     {
@@ -19,7 +19,7 @@ internal sealed class AgentHistoryFile(UserSessionResources resources, string ag
         ValidateSession(sessionId);
         try
         {
-            ReplaceFromReader(() => repository.AgentHistory(agentSessionId));
+            ReplaceFromReader(() => [.. occupantSessionIds.SelectMany(repository.AgentHistory)]);
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
@@ -28,7 +28,7 @@ internal sealed class AgentHistoryFile(UserSessionResources resources, string ag
 
     public void ValidateSession(string sessionId)
     {
-        if (!string.Equals(agentSessionId, sessionId, StringComparison.Ordinal))
+        if (!string.Equals(_agentSessionId, sessionId, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("History projection belongs to another agent session.");
         }
@@ -47,12 +47,10 @@ internal sealed class AgentHistoryFile(UserSessionResources resources, string ag
         {
             var entries = readEntries();
             var path = Path;
-            var directory = System.IO.Path.GetDirectoryName(path)
-                ?? throw new InvalidOperationException("An agent history file must have a parent directory.");
-            ProvisionDirectory(directory);
+            scratch.Provision();
             ValidateTarget(path);
             var temporary = System.IO.Path.Combine(
-                directory,
+                scratch.Root,
                 $".{System.IO.Path.GetFileName(path)}.{Guid.NewGuid():n}.tmp");
             try
             {
@@ -64,25 +62,6 @@ internal sealed class AgentHistoryFile(UserSessionResources resources, string ag
             {
                 File.Delete(temporary);
             }
-        }
-    }
-
-    private static void ProvisionDirectory(string path)
-    {
-        if (System.IO.Path.Exists(path) && !Directory.Exists(path))
-        {
-            throw new InvalidOperationException("An agent history directory is not a directory.");
-        }
-
-        var directory = Directory.CreateDirectory(path);
-        if ((directory.Attributes & FileAttributes.ReparsePoint) != 0)
-        {
-            throw new InvalidOperationException("An agent history directory cannot be a symbolic link.");
-        }
-
-        if (!OperatingSystem.IsWindows())
-        {
-            File.SetUnixFileMode(path, DirectoryMode);
         }
     }
 

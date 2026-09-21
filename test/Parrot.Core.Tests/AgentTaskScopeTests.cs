@@ -58,8 +58,8 @@ internal sealed class AgentTaskScopeTests
             var store = new SessionStore(paths, directory, "host", factory, router, modes, diagnostics);
             await using var session = await store.Open(router.Resolve(model.Selector));
             var root = session.Registry.SnapshotScopes().Single();
-            var rejectedIdentity = AgentIdentity.Child("rejected-owner", root.Session.SessionId, root.Session.Name, "rejected", 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates);
-            var rejectedHistory = session.Registry.InitializeChildHistory(root.Session.SessionId, rejectedIdentity.SessionId, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty"));
+            var rejectedIdentity = AgentIdentity.Child("rejected-owner", root.Session.Identity, "rejected", 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates);
+            var rejectedHistory = session.Registry.InitializeChildHistory(rejectedIdentity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty"));
             _ = await Assert.That(() => session.Registry.CreateChildScope(
                 rejectedIdentity,
                 AgentSessionParentLink.Root(),
@@ -72,14 +72,14 @@ internal sealed class AgentTaskScopeTests
             var scopes = new List<IAgentSessionScope>();
             foreach (var name in new[] { "first-owner", "second-owner" })
             {
-                var identity = AgentIdentity.Child(name, root.Session.SessionId, root.Session.Name, name, 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates);
+                var identity = AgentIdentity.Child(name, root.Session.Identity, name, 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates);
                 var child = session.Registry.CreateChildScope(
                     identity,
                     AgentSessionParentLink.Child(root, AgentCompletionDeliveryPolicy.RetainedOnly, session.Registry.ReserveRetainedAgent()),
                     new ModelSelector(model.Selector),
                     session.Mode,
                     session.Mode.Profile.SecurityProfile,
-                    session.Registry.InitializeChildHistory(root.Session.SessionId, identity.SessionId, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty")),
+                    session.Registry.InitializeChildHistory(identity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty")),
                     session.Lifetime);
                 _ = await Assert.That(root.ChildRegistry.TryAdd(child)).IsTrue();
                 scopes.Add(child);

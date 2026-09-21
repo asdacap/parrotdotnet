@@ -750,7 +750,7 @@ internal sealed class EventPayloadTests
         };
         ILLMProvider provider = new PayloadProvider(llmEvent);
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        var identity = AgentIdentity.Main("session", string.Empty, TestModels.PromptTemplates);
+        var identity = AgentIdentity.Main("session", "main", TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, events, repository, cancellationToken);
         using var subscription = events.Subscribe();

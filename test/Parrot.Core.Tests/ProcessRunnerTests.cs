@@ -910,7 +910,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
         var ownScratch = Scratch(resources);
-        var siblingScratch = resources.AgentScratch("agent-session-sibling");
+        var siblingScratch = resources.AgentScratch(["agent-session-sibling"]);
         var siblingFile = Path.Combine(siblingScratch.Root, "shared.txt");
         var outsideFile = Path.Combine(resources.Root, "outside.txt");
         var policy = SecurityProfile.Compose(
@@ -1100,7 +1100,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             approvals);
 
     private static AgentScratchDirectory Scratch(UserSessionResources resources) =>
-        resources.AgentScratch("agent-session-test");
+        resources.AgentScratch(["agent-session-test"]);
 
     private static string[] FindMounts(string[] arguments, string path)
     {
