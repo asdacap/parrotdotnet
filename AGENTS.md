@@ -96,6 +96,9 @@ dotnet publish src/Parrot.Cli/Parrot.Cli.csproj -c Release -r linux-musl-x64
 nix flake check    # nix formatting only; see the comment in flake.nix
 ```
 
+For the edit-compile loop, `dotnet build Parrot.slnx -c Release --no-restore -p:RunAnalyzers=false`
+is about twice as fast; the gate above still runs the analyzers.
+
 Warnings are errors in every project. `AnalysisLevel` is `latest-all` and the
 trim/AOT analyzers run everywhere, so a build that succeeds is a build that is
 AOT-clean.

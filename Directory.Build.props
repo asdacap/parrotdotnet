@@ -20,12 +20,11 @@
   </PropertyGroup>
 
   <!-- Native AOT is the shipping target, so every assembly must stay
-       trim- and AOT-clean even before Parrot.Cli links it in. -->
+       trim- and AOT-clean even before Parrot.Cli links it in. The SDK derives
+       the trim, AOT and single-file analyzers from this one switch, which is
+       what lets Directory.Build.targets turn them off for test hosts. -->
   <PropertyGroup>
     <IsAotCompatible>true</IsAotCompatible>
-    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
-    <EnableAotAnalyzer>true</EnableAotAnalyzer>
-    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
   </PropertyGroup>
 
   <!-- Analysis. A warning is a build failure; there is no "fix it later" state. -->
