@@ -417,7 +417,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
-        await AssertWritableBind(arguments, resources.ScratchRootDirectory);
+        await AssertWritableBind(arguments, resources.Root);
         _ = await Assert.That(LastSetEnvironmentIndex(arguments, "HOME")).IsEqualTo(-1);
         _ = await Assert.That(LastSetEnvironmentIndex(arguments, "XDG_CACHE_HOME")).IsEqualTo(-1);
         _ = await Assert.That(LastSetEnvironmentIndex(arguments, "TMPDIR")).IsEqualTo(-1);
@@ -458,7 +458,7 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
         _ = await Assert.That(FindMounts(arguments, scratch.Root)).IsEmpty();
-        await AssertWritableBind(arguments, resources.ScratchRootDirectory);
+        await AssertWritableBind(arguments, resources.Root);
     }
 
     [Test]
@@ -589,7 +589,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
-        var lastSecurityRule = Array.LastIndexOf(arguments, resources.ScratchRootDirectory);
+        var lastSecurityRule = Array.LastIndexOf(arguments, resources.Root);
         var deviceMount = Array.IndexOf(arguments, "--dev");
         var processMount = Array.IndexOf(arguments, "--proc");
         _ = await Assert.That(deviceMount).IsGreaterThan(lastSecurityRule);
@@ -709,12 +709,13 @@ internal sealed class ProcessRunnerTests : IDisposable
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
         var scratch = Scratch(resources);
+        _ = Directory.CreateDirectory(resources.ScratchDirectory);
         var paths = new AgentPathEnvironment(resources, scratch);
         var defaultDirectory = variableName switch
         {
             "WORKDIR" => resources.Workspace.LaunchDirectory,
-            "SCRATCH_DIR" => resources.ScratchRootDirectory,
-            "AGENT_SCRATCH_DIR" => scratch.Root,
+            "SCRATCH_DIR" => resources.ScratchDirectory,
+            "AGENT_SCRATCH_DIR" => scratch.ScratchPath,
             "AGENT_HISTORY_DIR" => Path.GetDirectoryName(scratch.HistoryPath)
                 ?? throw new InvalidOperationException("The history path has no directory."),
             _ => throw new ArgumentOutOfRangeException(nameof(variableName)),
@@ -892,7 +893,7 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
-    public async Task Read_only_process_writes_sibling_scratch_but_not_session_state(
+    public async Task Read_only_process_writes_the_user_session_but_not_other_sessions(
         CancellationToken cancellationToken)
     {
         var runner = ProcessRunner.Locate();
@@ -912,14 +913,15 @@ internal sealed class ProcessRunnerTests : IDisposable
         var ownScratch = Scratch(resources);
         var siblingScratch = resources.AgentScratch(["agent-session-sibling"]);
         var siblingFile = Path.Combine(siblingScratch.Root, "shared.txt");
-        var outsideFile = Path.Combine(resources.Root, "outside.txt");
+        var stateFile = Path.Combine(resources.Root, "state.txt");
+        var outsideFile = Path.Combine(resources.SessionsDirectory, "outside.txt");
         var policy = SecurityProfile.Compose(
             true,
             [new SandboxRule(siblingScratch.Root, SandboxRuleAction.DenyWrite)],
             [],
             []);
         var result = await runner.Run(
-            $"printf shared > '{siblingFile}' && "
+            $"printf shared > '{siblingFile}' && printf state > '{stateFile}' && "
             + $"(printf denied > '{outsideFile}' 2>/dev/null || printf outside-blocked)",
             ProcessEnvironmentOverrides.Empty,
             resources,
@@ -928,6 +930,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             cancellationToken);
 
         _ = await Assert.That(await File.ReadAllTextAsync(siblingFile, cancellationToken)).IsEqualTo("shared");
+        _ = await Assert.That(await File.ReadAllTextAsync(stateFile, cancellationToken)).IsEqualTo("state");
         _ = await Assert.That(result.Stdout).Contains("outside-blocked");
         _ = await Assert.That(File.Exists(outsideFile)).IsFalse();
     }
@@ -1096,7 +1099,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         SecurityProfile.ForAgent(
             policy,
             resources.Workspace.WritableRoots,
-            resources.ScratchRootDirectory,
+            resources.Root,
             approvals);
 
     private static AgentScratchDirectory Scratch(UserSessionResources resources) =>

@@ -71,8 +71,8 @@ internal sealed class IdentityStorageTests : IDisposable
         _ = await Assert.That(firstScratch.Contains(secondScratch.Root)).IsFalse();
         _ = await Assert.That(first.Owns(second.Root)).IsFalse();
         _ = await Assert.That(second.Owns(first.Root)).IsFalse();
-        _ = await Assert.That(Path.GetDirectoryName(firstScratch.Root)).IsEqualTo(first.ScratchRootDirectory);
-        _ = await Assert.That(Path.GetDirectoryName(secondScratch.Root)).IsEqualTo(second.ScratchRootDirectory);
+        _ = await Assert.That(Path.GetDirectoryName(firstScratch.Root)).IsEqualTo(first.AgentsDirectory);
+        _ = await Assert.That(Path.GetDirectoryName(secondScratch.Root)).IsEqualTo(second.AgentsDirectory);
     }
 
     [Test]
@@ -81,7 +81,7 @@ internal sealed class IdentityStorageTests : IDisposable
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
         var resources = new UserSessionResources(
             new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
-        var expectedRoot = Path.Combine(resources.ScratchRootDirectory, "main", "worker", "sub");
+        var expectedRoot = Path.Combine(resources.AgentsDirectory, "main", "worker", "sub");
         var expectedBlobs = Path.Combine(expectedRoot, "blobs");
 
         _ = await Assert.That(Directory.Exists(expectedRoot)).IsFalse();
@@ -149,7 +149,7 @@ internal sealed class IdentityStorageTests : IDisposable
         _ = await Assert.That(() => resources.AgentScratch(["main", "worker", reserved])).Throws<ArgumentException>();
         _ = await Assert.That(() => resources.AgentScratch([])).Throws<ArgumentException>();
         _ = await Assert.That(resources.AgentScratch([reserved]).Root)
-            .IsEqualTo(Path.Combine(resources.ScratchRootDirectory, reserved));
+            .IsEqualTo(Path.Combine(resources.AgentsDirectory, reserved));
     }
 
     [Test]
@@ -161,7 +161,7 @@ internal sealed class IdentityStorageTests : IDisposable
         var history = new AgentHistoryFile(resources.AgentScratch(["main", "child"]), ["agent-session-child"]);
 
         _ = await Assert.That(history.Path)
-            .IsEqualTo(Path.Combine(resources.ScratchRootDirectory, "main", "child", "history.jsonl"));
+            .IsEqualTo(Path.Combine(resources.AgentsDirectory, "main", "child", "history.jsonl"));
         _ = await Assert.That(resources.Owns(history.Path)).IsTrue();
         _ = await Assert.That(Path.GetRelativePath(resources.Root, history.Path))
             .IsEqualTo(Path.Combine("root-agents", "main", "child", "history.jsonl"));

@@ -75,7 +75,7 @@ internal sealed class SessionStoreTests : IDisposable
         await using var resumed = await Open(workingDirectory);
 
         _ = await Assert.That(await File.ReadAllTextAsync(history.Path)).Contains("inactive durable history of inactive-child").And.DoesNotContain("stale projection");
-        _ = await Assert.That(Directory.EnumerateFiles(resources.ScratchRootDirectory, "history.jsonl", SearchOption.AllDirectories).Count()).IsEqualTo(2);
+        _ = await Assert.That(Directory.EnumerateFiles(resources.AgentsDirectory, "history.jsonl", SearchOption.AllDirectories).Count()).IsEqualTo(2);
         _ = await Assert.That(await File.ReadAllTextAsync(resources.LogPath)).Contains("event=\"agent_history_unresolved\"").And.Contains("orphan");
         _ = await Assert.That(resumed.Registry.SnapshotScopes().Any(scope => scope.Session.SessionId == "inactive-child")).IsFalse();
     }

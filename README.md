@@ -372,17 +372,18 @@ host process, without persisting it; the config file remains the persistent
 knob. Disabling the sandbox also removes read-only shell confinement, because
 that confinement is the sandbox itself.
 
-Each agent receives an individually owned scratch directory beneath its user
-session, laid out as the agent tree by name:
+Each agent receives an individually owned directory beneath its user session,
+laid out as the agent tree by name:
 `<session>/root-agents/<root>/<child>/<grandchild>/...`. Each agent directory
-holds that agent's history projection (`history.jsonl`), process and tool
-output blobs (`blobs/`), plan artifacts (`plan/`) and `last_request.json`, plus
-one sub-directory per child agent; those special names are reserved and are
-rejected as child agent names. A later agent that takes an already used name
-path lands in the same directory. Every agent in the same user session can
-write anywhere beneath the shared `root-agents` root, including when it uses a
-read-only profile (provided the profile exposes a shell tool). This grant does
-not include another user session or non-scratch session infrastructure.
+holds that agent's scratch directory (`scratch/`, `AGENT_SCRATCH_DIR`), history
+projection (`history.jsonl`), process and tool output blobs (`blobs/`), plan
+artifacts (`plan/`) and `last_request.json`, plus one sub-directory per child
+agent; those special names are reserved and are rejected as child agent names.
+A later agent that takes an already used name path lands in the same directory.
+The user session also has a shared `<session>/scratch` directory
+(`SCRATCH_DIR`). Every agent can write anywhere beneath its own user session
+directory, including when it uses a read-only profile (provided the profile
+exposes a shell tool). This grant does not include another user session.
 Parrot does not override `HOME`, `XDG_CACHE_HOME`, or `TMPDIR`, and the read-only
 host baseline does not hide scratch contents from filesystem reads.
 

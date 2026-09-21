@@ -109,6 +109,7 @@ internal sealed class UserSession : IUserSession
             Permissions.Dispose();
             return ValueTask.CompletedTask;
         });
+        _ = Directory.CreateDirectory(Resources.ScratchDirectory);
         if (Directory.Exists(Resources.AgentQueueRootDirectory))
         {
             Directory.Delete(Resources.AgentQueueRootDirectory, recursive: true);

@@ -37,8 +37,8 @@ internal sealed class AgentPathEnvironmentTests : IDisposable
         var expected = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["WORKDIR"] = _workspace,
-            ["SCRATCH_DIR"] = resources.ScratchRootDirectory,
-            ["AGENT_SCRATCH_DIR"] = scratch.Root,
+            ["SCRATCH_DIR"] = resources.ScratchDirectory,
+            ["AGENT_SCRATCH_DIR"] = scratch.ScratchPath,
             ["AGENT_HISTORY_DIR"] = scratch.Root,
         };
         var templates = new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)
@@ -59,11 +59,11 @@ internal sealed class AgentPathEnvironmentTests : IDisposable
         var rendered = prompt.Build(selection);
         var defaultRendered = new AgentPathEnvironmentProvider(environment, TestModels.PromptTemplates).Materialize(identity).Build(selection);
         _ = await Assert.That(string.Join('\n', defaultRendered.Split('\n').Skip(1).Take(4)))
-            .IsEqualTo($"WORKDIR = {_workspace}\nSCRATCH_DIR = $WORKDIR/state/sessions/{userSessionId}/root-agents\nAGENT_SCRATCH_DIR = $SCRATCH_DIR/{agentSessionId}\nAGENT_HISTORY_DIR = $AGENT_SCRATCH_DIR");
+            .IsEqualTo($"WORKDIR = {_workspace}\nSCRATCH_DIR = $WORKDIR/state/sessions/{userSessionId}/scratch\nAGENT_SCRATCH_DIR = $WORKDIR/state/sessions/{userSessionId}/root-agents/{agentSessionId}/scratch\nAGENT_HISTORY_DIR = $WORKDIR/state/sessions/{userSessionId}/root-agents/{agentSessionId}");
         _ = await Assert.That(defaultRendered).Contains("\"${AGENT_SCRATCH_DIR}/somefile.txt\"");
         _ = await Assert.That(defaultRendered.Split('\n')).Count().IsEqualTo(7);
         _ = await Assert.That(new WorkingDirectoryProvider(_workspace, templates).Materialize(identity).Build(selection)).IsEqualTo(_workspace);
-        _ = await Assert.That(new ScratchDirectoryProvider(scratch, templates).Materialize(identity).Build(selection)).IsEqualTo(scratch.Root);
+        _ = await Assert.That(new ScratchDirectoryProvider(scratch, templates).Materialize(identity).Build(selection)).IsEqualTo(scratch.ScratchPath);
         _ = await Assert.That(new AgentHistoryProvider(resources, templates).Materialize(identity).Build(selection))
             .IsEqualTo(scratch.HistoryPath);
         var displayed = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -113,6 +113,6 @@ internal sealed class AgentPathEnvironmentTests : IDisposable
         _ = await Assert.That(overrides["AGENT_HISTORY_DIR"]).IsEqualTo(scratch.Root);
         _ = await Assert.That(overrides["SCRATCH_DIR"]).IsEqualTo("$WORKDIR/literal");
         _ = await Assert.That(environment.Merge(ProcessEnvironmentOverrides.Empty).Entries.ToDictionary(StringComparer.Ordinal)["SCRATCH_DIR"])
-            .IsEqualTo(resources.ScratchRootDirectory);
+            .IsEqualTo(resources.ScratchDirectory);
     }
 }

@@ -75,7 +75,7 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
                 [],
                 []),
             resources.Workspace.WritableRoots,
-            resources.ScratchRootDirectory,
+            resources.AgentsDirectory,
             []);
 
         var policy = MacSeatbeltSandbox.CompilePolicy(profile).Text;
@@ -106,7 +106,7 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
                 [],
                 []),
             resources.Workspace.WritableRoots,
-            resources.ScratchRootDirectory,
+            resources.AgentsDirectory,
             []);
 
         var policy = MacSeatbeltSandbox.CompilePolicy(profile).Text;
@@ -132,15 +132,15 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
             var profile = SecurityProfile.ForAgent(
                 SecurityProfile.Compose(true, [], [], []),
                 [ignoredWorkspace.FullName],
-                resources.ScratchRootDirectory,
+                resources.AgentsDirectory,
                 []);
 
             var policy = MacSeatbeltSandbox.CompilePolicy(profile).Text;
 
             _ = await Assert.That(policy).Contains("(deny file-write*");
-            _ = await Assert.That(policy).Contains(Escape(resources.ScratchRootDirectory));
+            _ = await Assert.That(policy).Contains(Escape(resources.AgentsDirectory));
             _ = await Assert.That(profile.AllowsWrite(
-                Path.Combine(resources.ScratchRootDirectory, "agent-session-sibling", "file"))).IsTrue();
+                Path.Combine(resources.AgentsDirectory, "agent-session-sibling", "file"))).IsTrue();
             _ = await Assert.That(policy).DoesNotContain(Escape(ignoredWorkspace.FullName));
         }
         finally

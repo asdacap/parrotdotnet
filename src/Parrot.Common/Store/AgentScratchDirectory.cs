@@ -5,7 +5,7 @@ namespace Parrot.Store;
 internal sealed class AgentScratchDirectory
 {
     public static readonly ImmutableHashSet<string> ReservedNames =
-        ["history.jsonl", "blobs", "plan", "last_request.json"];
+        ["scratch", "history.jsonl", "blobs", "plan", "last_request.json"];
 
     private const UnixFileMode DirectoryMode =
         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
@@ -13,6 +13,7 @@ internal sealed class AgentScratchDirectory
     public AgentScratchDirectory(string root)
     {
         Root = PlatformPath.Normalize(root);
+        ScratchPath = Contain("scratch");
         HistoryPath = Contain("history.jsonl");
         BlobDirectory = Contain("blobs");
         PlanDirectory = Contain("plan");
@@ -20,6 +21,8 @@ internal sealed class AgentScratchDirectory
     }
 
     public string Root { get; }
+
+    public string ScratchPath { get; }
 
     public string HistoryPath { get; }
 
@@ -38,6 +41,7 @@ internal sealed class AgentScratchDirectory
     public void Provision()
     {
         ProvisionDirectory(Root);
+        ProvisionDirectory(ScratchPath);
         ProvisionDirectory(BlobDirectory);
     }
 

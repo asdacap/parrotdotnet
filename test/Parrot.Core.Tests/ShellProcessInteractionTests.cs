@@ -145,6 +145,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
                 Path.Combine(workspace, ".data")),
             UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
             ProjectWorkspace.FromLaunchDirectory(workspace));
+        _ = Directory.CreateDirectory(resources.ScratchDirectory);
         await using var agent = CreateAgent(events, database, resources.AgentScratch(["agent"]).BlobDirectory, lifetime.Token);
         var scratch = resources.AgentScratch(agent.Identity.NamePath);
         await using var owner = new ShellProcessOwner(
@@ -189,16 +190,16 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         var overrideResult = await overridden.Wait(null, cancellationToken);
         _ = await Assert.That(overrideResult.Result?.ExitCode).IsEqualTo(0);
         _ = await Assert.That(overrideResult.Result?.Stdout)
-            .IsEqualTo($"<{workspace}><{resources.ScratchRootDirectory}><literal ${{WORKDIR}} $(printf injected)><{Path.GetDirectoryName(scratch.HistoryPath)}>");
+            .IsEqualTo($"<{workspace}><{resources.ScratchDirectory}><literal ${{WORKDIR}} $(printf injected)><{Path.GetDirectoryName(scratch.HistoryPath)}>");
 
         await File.WriteAllTextAsync(Path.Combine(workspace, "release"), string.Empty, cancellationToken);
         var completed = await owner.Claim("paths").Wait(null, cancellationToken);
         _ = await Assert.That(completed.Result?.ExitCode).IsEqualTo(0);
         _ = await Assert.That(completed.Result?.Stdout)
-            .IsEqualTo($"<{workspace}><{workspace}><{resources.ScratchRootDirectory}><{scratch.Root}><{Path.GetDirectoryName(scratch.HistoryPath)}><$SCRATCH_DIR><${{AGENT_HISTORY_DIR}}><{workspace}>");
+            .IsEqualTo($"<{workspace}><{workspace}><{resources.ScratchDirectory}><{scratch.ScratchPath}><{Path.GetDirectoryName(scratch.HistoryPath)}><$SCRATCH_DIR><${{AGENT_HISTORY_DIR}}><{workspace}>");
         _ = await Assert.That(await File.ReadAllTextAsync(Path.Combine(workspace, "work file.txt"), cancellationToken)).IsEqualTo("work");
-        _ = await Assert.That(await File.ReadAllTextAsync(Path.Combine(resources.ScratchRootDirectory, "shared file.txt"), cancellationToken)).IsEqualTo("shared");
-        _ = await Assert.That(await File.ReadAllTextAsync(Path.Combine(scratch.Root, "agent file.txt"), cancellationToken)).IsEqualTo("agent");
+        _ = await Assert.That(await File.ReadAllTextAsync(Path.Combine(resources.ScratchDirectory, "shared file.txt"), cancellationToken)).IsEqualTo("shared");
+        _ = await Assert.That(await File.ReadAllTextAsync(Path.Combine(scratch.ScratchPath, "agent file.txt"), cancellationToken)).IsEqualTo("agent");
         _ = await Assert.That(await File.ReadAllTextAsync(Path.Combine(scratch.Root, "history file.txt"), cancellationToken)).IsEqualTo("history");
         await owner.Settle();
     }

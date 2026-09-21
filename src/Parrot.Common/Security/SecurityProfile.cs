@@ -39,12 +39,12 @@ internal sealed class SecurityProfile
     public static SecurityProfile ForAgent(
         SecurityProfile policy,
         IEnumerable<string> writableRoots,
-        string userSessionScratchRoot,
+        string userSessionRoot,
         IEnumerable<SecurityWriteTarget> approvals)
     {
         ArgumentNullException.ThrowIfNull(policy);
         ArgumentNullException.ThrowIfNull(writableRoots);
-        ArgumentException.ThrowIfNullOrWhiteSpace(userSessionScratchRoot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(userSessionRoot);
         ArgumentNullException.ThrowIfNull(approvals);
 
         var approvalTargets = approvals.ToArray();
@@ -55,7 +55,7 @@ internal sealed class SecurityProfile
 
         var boundary = new AgentSecurityBoundary(
             policy.ReadOnly ? [] : writableRoots.Select(NormalizePath),
-            NormalizePath(userSessionScratchRoot),
+            NormalizePath(userSessionRoot),
             policy.ReadOnly ? [] : approvalTargets.Select(target => NormalizePath(target.Path)));
         return new(policy.ReadOnly, [], [policy], boundary);
     }
@@ -92,8 +92,8 @@ internal sealed class SecurityProfile
     {
         var root = Path.DirectorySeparatorChar.ToString();
         var paths = Paths()
-            .Where(path => _agentBoundary is null || !Contains(_agentBoundary.ScratchRoot, path))
-            .Append(_agentBoundary?.ScratchRoot ?? root)
+            .Where(path => _agentBoundary is null || !Contains(_agentBoundary.SessionRoot, path))
+            .Append(_agentBoundary?.SessionRoot ?? root)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(path => path.Length);
         var materialized = new List<MaterializedSandboxRule>();
@@ -212,7 +212,7 @@ internal sealed class SecurityProfile
     private Access EvaluateAgent(string path, AgentSecurityBoundary boundary)
     {
         var policy = _innerProfiles[0].EvaluateCanonical(path);
-        if (Contains(boundary.ScratchRoot, path))
+        if (Contains(boundary.SessionRoot, path))
         {
             return policy with { Write = true, WriteAuthorized = true };
         }
@@ -251,7 +251,7 @@ internal sealed class SecurityProfile
                 yield return path;
             }
 
-            yield return _agentBoundary.ScratchRoot;
+            yield return _agentBoundary.SessionRoot;
         }
     }
 
@@ -262,11 +262,11 @@ internal sealed class SecurityProfile
 
     private sealed class AgentSecurityBoundary(
         IEnumerable<string> writableRoots,
-        string scratchRoot,
+        string sessionRoot,
         IEnumerable<string> approvals)
     {
         public string[] WritablePaths { get; } = [.. writableRoots, .. approvals];
 
-        public string ScratchRoot { get; } = scratchRoot;
+        public string SessionRoot { get; } = sessionRoot;
     }
 }

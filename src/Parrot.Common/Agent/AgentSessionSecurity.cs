@@ -6,7 +6,7 @@ namespace Parrot.Agent;
 internal sealed class AgentSessionSecurity(
     SecurityProfile policy,
     ProjectWorkspace workspace,
-    string userSessionScratchRoot)
+    string userSessionRoot)
 {
     private readonly Lock _gate = new();
     private readonly List<SecurityWriteTarget> _approvals = [];
@@ -21,7 +21,7 @@ internal sealed class AgentSessionSecurity(
             return SecurityProfile.ForAgent(
                 _policy,
                 workspace.WritableRoots,
-                userSessionScratchRoot,
+                userSessionRoot,
                 ValidApprovals());
         }
     }

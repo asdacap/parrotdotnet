@@ -21,7 +21,8 @@ internal sealed class UserSessionResources
         ArtifactDirectory = RequireContained(Root, Path.Combine(Root, "artifacts"));
         QueueDirectory = RequireContained(Root, Path.Combine(Root, "queues"));
         AgentQueueRootDirectory = RequireContained(QueueDirectory, Path.Combine(QueueDirectory, "agents"));
-        ScratchRootDirectory = RequireContained(Root, Path.Combine(Root, "root-agents"));
+        ScratchDirectory = RequireContained(Root, Path.Combine(Root, "scratch"));
+        AgentsDirectory = RequireContained(Root, Path.Combine(Root, "root-agents"));
     }
 
     public UserSessionId Id { get; }
@@ -48,7 +49,9 @@ internal sealed class UserSessionResources
 
     public string AgentQueueRootDirectory { get; }
 
-    public string ScratchRootDirectory { get; }
+    public string ScratchDirectory { get; }
+
+    public string AgentsDirectory { get; }
 
     public bool Owns(string path) => Contains(Root, Path.GetFullPath(path));
 
@@ -63,7 +66,7 @@ internal sealed class UserSessionResources
             throw new ArgumentException("An agent name path must have at least the root agent name.", nameof(namePath));
         }
 
-        var path = AgentPath(ScratchRootDirectory, namePath[0]);
+        var path = AgentPath(AgentsDirectory, namePath[0]);
         foreach (var name in namePath.Skip(1))
         {
             if (AgentScratchDirectory.ReservedNames.Contains(name))

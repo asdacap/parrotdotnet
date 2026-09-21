@@ -58,7 +58,7 @@ internal sealed class AgentScopeDiagnosticsTests
             {
                 logPath = session.Resources.LogPath;
                 var parent = session.Registry.SnapshotScopes().Single();
-                _ = await Assert.That(Directory.GetDirectories(session.Resources.ScratchRootDirectory).Select(Path.GetFileName).Single())
+                _ = await Assert.That(Directory.GetDirectories(session.Resources.AgentsDirectory).Select(Path.GetFileName).Single())
                     .IsEqualTo(parent.Session.Name);
                 var identity = AgentIdentity.Child(
                     "diagnostic-child", parent.Session.Identity, "child", 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates);

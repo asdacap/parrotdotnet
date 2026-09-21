@@ -57,7 +57,7 @@ internal sealed class AgentSessionFactory(
         var security = new AgentSessionSecurity(
             securityProfile,
             owner.Resources.Workspace,
-            owner.Resources.ScratchRootDirectory);
+            owner.Resources.Root);
         var agentSkills = new AgentSkills(owner.SkillCatalog, promptTemplates);
         var prompts = new CompositeSystemPromptProvider(
             "runtime:agent-session-system-prompt",

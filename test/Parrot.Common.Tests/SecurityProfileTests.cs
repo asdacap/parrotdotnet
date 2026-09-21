@@ -86,7 +86,7 @@ internal sealed class SecurityProfileTests
             var effective = SecurityProfile.ForAgent(
                 parent.RestrictWith(child),
                 writableRoots: [],
-                userSessionScratchRoot: scratch,
+                userSessionRoot: scratch,
                 approvals: []);
 
             _ = await Assert.That(effective.AllowsWrite(Path.Combine(shared, "file"))).IsTrue();

@@ -117,7 +117,7 @@ internal sealed class ExecCommandToolTests : IDisposable
         _ = await Assert.That(inheritedPath.Text).StartsWith("Process exited with code 0 after ");
         _ = await Assert.That(inheritedPath.Text)
             .EndsWith($"s\n[stdout]\n{Environment.GetEnvironmentVariable("PATH")}");
-        var expectedPathEnvironment = $"s\n[stdout]\n<{_workspace}><{resources.ScratchRootDirectory}><{scratch.Root}><{Path.GetDirectoryName(scratch.HistoryPath)}>";
+        var expectedPathEnvironment = $"s\n[stdout]\n<{_workspace}><{resources.ScratchDirectory}><{scratch.ScratchPath}><{Path.GetDirectoryName(scratch.HistoryPath)}>";
         _ = await Assert.That(pathEnvironment.Text).StartsWith("Process exited with code 0 after ");
         _ = await Assert.That(pathEnvironment.Text).EndsWith(expectedPathEnvironment);
         _ = await Assert.That(emptyPathEnvironment.Text).EndsWith("s\n[stdout]\n<><><><>");

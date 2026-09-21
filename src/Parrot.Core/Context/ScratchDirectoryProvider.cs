@@ -12,7 +12,7 @@ internal sealed class ScratchDirectoryProvider(AgentScratchDirectory scratch, IP
     {
         ArgumentNullException.ThrowIfNull(identity);
         return new StaticSystemPrompt(templates.Render("context.agent-scratch", [
-            new PromptTemplateArgument("path", scratch.Root),
+            new PromptTemplateArgument("path", scratch.ScratchPath),
         ]));
     }
 }

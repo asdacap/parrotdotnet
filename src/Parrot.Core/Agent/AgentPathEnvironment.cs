@@ -8,8 +8,8 @@ internal sealed class AgentPathEnvironment(UserSessionResources resources, Agent
     private readonly ProcessEnvironmentOverrides _defaults = new(new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["WORKDIR"] = resources.Workspace.LaunchDirectory,
-        ["SCRATCH_DIR"] = resources.ScratchRootDirectory,
-        ["AGENT_SCRATCH_DIR"] = scratch.Root,
+        ["SCRATCH_DIR"] = resources.ScratchDirectory,
+        ["AGENT_SCRATCH_DIR"] = scratch.ScratchPath,
         ["AGENT_HISTORY_DIR"] = Path.GetDirectoryName(scratch.HistoryPath)
             ?? throw new InvalidOperationException("The agent history file has no parent directory."),
     });
