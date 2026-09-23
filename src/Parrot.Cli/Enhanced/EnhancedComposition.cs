@@ -39,6 +39,7 @@ internal partial class EnhancedComposition
                     new ExecCommandToolPresenter(timeProvider, configuration.ReadOnlyExecCommandPrefixes),
                     new GlobToolPresenter(),
                     new InterruptProcessToolPresenter(),
+                    new ReadImageToolPresenter(),
                     new ReadToolPresenter(),
                     new RunAgentTasksToolPresenter(new GenericToolPresenter()),
                     new QuestionToolPresenter(),

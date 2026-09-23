@@ -2007,6 +2007,10 @@ internal sealed class DrainTests : IDisposable
             .SelectMany(terminal => terminal.ResultParts)).DoesNotContain(part => part.Kind == ConversationPartKind.ImageArtifact);
         _ = await Assert.That(repository.Replay().Count(published => published.PayloadCase == Event.PayloadOneofCase.ToolError))
             .IsEqualTo(2);
+        var acceptedArtifact = repository.Replay().Single(published => published.PayloadCase == Event.PayloadOneofCase.ToolFinished
+            && published.ToolFinished.ToolCallId == "accepted").ToolFinished.Artifacts.Single();
+        _ = await Assert.That($"{acceptedArtifact.ByteLength}:{acceptedArtifact.Width}x{acceptedArtifact.Height}")
+            .IsEqualTo($"{imageBytes.Length}:1x1");
     }
 
     [Test]

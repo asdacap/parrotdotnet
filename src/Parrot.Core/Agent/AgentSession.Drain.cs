@@ -1527,6 +1527,7 @@ internal sealed partial class AgentSession
             }
 
             var terminal = new ToolFinished { ToolCallId = call.Id, ToolName = call.Name, Result = text };
+            terminal.Artifacts.AddRange(result.ImageArtifacts.Select(ParrotService.ToProtocol));
             if (result.YieldedProcess is { } yielded)
             {
                 var protocolYielded = new Protocol.YieldedShellProcess

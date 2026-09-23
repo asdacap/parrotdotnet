@@ -1019,6 +1019,20 @@ internal sealed class ParrotService(
         }
     }
 
+    internal static ArtifactReference ToProtocol(ImageArtifactMetadata artifact) => new()
+    {
+        ArtifactId = artifact.ArtifactId,
+        Sha256 = artifact.Sha256,
+        MediaType = artifact.MediaType,
+        ByteLength = artifact.ByteLength,
+        Width = artifact.Width,
+        Height = artifact.Height,
+        FrameCount = artifact.FrameCount,
+        AggregatePixels = artifact.AggregatePixels,
+        DisplayName = artifact.DisplayName,
+        Origin = artifact.Origin,
+    };
+
     private static List<string> FormatUsage(SubscriptionUsage usage)
     {
         var lines = new List<string>();
@@ -1134,20 +1148,6 @@ internal sealed class ParrotService(
 
         return parts;
     }
-
-    private static ArtifactReference ToProtocol(ImageArtifactMetadata artifact) => new()
-    {
-        ArtifactId = artifact.ArtifactId,
-        Sha256 = artifact.Sha256,
-        MediaType = artifact.MediaType,
-        ByteLength = artifact.ByteLength,
-        Width = artifact.Width,
-        Height = artifact.Height,
-        FrameCount = artifact.FrameCount,
-        AggregatePixels = artifact.AggregatePixels,
-        DisplayName = artifact.DisplayName,
-        Origin = artifact.Origin,
-    };
 
     private static PendingQuestion ToProtocol(PendingQuestionRequest request)
     {

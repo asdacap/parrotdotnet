@@ -450,7 +450,8 @@ internal sealed class AgentSessionState(string agentSessionId)
                 published.ToolFinished.HasResult,
                 published.ToolFinished.Result,
                 string.Empty,
-                published.ToolFinished.YieldedProcess),
+                published.ToolFinished.YieldedProcess,
+                published.ToolFinished.Artifacts),
             Event.PayloadOneofCase.ToolCancelled => new ToolTerminalPresentation(
                 ToolTerminalStatus.Cancelled,
                 false,

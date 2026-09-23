@@ -8,14 +8,15 @@ internal readonly record struct ToolTerminalPresentation(
     bool ResultPresent,
     string Result,
     string Error,
-    YieldedShellProcess? YieldedProcess)
+    YieldedShellProcess? YieldedProcess,
+    IReadOnlyList<ArtifactReference> Artifacts)
 {
     public ToolTerminalPresentation(
         ToolTerminalStatus status,
         bool resultPresent,
         string result,
         string error)
-        : this(status, resultPresent, result, error, null)
+        : this(status, resultPresent, result, error, null, [])
     {
     }
 

@@ -13,11 +13,13 @@ internal sealed class ToolPresenterBatchCTests
     {
         yield return [new GlobToolPresenter(), "{\"pattern\":\"**/*.cs\",\"path\":\"src\"}", "glob \"**/*.cs\" in src"];
         yield return [new WebFetchToolPresenter(), "{\"url\":\"https://example.com/path\"}", "web fetch GET https://example.com/path"];
+        yield return [new ReadImageToolPresenter(), "{\"path\":\"docs/shot.png\"}", "read image docs/shot.png"];
     }
 
     public static IEnumerable<object[]> PresenterInstances()
     {
         yield return [new GlobToolPresenter()];
+        yield return [new ReadImageToolPresenter()];
         yield return [new ReadToolPresenter()];
         yield return [new WebFetchToolPresenter()];
     }
@@ -114,6 +116,26 @@ internal sealed class ToolPresenterBatchCTests
         _ = await Assert.That(rendered).DoesNotContain("limit:");
         _ = await Assert.That(rendered).DoesNotContain("---");
         _ = await Assert.That(rendered).DoesNotContain("1: heading");
+    }
+
+    [Test]
+    [Arguments(812L, "✓ read image docs/shot.png (812 B, 640x480)")]
+    [Arguments(49_357L, "✓ read image docs/shot.png (48.2 KB, 640x480)")]
+    [Arguments(3_250_586L, "✓ read image docs/shot.png (3.1 MB, 640x480)")]
+    [Arguments(-1L, "✓ read image docs/shot.png")]
+    public async Task Read_image_renders_one_line_with_size_and_dimensions(long byteLength, string expected)
+    {
+        IToolPresenter presenter = new ReadImageToolPresenter();
+        var call = new ToolCallPresentation("read_image", "{\"path\":\"docs/shot.png\"}");
+        IReadOnlyList<Parrot.Protocol.ArtifactReference> artifacts = byteLength < 0
+            ? []
+            : [new Parrot.Protocol.ArtifactReference { ByteLength = byteLength, Width = 640, Height = 480 }];
+        var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "image read", string.Empty, null, artifacts);
+
+        var item = presenter.PresentTerminal(call, terminal)
+            ?? throw new InvalidOperationException("Terminal presentation missing.");
+
+        _ = await Assert.That(string.Join('\n', item.Render(ScrollbackContext))).IsEqualTo(expected);
     }
 
     [Test]
