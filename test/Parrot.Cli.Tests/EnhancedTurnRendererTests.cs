@@ -158,7 +158,7 @@ internal sealed class EnhancedTurnRendererTests
     }
 
     [Test]
-    public async Task Summary_reasoning_chunks_are_committed_individually(CancellationToken cancellationToken)
+    public async Task Summary_reasoning_chunks_are_committed_as_one_block(CancellationToken cancellationToken)
     {
         var (completed, output, error) = await Render(
             [
@@ -166,18 +166,14 @@ internal sealed class EnhancedTurnRendererTests
                 new Event
                 {
                     Id = "summary-1",
-                    ReasoningChunk = new ReasoningChunk
-                    {
-                        Fragment = "# first\n- **bold**",
-                        Kind = ReasoningKind.Summary,
-                    },
+                    ReasoningChunk = new ReasoningChunk { Fragment = "# fi", Kind = ReasoningKind.Summary },
                 },
                 new Event
                 {
                     Id = "summary-2",
                     ReasoningChunk = new ReasoningChunk
                     {
-                        Fragment = "**safe\u001b[2J**",
+                        Fragment = "rst\n- **bold**\u001b[2J",
                         Kind = ReasoningKind.Summary,
                     },
                 },
@@ -187,7 +183,8 @@ internal sealed class EnhancedTurnRendererTests
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(error).IsEmpty();
-        _ = await Assert.That(output).Contains("✦ first\r\n  • bold\r\n✦ safe[2\r\n  J\r\n");
+        _ = await Assert.That(output).Contains("✦ first\r\n  • bold");
+        _ = await Assert.That(Count(output, "✦")).IsEqualTo(1);
         _ = await Assert.That(output).DoesNotContain("# first");
         _ = await Assert.That(output).DoesNotContain("**bold**");
         _ = await Assert.That(output).DoesNotContain("\u001b[2J");

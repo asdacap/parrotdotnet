@@ -24,7 +24,7 @@ internal sealed class AgentSessionState(string agentSessionId)
     private readonly HashSet<string> _detachedAgentTasks = new(StringComparer.Ordinal);
     private readonly HashSet<string> _terminalAgentTaskProgress = new(StringComparer.Ordinal);
     private readonly StringBuilder _response = new();
-    private readonly StringBuilder _rawReasoning = new();
+    private readonly StringBuilder _reasoning = new();
 
     private bool _terminalCommitted;
     private uint _requestAttempt;
@@ -50,7 +50,9 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public LiveModelAliasIcon? ModelAliasIcon { get; private set; }
 
-    public bool HasRawReasoning => _rawReasoning.Length > 0;
+    public bool HasReasoning => _reasoning.Length > 0;
+
+    public bool IsReasoningSummary { get; private set; }
 
     public void UpdateName(string name) => _name = name;
 
@@ -79,7 +81,7 @@ internal sealed class AgentSessionState(string agentSessionId)
         _foldedTools.Clear();
         _foldedToolOrder = 0;
         _ = _response.Clear();
-        _ = _rawReasoning.Clear();
+        _ = _reasoning.Clear();
         _responseComplete = false;
         _responseLineBreaks = 0;
         return AgentActivityId;
@@ -130,23 +132,40 @@ internal sealed class AgentSessionState(string agentSessionId)
         }
     }
 
-    public void CollectRawReasoning(string fragment) => _ = _rawReasoning.Append(fragment);
+    public void CollectReasoning(ReasoningChunk chunk)
+    {
+        ArgumentNullException.ThrowIfNull(chunk);
 
-    public ILiveBufferItem CreateRawReasoningItem(int frame) =>
-        new SpinnerValue(
-            $"Thinking ({FormatTokenCount(TokenEstimator.EstimateTokens(_rawReasoning.ToString()))} tokens)…",
+        IsReasoningSummary = chunk.Kind == ReasoningKind.Summary;
+        _ = _reasoning.Append(TerminalText.Sanitize(chunk.Fragment));
+    }
+
+    public ILiveBufferItem CreateReasoningItem(int frame) => IsReasoningSummary
+        ? new StreamedResponseValue(TerminalIcons.Reasoning, _reasoning.ToString())
+        : new SpinnerValue(
+            $"Thinking ({FormatTokenCount(TokenEstimator.EstimateTokens(_reasoning.ToString()))} tokens)…",
             frame);
 
-    public ActivityNoticeScrollbackValue? EndRawReasoning()
+    public async Task FlushReasoning(Func<IScrollbackItem, Task> flush)
     {
-        if (_rawReasoning.Length == 0)
+        ArgumentNullException.ThrowIfNull(flush);
+
+        var reasoning = _reasoning.ToString();
+        _ = _reasoning.Clear();
+        if (IsBlank(reasoning))
         {
-            return null;
+            return;
         }
 
-        var count = FormatTokenCount(TokenEstimator.EstimateTokens(_rawReasoning.ToString()));
-        _ = _rawReasoning.Clear();
-        return new ActivityNoticeScrollbackValue(TerminalIcons.Reasoning, $"Reasoned for {count} tokens…");
+        try
+        {
+            await flush(CreateReasoningScrollback(reasoning)).ConfigureAwait(false);
+        }
+        catch
+        {
+            _ = _reasoning.Insert(0, reasoning);
+            throw;
+        }
     }
 
     public async Task FlushResponse(Func<string, Task> flush)
@@ -521,6 +540,12 @@ internal sealed class AgentSessionState(string agentSessionId)
     private static string FormatContextLimit(long limit) => limit == 0 ? "?" : FormatTokenCount(limit);
 
     private static bool IsBlank(string response) => string.IsNullOrWhiteSpace(response);
+
+    private IScrollbackItem CreateReasoningScrollback(string reasoning) => IsReasoningSummary
+        ? new ReasoningSummaryScrollbackValue(reasoning)
+        : new ActivityNoticeScrollbackValue(
+            TerminalIcons.Reasoning,
+            $"Reasoned for {FormatTokenCount(TokenEstimator.EstimateTokens(reasoning))} tokens…");
 
     private string DrainResponse()
     {

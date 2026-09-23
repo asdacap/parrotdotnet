@@ -54,8 +54,7 @@ internal sealed class RawReasoningActivityTests
                 break;
         }
 
-        var expectedCommits = string.Equals(trigger, "summary", StringComparison.Ordinal) ? 2 : 1;
-        _ = await Assert.That(fixture.Committed).Count().IsEqualTo(expectedCommits);
+        _ = await Assert.That(fixture.Committed).Count().IsEqualTo(1);
         _ = await Assert.That(Count(fixture.CommittedText, "Reasoned for ")).IsEqualTo(1);
         _ = await Assert.That(fixture.CommittedText).Contains(NoticeLine(isRoot, expectedCount));
         _ = await Assert.That(fixture.LastDrawn).DoesNotContain("Thinking (");

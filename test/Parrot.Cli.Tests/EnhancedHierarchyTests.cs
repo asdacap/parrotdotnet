@@ -1071,7 +1071,7 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
-    public async Task Summary_reasoning_chunks_are_committed_individually(CancellationToken cancellationToken)
+    public async Task Summary_reasoning_chunks_are_committed_as_one_block(CancellationToken cancellationToken)
     {
         var committed = new List<string>();
         var context = new ScrollbackRenderContext(120, new TerminalPalette(false));
@@ -1101,24 +1101,37 @@ internal sealed class EnhancedHierarchyTests
             new Event
             {
                 AgentSessionId = "root",
-                ReasoningChunk = new ReasoningChunk
-                {
-                    Fragment = "# first\n- **bold**",
-                    Kind = ReasoningKind.Summary,
-                },
+                ReasoningChunk = new ReasoningChunk { Fragment = "# fi", Kind = ReasoningKind.Summary },
             },
             cancellationToken);
         await view.Render(
             new Event
             {
                 AgentSessionId = "root",
-                ReasoningChunk = new ReasoningChunk { Fragment = "**second**", Kind = ReasoningKind.Summary },
+                ReasoningChunk = new ReasoningChunk
+                {
+                    Fragment = "rst\n- **bold**",
+                    Kind = ReasoningKind.Summary,
+                },
+            },
+            cancellationToken);
+        _ = await Assert.That(committed).IsEmpty();
+
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "root",
+                ReasoningChunk = new ReasoningChunk
+                {
+                    Fragment = string.Empty,
+                    Kind = ReasoningKind.Summary,
+                    Completed = true,
+                },
             },
             cancellationToken);
 
-        _ = await Assert.That(committed.Count).IsEqualTo(2);
+        _ = await Assert.That(committed.Count).IsEqualTo(1);
         _ = await Assert.That(committed[0]).IsEqualTo("✦ first|  • bold");
-        _ = await Assert.That(committed[1]).IsEqualTo("✦ second");
     }
 
     [Test]
@@ -1181,50 +1194,56 @@ internal sealed class EnhancedHierarchyTests
         await view.Render(
             new Event { AgentSessionId = "grandchild", TurnStarted = new TurnStarted { Model = "model" } },
             cancellationToken);
-        await view.Render(
+        async Task Publish(Event published)
+        {
+            await view.Prepare(published, cancellationToken);
+            await view.Render(published, cancellationToken);
+        }
+
+        await Publish(
             new Event
             {
                 AgentSessionId = "root",
                 ReasoningChunk = new ReasoningChunk { Fragment = "private reasoning", Kind = ReasoningKind.Raw },
-            },
-            cancellationToken);
-        await view.Render(
+            });
+        await Publish(
             new Event
             {
                 AgentSessionId = "child",
                 ReasoningChunk = new ReasoningChunk { Fragment = "Initial", Kind = ReasoningKind.Summary },
-            },
-            cancellationToken);
-        await view.Render(
-            new Event { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = "Buffered response" } },
-            cancellationToken);
-        var findings = new Event
-        {
-            AgentSessionId = "child",
-            ReasoningChunk = new ReasoningChunk
-            {
-                Fragment = "# Findings\n- **bold**",
-                Kind = ReasoningKind.Summary,
-            },
-        };
-        failResponseCommit = true;
-        _ = await Assert.That(async () => await view.Render(findings, cancellationToken))
-            .Throws<InvalidOperationException>();
-        await view.Render(findings, cancellationToken);
-        await view.Render(
-            new Event
-            {
-                AgentSessionId = "grandchild",
-                ReasoningChunk = new ReasoningChunk { Fragment = "Deep result", Kind = ReasoningKind.Summary },
-            },
-            cancellationToken);
-        await view.Render(
+            });
+        await Publish(
+            new Event { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = "Buffered response" } });
+        await Publish(
             new Event
             {
                 AgentSessionId = "child",
-                ReasoningChunk = new ReasoningChunk { Fragment = string.Empty, Kind = ReasoningKind.Summary },
-            },
-            cancellationToken);
+                ReasoningChunk = new ReasoningChunk
+                {
+                    Fragment = "# Findings\n- **bold**",
+                    Kind = ReasoningKind.Summary,
+                },
+            });
+        var flushChild = new Event
+        {
+            AgentSessionId = "child",
+            ProviderRequestPhaseChanged = new ProviderRequestPhaseChangedEvent { Phase = ProviderRequestPhase.Idle },
+        };
+        failResponseCommit = true;
+        _ = await Assert.That(async () => await view.Prepare(flushChild, cancellationToken))
+            .Throws<InvalidOperationException>();
+        await view.Prepare(flushChild, cancellationToken);
+        await Publish(
+            new Event
+            {
+                AgentSessionId = "grandchild",
+                ReasoningChunk = new ReasoningChunk
+                {
+                    Fragment = "Deep result",
+                    Kind = ReasoningKind.Summary,
+                    Completed = true,
+                },
+            });
 
         _ = await Assert.That(committed).Count().IsEqualTo(4);
         _ = await Assert.That(committed[0]).IsEqualTo("  ✦ [child] Initial");

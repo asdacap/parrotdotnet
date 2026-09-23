@@ -176,7 +176,7 @@ internal sealed class RawActivityView(
 
         if (published.PayloadCase == Event.PayloadOneofCase.ReasoningChunk
             || !_agentSessions.TryGetValue(published.AgentSessionId, out var state)
-            || !state.HasRawReasoning)
+            || !state.HasReasoning)
         {
             return;
         }
@@ -184,10 +184,7 @@ internal sealed class RawActivityView(
         await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (state.EndRawReasoning() is { } notice)
-            {
-                await commit(Wrap(state, notice), Snapshot(), cancellationToken).ConfigureAwait(false);
-            }
+            await CommitReasoning(state, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -474,41 +471,21 @@ internal sealed class RawActivityView(
 
                 case Event.PayloadOneofCase.ReasoningChunk:
                 {
-                    var fragment = TerminalText.Sanitize(published.ReasoningChunk.Fragment);
+                    var chunk = published.ReasoningChunk;
                     var state = GetNamedAgentSession(published.AgentSessionId);
-                    if (published.ReasoningChunk.Kind == ReasoningKind.Summary)
+                    if (state.HasReasoning && state.IsReasoningSummary != (chunk.Kind == ReasoningKind.Summary))
                     {
-                        var isRoot = _hierarchy.IsRoot(published.AgentSessionId);
-                        if (state.EndRawReasoning() is { } flushed)
-                        {
-                            await commit(Wrap(state, flushed), Snapshot(), cancellationToken).ConfigureAwait(false);
-                        }
+                        await CommitReasoning(state, cancellationToken).ConfigureAwait(false);
+                    }
 
-                        if (!isRoot)
-                        {
-                            await CommitResponse(state, cancellationToken).ConfigureAwait(false);
-                        }
-
-                        if (fragment.Length > 0)
-                        {
-                            var summary = new ReasoningSummaryScrollbackValue(fragment);
-                            await commit(
-                                isRoot ? summary : Wrap(state, summary),
-                                Snapshot(),
-                                cancellationToken).ConfigureAwait(false);
-                        }
+                    state.CollectReasoning(chunk);
+                    if (chunk.Completed)
+                    {
+                        await CommitReasoning(state, cancellationToken).ConfigureAwait(false);
                     }
                     else
                     {
-                        state.CollectRawReasoning(fragment);
-                        if (published.ReasoningChunk.Completed && state.EndRawReasoning() is { } flushed)
-                        {
-                            await commit(Wrap(state, flushed), Snapshot(), cancellationToken).ConfigureAwait(false);
-                        }
-                        else
-                        {
-                            await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
-                        }
+                        await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
                     }
 
                     break;
@@ -834,9 +811,9 @@ internal sealed class RawActivityView(
         items.AddRange(_content.Select(item => item.AnimateSinceCapture(_frame)));
         if (_hierarchy.RootSessionId is { } rootSessionId
             && _agentSessions.TryGetValue(rootSessionId, out var rootState)
-            && rootState.HasRawReasoning)
+            && rootState.HasReasoning)
         {
-            items.Add(rootState.CreateRawReasoningItem(_frame));
+            items.Add(rootState.CreateReasoningItem(_frame));
         }
 
         // Keep main-agent activity on the modeline, never in the live buffer.
@@ -852,7 +829,7 @@ internal sealed class RawActivityView(
         var ownerIds = activities.Select(static activity => activity.State.AgentSessionId)
             .Concat(processes.Select(static process => process.Process.OwnerAgentSessionId))
             .Concat(_queues.Keys.Select(static key => key.OwnerAgentSessionId))
-            .Concat(_agentSessions.Values.Where(state => state.HasRawReasoning && _hierarchy.IsChild(state.AgentSessionId))
+            .Concat(_agentSessions.Values.Where(state => state.HasReasoning && _hierarchy.IsChild(state.AgentSessionId))
                 .Select(static state => state.AgentSessionId))
             .Concat(_agentSessions.Values.Where(static state => state.DetachedAgentTaskProgressIds().Count > 0)
                 .Select(static state => state.AgentSessionId))
@@ -883,13 +860,13 @@ internal sealed class RawActivityView(
                     _hierarchy.GetLabel(state.AgentSessionId),
                     null)))));
         rows.AddRange(_agentSessions.Values
-            .Where(state => state.HasRawReasoning && _hierarchy.IsChild(state.AgentSessionId))
+            .Where(state => state.HasReasoning && _hierarchy.IsChild(state.AgentSessionId))
             .Select(state => (
                 state.AgentSessionId,
                 0,
                 "reasoning",
                 (ILiveBufferItem)new HierarchicalLiveValue(
-                    state.CreateRawReasoningItem(_frame),
+                    state.CreateReasoningItem(_frame),
                     _hierarchy.GetDepth(state.AgentSessionId),
                     _hierarchy.GetLabel(state.AgentSessionId),
                     null))));
@@ -1214,6 +1191,17 @@ internal sealed class RawActivityView(
 
     private HierarchicalScrollbackValue Wrap(AgentSessionState state, IScrollbackItem value) =>
         new(value, _hierarchy.GetDepth(state.AgentSessionId), _hierarchy.GetLabel(state.AgentSessionId));
+
+    private Task CommitReasoning(AgentSessionState state, CancellationToken cancellationToken) =>
+        state.FlushReasoning(async reasoning =>
+        {
+            if (state.IsReasoningSummary && !_hierarchy.IsRoot(state.AgentSessionId))
+            {
+                await CommitResponse(state, cancellationToken).ConfigureAwait(false);
+            }
+
+            await commit(Wrap(state, reasoning), Snapshot(), cancellationToken).ConfigureAwait(false);
+        });
 
     private Task CommitResponse(AgentSessionState state, CancellationToken cancellationToken) =>
         state.FlushResponse(response => commit(
