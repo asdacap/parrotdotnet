@@ -203,7 +203,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
                 TestDiagnosticLog.Instance,
                 (sessionParentScope, owningScope, children, childQuestions) =>
                 {
-                    var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
+                    var exitReminder = new ExitReminder(repository, broker, TestModels.PromptTemplates, identity.SessionId);
                     IAgentSession session = new AgentSession(identity, sessionParentScope, new ModelSelector(router.Resolve(string.Empty).RequestedSelector.Value), router, broker, repository, [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new AgentOutputFile(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, new TestProfileFixture().Mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.GetService<IProcessOwner>()), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, repository, broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, TestModels.ScopedRuntimeStatus(registry, owningScope), new AgentSessionActivity(timeProvider), TestDiagnosticLog.Instance, lifetime);
                     return session;
                 },

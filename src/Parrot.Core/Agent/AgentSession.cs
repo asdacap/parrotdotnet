@@ -421,7 +421,8 @@ internal sealed partial class AgentSession(
         return (admitted.Admission, admitted.FollowUp);
     }
 
-    public void SetExitReminder(string? reminder) => exitReminder.Set(reminder);
+    public Task SetExitReminder(string? reminder, CancellationToken cancellationToken) =>
+        exitReminder.Set(reminder, cancellationToken);
 
     public async Task<AgentSendResult> SendTextMessage(string message, CancellationToken cancellationToken)
     {

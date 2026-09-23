@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Security;
 using Parrot.Store;
@@ -13,7 +14,8 @@ internal sealed class SetExitReminderToolTests
     {
         using var database = SessionDatabase.Open(":memory:");
         var repository = new EventRepository(database);
-        var reminder = new ExitReminder(repository, TestModels.PromptTemplates, "agent");
+        using var broker = new EventBroker();
+        var reminder = new ExitReminder(repository, broker, TestModels.PromptTemplates, "agent");
         ITool tool = new SetExitReminderTool(reminder, TestModels.PromptTemplates);
         var provider = new UnusedProvider();
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
@@ -48,7 +50,8 @@ internal sealed class SetExitReminderToolTests
     {
         using var database = SessionDatabase.Open(":memory:");
         var repository = new EventRepository(database);
-        var reminder = new ExitReminder(repository, TestModels.PromptTemplates, "agent");
+        using var broker = new EventBroker();
+        var reminder = new ExitReminder(repository, broker, TestModels.PromptTemplates, "agent");
         var steps = new (string? Set, bool Clear, string? ExpectedBuild)[]
         {
             (null, false, null),
@@ -69,11 +72,11 @@ internal sealed class SetExitReminderToolTests
         {
             if (set is not null)
             {
-                reminder.Set(set);
+                await reminder.Set(set, CancellationToken.None);
             }
             else if (clear)
             {
-                reminder.Set(null);
+                await reminder.Set(null, CancellationToken.None);
             }
 
             _ = await Assert.That(reminder.Build()).IsEqualTo(expectedBuild);
@@ -85,7 +88,8 @@ internal sealed class SetExitReminderToolTests
     {
         using var database = SessionDatabase.Open(":memory:");
         var repository = new EventRepository(database);
-        var reminder = new ExitReminder(repository, TestModels.PromptTemplates, "agent");
+        using var broker = new EventBroker();
+        var reminder = new ExitReminder(repository, broker, TestModels.PromptTemplates, "agent");
         ITool tool = new SetExitReminderTool(reminder, TestModels.PromptTemplates);
         var provider = new UnusedProvider();
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));

@@ -210,7 +210,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             message.Role == LLMRole.System
             && message.Content.Contains("changed after construction", StringComparison.Ordinal));
 
-        goals.ClearGoal();
+        await goals.ClearGoal(cancellationToken);
         provider.Release();
         await parent.DisposeAsync();
 
@@ -616,7 +616,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             TestDiagnosticLog.Instance,
             (sessionParentScope, owningScope, children, childQuestions) =>
             {
-                var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
+                var exitReminder = new ExitReminder(repository, _broker, TestModels.PromptTemplates, identity.SessionId);
                 return new AgentSession(identity, sessionParentScope, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new AgentOutputFile(_workspace), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.GetService<IProcessOwner>()), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(mode.Profile.SecurityProfile).Security, TestModels.ScopedRuntimeStatus(registry, owningScope), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
             },
             lifetime);
@@ -714,7 +714,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
                 TestDiagnosticLog.Instance,
                 (sessionParentScope, owningScope, children, scopedChildQuestions) =>
                 {
-                    var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
+                    var exitReminder = new ExitReminder(eventRepository, eventBroker, TestModels.PromptTemplates, identity.SessionId);
                     IAgentSession session = new AgentSession(
                     identity,
                     sessionParentScope,

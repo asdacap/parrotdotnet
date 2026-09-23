@@ -9,7 +9,7 @@ internal sealed class SetExitReminderTool(IExitReminder reminder, IPromptTemplat
 {
     public string Name => "set_exit_reminder";
 
-    public Task<ToolExecutionResult> Execute(
+    public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
         AgentTurnSelection selection,
         CancellationToken cancellationToken)
@@ -19,17 +19,17 @@ internal sealed class SetExitReminderTool(IExitReminder reminder, IPromptTemplat
             var input = JsonSerializer.Deserialize(
                 invocation.ArgumentsJson,
                 AgentProcessToolJsonContext.Default.SetExitReminderToolInput);
-            reminder.Set(input?.Reminder);
+            await reminder.Set(input?.Reminder, cancellationToken).ConfigureAwait(false);
             var response = input?.Reminder is null or "" or "null" or "undefined"
                 ? promptTemplates.Render("set-exit-reminder-tool.cleared", [])
                 : promptTemplates.Render(
                     "set-exit-reminder-tool.set",
                     [new PromptTemplateArgument("reminder", input.Reminder)]);
-            return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.Text(invocation, response));
+            return ToolResultFormatter.Text(invocation, response);
         }
         catch (Exception failure) when (failure is JsonException or FormatException or ArgumentException or Store.InputConflictException)
         {
-            return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.Error(invocation, failure.Message));
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
     }
 

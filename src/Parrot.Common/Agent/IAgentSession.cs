@@ -80,7 +80,7 @@ internal interface IAgentSession : IAsyncDisposable
         IncomingActivity reason,
         CancellationToken cancellationToken);
 
-    void SetExitReminder(string? reminder);
+    Task SetExitReminder(string? reminder, CancellationToken cancellationToken);
 
     Task<AgentSendResult> SendTextMessage(string message, CancellationToken cancellationToken);
 

@@ -319,7 +319,11 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind<IExitReminder>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new ExitReminder(arguments.EventRepository, arguments.PromptTemplates, arguments.Identity.SessionId);
+                return new ExitReminder(
+                    arguments.EventRepository,
+                    arguments.EventBroker,
+                    arguments.PromptTemplates,
+                    arguments.Identity.SessionId);
             })
             .Bind<PendingChildQuestionTurnCompletionCallback>().As(Lifetime.Scoped).To<PendingChildQuestionTurnCompletionCallback>()
             .Bind<ActiveWorkTurnCompletionCallback>().As(Lifetime.Scoped).To<ActiveWorkTurnCompletionCallback>()

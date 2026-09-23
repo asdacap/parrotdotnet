@@ -568,7 +568,7 @@ internal sealed class ParrotService(
                 await found.SetGoal(request.Goal, context.CancellationToken).ConfigureAwait(false);
                 return new SetGoalResponse();
             case SetGoalRequest.StateOneofCase.Clear:
-                found.ClearGoal();
+                await found.ClearGoal(context.CancellationToken).ConfigureAwait(false);
                 return new SetGoalResponse();
             case SetGoalRequest.StateOneofCase.Goal:
                 throw new RpcException(new Status(StatusCode.InvalidArgument, "a goal is required"));

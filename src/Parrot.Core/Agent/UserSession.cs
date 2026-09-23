@@ -371,7 +371,8 @@ internal sealed class UserSession : IUserSession
     public Task SetGoal(string goal, CancellationToken cancellationToken) =>
         MainScope().Goals.SetGoal(goal, cancellationToken);
 
-    public void ClearGoal() => MainScope().Goals.ClearGoal();
+    public Task ClearGoal(CancellationToken cancellationToken) =>
+        MainScope().Goals.ClearGoal(cancellationToken);
 
     public Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken) =>
         Main().Compact(targetContextSize, cancellationToken);

@@ -75,7 +75,7 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
         {
             var processes = owningScope.GetService<IProcessOwner>();
             var agentQueues = owningScope.GetService<IAgentQueues>();
-            var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
+            var exitReminder = new ExitReminder(eventRepository, eventBroker, TestModels.PromptTemplates, identity.SessionId);
             var completionCallbacks = new TestCompletionCallbacksFixture(
                 childQuestions,
                 new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(processes), new QueueActiveWorkBlocker(agentQueues, TestModels.PromptTemplates)], TestModels.PromptTemplates),

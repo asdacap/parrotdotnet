@@ -5,5 +5,5 @@ internal interface IGoalService
 {
     Task SetGoal(string goal, CancellationToken cancellationToken);
 
-    void ClearGoal();
+    Task ClearGoal(CancellationToken cancellationToken);
 }

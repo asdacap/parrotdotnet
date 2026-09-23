@@ -153,6 +153,16 @@ internal sealed class EnhancedHierarchyTests
             new Event
             {
                 AgentSessionId = "child",
+                ExitReminderChanged = new ExitReminderChanged { Reminder = "finish the port" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "child", ExitReminderChanged = new ExitReminderChanged { Cleared = true } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
                 SkillLoaded = new SkillLoadedEvent { Path = "/skills/example\u001b[2J/SKILL.md" },
             },
             cancellationToken);
@@ -160,6 +170,8 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(string.Join('|', committed)).IsEqualTo(
             "  ↻ [worker] Active work reminder injected" +
             "|  ↻ [worker] Exit reminder injected" +
+            "|  ↻ [worker] Exit reminder set: finish the port" +
+            "|  ↻ [worker] Exit reminder cleared" +
             "|  ↻ [worker] Skill loaded: /skills/example[2J/SKILL.md");
     }
 

@@ -392,7 +392,7 @@ internal sealed class StatusRegistryTests
                 TestDiagnosticLog.Instance,
                 (parentScope, owningScope, children, childQuestions) =>
                 {
-                    var exitReminder = new ExitReminder(_repository, TestModels.PromptTemplates, identity.SessionId);
+                    var exitReminder = new ExitReminder(_repository, _broker, TestModels.PromptTemplates, identity.SessionId);
                     var mode = new TestProfileFixture().Mode;
                     return new AgentSession(identity, parentScope, _router.Resolve(string.Empty).RequestedSelector, _router, _broker, _repository, [], TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(_root), new AgentOutputFile(_root), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "status-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.GetService<IProcessOwner>()), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, _repository, _broker).Callbacks, new SecurityProfileTestFixture(mode.Profile.SecurityProfile).Security, TestModels.ScopedRuntimeStatus(Registry, owningScope), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
                 },

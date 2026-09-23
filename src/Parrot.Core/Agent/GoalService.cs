@@ -13,7 +13,7 @@ internal sealed class GoalService(
         var reminder = promptTemplates.Render(
             "goal.root-reminder",
             [new PromptTemplateArgument("goal", goal)]);
-        session.SetExitReminder(reminder);
+        await session.SetExitReminder(reminder, cancellationToken).ConfigureAwait(false);
         var notice = promptTemplates.Render(
             "goal.root-reminder-notice",
             [new PromptTemplateArgument("reminder", reminder)]);
@@ -25,5 +25,6 @@ internal sealed class GoalService(
             cancellationToken).ConfigureAwait(false);
     }
 
-    public void ClearGoal() => session.SetExitReminder(null);
+    public Task ClearGoal(CancellationToken cancellationToken) =>
+        session.SetExitReminder(null, cancellationToken);
 }

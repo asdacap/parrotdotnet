@@ -66,7 +66,7 @@ internal interface IUserSession : IAsyncDisposable
 
     Task SetGoal(string goal, CancellationToken cancellationToken);
 
-    void ClearGoal();
+    Task ClearGoal(CancellationToken cancellationToken);
 
     Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken);
 }

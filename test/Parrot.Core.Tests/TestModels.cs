@@ -229,6 +229,7 @@ internal static class TestModels
         return new AgentSessionDependencies(
             identity,
             owner,
+            eventBroker,
             eventRepository,
             status,
             registry,

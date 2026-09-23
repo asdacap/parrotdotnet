@@ -149,6 +149,7 @@ internal sealed class BasicCli(
                 Event.PayloadOneofCase.CompactionFinished or
                 Event.PayloadOneofCase.CompactionFailed or
                 Event.PayloadOneofCase.ActiveWorkReminderInjected or
+                Event.PayloadOneofCase.ExitReminderChanged or
                 Event.PayloadOneofCase.ExitReminderInjected or
                 Event.PayloadOneofCase.ContextReminderInjected or
                 Event.PayloadOneofCase.FinalProviderRequestPromptInjected or
@@ -180,6 +181,12 @@ internal sealed class BasicCli(
 
                 case Event.PayloadOneofCase.ActiveWorkReminderInjected:
                     await output.WriteLineAsync("↻ Active work reminder injected".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.ExitReminderChanged:
+                    await output.WriteLineAsync(
+                        $"↻ {ExitReminderNotice(published.ExitReminderChanged)}".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
                     break;
 
@@ -339,6 +346,11 @@ internal sealed class BasicCli(
 
         return (false, null);
     }
+
+    private static string ExitReminderNotice(ExitReminderChanged changed) =>
+        changed.StateCase == ExitReminderChanged.StateOneofCase.Reminder
+            ? $"Exit reminder set: {changed.Reminder}"
+            : "Exit reminder cleared";
 
     private static string Summarise(TurnEnded ended) =>
         $"turn ended ({ended.FinishReason}, {ended.InputTokens} total in / {ended.OutputTokens} total out)";

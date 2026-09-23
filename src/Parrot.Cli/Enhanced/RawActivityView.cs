@@ -438,6 +438,17 @@ internal sealed class RawActivityView(
                         cancellationToken).ConfigureAwait(false);
                     break;
 
+                case Event.PayloadOneofCase.ExitReminderChanged when _hierarchy.IsChild(published.AgentSessionId):
+                    await commit(
+                        Wrap(
+                            GetNamedAgentSession(published.AgentSessionId),
+                            new ActivityNoticeScrollbackValue(
+                                TerminalIcons.StatusNotice,
+                                ExitReminderNotice(published.ExitReminderChanged))),
+                        Snapshot(),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+
                 case Event.PayloadOneofCase.ExitReminderInjected when _hierarchy.IsChild(published.AgentSessionId):
                     await commit(
                         Wrap(
@@ -538,6 +549,11 @@ internal sealed class RawActivityView(
 
         return inventory;
     }
+
+    private static string ExitReminderNotice(ExitReminderChanged changed) =>
+        changed.StateCase == ExitReminderChanged.StateOneofCase.Reminder
+            ? $"Exit reminder set: {TerminalText.Sanitize(changed.Reminder)}"
+            : "Exit reminder cleared";
 
     private static string ProcessKey(string inventoryInstanceId, string processId) =>
         string.Concat(inventoryInstanceId, "\n", processId);

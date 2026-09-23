@@ -1,10 +1,13 @@
 using Parrot.Config;
+using Parrot.Events;
+using Parrot.Protocol;
 using Parrot.Store;
 
 namespace Parrot.Agent;
 
 internal sealed class ExitReminder(
     IEventRepository repository,
+    IEventBroker eventBroker,
     IPromptTemplateCatalog promptTemplates,
     string agentSessionId) : IExitReminder
 {
@@ -12,9 +15,10 @@ internal sealed class ExitReminder(
     private string? _current = repository.LatestExitReminder(agentSessionId);
     private int _count;
 
-    public void Set(string? reminder)
+    public async Task Set(string? reminder, CancellationToken cancellationToken)
     {
         var normalized = reminder is null or "" or "null" or "undefined" ? null : reminder;
+        Event published;
         lock (_gate)
         {
             if (normalized != _current)
@@ -22,7 +26,7 @@ internal sealed class ExitReminder(
                 _count = 0;
             }
 
-            var published = new Parrot.Protocol.Event
+            published = new Event
             {
                 Id = Identifier.EventId(),
                 AgentSessionId = agentSessionId,
@@ -30,6 +34,8 @@ internal sealed class ExitReminder(
             repository.AppendExitReminderChanged(published, normalized);
             _current = normalized;
         }
+
+        await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
     }
 
     public string? Build()

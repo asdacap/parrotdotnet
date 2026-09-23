@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Events;
 using Parrot.Process;
 using Parrot.Questions;
 using Parrot.Queues;
@@ -15,6 +16,7 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
     internal AgentSessionDependencies(
         AgentIdentity identity,
         Process.IProcessOwner processOwner,
+        IEventBroker eventBroker,
         IEventRepository eventRepository,
         IRuntimeStatus status,
         IAgentRegistry registry,
@@ -25,7 +27,7 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
         _processOwner = processOwner;
         ChildQuestions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), children, TestModels.PromptTemplates);
         ActiveWorkReminder = new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(_children, identity), new ProcessActiveWorkBlocker(processOwner), new QueueActiveWorkBlocker(queues, TestModels.PromptTemplates)], TestModels.PromptTemplates);
-        ExitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
+        ExitReminder = new ExitReminder(eventRepository, eventBroker, TestModels.PromptTemplates, identity.SessionId);
         Profile = new TestProfileFixture().Mode;
         Status = status;
         Registry = registry;

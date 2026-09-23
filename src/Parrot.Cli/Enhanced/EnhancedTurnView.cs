@@ -133,6 +133,16 @@ internal sealed class EnhancedTurnView(
 
                 break;
 
+            case Event.PayloadOneofCase.ExitReminderChanged:
+                if (!foreground.IsChild(published.AgentSessionId))
+                {
+                    await Commit(
+                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ {ExitReminderNotice(published.ExitReminderChanged)}{Reset}"]),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                break;
+
             case Event.PayloadOneofCase.ExitReminderInjected:
                 if (!foreground.IsChild(published.AgentSessionId))
                 {
@@ -252,6 +262,11 @@ internal sealed class EnhancedTurnView(
             await replace([], cancellationToken).ConfigureAwait(false);
         }
     }
+
+    private static string ExitReminderNotice(ExitReminderChanged changed) =>
+        changed.StateCase == ExitReminderChanged.StateOneofCase.Reminder
+            ? $"Exit reminder set: {TerminalText.Sanitize(changed.Reminder)}"
+            : "Exit reminder cleared";
 
     private static string Summarise(TurnEnded ended) =>
         $"{TerminalText.Sanitize(ended.FinishReason)} - {ended.InputTokens} total in / {ended.OutputTokens} total out";
