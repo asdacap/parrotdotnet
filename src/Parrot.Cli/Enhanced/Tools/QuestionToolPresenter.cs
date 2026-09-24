@@ -22,6 +22,22 @@ internal sealed class QuestionToolPresenter : IToolPresenter
             frame);
     }
 
+    public IScrollbackItem PresentChildStarted(ToolCallPresentation call)
+    {
+        using var arguments = JsonDocument.Parse(call.ArgumentsJson);
+        var questions = arguments.RootElement.GetProperty("questions");
+        var details = questions.EnumerateArray().SelectMany(question =>
+            new[] { question.GetProperty("prompt").GetString() ?? "Question" }.Concat(
+                question.TryGetProperty("options", out var options)
+                    ? options.EnumerateArray().Select(option => $"  - {option.GetProperty("label").GetString()}")
+                    : [])).ToArray();
+        return new ToolScrollbackValue(
+            $"Question · {questions.GetArrayLength()} {(questions.GetArrayLength() == 1 ? "item" : "items")}",
+            details,
+            ToolTerminalStatus.Succeeded,
+            Metadata with { Style = ToolPresentationStyle.Muted, SuccessIcon = TerminalIcons.Pending });
+    }
+
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
         using var arguments = JsonDocument.Parse(call.ArgumentsJson);

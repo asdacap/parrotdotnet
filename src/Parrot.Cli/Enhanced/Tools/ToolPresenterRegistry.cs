@@ -45,6 +45,20 @@ internal sealed class ToolPresenterRegistry
         }
     }
 
+    public IScrollbackItem? PresentChildStarted(ToolCallPresentation call)
+    {
+        var presenter = Find(call.ToolName);
+        var redactedCall = ToolPresentationRedactor.Redact(call, presenter.Metadata);
+        try
+        {
+            return presenter.PresentChildStarted(redactedCall);
+        }
+        catch when (!ReferenceEquals(presenter, _fallback))
+        {
+            return _fallback.PresentChildStarted(redactedCall);
+        }
+    }
+
     public IScrollbackItem? PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
         var presenter = Find(call.ToolName);

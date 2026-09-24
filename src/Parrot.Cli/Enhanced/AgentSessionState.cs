@@ -321,6 +321,16 @@ internal sealed class AgentSessionState(string agentSessionId)
         return activityId;
     }
 
+    public IScrollbackItem? PresentChildStartedTool(
+        string toolCallId,
+        ToolPresenterRegistry presenters,
+        Func<string, string> agentReferenceResolver)
+    {
+        var toolCall = _toolCalls[toolCallId];
+        return presenters.PresentChildStarted(
+            new ToolCallPresentation(toolCall.Name, toolCall.Arguments.ToString(), agentReferenceResolver));
+    }
+
     public bool IsFoldedActivity(string activityId) =>
         activityId.StartsWith(ToolActivityPrefix, StringComparison.Ordinal)
         && _foldedTools.ContainsKey(activityId[ToolActivityPrefix.Length..]);
