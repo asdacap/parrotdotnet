@@ -893,6 +893,42 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
+    public async Task Child_question_is_committed_when_asked_and_root_question_is_not(CancellationToken cancellationToken)
+    {
+        const string arguments = """{"questions":[{"header":"h","prompt":"Continue?","options":[{"label":"Yes","description":""},{"label":"No","description":""}],"multiple":false,"custom":false}]}""";
+        var committed = new List<string>();
+        var scrollbackContext = new ScrollbackRenderContext(120, new TerminalPalette(false));
+
+        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            committed.Add(string.Join('|', item.Render(scrollbackContext)));
+            return Task.CompletedTask;
+        }
+
+        await using var view = new RawActivityView(
+            static (_, _) => Task.CompletedTask,
+            Commit,
+            new ToolPresenterRegistry([new QuestionToolPresenter()], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await view.Render(new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } }, cancellationToken);
+        await view.Render(new Event { AgentSessionId = "child", AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" } }, cancellationToken);
+        await view.Render(new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "model" } }, cancellationToken);
+        foreach (var agentSessionId in new[] { "root", "child" })
+        {
+            await view.Render(new Event { AgentSessionId = agentSessionId, ToolCallChunk = new ToolCallChunk { ToolCallId = "call", ToolName = "question", ArgumentsFragment = arguments } }, cancellationToken);
+            await view.Render(new Event { AgentSessionId = agentSessionId, ToolStarted = new ToolStarted { ToolCallId = "call", ToolName = "question" } }, cancellationToken);
+        }
+
+        _ = await Assert.That(string.Join("||", committed))
+            .IsEqualTo("  ○ [worker] Question · 1 item|    [worker] Continue?|    [worker]   - Yes|    [worker]   - No");
+
+        await view.Render(new Event { AgentSessionId = "child", ToolFinished = new ToolFinished { ToolCallId = "call", ToolName = "question", Result = "Yes" } }, cancellationToken);
+
+        _ = await Assert.That(committed.Count).IsEqualTo(2);
+        _ = await Assert.That(committed[1]).StartsWith("  ✓ [worker] Question · 1 item");
+    }
+
+    [Test]
     public async Task Child_modeline_tools_fold_into_agent_status_and_defer_completion(
         CancellationToken cancellationToken)
     {

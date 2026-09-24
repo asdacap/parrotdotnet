@@ -409,8 +409,7 @@ internal sealed class RawActivityView(
                     await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.ToolStarted:
-                    StartTool(published);
-                    await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+                    await StartTool(published, cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.ToolFinished:
                 case Event.PayloadOneofCase.ToolCancelled:
@@ -1090,18 +1089,35 @@ internal sealed class RawActivityView(
         }
     }
 
-    private void StartTool(Event published)
+    private async Task StartTool(Event published, CancellationToken cancellationToken)
     {
         var state = GetNamedAgentSession(published.AgentSessionId);
         var metadata = presenters.Describe(published.ToolStarted.ToolName);
+        var isRoot = _hierarchy.IsRoot(published.AgentSessionId);
         var foldIntoAgentStatus = metadata.Modeline
             && !metadata.TerminalOnly
-            && !_hierarchy.IsRoot(published.AgentSessionId);
-        if (state.StartTool(published.ToolStarted, foldIntoAgentStatus) is { } activityId
+            && !isRoot;
+        var activityId = state.StartTool(published.ToolStarted, foldIntoAgentStatus);
+        if (activityId is not null
             && !metadata.TerminalOnly
-            && !(metadata.Modeline && _hierarchy.IsRoot(published.AgentSessionId)))
+            && !(metadata.Modeline && isRoot))
         {
             _activities.Add((state, activityId));
+        }
+
+        var started = activityId is not null && !isRoot
+            ? state.PresentChildStartedTool(
+                published.ToolStarted.ToolCallId,
+                presenters,
+                reference => _hierarchy.ResolveAgentReference(state.AgentSessionId, reference))
+            : null;
+        if (started is null)
+        {
+            await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await commit(Wrap(state, started), Snapshot(), cancellationToken).ConfigureAwait(false);
         }
     }
 
