@@ -167,6 +167,21 @@ internal sealed class ProcessToolPresenterTests
     }
 
     [Test]
+    [Arguments("Process exited with code 0 after 1s\n[stdout]\nout", "  Process exited with code 0 after 1s|  out")]
+    [Arguments("Process exited with code 0 after 1s\n[stdout]\nout\n[stderr]\nerr", "  Process exited with code 0 after 1s|  [stdout]|  out|  [stderr]|  err")]
+    [Arguments("Process exited with code 0 after 1s\n[stderr]\nerr", "  Process exited with code 0 after 1s|  [stderr]|  err")]
+    public async Task Exec_process_output_omits_stdout_label_without_stderr(string result, string expected)
+    {
+        IToolPresenter presenter = new ExecCommandToolPresenter(TimeProvider.System, []);
+        var call = new ToolCallPresentation("exec_command", "{\"command\":\"echo output\"}");
+        var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, result, string.Empty);
+
+        var rendered = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException()).Render(ScrollbackContext);
+
+        _ = await Assert.That(string.Join('|', rendered.Skip(1))).IsEqualTo(expected);
+    }
+
+    [Test]
     [Arguments("rg", true)]
     [Arguments("  rg pattern", true)]
     [Arguments("grep\tpattern", true)]

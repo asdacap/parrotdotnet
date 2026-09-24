@@ -40,10 +40,10 @@ internal sealed class ExecCommandToolPresenter(
         var label = $"$ {command}";
         var status = terminal.ResolveProcessStatus();
         var block = status is ToolTerminalStatus.Errored or ToolTerminalStatus.ReportedFailure
-            ? ToolBlock.FromOutput(ToolOutputText.Tail(terminal.ResultPresent ? terminal.Result : terminal.Error, 10))
+            ? ToolBlock.FromOutput(ToolOutputText.Tail(terminal.ResultPresent ? WithoutLoneStdoutLabel(terminal.Result) : terminal.Error, 10))
             : isReadOnly && status == ToolTerminalStatus.Succeeded
                 ? ToolBlock.Empty
-                : ToolBlock.FromOutput(ToolOutputText.Tail(terminal.Result, 10));
+                : ToolBlock.FromOutput(ToolOutputText.Tail(WithoutLoneStdoutLabel(terminal.Result), 10));
         return new ToolScrollbackValue(label, block, status, MetadataFor(isReadOnly));
     }
 
@@ -59,6 +59,15 @@ internal sealed class ExecCommandToolPresenter(
                     && aliased.ValueKind == JsonValueKind.String
                         ? aliased.GetString() ?? string.Empty
                         : throw new FormatException("exec_command requires a string command.");
+    }
+
+    private static string WithoutLoneStdoutLabel(string result)
+    {
+        const string StdoutLabel = "\n[stdout]\n";
+        var labelIndex = result.IndexOf(StdoutLabel, StringComparison.Ordinal);
+        return labelIndex < 0 || result.Contains("\n[stderr]\n", StringComparison.Ordinal)
+            ? result
+            : result.Remove(labelIndex + 1, StdoutLabel.Length - 1);
     }
 
     private ToolPresentationMetadata MetadataFor(bool isReadOnly) =>
