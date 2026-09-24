@@ -25,7 +25,7 @@ internal sealed class ExecCommandToolPresenter(
                 [],
                 metadata,
                 frame,
-                new RunningDuration(timeProvider));
+                RunningTimer(new RunningDuration(timeProvider)));
     }
 
     public IScrollbackItem? PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
@@ -46,6 +46,9 @@ internal sealed class ExecCommandToolPresenter(
                 : ToolBlock.FromOutput(ToolOutputText.Tail(WithoutLoneStdoutLabel(terminal.Result), 10));
         return new ToolScrollbackValue(label, block, status, MetadataFor(isReadOnly));
     }
+
+    private static Func<string> RunningTimer(RunningDuration runningDuration) =>
+        () => $"running {runningDuration.Format()}";
 
     private static string Command(string argumentsJson)
     {

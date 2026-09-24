@@ -8,20 +8,24 @@ internal sealed class EnhancedWaitToolPresenterTests
     private static readonly LiveBufferRenderContext LiveContext = new(512, new TerminalPalette(false));
 
     [Test]
-    public async Task Wait_renders_the_incoming_activity_live_label()
+    [Arguments("{\"duration_ms\":130000}", "⠋ Wait for incoming activity (2m 10s left)", "⠙ Wait for incoming activity (2m 00s left)")]
+    [Arguments("{}", "⠋ Wait for incoming activity (10s left)", "⠙ Wait for incoming activity (0s left)")]
+    public async Task Wait_counts_down_the_remaining_duration(string argumentsJson, string started, string afterTenSeconds)
     {
-        IToolPresenter presenter = new WaitToolPresenter();
-        var call = new ToolCallPresentation("wait", "{\"duration_ms\":10000}");
+        var timeProvider = new ControlledTimeProvider();
+        IToolPresenter presenter = new WaitToolPresenter(timeProvider);
+        var live = presenter.PresentLive(new ToolCallPresentation("wait", argumentsJson), 0);
 
-        var rendered = presenter.PresentLive(call, 0).Render(LiveContext).Lines;
+        _ = await Assert.That(live.Render(LiveContext).Lines[0].Text).IsEqualTo(started);
 
-        _ = await Assert.That(rendered[0].Text).IsEqualTo("⠋ Wait for incoming activity");
+        timeProvider.SetElapsed(TimeSpan.FromSeconds(10));
+        _ = await Assert.That(live.Animate(1).Render(LiveContext).Lines[0].Text).IsEqualTo(afterTenSeconds);
     }
 
     [Test]
     public async Task Wait_is_live_only_and_modeline_eligible()
     {
-        IToolPresenter presenter = new WaitToolPresenter();
+        IToolPresenter presenter = new WaitToolPresenter(TimeProvider.System);
 
         _ = await Assert.That(presenter.Metadata.LiveOnly).IsTrue();
         _ = await Assert.That(presenter.Metadata.Modeline).IsTrue();
@@ -30,10 +34,21 @@ internal sealed class EnhancedWaitToolPresenterTests
     [Test]
     public async Task Wait_omits_terminal_output()
     {
-        IToolPresenter presenter = new WaitToolPresenter();
+        IToolPresenter presenter = new WaitToolPresenter(TimeProvider.System);
         var call = new ToolCallPresentation("wait", "{}");
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "timed out", string.Empty);
 
         _ = await Assert.That(presenter.PresentTerminal(call, terminal)).IsNull();
+    }
+
+    private sealed class ControlledTimeProvider : TimeProvider
+    {
+        private long _timestamp;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() => _timestamp;
+
+        public void SetElapsed(TimeSpan elapsed) => _timestamp = elapsed.Ticks;
     }
 }

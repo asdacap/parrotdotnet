@@ -5,7 +5,7 @@ internal sealed class ToolLiveValue : ILiveBufferItem
     private const string Frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
     private readonly int _frame;
-    private readonly RunningDuration? _runningDuration;
+    private readonly Func<string>? _timer;
 
     public ToolLiveValue(string label, IEnumerable<string> details, int frame)
         : this(label, details, ToolPresentationMetadata.Default, frame)
@@ -31,12 +31,12 @@ internal sealed class ToolLiveValue : ILiveBufferItem
         IEnumerable<string> details,
         ToolPresentationMetadata metadata,
         int frame,
-        RunningDuration runningDuration)
-        : this(ToolReport.DescribeLive(label, ToolBlock.FromDetails(details), metadata), frame, runningDuration)
+        Func<string> timer)
+        : this(ToolReport.DescribeLive(label, ToolBlock.FromDetails(details), metadata), frame, timer)
     {
     }
 
-    private ToolLiveValue(ToolReport report, int frame, RunningDuration? runningDuration)
+    private ToolLiveValue(ToolReport report, int frame, Func<string>? timer)
     {
         Report = report with
         {
@@ -45,20 +45,20 @@ internal sealed class ToolLiveValue : ILiveBufferItem
                 : ToolDisplayText.Label(report.Label),
         };
         _frame = frame;
-        _runningDuration = runningDuration;
+        _timer = timer;
     }
 
     private ToolReport Report { get; }
 
-    public ILiveBufferItem Animate(int frame) => new ToolLiveValue(Report, frame, _runningDuration);
+    public ILiveBufferItem Animate(int frame) => new ToolLiveValue(Report, frame, _timer);
 
     public MultiLine Render(LiveBufferRenderContext context)
     {
         var columns = context.Decoration.ContentColumns(context.Columns);
         var marker = Frames[_frame % Frames.Length].ToString();
-        var label = _runningDuration is null
+        var label = _timer is null
             ? Report.Label
-            : $"{Report.Label} (running {_runningDuration.Format()})";
+            : $"{Report.Label} ({_timer()})";
         var header = TerminalText.LayoutWords(label, columns).Take(10).ToArray();
         var headerStyle = Report.Metadata.Style == ToolPresentationStyle.Muted
             ? context.Palette.LiveMuted

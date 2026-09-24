@@ -350,7 +350,7 @@ internal sealed class EnhancedRenderingSessionTests
         using var driver = new CliLifecycleDriver(enhanced: true);
         var terminal = new TestTerminal(driver.Input, output, error, 120);
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
-        var presenters = new ToolPresenterRegistry([new WaitToolPresenter()], new GenericToolPresenter());
+        var presenters = new ToolPresenterRegistry([new WaitToolPresenter(TimeProvider.System)], new GenericToolPresenter());
         var time = new TestTimeProvider();
         var pending = new TaskCompletionSource<Event.PayloadOneofCase>(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var session = new EnhancedRenderingSession(

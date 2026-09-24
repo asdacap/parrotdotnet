@@ -47,7 +47,7 @@ internal partial class EnhancedComposition
                     new StatusToolPresenter(),
                     new QueuePushToolPresenter(),
                     new QueueTakeToolPresenter(),
-                    new WaitToolPresenter(),
+                    new WaitToolPresenter(timeProvider),
                     new WebFetchToolPresenter(),
                     new WriteStdinToolPresenter(),
                     new WriteToolPresenter(),
