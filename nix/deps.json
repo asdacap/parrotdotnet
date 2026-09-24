@@ -20,6 +20,11 @@
     "hash": "sha256-m/OfowHcvnQXSVsAK5sqo5/cgD1JONP6Zcz/QgTmBb0="
   },
   {
+    "pname": "Grpc.AspNetCore.Web",
+    "version": "2.71.0",
+    "hash": "sha256-z97xPXa+har+jCxwXe6jG6iMH7m9df1tepOgtniLc8s="
+  },
+  {
     "pname": "Grpc.Core.Api",
     "version": "2.71.0",
     "hash": "sha256-OEA0FHDwIlegydD1+Ml5erYx4qTQnkL6NCpxq3r2InM="

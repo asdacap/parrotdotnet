@@ -12,3 +12,6 @@ TestResults/
 *.swp
 *.swo
 .worktrees
+web/node_modules/
+web/dist/
+web/src/gen/

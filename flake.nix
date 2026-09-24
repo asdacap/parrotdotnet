@@ -19,6 +19,28 @@
       system: let
         pkgs = nixpkgs.legacyPackages.${system};
         sdk = pkgs.dotnetCorePackages.sdk_10_0;
+
+        # The browser UI embedded by Parrot.Cli. Built here because the .NET
+        # build's own npm step needs network access the sandbox denies.
+        webUi = pkgs.buildNpmPackage {
+          pname = "parrot-web";
+          version = "0.0.0-dev";
+          src = ./.;
+          npmRoot = "web";
+          npmDeps = pkgs.fetchNpmDeps {
+            src = ./web;
+            hash = "sha256-OKpA7SkrhpZhRIVtvJMBsyxqpX0ab3pgNZsnPtt5BJc=";
+          };
+          env.PROTOBUF_PROTOC = "${pkgs.protobuf_29}/bin/protoc";
+          buildPhase = ''
+            runHook preBuild
+            npm --prefix web run build
+            runHook postBuild
+          '';
+          installPhase = ''
+            cp -r web/dist "$out"
+          '';
+        };
       in {
         default = pkgs.buildDotnetModule {
           pname = "parrot";
@@ -52,7 +74,7 @@
           # The sandbox has no network, so a restore comes from the locked
           # deps. Refresh them with:
           #   nix build .#default.fetch-deps && ./result nix/deps.json
-          dotnetFlags = ["-p:ContinuousIntegrationBuild=true"];
+          dotnetFlags = ["-p:ContinuousIntegrationBuild=true" "-p:ParrotWebDist=${webUi}"];
 
           # buildDotnetModule publishes framework-dependent, which is
           # incompatible with PublishAot -- native compilation implies
@@ -108,6 +130,7 @@
               git
               alejandra
               nil
+              nodejs_22
             ]
             ++ aotToolchain
             ++ lib.optionals pkgs.stdenv.isLinux [pkgs.bubblewrap]

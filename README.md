@@ -987,6 +987,32 @@ acknowledgement and emits a warning. It is intended only for a deployment where
 a secure proxy supplies transport protection. Authentication controls admission
 to the service but does not weaken the per-user-session ownership checks.
 
+## Web UI
+
+`parrot web` hosts a local session service and serves a browser UI for it:
+
+```sh
+parrot web                 # http://127.0.0.1:7420
+parrot web --port 8080     # any port; 0 picks a free one
+parrot web --token-file ~/.config/parrot/web.token   # reuse a 0600 token
+```
+
+It binds loopback only and prints the URL to open, which carries a bearer token
+in its fragment (`/#token=...`). Without `--token-file`, the token is new for
+each run. Pages are public; every call needs the token. The fragment never
+reaches the server in a request, and a cross-site page cannot read it.
+
+The browser talks to the same `parrot.proto` service as the CLIs, over
+gRPC-Web. Slash commands run the CLI's own implementations on the server; their
+dialogs are relayed through `ParrotWeb` in `src/Parrot.Cli/Web/web.proto`. The
+browser dispatches a slash command only while the session is idle.
+
+Sessions it creates are hosted on the workspace's Unix socket, so a terminal
+`parrot` started in the same directory attaches to them.
+
+The UI lives in `web/` (React, TypeScript, Tailwind, shadcn/ui). `dotnet build`
+runs `npm ci` and `npm run build` there and embeds `web/dist` in the binary.
+
 ## Model Aliases
 
 Model aliases give stable names to model selectors. The effective configuration
@@ -1622,6 +1648,13 @@ network. Refresh it whenever a package reference changes:
 nix build .#default.fetch-deps && ./result nix/deps.json
 ```
 
+The web UI's npm dependencies are locked by the `fetchNpmDeps` hash in `flake.nix`.
+Refresh it whenever `web/package-lock.json` changes:
+
+```sh
+nix run nixpkgs#prefetch-npm-deps web/package-lock.json
+```
+
 ## Static musl
 
 The shipped binary is linked statically against musl. It has no interpreter and
@@ -1654,6 +1687,9 @@ dotnet build Parrot.slnx -c Release          # warnings are errors
 dotnet test Parrot.slnx -c Release
 dotnet format Parrot.slnx --verify-no-changes
 dotnet publish src/Parrot.Cli/Parrot.Cli.csproj -c Release -r linux-musl-x64
+npm --prefix web run typecheck
+npm --prefix web run lint
+npm --prefix web test
 nix flake check
 ```
 

@@ -1,9 +1,11 @@
 using System.Diagnostics;
+using System.Globalization;
 using Grpc.Core;
 using Parrot.Agent;
 using Parrot.Auth;
 using Parrot.Cli.Commands;
 using Parrot.Cli.Enhanced;
+using Parrot.Cli.Web;
 using Parrot.Config;
 using Parrot.Diagnostics;
 using Parrot.Llm;
@@ -34,6 +36,8 @@ internal sealed class CommandDispatcher(
 
     private const string DefaultModel = "opencode-go/glm-5.2";
 
+    private const ushort DefaultWebPort = 7420;
+
     private const string UsageText = """
         parrot - a coding agent that is not too much
 
@@ -51,6 +55,8 @@ internal sealed class CommandDispatcher(
                                       A session, or one prompt if text is given
           chat --connect <address>    Connect through unix:/path, http, or https
           serve [--listen <address>]  Host on the owner-only default Unix socket
+          web [--port <n>] [--token-file <path>]
+                                      Serve the browser UI on 127.0.0.1:<n>
 
         TCP listen/connect requires --token-file <owner-only-file>. Plaintext
         non-loopback listen also requires --unsafe-allow-external.
@@ -103,6 +109,9 @@ internal sealed class CommandDispatcher(
 
             case "serve":
                 return await RunServer(arguments, cancellationToken).ConfigureAwait(false);
+
+            case "web":
+                return await RunWeb(arguments, cancellationToken).ConfigureAwait(false);
 
             default:
                 await error.WriteLineAsync($"parrot: unknown command \"{command}\"".AsMemory(), cancellationToken)
@@ -426,6 +435,90 @@ internal sealed class CommandDispatcher(
                 $"parrot serving on {address.Value} (ctrl-c to stop)".AsMemory(), cancellationToken)
                 .ConfigureAwait(false);
             return await server.Run(cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException failure)
+        {
+            await error.WriteLineAsync($"parrot: {failure.Message}".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+            return ExitFailure;
+        }
+    }
+
+    private async Task<int> RunWeb(
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken)
+    {
+        var port = DefaultWebPort;
+        var tokenFile = string.Empty;
+
+        for (var index = 1; index < arguments.Count; index++)
+        {
+            switch (arguments[index])
+            {
+                case "--port" when index + 1 < arguments.Count
+                    && ushort.TryParse(arguments[index + 1], NumberStyles.None, CultureInfo.InvariantCulture, out var parsed):
+                    port = parsed;
+                    index++;
+                    break;
+
+                case "--token-file" when index + 1 < arguments.Count:
+                    tokenFile = arguments[++index];
+                    break;
+
+                default:
+                    await error.WriteLineAsync("usage: parrot web [--port <n>] [--token-file <path>]".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    return ExitUsage;
+            }
+        }
+
+        TransportToken token;
+        try
+        {
+            token = tokenFile.Length > 0 ? TransportToken.Load(tokenFile) : TransportToken.Generate();
+        }
+        catch (InvalidOperationException failure)
+        {
+            await error.WriteLineAsync($"parrot: {failure.Message}".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+            return ExitUsage;
+        }
+
+        var configuration = await LoadConfiguration(cancellationToken).ConfigureAwait(false);
+
+        if (configuration is null)
+        {
+            return ExitFailure;
+        }
+
+        using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
+        await using var composition = await BuildComposition(credentials, configuration, new LocalUserSessionHost(), cancellationToken)
+            .ConfigureAwait(false);
+
+        if (composition is null)
+        {
+            return ExitFailure;
+        }
+
+        await WarnAboutMissingCliUtilities(composition.CliUtilities, cancellationToken).ConfigureAwait(false);
+        using var applicationExit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var slashService = new WebSlashService(
+            new GeneratedParrot.ParrotClient(new InProcessCallInvoker(composition.Service)),
+            configuration,
+            Directory.GetCurrentDirectory(),
+            applicationExit,
+            credentials,
+            oauthClient,
+            ProviderRegistryBuilder.BuildableProviderIds(configuration),
+            diagnostics.Global);
+        try
+        {
+            await using var server = await WebServer.Start(composition.Service, slashService, port, token, cancellationToken)
+                .ConfigureAwait(false);
+            await output.WriteLineAsync(
+                $"parrot web on {server.Addresses.Single()}/#token={token.Bearer} (ctrl-c to stop)".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+            return await server.Run(applicationExit.Token).ConfigureAwait(false);
         }
         catch (InvalidOperationException failure)
         {

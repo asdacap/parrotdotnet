@@ -31,6 +31,7 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Grpc.AspNetCore" />
+    <PackageReference Include="Grpc.AspNetCore.Web" />
     <PackageReference Include="Grpc.Net.Client" />
     <PackageReference Include="Pure.DI" PrivateAssets="all" />
   </ItemGroup>
@@ -59,6 +60,48 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Parrot.Cli.Tests" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="Web/web.proto" GrpcServices="Server" AdditionalImportDirs="../Parrot.Common/Protocol" />
+  </ItemGroup>
+
+  <!-- The browser UI is built from web/ and embedded under the "web/" logical
+       name prefix. Nix builds it separately and passes -p:ParrotWebDist=<dir>,
+       which skips the npm build here. -->
+  <PropertyGroup>
+    <ParrotWebRoot>$(MSBuildProjectDirectory)/../../web</ParrotWebRoot>
+    <ParrotWebBuild Condition="'$(ParrotWebDist)' == ''">true</ParrotWebBuild>
+    <ParrotWebDist Condition="'$(ParrotWebDist)' == ''">$(ParrotWebRoot)/dist</ParrotWebDist>
+  </PropertyGroup>
+
+  <Target Name="InstallWebUi"
+          Inputs="$(ParrotWebRoot)/package-lock.json"
+          Outputs="$(ParrotWebRoot)/node_modules/.package-lock.json"
+          Condition="'$(ParrotWebBuild)' == 'true'">
+    <Exec Command="npm ci --no-audit --no-fund" WorkingDirectory="$(ParrotWebRoot)" />
+  </Target>
+
+  <Target Name="BuildWebUi"
+          DependsOnTargets="InstallWebUi"
+          Inputs="@(ParrotWebSource)"
+          Outputs="$(ParrotWebDist)/index.html"
+          Condition="'$(ParrotWebBuild)' == 'true'">
+    <Exec Command="npm run build" WorkingDirectory="$(ParrotWebRoot)" />
+  </Target>
+
+  <ItemGroup>
+    <ParrotWebSource Include="$(ParrotWebRoot)/src/**/*" Exclude="$(ParrotWebRoot)/src/gen/**/*" />
+    <ParrotWebSource Include="$(ParrotWebRoot)/*.json;$(ParrotWebRoot)/*.ts;$(ParrotWebRoot)/*.mjs;$(ParrotWebRoot)/index.html" />
+    <ParrotWebSource Include="Web/web.proto;../Parrot.Common/Protocol/parrot.proto" />
+  </ItemGroup>
+
+  <Target Name="EmbedWebUi" DependsOnTargets="BuildWebUi" BeforeTargets="PrepareForBuild">
+    <ItemGroup>
+      <ParrotWebAsset Include="$(ParrotWebDist)/**/*" />
+      <EmbeddedResource Include="@(ParrotWebAsset)"
+                        LogicalName="web/%(ParrotWebAsset.RecursiveDir)%(ParrotWebAsset.Filename)%(ParrotWebAsset.Extension)" />
+    </ItemGroup>
+  </Target>
 
   <Target Name="BuildPtyAttach"
           BeforeTargets="GetCopyToOutputDirectoryItems;ComputeFilesToPublish"

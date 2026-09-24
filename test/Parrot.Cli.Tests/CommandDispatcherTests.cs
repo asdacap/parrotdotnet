@@ -91,6 +91,27 @@ internal sealed class CommandDispatcherTests
     }
 
     [Test]
+    [Arguments("web --port")]
+    [Arguments("web --port abc")]
+    [Arguments("web --port 65536")]
+    [Arguments("web --listen 127.0.0.1")]
+    public async Task Web_with_an_invalid_flag_reports_usage_error(string arguments, CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var stopping = new CancellationTokenSource();
+        using var workspace = new TestWorkspace();
+        using var diagnostics = new DiagnosticLogs(workspace.Paths, FileDiagnosticLog.CreateInstanceId(), error, TimeProvider.System);
+        using var composition = new CommandComposition(new Interrupts(stopping), output, error, diagnostics);
+
+        var exitCode = await composition.Dispatcher.Run(arguments.Split(' '), cancellationToken);
+
+        _ = await Assert.That(exitCode).IsEqualTo(CommandDispatcher.ExitUsage);
+        _ = await Assert.That(output.ToString()).IsEmpty();
+        _ = await Assert.That(error.ToString()).Contains("usage: parrot web [--port <n>]");
+    }
+
+    [Test]
     public async Task Cli_utility_warning_is_exact_sorted_and_empty_when_expected_commands_are_available()
     {
         var missing = CliUtilityAvailability.Inspect(
