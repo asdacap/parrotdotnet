@@ -38,20 +38,23 @@ internal sealed class EffortCommand(
             return;
         }
 
-        var selected = await dialog.Select(
-            "Select model effort",
-            [.. current.Model.Variants.Select(variant =>
-                new SlashDialogOption(variant.Name, variant.Name, variant.ReasoningEffort))],
-            cancellationToken).ConfigureAwait(false);
-        if (selected is null)
+        var requested = arguments.Trim();
+        var effort = requested.Length > 0
+            ? requested
+            : (await dialog.Select(
+                "Select model effort",
+                [.. current.Model.Variants.Select(variant =>
+                    new SlashDialogOption(variant.Name, variant.Name, variant.ReasoningEffort))],
+                cancellationToken).ConfigureAwait(false))?.Id;
+        if (effort is null)
         {
             return;
         }
 
-        var replacement = current.WithVariant(selected.Id);
+        var replacement = current.WithVariant(effort);
         if (replacement is null)
         {
-            await dialog.ShowError($"unknown model effort {selected.Id}", cancellationToken).ConfigureAwait(false);
+            await dialog.ShowError($"unknown model effort {effort}", cancellationToken).ConfigureAwait(false);
             return;
         }
 

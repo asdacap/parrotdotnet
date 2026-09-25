@@ -100,7 +100,8 @@ internal sealed class PromptAttachmentUploader(ToolWorkspace workspace, ModeRegi
             {
                 artifact = await Upload(client, userSessionId, intent.Value, security, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or InvalidOperationException or RpcException)
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or InvalidOperationException
+                or InvalidDataException or ImageFormatException or RpcException)
             {
                 await error.WriteLineAsync($"parrot: cannot attach '{intent.Value}': {failure.Message}".AsMemory(), cancellationToken)
                     .ConfigureAwait(false);

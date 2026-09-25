@@ -139,8 +139,8 @@ compatible current effort when possible; otherwise it uses the target model's
 first listed variant, or clears the effort for a model without variants.
 
 `/model` and `/effort` persist the complete requested selector through the
-shared configuration. `/effort` presents the active model's listed variants in
-provider order; it is a wizard and ignores typed arguments. Named model
+shared configuration. `/effort NAME` selects one of the active model's listed
+variants; bare `/effort` presents those variants in provider order. Named model
 presets can snapshot and restore this complete selector together with every
 defined model-alias target; see [Model Selection Presets](#model-selection-presets).
 `--model` is per invocation and accepts an alias or the same complete canonical
@@ -1635,7 +1635,7 @@ non-interactive commands and ordinary stdin/stdout pipes instead.
 | Command | Kind | Purpose |
 | --- | --- | --- |
 | `/model` | wizard | Select a provider, then a model (and effort) for this session |
-| `/effort` | wizard | Select one of the active model's effort variants |
+| `/effort [name]` | wizard | Select one of the active model's effort variants, directly when named |
 | `/mode` | wizard | Switch the foreground mode |
 | `/model-alias` | wizard | Configure a predefined or custom alias, or apply provider defaults |
 | `/clear` | wizard | Configure and start a fresh session, keeping the old one |
@@ -1670,8 +1670,8 @@ Separately, the model-facing `compact_context` tool accepts `{}` or
 from inside its active tool round. It does
 not compact a parent or child session, and reports the caller's post-operation
 context estimate, percentage or unavailable window, 10% notification interval,
-and automatic trigger. Wizard commands other than `/skills` ignore text after the
-command name because the wizard asks for the complete selection; argument
+and automatic trigger. Wizard commands other than `/effort` and `/skills` ignore
+text after the command name because the wizard asks for the complete selection; argument
 commands consume their arguments directly. `/goal <text>` stores a persistent
 exit reminder titled `goal` on the root session using the exact wrapped text
 `User set goal is {goal}. Clear exit reminder "goal" if end condition met.` (with `{goal}`

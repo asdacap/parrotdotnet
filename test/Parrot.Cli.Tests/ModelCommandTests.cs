@@ -74,6 +74,27 @@ internal sealed class ModelCommandTests : IDisposable
     }
 
     [Test]
+    [Arguments(" high ", "provider/current/high", "")]
+    [Arguments("missing", "provider/current/low", "unknown model effort missing")]
+    public async Task Effort_argument_selects_without_picker(
+        string arguments,
+        string expected,
+        string error,
+        CancellationToken cancellationToken)
+    {
+        var client = new GeneratedParrot.ParrotClient(new ModelsFixture().Invoker);
+        ISlashSession session = new TestSlashSession("provider/current/low");
+        var dialog = new TestSlashDialog();
+
+        ISlashCommand command = new EffortCommand(client, session, new TestSlashActivity(), dialog);
+        await command.Run(arguments, cancellationToken);
+
+        _ = await Assert.That(session.Model).IsEqualTo(expected);
+        _ = await Assert.That(dialog.Pickers).IsEmpty();
+        _ = await Assert.That(string.Concat(dialog.Errors)).IsEqualTo(error);
+    }
+
+    [Test]
     public async Task Startup_variant_override_replaces_existing_suffix_and_validates_metadata(
         CancellationToken cancellationToken)
     {

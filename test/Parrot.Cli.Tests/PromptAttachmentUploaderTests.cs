@@ -65,6 +65,31 @@ internal sealed class PromptAttachmentUploaderTests : IDisposable
         _ = await Assert.That(invoker.UploadedAttachments[^1].Description.MediaType).IsEqualTo("image/png");
     }
 
+    [Test]
+    [Arguments("notes.txt", "plain text")]
+    [Arguments("broken.png", "not really a png")]
+    public async Task Rejects_unsupported_image_without_throwing(
+        string name,
+        string content,
+        CancellationToken cancellationToken)
+    {
+        _ = Directory.CreateDirectory(_root);
+        await File.WriteAllTextAsync(Path.Combine(_root, name), content, cancellationToken);
+        using var error = new StringWriter();
+        var client = new Parrot.Protocol.Parrot.ParrotClient(new ScriptedInvoker());
+
+        var request = await new UploaderFixture(_root).Uploader.Prepare(
+            client,
+            "session-1",
+            ModeRegistry.Build,
+            $"inspect @{name}",
+            error,
+            cancellationToken);
+
+        _ = await Assert.That(request).IsNull();
+        _ = await Assert.That(error.ToString()).Contains($"parrot: cannot attach '{name}'");
+    }
+
     private sealed class UploaderFixture
     {
         public UploaderFixture(string root)

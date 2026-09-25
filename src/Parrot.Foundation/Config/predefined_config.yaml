@@ -670,7 +670,7 @@ model_aliases:
       color: gray
   medium_llm:
     model_string: ""
-    usage: Settled component work requiring local specifid judgment.
+    usage: Settled component work requiring local specific judgment.
     augment_system_prompt: null
     icon:
       glyph: ◆
