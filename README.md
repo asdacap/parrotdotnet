@@ -28,29 +28,60 @@ src/
   Parrot.Tools/          Shared tool helpers and remaining tool implementations.
   Parrot.Tool.Queue/     Queue tools, factories, per-agent queue service and snapshot publisher.
   Parrot.Tool.Process/   Process tools, owners and snapshot publisher.
-  Parrot.Tool.AgentTask/ AgentTask tool, factory and input serialization.
+  Parrot.Tool.AgentTask/ AgentTask tool, graph runner, status provider and input serialization.
   Parrot.Core/           Agent orchestration, session lifecycle and protocol services.
-  Parrot.StatusProviders/ Runtime-tree status rendering from Common contracts.
+  Parrot.StatusProviders/ Runtime-tree status rendering from Common contracts and queue state.
   Parrot.Composition/    Per-agent wiring, session factories and scope lifecycle.
   Parrot.Cli/            The `parrot` executable. AOT-published.
 test/
-  Parrot.*.Tests/        TUnit projects for each layer, plus Tools and CLI tests.
-docs/
+  Parrot.*.Tests/        TUnit projects for Common, Foundation, Infrastructure, Llm,
+                         Tools, Core and Cli.
+tools/
+  Parrot.Analyzers/      Repository-specific Roslyn analyzers.
+web/                     Browser UI (React, TypeScript), embedded in the binary.
+nix/deps.json            Locked NuGet dependencies for the Nix build.
 ```
 
 Common is the shared contract layer. Foundation depends on Common;
 Infrastructure and Llm depend on Common and Foundation and can compile in
-parallel. Tools consumes those branches; Queue and AgentTask tool families depend
-on Tools without reverse references. Core owns runtime orchestration, including
-AgentTask execution. Composition wires per-agent services and depends on Core and
-the tool families; CLI supplies that composition
-through an injected factory and remains the application entry point. Core depends on Tools, so these two projects do not
-compile in parallel. Namespaces
-remain organized by domain rather than assembly. Lower-level tests reference
-their own layers without waiting for Core; Tools and Core tests retain the
-broader session fixtures. Normal solution builds use MSBuild project parallelism.
-This split does not require unrestricted parallel execution of resource-sensitive
-process tests, and Native AOT still links the complete executable.
+parallel. Core also builds on those branches, and Tools consumes them without
+referencing Core, so Core and Tools can compile in parallel. The Queue, Process
+and AgentTask tool families depend on Tools without reverse references;
+AgentTask graph execution lives in its own tool family rather than in Core.
+Composition wires per-agent services and depends on Core and the tool families;
+CLI supplies that composition through an injected factory and remains the
+application entry point. Namespaces remain organized by domain rather than
+assembly. Lower-level tests reference their own layers without waiting for
+Core; Tools and Core tests retain the broader session fixtures. Normal solution
+builds use MSBuild project parallelism. This split does not require
+unrestricted parallel execution of resource-sensitive process tests, and Native
+AOT still links the complete executable.
+
+## Usage
+
+```text
+parrot                          Open an interactive session (same as `parrot chat`)
+parrot chat [text]              Interactive session, or one answer when text or stdin is given
+parrot chat --model <selector>  Model alias or provider/model[/variant] for a fresh session
+parrot chat --mode <id>         Foreground mode (profile) for a fresh session
+parrot chat --basic             Force the minimal line-based renderer
+parrot chat --connect <address> [--token-file <path>]
+                                Connect to a served session (unix:/path, http or https)
+parrot serve [--listen <address>] [--token-file <path>] [--unsafe-allow-external]
+                                Host sessions for remote clients
+parrot web [--port <n>]         Serve the browser UI on 127.0.0.1 (default port 7420)
+parrot auth login <provider> [--api-key-stdin] [--device]
+                                Store a provider API key, or run the ChatGPT device flow
+parrot models                   List the models the configured providers serve
+parrot sessions                 List sessions from their metadata
+parrot help | version
+```
+
+`serve` defaults to an owner-only Unix socket under the state directory; TCP
+listening and connecting require `--token-file`, as described in
+[Service Transport](#service-transport). Inside a session, `/help` lists the
+[slash commands](#interactive-slash-commands). `--model` and `--mode` apply only
+to a fresh session; existing sessions keep their model and mode.
 
 ## Model Selection
 
@@ -63,8 +94,9 @@ Parrot fetches `https://models.dev/api.json` once while constructing each
 provider registry. This is a bounded, best-effort request: an unavailable or
 malformed response does not prevent startup or provider model refresh. A
 models.dev provider contributes models only to an already-configured provider
-with the same exact ID; it cannot create providers or configure their endpoint,
-credentials, or headers. Its models remain selectable after a successful live
+whose ID matches it exactly, or whose `models_dev_id` names it (for example, the
+predefined `opencode-zen` provider reads the models.dev `opencode` catalog); it
+cannot create providers or configure their endpoint, credentials, or headers. Its models remain selectable after a successful live
 refresh even when the provider's `/models` response omits them. Because
 models.dev describes a general catalog rather than account entitlements, the
 provider can still reject an imported model when it is called.
@@ -84,16 +116,16 @@ can fail when called.
 For the `chatgpt` OAuth provider, Parrot also projects the models.dev `openai`
 catalog through OpenCode's Codex model-eligibility rules and unions the result
 with the account-specific ChatGPT `/codex/models` catalog. The filter admits
-its explicit legacy models and GPT versions newer than 5.4 using separate
-major/minor comparison, while explicitly excluding `gpt-5.5-pro` and bare
-`gpt-5.6`. It applies only to models.dev imports, so it never removes a model
+an explicit list (`gpt-5.5`, `gpt-5.3-codex-spark`, `gpt-5.4`, `gpt-5.4-mini`)
+and GPT versions newer than 5.4 using separate major/minor comparison, while
+explicitly excluding `gpt-5.5-pro` and bare `gpt-5.6`. It applies only to models.dev imports, so it never removes a model
 listed by the live account endpoint or explicitly declared by the user.
 Imported models retain API pricing; Parrot does not apply OpenCode's zero-cost
-presentation. ChatGPT model IDs containing `gpt-5.5` or `gpt-5.6` use the Codex
-limits of 400,000 total context tokens, 272,000 input tokens, and 128,000 output
-tokens. The input ceiling is enforced separately during compaction and request
-admission but is not displayed; context status and usage continue to report the
-total context window.
+presentation. Token limits come from the merged catalog metadata rather than
+hard-coded per-model caps. When a model declares an input ceiling below its
+context window, that ceiling is enforced separately during compaction and
+request admission but is not displayed; context status and usage continue to
+report the total context window.
 
 The optional final segment is treated as an effort variant only when the
 complete remainder is not an exact catalog model ID. This makes selectors
@@ -107,8 +139,8 @@ compatible current effort when possible; otherwise it uses the target model's
 first listed variant, or clears the effort for a model without variants.
 
 `/model` and `/effort` persist the complete requested selector through the
-shared configuration. `/effort NAME` selects one of the active model's listed
-variants; bare `/effort` presents those variants in provider order. Named model
+shared configuration. `/effort` presents the active model's listed variants in
+provider order; it is a wizard and ignores typed arguments. Named model
 presets can snapshot and restore this complete selector together with every
 defined model-alias target; see [Model Selection Presets](#model-selection-presets).
 `--model` is per invocation and accepts an alias or the same complete canonical
@@ -183,6 +215,22 @@ applies to ordinary model requests over HTTP and WebSocket. It does not change
 image-generation API limits or response limits. A fresh image budget does not
 guarantee that accumulated conversation history fits the provider request limit.
 
+### Other settings
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `subagents.max_concurrent` | `64` | Child-agent turns running across the process. |
+| `subagents.max_concurrent_per_parent` | `16` | Child-agent turns running for one parent session. |
+| `subagents.max_depth` | `4` | Nested child-agent levels. |
+| `user_input_timeout_ms` | `1200000` | Wait for interactive input such as permission requests; `-1` waits indefinitely. |
+| `inline_diff` | `true` | Render changed lines inline; `false` selects a side-by-side diff viewer. |
+| `web_fetch.allow_private` | `false` | Allow `web_fetch` to reach private addresses (increases SSRF risk). |
+| `compaction.*` | see file | Trigger and target percentages and token bounds for compaction requests. |
+| `providers.<id>.header_timeout_ms` | `60000` | Wait for response headers; `0` disables. |
+| `providers.<id>.header_timeout_max_retries` | `5` | Retries after a header timeout; `0` disables. |
+| `providers.<id>.session_header` | per provider | Header carrying a stable per-session id for provider routing. |
+| `providers.<id>.models_dev_id` | provider id | models.dev catalog to import when it differs from the provider id. |
+
 ### Prompt templates
 
 `prompt_templates` is a typed catalogue of stable, named model-facing templates. User configuration recursively overrides individual fields, so replacing only `prompt_templates.<id>.template` preserves its predefined argument declarations and engine. The optional `engine` field defaults to `scalar`: placeholders are named (`{argument}`), must be declared in `allowed_arguments`, and every name in `required_arguments` must be supplied when rendering. `{{` and `}}` produce literal braces. Substituted runtime values are inserted in one pass, so braces within those values remain literal.
@@ -191,9 +239,9 @@ Malformed scalar templates, unknown or repeated placeholders, undeclared or dupl
 
 `engine: scriban` selects Scriban 7.4.0 text templates, with `{{ value }}`, `{{ for item in items }}...{{ end }}`, and `{{ if condition }}...{{ else }}...{{ end }}`. Its argument declarations apply to top-level model names. Syntax errors include the configuration path; missing variables, members, and indexes fail strictly at render time. Rendering uses a fresh cancellation-aware context, with explicit script objects, arrays, and primitive values rather than reflected domain objects. Values containing braces or Scriban syntax remain literal. Loops are cancellation-aware without a fixed item limit; Scriban's default recursion limit remains in place for custom recursive functions and fails with an error rather than truncating output.
 
-Runtime status now uses one `status.runtime` Scriban template, rendered separately by the runtime-tree and AgentTask status providers (their status keys, availability, and ordering are unchanged). Its model has `section` (`tree` or `agent-tasks`), `agents`, and `runs`; the unused array is empty. Agents are in depth-first traversal order, with `indent`, `name`, `session_id`, ordered `queues` (`name`, culture-formatted `size`, JSON-escaped `description`, or empty), and ordered `processes` (`id`, `state`, `name`). Runs are ordered by ID and contain `run_id`, `display_name`, `owner_session_id`, invariant-formatted `revision`, and depth-first `nodes` (`indent`, `name`, `description`, `status`). Indentation reflects nesting; the template owns the visible labels, separators, and conditional descriptions.
+Runtime status now uses one `status.runtime` Scriban template, rendered separately by the runtime-tree and AgentTask status providers (their status keys, availability, and ordering are unchanged). Its model has `section` (`tree` or `agent-tasks`), `agents`, and `runs`; the unused array is empty. Agents are in depth-first traversal order, with `indent`, `name`, `session_id`, `status` (empty when there is none), ordered `queues` (`name`, culture-formatted `size`, JSON-escaped `description`, or empty), and ordered `processes` (`id`, `state`, `name`). Runs are ordered by ID and contain `run_id`, `display_name`, `owner_session_id`, invariant-formatted `revision`, and depth-first `nodes` (`indent`, `name`, `description`, `status`). Indentation reflects nesting; the template owns the visible labels, separators, and conditional descriptions.
 
-**Migration:** overrides of the retired `status.runtime.agent`, `.queue`, `.queue-description`, `.process`, `.agent-task`, and `.agent-task-node` fragments must move into `prompt_templates.status.runtime.template`. Old fragments are no longer rendered. A previous header-only `status.runtime` override must likewise be replaced with a complete Scriban template. The context and status templates listed below also use Scriban; other predefined templates retain scalar syntax.
+**Migration:** overrides of the retired `status.runtime.agent`, `.queue`, `.queue-description`, `.process`, `.agent-task`, and `.agent-task-node` fragments must move into `prompt_templates.status.runtime.template`. Old fragments are no longer rendered. A previous header-only `status.runtime` override must likewise be replaced with a complete Scriban template. The context and status templates listed below, plus `status.statistics` and `status.context-limit`, also use Scriban; other predefined templates retain scalar syntax.
 
 The following fragment groups are likewise consolidated. Existing overrides must move to the destination template and use Scriban syntax; retained destination keys now receive structured values instead of pre-rendered fragments.
 
@@ -201,7 +249,7 @@ The following fragment groups are likewise consolidated. Existing overrides must
 | --- | --- | --- |
 | `context.subagents` | `context.subagents-none`, `context.subagents-header`, `context.subagent` | `subagents`: ordered array of `{id, usage}`; empty selects the no-subagents message. |
 | `context.model-aliases` | `context.model-alias` | `aliases`: ordered array of `{name, model, usage}` with configured model targets; omitted from the prompt when empty. |
-| `context.security-profile` | `context.security-rule` | `rules`: enforcement-ordered array of `{path, action}`; paths retain their existing escaped representation. |
+| `context.security-profile` | `context.security-rule` | `rules`: enforcement-ordered array of `{path, action}`; paths retain their existing escaped representation. `sandbox_enabled`: whether the OS process sandbox is on. |
 | `context.agent-path-environment` | `context.agent-path-environment-entry` | `entries`: descending-name-ordered array of `{name, path}`; paths retain their existing environment-variable references. |
 | `status.selection` | `status.selection.parent` | `profile`, `model`, `parent_session_id`, `parent_session_name`, `has_parent`, `has_parent_name`; parent presence uses the existing non-whitespace checks. |
 | `status.context` | `status.context-unavailable` | `available`, invariant-formatted `estimated_tokens`, `context_limit`, `cadence`, `trigger`, and `usage` when available. |
@@ -238,7 +286,9 @@ Profiles are configured under `profiles`. Each profile has two independent
 selectability flags: `is_user_selectable` controls foreground mode listing and
 mode resolution, while `is_agent_selectable` controls the available-subagent
 prompt and `agent_spawn.agent` resolution. Neither flag classifies a profile by
-fixed ID, and a profile may be selectable by both audiences or by neither.
+fixed ID, and a profile may be selectable by both audiences or by neither. The
+set of profile IDs itself is fixed: `profiles` accepts only the ten predefined
+IDs listed below, and any other ID or unknown profile field is rejected.
 Omitted profile fields inherit the values from the predefined configuration, so
 these flags can be changed independently with partial overrides. The shipped
 configuration makes `build`, `plan`, and `query` user-selectable modes, and
@@ -380,8 +430,9 @@ projection (`history.jsonl`), process and tool output blobs (`blobs/`), plan
 artifacts (`plan/`) and `last_request.json`, plus one sub-directory per child
 agent; those special names are reserved and are rejected as child agent names.
 A later agent that takes an already used name path lands in the same directory.
-The user session also has a shared `<session>/scratch` directory
-(`SCRATCH_DIR`). Every agent can write anywhere beneath its own user session
+The directory holding `history.jsonl` is exported as `AGENT_HISTORY_DIR` and
+the workspace as `WORKDIR`. The user session also has a shared
+`<session>/scratch` directory (`SCRATCH_DIR`). Every agent can write anywhere beneath its own user session
 directory, including when it uses a read-only profile (provided the profile
 exposes a shell tool). This grant does not include another user session.
 Parrot does not override `HOME`, `XDG_CACHE_HOME`, or `TMPDIR`, and the read-only
@@ -428,8 +479,9 @@ The v1 artifact has this strict envelope:
 Each top-level entry is a sibling task. Every task requires nonblank `name`,
 `description`, `payload`, and `acceptance_criteria`; `model` and `dependencies`
 are optional. A payload is either a nonblank instruction or a nonempty recursive
-sibling task array. Unknown fields and null required values are rejected. Names
-and dependencies are case-sensitive. Dependencies are distinct, must name
+sibling task array. Unknown fields, duplicate JSON fields, and null required
+values are rejected. Names must be unique among siblings; names and
+dependencies are case-sensitive. Dependencies are distinct, must name
 another task in the same sibling list, and may not be self-references or cycles;
 a task cannot depend on a nested task or a task in another branch. Top-level
 siblings follow these same local dependency and ordering rules, so independent
@@ -552,8 +604,16 @@ contexts, each labelled with its task path. They never receive sibling or cousin
 preparation context. Direct dependency summaries are also supplied to a ready task.
 
 The retained composite agent then reviews its nested result in a distinct
-validation turn, using the existing strict acceptance forms; nested task agents
-remain children owned by that composite agent. An instruction leaf response must return JSON with nonblank `result` and exactly one
+validation turn; nested task agents remain children owned by that composite
+agent. The strict composite validation forms are:
+
+```json
+{"verdict":"accept","evidence":"nonblank"}
+{"verdict":"reject_and_halt","feedback":"nonblank"}
+{"verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","context":"optional replacement preparation context"}
+```
+
+An instruction leaf response must return JSON with nonblank `result` and exactly one
 strict verdict: `accept` with nonblank evidence, `reject_and_halt` with nonblank
 feedback, or `reject_and_retry` with nonblank feedback and a replacement
 instruction string or task array. The strict leaf response forms are:
@@ -652,9 +712,10 @@ replay or resume guarantee for a client that was not listening.
 Parrot accepts PNG, JPEG, GIF, and WebP image attachments, including bounded
 animation. An image may be up to 5 MiB encoded, 8,192 pixels on either axis, 40
 megapixels per frame, 100 frames, and 100 megapixels decoded across all frames. A
-prompt or tool image batch may contain at most 16 images and 20 MiB encoded in total.
-Provider adaptation is additionally bounded to 40 MiB of live image context and 64
-MiB of outbound JSON.
+prompt may contain at most 16 images and 20 MiB encoded in total. Tool-read images
+are bounded instead by `request_limits.image_bytes_per_tool_cycle`, and outbound
+provider requests by `request_limits.provider_request_bytes` (see
+[Request size limits](#request-size-limits)).
 
 The client uploads an image through the client-streaming `UploadAttachment` RPC.
 Each `AttachmentUploadFrame` is at most 1 MiB; `AttachmentUploadResponse` returns a
@@ -920,8 +981,9 @@ does not invent a token budget. Automatic compaction is strict: it runs only
 when estimated tokens are above the effective trigger, not when they merely
 equal it.
 
-Context reminders use fixed 5% notification bands. A turn that crosses several
-bands coalesces them into one reminder for the highest crossed band; initial,
+Context reminders use fixed 10% notification bands and start at 50%, so they
+fire at 50, 60, 70, 80, 90, and 100%. A turn that crosses several bands coalesces
+them into one reminder for the highest crossed band; initial,
 zero, same-band, model/window-change, and history-regression observations do not
 produce duplicate reminders. The acknowledged band, canonical model, context
 window, and effective-history position are persisted in SQLite with the durable
@@ -949,41 +1011,18 @@ positive context window. This is distinct from root-only `/compact`, an
 interactive command that waits for idle work and explicitly compacts the current
 root session without sending a model prompt.
 
-Queues are agent-owned within this boundary rather than globally shared by all
-agents in the user session. An agent resolves its own queues first and may also
-access only its direct parent's queues; a parent cannot access a child's queue,
-a sibling cannot access another sibling's queue, and a grandchild cannot reach
-the root's queues directly. Queue names must be unique across each direct
-parent-child edge regardless of which endpoint creates the queue first. Siblings
-may reuse a name because their ownership scopes do not overlap. Root-agent
-queues persist with the user session, while a child-owned queue is removed when
-that child session ends. `queue_push` accepts exactly one item source: inline
-`items`, or `source_file`, a workspace-relative or read-authorized absolute UTF-8
-text file. File-backed pushes skip empty and whitespace-only lines, preserve all
-other line text as individual items, and reject source files larger than 16 MiB;
-the final persisted queue retains its separate 16 MiB limit. Direction and close
-apply to the complete loaded list. A producer declares that no more items will
-arrive by calling `queue_push(close:true)`; inline `items` may be empty when
-closing, and a source file may yield no items after filtering. A repeated empty
-closing push is idempotent; any other later push is rejected. Closing retains
-existing items for draining. `queue_take` always
-reports whether the queue is closed,
-so an open empty timeout is distinguishable from completion. Live
-clients receive a complete non-empty queue
-inventory for the whole user session; each row carries its owner session id so
-hierarchical interfaces can place it with that agent without broadening queue
-access.
-
 ## Service Transport
 
-Local mode uses the in-process gRPC contract and binds no socket. When Parrot is
-hosted, its default control transport is a Unix-domain socket in a user-only
-control directory. The directory is mode `0700` and the socket is mode `0600`,
+Local chat and `parrot web` host each user session on its own `parrot.sock`
+inside that session's state directory, so other local CLIs can attach to it.
+`parrot serve` defaults to a Unix-domain socket in a user-only control
+directory (`<state>/control/parrot.sock`). The directory is mode `0700` and the socket is mode `0600`,
 so another local user cannot connect through filesystem access.
 
-TCP serving is explicit and authenticated; there is no unauthenticated TCP
-fallback. Plaintext TCP beyond loopback additionally requires an explicit unsafe
-acknowledgement and emits a warning. It is intended only for a deployment where
+TCP serving (`serve --listen http://host:port` or `https://host:port`) is
+explicit and authenticated with `--token-file`; there is no unauthenticated TCP
+fallback. Plaintext TCP beyond loopback additionally requires
+`--unsafe-allow-external` and emits a warning. It is intended only for a deployment where
 a secure proxy supplies transport protection. Authentication controls admission
 to the service but does not weaken the per-user-session ownership checks.
 
@@ -1000,26 +1039,26 @@ It binds loopback only, prints the URL to open, and requires no authentication.
 
 The browser talks to the same `parrot.proto` service as the CLIs, over
 gRPC-Web. Slash commands run the CLI's own implementations on the server; their
-dialogs are relayed through `ParrotWeb` in `src/Parrot.Cli/Web/web.proto`. The
-browser dispatches a slash command only while the session is idle.
+dialogs are relayed through `ParrotWeb` in `src/Parrot.Cli/Web/web.proto`. A
+slash command submitted during a turn is held in the browser and runs once the
+session is idle.
 
-Sessions it creates are hosted on the workspace's Unix socket, so a terminal
-`parrot` started in the same directory attaches to them.
+Each session it creates is hosted on that session's Unix socket, so a terminal
+`parrot` started in the same directory attaches to it.
 
 The UI lives in `web/` (React, TypeScript, Tailwind, shadcn/ui). `dotnet build`
-runs `npm ci` and `npm run build` there and embeds `web/dist` in the binary.
+runs `npm ci` and `npm run build` there and embeds `web/dist` in the binary, so
+it needs Node.js and npm registry access. Passing `-p:ParrotWebDist=<dir>` embeds
+a prebuilt `dist` directory instead; the Nix build does this.
 
 ## Model Aliases
 
 Model aliases give stable names to model selectors. The effective configuration
 combines these four predefined aliases with the `model_aliases` map in the
-configuration file: `low_llm`, `medium_llm`, `high_llm`, and `xhigh_llm`.
-Their predefined `usage` values are:
-
-- `low_llm`: `Explicit reversible mechanical or evidence work with failure-specific validation; never judgmental review.`
-- `medium_llm`: `Settled component work requiring local judgment.`
-- `high_llm`: `Tactical ambiguity, debugging, coordination, integration, or substantive review.`
-- `xhigh_llm`: `Strategic, architectural, open-ended, tightly coupled, difficult-to-verify, or consequential work with hard-to-detect errors.`
+configuration file: `low_llm`, `medium_llm`, `high_llm`, and `xhigh_llm`,
+ordered from routine mechanical work to strategic, hard-to-verify work. Their
+exact model-facing `usage` text and display `icon` (`glyph` and `color`) are in
+`predefined_config.yaml`.
 
 The ordinary predefined `model_aliases` targets remain empty. Consequently each
 unconfigured alias produces this startup warning until it is configured:
@@ -1076,6 +1115,47 @@ turn. Retargeting an alias affects the next turn only; an active turn, including
 its tool rounds, continues to use its captured canonical route and matching
 prompt configuration.
 
+Configured aliases may be used anywhere a model selector is accepted,
+including `agent_spawn.model`. An omitted or empty `agent_spawn.model` inherits
+the parent turn's complete requested selector, including an alias or variant;
+an explicit alias or canonical selector becomes the child's requested selector
+and is validated before the child is created. The child resolves its own route
+when its turn begins, so later alias changes can affect a later child turn.
+
+`/model-alias` is an interactive, wizard-only command for configuring an
+existing alias. It ignores typed arguments, lists aliases by name with their
+usage and target (or `not configured`), and lets the user choose a provider,
+model, and, where applicable, effort. It configures only the alias; it does not
+change the active session or model selection.
+
+Its alias picker also has a **Use provider defaults** entry, described as
+**Configure all four model aliases**. Selecting it opens **Select provider
+defaults**. That picker lists only provider IDs that both have a complete
+four-alias mapping and are currently available through the executing server's
+`ListModels` result. Thus a configured provider-default mapping is not offered
+merely because it exists in configuration; the server must currently make that
+provider available. If none qualify, the command reports `no available
+providers have model alias defaults`.
+
+Choosing a provider-default entry is server-authoritative: the server validates
+and writes all four ordinary alias targets as one atomic operation, so it never
+leaves a partially applied provider set. On success it first reports `Model
+aliases configured from PROVIDER defaults:`, then lists every returned mapping
+as an indented `NAME = MODEL_STRING` line, ordered ordinally by alias name. A
+remote CLI queries and updates that authoritative server configuration; it does
+not modify its own local configuration instead.
+
+Aliases can also tailor the system prompt. For a matched alias, a non-null
+`augment_system_prompt` wins, including an explicit empty string, which
+suppresses augmentation. `null` (or omission) falls through to
+`model_augment_system_prompts`: first an exact canonical selector key, then its
+canonical base `provider/model` key. An explicit empty alias value is therefore
+different from `null`. Direct canonical selectors retain the same exact-then-
+base augmentation behavior, and remain compatible with unlisted models that
+the provider accepts.
+
+## Child agents, processes, and queues
+
 A spawned child runs independently and `agent_spawn` returns its name
 immediately. The name is required and unique among one agent's direct children
 after normalization: an existing idle child with the same normalized name is
@@ -1111,7 +1191,7 @@ prompt; it is informational only and does not change permissions, session
 ownership, or tool access. It is ignored when resuming an existing child.
 
 The generic `wait` tool pauses for incoming activity and returns early for a new
-message, direct-child completion, unclaimed yielded-process completion. A
+message, a direct-child completion, or an unclaimed yielded-process completion. A
 successful wake result remains short. Timeout output inventories only that
 agent's accessible queues, alongside its active processes and direct subagents.
 The external client inventory spans
@@ -1121,9 +1201,8 @@ When `exec_command` yields, its result carries the
 authoritative typed yielded-process handoff rather than requiring clients to
 recognize or parse result text. For a normal non-PTY pipe run, that handoff
 provides distinct absolute paths to UTF-8 text stdout and stderr files in the
-owning agent's scratch blob area. Newly received Parrot chunks are flushed with
-an approximately 100 ms visibility target under normal local load, so the files
-can be read while the process runs. Child-process buffering remains outside
+owning agent's scratch blob area. Each chunk Parrot receives is flushed as it
+arrives, so the files can be read while the process runs. Child-process buffering remains outside
 Parrot's control. PTY runs are excluded and provide no such paths.
 
 The normal completed-result formatting and overflow notices remain compatible.
@@ -1164,44 +1243,32 @@ At or below five seconds, or when the final duration is unavailable, the flushed
 entry remains the command alone. The threshold uses unrounded milliseconds;
 compact display uses the same nearest-second style as other CLI duration labels.
 
-Configured aliases may be used anywhere a model selector is accepted,
-including `agent_spawn.model`. An omitted or empty `agent_spawn.model` inherits
-the parent turn's complete requested selector, including an alias or variant;
-an explicit alias or canonical selector becomes the child's requested selector
-and is validated before the child is created. The child resolves its own route
-when its turn begins, so later alias changes can affect a later child turn.
+### Queues
 
-`/model-alias` is an interactive, wizard-only command for configuring an
-existing alias. It ignores typed arguments, lists aliases by name with their
-usage and target (or `not configured`), and lets the user choose a provider,
-model, and, where applicable, effort. It configures only the alias; it does not
-change the active session or model selection.
-
-Its alias picker also has a **Use provider defaults** entry, described as
-**Configure all four model aliases**. Selecting it opens **Select provider
-defaults**. That picker lists only provider IDs that both have a complete
-four-alias mapping and are currently available through the executing server's
-`ListModels` result. Thus a configured provider-default mapping is not offered
-merely because it exists in configuration; the server must currently make that
-provider available. If none qualify, the command reports `no available
-providers have model alias defaults`.
-
-Choosing a provider-default entry is server-authoritative: the server validates
-and writes all four ordinary alias targets as one atomic operation, so it never
-leaves a partially applied provider set. On success it first reports `Model
-aliases configured from PROVIDER defaults:`, then lists every returned mapping
-as an indented `NAME = MODEL_STRING` line, ordered ordinally by alias name. A
-remote CLI queries and updates that authoritative server configuration; it does
-not modify its own local configuration instead.
-
-Aliases can also tailor the system prompt. For a matched alias, a non-null
-`augment_system_prompt` wins, including an explicit empty string, which
-suppresses augmentation. `null` (or omission) falls through to
-`model_augment_system_prompts`: first an exact canonical selector key, then its
-canonical base `provider/model` key. An explicit empty alias value is therefore
-different from `null`. Direct canonical selectors retain the same exact-then-
-base augmentation behavior, and remain compatible with unlisted models that
-the provider accepts.
+Queues are agent-owned within a user session rather than globally shared by all
+agents in it. An agent resolves its own queues first and may also
+access only its direct parent's queues; a parent cannot access a child's queue,
+a sibling cannot access another sibling's queue, and a grandchild cannot reach
+the root's queues directly. Queue names must be unique across each direct
+parent-child edge regardless of which endpoint creates the queue first. Siblings
+may reuse a name because their ownership scopes do not overlap. Root-agent
+queues persist with the user session, while a child-owned queue is removed when
+that child session ends. `queue_push` accepts exactly one item source: inline
+`items`, or `source_file`, a workspace-relative or read-authorized absolute UTF-8
+text file. File-backed pushes skip empty and whitespace-only lines, preserve all
+other line text as individual items, and reject source files larger than 16 MiB;
+the final persisted queue retains its separate 16 MiB limit. Direction and close
+apply to the complete loaded list. A producer declares that no more items will
+arrive by calling `queue_push(close:true)`; inline `items` may be empty when
+closing, and a source file may yield no items after filtering. A repeated empty
+closing push is idempotent; any other later push is rejected. Closing retains
+existing items for draining. `queue_take` always
+reports whether the queue is closed,
+so an open empty timeout is distinguishable from completion. Live
+clients receive a complete non-empty queue
+inventory for the whole user session; each row carries its owner session id so
+hierarchical interfaces can place it with that agent without broadening queue
+access.
 
 ## Model Selection Presets
 
@@ -1277,7 +1344,7 @@ transaction across files: a process or host crash between the configuration and
 session-metadata writes can leave one ahead of the other. Selecting the preset
 again converges them.
 
-## Configuration
+## Configuration files
 
 Parrot keeps its configuration under `$XDG_CONFIG_HOME/parrotdotnet` (or
 `~/.config/parrotdotnet` when `XDG_CONFIG_HOME` is unset). The shipped
@@ -1345,11 +1412,12 @@ Put personal settings in `config.yaml` in the same directory. It is never
 created or overwritten by loading configuration. Parrot recursively merges its
 mapping over `predefined_config.yaml`: nested mappings combine by key, and
 scalars and sequences replace their corresponding defaults unless documented
-otherwise. Only `sandbox_rules`, `profiles.<id>.sandbox_rules`, and
-`cli_utilities.expected` and `.optional` append user entries after predefined
-entries; `!replace` restores replacement behavior for one of those sequences.
+otherwise. Only `sandbox_rules`, `profiles.<id>.sandbox_rules`,
+`cli_utilities.expected` and `.optional`, and `read_only_exec_command_prefixes`
+append user entries after predefined entries; `!replace` restores replacement
+behavior for one of those sequences.
 Thus a `model_aliases.low_llm.model_string` entry can override that target
-without repeating its predefined usage. The predefined file contains all seven
+without repeating its predefined usage. The predefined file contains all ten
 profile definitions, so a nested `profiles.<id>` mapping can override one
 profile field while inheriting every other field from the active default.
 
@@ -1500,10 +1568,40 @@ That builds the portable, framework-dependent binary. On Linux, development
 and the Native AOT publish happen inside the dev shell; there is no supported
 way to build this repository against an ambient SDK.
 
+### Linux development
+
+> **`git add` new files before `nix build`/`nix run`.** A flake sees only
+> git-tracked files, so an untracked `.cs` file is silently dropped from the
+> build — which surfaces as a spurious "type not found" from the sandbox
+> compile, not as "you forgot to add a file". `dotnet build` in the dev shell
+> does not hit this, because it reads the working tree directly.
+
+```sh
+nix develop
+
+dotnet build Parrot.slnx -c Release
+dotnet test Parrot.slnx -c Release
+dotnet publish src/Parrot.Cli/Parrot.Cli.csproj -c Release -r linux-musl-x64
+
+./artifacts/publish/Parrot.Cli/release_linux-musl-x64/parrot version
+```
+
+Linux build and publish output also contains `parrot-pty-attach` beside
+`parrot`. The CLI resolves this private pseudo-terminal helper from its own
+application directory; Nix additionally installs it in `bin` so the wrapped
+CLI and the helper are available from the same package.
+
+The dev shell supplies .NET SDK 10, Node.js 22 (for the web UI build), clang,
+lld, zlib, ICU, Bubblewrap, and the protobuf/gRPC tooling; on x86_64-linux it
+also supplies the musl cross toolchain and `musl-clang`. Native AOT shells out
+to a C toolchain and a linker, which on NixOS are not on a fixed path, so
+publishing outside the shell fails at the link step.
+
 ### macOS source build
 
 macOS does not require Nix. Install the .NET 10 SDK and the Xcode Command Line
-Tools, then publish for the architecture of the machine:
+Tools, plus Node.js and npm for the embedded web UI, then publish for the
+architecture of the machine:
 
 ```sh
 dotnet publish src/Parrot.Cli/Parrot.Cli.csproj -c Release -r osx-arm64
@@ -1534,10 +1632,26 @@ non-interactive commands and ordinary stdin/stdout pipes instead.
 
 ## Interactive slash commands
 
-Most slash commands are interactive wizards. Enter `/model` to select a provider
-and then a model, `/model-alias` to configure a predefined or custom alias,
-`/mode` to select a mode, `/clear` to configure a fresh session, or `/auth` to
-manage credentials. The argument-driven `/model-preset-set <name>` snapshots the
+| Command | Kind | Purpose |
+| --- | --- | --- |
+| `/model` | wizard | Select a provider, then a model (and effort) for this session |
+| `/effort` | wizard | Select one of the active model's effort variants |
+| `/mode` | wizard | Switch the foreground mode |
+| `/model-alias` | wizard | Configure a predefined or custom alias, or apply provider defaults |
+| `/clear` | wizard | Configure and start a fresh session, keeping the old one |
+| `/auth` | wizard | Manage provider credentials |
+| `/skills` | wizard | List, enable, or disable skills; rejects arguments |
+| `/model-preset-set <name>` | argument | Save the current selector and alias targets as a preset |
+| `/model-preset-select <name>` | argument | Restore a saved preset |
+| `/compact [size]` | argument | Compact the current root session now |
+| `/set-context-limit <size>` | argument | Persist the automatic compaction trigger |
+| `/goal [text]` | argument | Set or clear the session goal |
+| `/sandbox_enable <true\|false>` | argument | Enable or disable the OS process sandbox for this process |
+| `/models`, `/modes`, `/sessions` | listing | List models, modes, or sessions on this server |
+| `/status` | listing | Show the agent status prompt and subscription usage |
+| `/help`, `/version`, `/exit` | other | List commands, print the version, leave the session |
+
+The argument-driven `/model-preset-set <name>` snapshots the
 current selector and alias targets, while `/model-preset-select <name>` restores
 one saved snapshot; both require exactly one valid name token. `/compact [size]`
 explicitly compacts the current root session even when it is below the automatic
@@ -1555,9 +1669,9 @@ Separately, the model-facing `compact_context` tool accepts `{}` or
 `{"target_context_size":"20%"}` and compacts only the calling agent session
 from inside its active tool round. It does
 not compact a parent or child session, and reports the caller's post-operation
-context estimate, percentage or unavailable window, 5% notification interval,
-and automatic trigger. Wizard commands ignore text after the command name because
-the wizard asks for the complete selection. `/goal <text>` and the two model-preset
+context estimate, percentage or unavailable window, 10% notification interval,
+and automatic trigger. Wizard commands other than `/skills` ignore text after the
+command name because the wizard asks for the complete selection; argument
 commands consume their arguments directly. `/goal <text>` stores a persistent
 exit reminder titled `goal` on the root session using the exact wrapped text
 `User set goal is {goal}. Clear exit reminder "goal" if end condition met.` (with `{goal}`
@@ -1600,31 +1714,6 @@ child-agent turns do not start or replace this timer. The duration is appended t
 the currently winning activity label and uses compact formatting such as `0s`,
 `1m 05s`, and `2h 03m 04s`.
 
-> **`git add` new files before `nix build`/`nix run`.** A flake sees only
-> git-tracked files, so an untracked `.cs` file is silently dropped from the
-> build — which surfaces as a spurious "type not found" from the sandbox
-> compile, not as "you forgot to add a file". `dotnet build` in the dev shell
-> does not hit this, because it reads the working tree directly.
-
-```sh
-nix develop
-
-dotnet build Parrot.slnx -c Release
-dotnet test Parrot.slnx -c Release
-dotnet publish src/Parrot.Cli/Parrot.Cli.csproj -c Release -r linux-musl-x64
-
-./artifacts/publish/Parrot.Cli/release_linux-musl-x64/parrot version
-```
-
-Linux build and publish output also contains `parrot-pty-attach` beside
-`parrot`. The CLI resolves this private pseudo-terminal helper from its own
-application directory; Nix additionally installs it in `bin` so the wrapped
-CLI and the helper are available from the same package.
-
-The dev shell supplies .NET SDK 10, clang, lld, zlib, and a musl cross
-toolchain. Native AOT shells out to a C toolchain and a linker, which on NixOS
-are not on a fixed path, so publishing outside the shell fails at the link step.
-
 ## Two builds
 
 `nix build` and `dotnet publish` do not produce the same artifact, deliberately.
@@ -1632,9 +1721,11 @@ are not on a fixed path, so publishing outside the shell fails at the link step.
 | | Produces | For |
 | --- | --- | --- |
 | `nix build` / `nix run` | framework-dependent, needs the .NET runtime, wrapped by Nix | reproducible builds, `nix run`, CI |
-| `dotnet publish -c Release` | Native AOT, self-contained, ~19 MB | what ships |
+| `dotnet publish -c Release` | Native AOT, self-contained | what ships |
 
-They differ because `buildDotnetModule` publishes framework-dependent, and
+The Nix package runs on the ASP.NET Core runtime and wraps `parrot` with
+Bubblewrap on its `PATH`. They differ because `buildDotnetModule` publishes
+framework-dependent, and
 native compilation implies `PublishTrimmed` and refuses to have it disabled —
 so the Nix package sets `-p:PublishAot=false`. Making `nix build` produce the
 AOT binary means teaching the derivation about the clang/lld/musl toolchain the
@@ -1665,8 +1756,7 @@ $ ldd parrot
         statically linked
 ```
 
-It costs about 1.4 MB over a glibc-dynamic build (5.8 MB against 4.4 MB), and
-release symbols are retained so a core dump from a shipped binary remains
+Release symbols are retained so a core dump from a shipped binary remains
 usable.
 
 One wrinkle is wired into the flake rather than left as folklore. ILCompiler
@@ -1689,7 +1779,7 @@ dotnet publish src/Parrot.Cli/Parrot.Cli.csproj -c Release -r linux-musl-x64
 npm --prefix web run typecheck
 npm --prefix web run lint
 npm --prefix web test
-nix flake check
+nix flake check                               # nix formatting only
 ```
 
 There is no "fix the warning later" state: `TreatWarningsAsErrors` is on for
