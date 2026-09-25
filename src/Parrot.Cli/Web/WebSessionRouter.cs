@@ -18,11 +18,20 @@ internal sealed class WebSessionRouter(
     IDiagnosticLog diagnostics) : IDisposable
 {
     private readonly ConcurrentDictionary<string, Remote> _remotes = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, TurnActivity> _activities = new(StringComparer.Ordinal);
 
     public GeneratedParrot.ParrotClient For(string userSessionId) =>
         _remotes.TryGetValue(userSessionId, out var remote) ? remote.Client : local;
 
     public bool IsRemote(string userSessionId) => _remotes.ContainsKey(userSessionId);
+
+    // Fed by the browser's event streams, so a slash command can wait for the
+    // main agent's turn as it does in the terminal CLI.
+    public void Observe(string userSessionId, Event published) =>
+        _activities.GetOrAdd(userSessionId, static _ => new TurnActivity()).Observe(published);
+
+    public bool IsBusy(string userSessionId) =>
+        _activities.TryGetValue(userSessionId, out var activity) && activity.IsBusy;
 
     public async Task<UserSession> OpenDefault(CancellationToken cancellationToken)
     {
@@ -94,4 +103,42 @@ internal sealed class WebSessionRouter(
     }
 
     private sealed record Remote(GeneratedParrot.ParrotClient Client, IDisposable Owner);
+
+    private sealed class TurnActivity
+    {
+        private readonly Lock _gate = new();
+        private readonly HashSet<string> _subagents = new(StringComparer.Ordinal);
+        private bool _busy;
+
+        public bool IsBusy
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _busy;
+                }
+            }
+        }
+
+        public void Observe(Event published)
+        {
+            lock (_gate)
+            {
+                if (published.PayloadCase == Event.PayloadOneofCase.AgentStarted)
+                {
+                    _ = _subagents.Add(published.AgentSessionId);
+                }
+                else if (!_subagents.Contains(published.AgentSessionId))
+                {
+                    _busy = published.PayloadCase switch
+                    {
+                        Event.PayloadOneofCase.TurnStarted => true,
+                        Event.PayloadOneofCase.TurnEnded or Event.PayloadOneofCase.TurnFailed => false,
+                        _ => _busy,
+                    };
+                }
+            }
+        }
+    }
 }

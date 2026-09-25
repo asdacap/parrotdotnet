@@ -48,6 +48,35 @@ internal sealed class WebParrotProxyTests
         }
     }
 
+    [Test]
+    [Arguments("", false)]
+    [Arguments("main:turn_started", true)]
+    [Arguments("main:turn_started,main:turn_ended", false)]
+    [Arguments("main:turn_started,main:turn_failed", false)]
+    [Arguments("child:agent_started,main:turn_started,child:turn_ended", true)]
+    [Arguments("child:agent_started,child:turn_started", false)]
+    public async Task A_session_is_busy_while_its_main_agent_turn_runs(string events, bool expected)
+    {
+        using var diagnostics = new TransportDiagnosticsFixture();
+        using var router = new WebSessionRouter(
+            new GeneratedParrot.ParrotClient(new ScriptedInvoker()), new StatePaths("state", "config", "data"), ".", TextWriter.Null, diagnostics.Log);
+
+        foreach (var entry in events.Split(',', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var (agent, payload) = entry.Split(':') is [var first, var second] ? (first, second) : (entry, entry);
+            var published = payload switch
+            {
+                "agent_started" => new Event { AgentSessionId = agent, AgentStarted = new AgentStarted() },
+                "turn_started" => new Event { AgentSessionId = agent, TurnStarted = new TurnStarted() },
+                "turn_ended" => new Event { AgentSessionId = agent, TurnEnded = new TurnEnded() },
+                _ => new Event { AgentSessionId = agent, TurnFailed = new TurnFailed() },
+            };
+            router.Observe(RemoteId, published);
+        }
+
+        _ = await Assert.That(router.IsBusy(RemoteId)).IsEqualTo(expected);
+    }
+
     // Hosts nothing, as when the session is live in another process.
     private sealed class LocalService : GeneratedParrot.ParrotBase
     {

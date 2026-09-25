@@ -1,6 +1,7 @@
 import { ConnectError } from "@connectrpc/connect"
 import { useEffect, useState, type Dispatch } from "react"
 
+import type { UserSession } from "@/gen/parrot_pb"
 import type { AnswerSlashPromptRequest, SlashFrame } from "@/gen/web_pb"
 import { navigateToSession } from "@/lib/router"
 import { parrotWeb } from "@/rpc/client"
@@ -10,7 +11,12 @@ export type SlashPromptFrame = Extract<SlashFrame["payload"], { case: "select" |
 export type SlashAnswer = AnswerSlashPromptRequest["answer"]
 
 // The server runs a command immediately, so commands submitted during a turn wait here until the session is idle.
-export function useSlashRunner(userSessionId: string, busy: boolean, dispatch: Dispatch<TimelineAction>) {
+export function useSlashRunner(
+  userSessionId: string,
+  busy: boolean,
+  dispatch: Dispatch<TimelineAction>,
+  onSessionChanged: (session: UserSession) => void,
+) {
   const [queued, setQueued] = useState<string[]>([])
   const [running, setRunning] = useState<{ text: string } | null>(null)
   const [prompt, setPrompt] = useState<{ runId: string; frame: SlashPromptFrame } | null>(null)
@@ -56,6 +62,9 @@ export function useSlashRunner(userSessionId: string, busy: boolean, dispatch: D
             case "sessionReplaced":
               replacementSessionId = payload.value.id
               break
+            case "sessionUpdated":
+              onSessionChanged(payload.value)
+              break
           }
         }
       } catch (error) {
@@ -68,7 +77,7 @@ export function useSlashRunner(userSessionId: string, busy: boolean, dispatch: D
       if (replacementSessionId) navigateToSession(replacementSessionId)
     })()
     return () => { abort.abort() }
-  }, [running, userSessionId, dispatch])
+  }, [running, userSessionId, dispatch, onSessionChanged])
 
   function submit(text: string) {
     setQueued((current) => [...current, text])

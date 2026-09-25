@@ -141,6 +141,7 @@ internal sealed class WebParrotProxy(GeneratedParrot.ParrotBase service, WebSess
             using var call = router.For(request.UserSessionId).Listen(request, cancellationToken: context.CancellationToken);
             await foreach (var item in call.ResponseStream.ReadAllAsync(context.CancellationToken).ConfigureAwait(false))
             {
+                router.Observe(request.UserSessionId, item);
                 await responseStream.WriteAsync(item, context.CancellationToken).ConfigureAwait(false);
             }
         }

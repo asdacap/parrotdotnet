@@ -1,32 +1,98 @@
-import type { SessionUsageSnapshot } from "@/gen/parrot_pb"
+import { Loader2Icon } from "lucide-react"
+import { useEffect, useState } from "react"
 
-const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 })
-const currency = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 4 })
+import { TurnModelAliasIconColor, type SessionUsageSnapshot, type TurnModelAliasIcon, type UserSession } from "@/gen/parrot_pb"
+import { Button } from "@/components/ui/button"
+import { formatDuration } from "@/lib/duration"
+import { cn } from "@/lib/utils"
+import type { Activity } from "@/session/timeline"
+import { formatContext, formatCost, formatRate, formatTokenCount, formatTokens, type TokenRate } from "@/session/usageFormat"
 
-interface StatusBarProps {
-  usage: SessionUsageSnapshot | undefined
-  connected: boolean
-  busy: boolean
+const iconColors: Record<TurnModelAliasIconColor, string> = {
+  [TurnModelAliasIconColor.BLACK]: "text-foreground",
+  [TurnModelAliasIconColor.RED]: "text-red-500",
+  [TurnModelAliasIconColor.GREEN]: "text-green-500",
+  [TurnModelAliasIconColor.YELLOW]: "text-yellow-500",
+  [TurnModelAliasIconColor.BLUE]: "text-blue-500",
+  [TurnModelAliasIconColor.MAGENTA]: "text-fuchsia-500",
+  [TurnModelAliasIconColor.CYAN]: "text-cyan-500",
+  [TurnModelAliasIconColor.WHITE]: "text-foreground",
+  [TurnModelAliasIconColor.GRAY]: "text-muted-foreground",
 }
 
-export function StatusBar({ usage, connected, busy }: StatusBarProps) {
+// The terminal CLI's modeline activity, most specific first.
+function activityLabel(activity: Activity, busy: boolean): string {
+  if (activity.waitingForFirstToken) return "Waiting for first token…"
+  if (activity.requestAttempt > 0) {
+    return activity.requestAttempt === 1 ? "Requesting…" : `Requesting (attempt ${String(activity.requestAttempt)})…`
+  }
+  const tool = activity.tools.at(-1)
+  if (tool) return `Working: ${tool.name}`
+  if (activity.compacting) return "Compacting…"
+  // About four characters a token, as a rough live estimate.
+  if (activity.thinkingCharacters > 0) return `Thinking (${formatTokenCount(Math.ceil(activity.thinkingCharacters / 4))} tokens)…`
+  return busy ? "Working…" : ""
+}
+
+// Time since the main turn started here, counted locally.
+function useTurnElapsed(busy: boolean) {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    if (!busy) return
+    const started = Date.now()
+    const tick = () => { setElapsed(Date.now() - started) }
+    const reset = setTimeout(tick, 0)
+    const timer = setInterval(tick, 1000)
+    return () => {
+      clearTimeout(reset)
+      clearInterval(timer)
+    }
+  }, [busy])
+  return elapsed
+}
+
+interface StatusBarProps {
+  session: UserSession
+  modelIcon: TurnModelAliasIcon | undefined
+  activity: Activity
+  busy: boolean
+  usage: SessionUsageSnapshot | undefined
+  tokenRate: TokenRate
+  connected: boolean
+  onCycleMode: () => void
+}
+
+export function StatusBar({ session, modelIcon, activity, busy, usage, tokenRate, connected, onCycleMode }: StatusBarProps) {
+  const elapsed = useTurnElapsed(busy)
+  const label = activityLabel(activity, busy)
+  const context = usage ? formatContext(usage) : ""
   const contextLimit = Number(usage?.contextLimit ?? 0n)
-  const contextSize = Number(usage?.contextSize ?? 0n)
+  const contextShare = contextLimit > 0 ? Number(usage?.contextSize ?? 0n) / contextLimit : 0
+  const details = [usage ? formatTokens(usage) : "", formatRate(tokenRate), usage ? formatCost(usage) : ""].filter(Boolean)
+
   return (
-    <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t px-4 py-1 font-mono text-xs text-muted-foreground">
-      <span className={connected ? "text-foreground" : "text-destructive"}>{connected ? "connected" : "reconnecting…"}</span>
-      <span>{busy ? "working" : "idle"}</span>
-      {usage && (
-        <>
-          <span>in {compact.format(usage.inputTokens)} (cached {compact.format(usage.cachedInputTokens)})</span>
-          <span>out {compact.format(usage.outputTokens)}</span>
-          <span>
-            context {compact.format(contextSize)}
-            {contextLimit > 0 && ` / ${compact.format(contextLimit)} (${String(Math.round((contextSize / contextLimit) * 100))}%)`}
-          </span>
-          <span>{currency.format(usage.inputCost + usage.outputCost)}</span>
-        </>
+    <footer className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t px-4 py-1 font-mono text-xs text-muted-foreground">
+      <Button variant="ghost" size="sm" title="Switch mode (Shift+Tab)" onClick={onCycleMode}>
+        mode: {session.mode}
+      </Button>
+      {label && (
+        <span className="flex items-center gap-1 text-foreground">
+          <Loader2Icon className="size-3 animate-spin" />
+          {label}
+          {busy && ` (running ${formatDuration(elapsed)})`}
+        </span>
       )}
+      <span className="ml-auto flex flex-wrap items-center gap-x-2">
+        {modelIcon && <span className={iconColors[modelIcon.color]}>{modelIcon.glyph}</span>}
+        <span className="text-foreground">{session.model || "default model"}</span>
+        {context && (
+          <span className={cn(contextShare >= 0.9 ? "text-destructive" : contextShare >= 0.75 && "text-warning")}>({context})</span>
+        )}
+        {details.map((detail) => (
+          <span key={detail}>· {detail}</span>
+        ))}
+        {!connected && <span className="text-destructive">· reconnecting…</span>}
+      </span>
     </footer>
   )
 }

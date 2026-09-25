@@ -1,7 +1,7 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf"
 import { describe, expect, it } from "vitest"
 
-import { EventSchema, ReasoningKind } from "@/gen/parrot_pb"
+import { EventSchema, ProviderRequestPhase, ReasoningKind } from "@/gen/parrot_pb"
 import { emptyTimeline, reduceTimeline, type TimelineState } from "@/session/timeline"
 
 type Payload = MessageInitShape<typeof EventSchema>["payload"]
@@ -145,6 +145,31 @@ describe("reduceTimeline", () => {
         [root, { case: "inputAdmitted", value: { content: "go" } }],
       ],
       { pendingPlan: undefined },
+    ],
+    [
+      "follows the main agent's request, tools and thinking, ignoring a subagent's",
+      [
+        [child, { case: "agentStarted", value: { parentAgentSessionId: root, name: "helper" } }],
+        [root, { case: "turnStarted", value: { modelAliasIcon: { glyph: "*" } } }],
+        [root, { case: "providerRequestPhaseChanged", value: { phase: ProviderRequestPhase.REQUESTING, attempt: 2 } }],
+        [root, { case: "reasoningChunk", value: { fragment: "abcd", kind: ReasoningKind.RAW } }],
+        [root, { case: "toolStarted", value: { toolCallId: "call-1", toolName: "read" } }],
+        [root, { case: "toolStarted", value: { toolCallId: "call-2", toolName: "glob" } }],
+        [child, { case: "toolStarted", value: { toolCallId: "call-3", toolName: "edit" } }],
+        [root, { case: "toolFinished", value: { toolCallId: "call-2", toolName: "glob" } }],
+      ],
+      {
+        modelIcon: { glyph: "*" },
+        activity: { requestAttempt: 2, waitingForFirstToken: false, tools: [{ toolCallId: "call-1", name: "read" }], thinkingCharacters: 4 },
+      },
+    ],
+    [
+      "never replaces usage with an older revision",
+      [
+        [root, { case: "sessionUsageSnapshot", value: { revision: 2n, inputTokens: 20n } }],
+        [root, { case: "sessionUsageSnapshot", value: { revision: 1n, inputTokens: 10n } }],
+      ],
+      { usage: { revision: 2n, inputTokens: 20n } },
     ],
   ])("%s", (_name, events, expected) => {
     expect(replay(events)).toMatchObject(expected)

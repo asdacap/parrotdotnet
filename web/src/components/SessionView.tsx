@@ -1,6 +1,6 @@
 import { Code, ConnectError } from "@connectrpc/connect"
 import { ArrowLeftIcon } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 import { Delivery, type UserSession } from "@/gen/parrot_pb"
 import { Composer } from "@/components/Composer"
@@ -35,12 +35,17 @@ export function SessionView({ userSessionId }: { userSessionId: string }) {
     openSession(userSessionId).then(setSession, (error: unknown) => { setFailure(ConnectError.from(error).message) })
   }, [userSessionId])
 
+  // A slash command reports only the model and mode it changed.
+  const updateSession = useCallback((changed: UserSession) => {
+    setSession((current) => (current?.id === changed.id ? { ...current, model: changed.model, mode: changed.mode } : current))
+  }, [])
+
   async function cycleMode() {
     if (!session) return
     try {
       const { modes } = await parrot.listModes({})
       const next = modes[(modes.findIndex((mode) => mode.id === session.mode) + 1) % modes.length]
-      if (next) setSession(await parrot.updateSession({ userSessionId: session.id, mode: next.id }))
+      if (next) updateSession(await parrot.updateSession({ userSessionId: session.id, mode: next.id }))
     } catch (error) {
       setFailure(ConnectError.from(error).message)
     }
@@ -55,15 +60,9 @@ export function SessionView({ userSessionId }: { userSessionId: string }) {
           </a>
         </Button>
         <span className="truncate font-mono">{userSessionId}</span>
-        {session && <Badge variant="secondary">{session.model || "default model"}</Badge>}
-        {session?.mode && (
-          <Button variant="outline" size="sm" title="Switch mode (Shift+Tab)" onClick={() => void cycleMode()}>
-            {session.mode}
-          </Button>
-        )}
       </header>
       {session ? (
-        <SessionChat userSessionId={session.id} onCycleMode={() => void cycleMode()} onSessionChanged={setSession} />
+        <SessionChat session={session} onCycleMode={() => void cycleMode()} onSessionChanged={updateSession} />
       ) : (
         <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
           {failure ? <span className="text-destructive">{failure}</span> : "Opening session…"}
@@ -74,14 +73,15 @@ export function SessionView({ userSessionId }: { userSessionId: string }) {
 }
 
 interface SessionChatProps {
-  userSessionId: string
+  session: UserSession
   onCycleMode: () => void
   onSessionChanged: (session: UserSession) => void
 }
 
-function SessionChat({ userSessionId, onCycleMode, onSessionChanged }: SessionChatProps) {
-  const { timeline, dispatch, connected, lost } = useSessionEvents(userSessionId)
-  const slash = useSlashRunner(userSessionId, timeline.busy, dispatch)
+function SessionChat({ session, onCycleMode, onSessionChanged }: SessionChatProps) {
+  const userSessionId = session.id
+  const { timeline, dispatch, connected, lost, tokenRate } = useSessionEvents(userSessionId)
+  const slash = useSlashRunner(userSessionId, timeline.busy, dispatch, onSessionChanged)
 
   const reportFailure = (message: string) => { dispatch({ type: "error", message }) }
 
@@ -143,7 +143,16 @@ function SessionChat({ userSessionId, onCycleMode, onSessionChanged }: SessionCh
         />
       )}
       <Composer userSessionId={userSessionId} busy={timeline.busy} onSend={send} onInterrupt={interrupt} onCycleMode={onCycleMode} />
-      <StatusBar usage={timeline.usage} connected={connected} busy={timeline.busy} />
+      <StatusBar
+        session={session}
+        modelIcon={timeline.modelIcon}
+        activity={timeline.activity}
+        busy={timeline.busy}
+        usage={timeline.usage}
+        tokenRate={tokenRate}
+        connected={connected}
+        onCycleMode={onCycleMode}
+      />
     </>
   )
 }

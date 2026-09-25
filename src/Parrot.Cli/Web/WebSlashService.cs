@@ -37,7 +37,8 @@ internal sealed class WebSlashService(
         ListSlashCommandsRequest request, ServerCallContext context)
     {
         var frames = Channel.CreateUnbounded<SlashFrame>();
-        var registry = CreateRegistry(client, new WebSlashDialog(frames.Writer), new UserSession(), frames.Writer);
+        var registry = CreateRegistry(
+            client, new WebSlashDialog(frames.Writer), CreateSession(client, new UserSession(), frames.Writer), new SlashActivity(static () => false));
         var response = new ListSlashCommandsResponse();
         response.Commands.AddRange(registry.Commands.Select(static command =>
             new SlashCommand { Name = command.Name, Summary = command.Summary }));
@@ -64,14 +65,21 @@ internal sealed class WebSlashService(
             var session = await sessionClient.AttachSessionAsync(
                 new AttachSessionRequest { UserSessionId = request.UserSessionId, WorkingDirectory = workingDirectory },
                 cancellationToken: cancellationToken);
+            var slashSession = CreateSession(sessionClient, session, frames.Writer);
+            var activity = new SlashActivity(() => router.IsBusy(request.UserSessionId));
             var dispatching = Dispatch(
-                CreateRegistry(sessionClient, dialog, session, frames.Writer), request.Text, frames.Writer, cancellationToken);
+                CreateRegistry(sessionClient, dialog, slashSession, activity), request.Text, frames.Writer, cancellationToken);
             await foreach (var frame in frames.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
                 await responseStream.WriteAsync(frame, cancellationToken).ConfigureAwait(false);
             }
 
             await dispatching.ConfigureAwait(false);
+            if (slashSession.Id == session.Id && (slashSession.Model != session.Model || slashSession.Mode != session.Mode))
+            {
+                var updated = new UserSession { Id = slashSession.Id, Model = slashSession.Model, Mode = slashSession.Mode };
+                await responseStream.WriteAsync(new SlashFrame { SessionUpdated = updated }, cancellationToken).ConfigureAwait(false);
+            }
         }
         finally
         {
@@ -124,10 +132,8 @@ internal sealed class WebSlashService(
         }
     }
 
-    private SlashCommandRegistry CreateRegistry(
-        GeneratedParrot.ParrotClient sessionClient, WebSlashDialog dialog, UserSession session, ChannelWriter<SlashFrame> frames)
-    {
-        var slashSession = SlashSession.Create(
+    private ISlashSession CreateSession(GeneratedParrot.ParrotClient sessionClient, UserSession session, ChannelWriter<SlashFrame> frames) =>
+        SlashSession.Create(
             sessionClient,
             session,
             configuration,
@@ -135,17 +141,17 @@ internal sealed class WebSlashService(
             new CliSlashSessionBinding((replaced, token) =>
                 frames.WriteAsync(new SlashFrame { SessionReplaced = replaced }, token).AsTask()));
 
-        // The browser dispatches a slash command only while the session is idle.
-        return SlashCommands.Create(
+    private SlashCommandRegistry CreateRegistry(
+        GeneratedParrot.ParrotClient sessionClient, WebSlashDialog dialog, ISlashSession slashSession, ISlashActivity activity) =>
+        SlashCommands.Create(
             sessionClient,
             dialog,
             slashSession,
-            new SlashActivity(static () => false),
+            activity,
             null,
             credentials,
             oauth,
             providerIds,
             static _ => Task.CompletedTask,
             diagnostics);
-    }
 }

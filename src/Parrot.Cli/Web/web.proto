@@ -60,6 +60,8 @@ message SlashFrame {
     SlashLoading loading                  = 8;
     SlashLoaded loaded                    = 9;
     parrot.v1.UserSession session_replaced = 10;
+    // The session's model or mode after a command changed them.
+    parrot.v1.UserSession session_updated  = 11;
   }
 }
 

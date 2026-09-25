@@ -1,4 +1,5 @@
 import {
+  ProviderRequestPhase,
   ReasoningKind,
   type ActiveShellProcess,
   type AgentTaskProgressSnapshot,
@@ -7,6 +8,7 @@ import {
   type PlanTaskDeclaration,
   type QueueState,
   type SessionUsageSnapshot,
+  type TurnModelAliasIcon,
 } from "@/gen/parrot_pb"
 import { formatDuration } from "@/lib/duration"
 import { emptyInventory, observeInventory, type OwnerInventory } from "@/session/inventory"
@@ -39,11 +41,26 @@ export interface AgentInfo {
   parentAgentSessionId: string
 }
 
+// What the main agent is doing now, for the status bar, following the terminal CLI's modeline.
+export interface Activity {
+  requestAttempt: number
+  waitingForFirstToken: boolean
+  // Running tools by call id, most recent last.
+  tools: { toolCallId: string; name: string }[]
+  // Raw reasoning received since the last answer text, which the terminal CLI shows as "Thinking (N tokens)…".
+  thinkingCharacters: number
+  compacting: boolean
+}
+
+const idle: Activity = { requestAttempt: 0, waitingForFirstToken: false, tools: [], thinkingCharacters: 0, compacting: false }
+
 export interface TimelineState {
   items: TimelineItem[]
   // Every subagent seen; an agent session not in it is the main agent.
   agents: ReadonlyMap<string, AgentInfo>
   busy: boolean
+  activity: Activity
+  modelIcon: TurnModelAliasIcon | undefined
   usage: SessionUsageSnapshot | undefined
   // The main agent's plan still waiting for the user's decision; any later input settles it.
   pendingPlan: PlanCompleted | undefined
@@ -58,11 +75,15 @@ export type TimelineAction =
   | { type: "print"; lines: string[] }
   | { type: "error"; message: string }
   | { type: "planSettled" }
+  // A new event stream; its usage snapshot starts a new revision sequence.
+  | { type: "connected" }
 
 export const emptyTimeline: TimelineState = {
   items: [],
   agents: new Map(),
   busy: false,
+  activity: idle,
+  modelIcon: undefined,
   usage: undefined,
   pendingPlan: undefined,
   taskProgress: new Map(),
@@ -140,7 +161,49 @@ function withInventory<T>(
   return next === current ? inventories : new Map(inventories).set(owner, next)
 }
 
+function reduceActivity(activity: Activity, event: Event): Activity {
+  const payload = event.payload
+  switch (payload.case) {
+    case "turnStarted":
+    case "turnEnded":
+    case "turnFailed":
+      return idle
+    case "providerRequestPhaseChanged":
+      return {
+        ...activity,
+        waitingForFirstToken: payload.value.phase === ProviderRequestPhase.HEADERS_RECEIVED,
+        requestAttempt: payload.value.phase === ProviderRequestPhase.REQUESTING ? Math.max(1, payload.value.attempt) : 0,
+      }
+    case "toolStarted":
+      return { ...activity, tools: [...activity.tools, { toolCallId: payload.value.toolCallId, name: payload.value.toolName }] }
+    case "toolFinished":
+    case "toolCancelled":
+    case "toolError": {
+      const { toolCallId } = payload.value
+      return { ...activity, tools: activity.tools.filter((tool) => tool.toolCallId !== toolCallId) }
+    }
+    case "reasoningChunk":
+      return payload.value.kind === ReasoningKind.RAW
+        ? { ...activity, thinkingCharacters: activity.thinkingCharacters + payload.value.fragment.length }
+        : activity
+    case "textChunk":
+      return activity.thinkingCharacters === 0 ? activity : { ...activity, thinkingCharacters: 0 }
+    case "compactionStarted":
+      return { ...activity, compacting: true }
+    case "compactionFinished":
+    case "compactionFailed":
+      return { ...activity, compacting: false }
+    default:
+      return activity
+  }
+}
+
 function reduceEvent(state: TimelineState, event: Event): TimelineState {
+  const activity = state.agents.has(event.agentSessionId) ? state.activity : reduceActivity(state.activity, event)
+  return reduceItems(activity === state.activity ? state : { ...state, activity }, event)
+}
+
+function reduceItems(state: TimelineState, event: Event): TimelineState {
   const { agentSessionId } = event
   const isRoot = !state.agents.has(agentSessionId)
   const payload = event.payload
@@ -201,7 +264,9 @@ function reduceEvent(state: TimelineState, event: Event): TimelineState {
     case "agentFailed":
       return notice(state, event, `agent ${payload.value.name}: ${payload.value.message}`, "error")
     case "turnStarted":
-      return { ...state, busy: state.busy || isRoot, pendingPlan: isRoot ? undefined : state.pendingPlan }
+      return isRoot
+        ? { ...state, busy: true, pendingPlan: undefined, modelIcon: payload.value.modelAliasIcon }
+        : state
     case "turnEnded": {
       const ended = { ...state, busy: state.busy && !isRoot }
       if (!isRoot) return ended
@@ -289,7 +354,8 @@ function reduceEvent(state: TimelineState, event: Event): TimelineState {
       }
     }
     case "sessionUsageSnapshot":
-      return { ...state, usage: payload.value }
+      // As the terminal CLI's RuntimeUsageTracker: an older snapshot never replaces a newer one.
+      return state.usage && payload.value.revision < state.usage.revision ? state : { ...state, usage: payload.value }
     default:
       return state
   }
@@ -305,5 +371,7 @@ export function reduceTimeline(state: TimelineState, action: TimelineAction): Ti
       return append(state, { kind: "error", message: action.message })
     case "planSettled":
       return { ...state, pendingPlan: undefined }
+    case "connected":
+      return { ...state, usage: undefined }
   }
 }
