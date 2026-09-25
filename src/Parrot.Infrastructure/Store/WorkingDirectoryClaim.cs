@@ -115,6 +115,9 @@ internal sealed partial class WorkingDirectoryClaim
             new OpenIntent(OpenOperation.Resume, selected, workingDirectory, canonical));
     }
 
+    public bool IsActive(UserSessionId sessionId, string workingDirectory) =>
+        ReadActivation(sessionId, Canonicalize(workingDirectory), out _) == ActivationStatus.Active;
+
     public AdmissionResult OpenDefault(string workingDirectory)
     {
         var candidate = DiscoverLatest(workingDirectory);

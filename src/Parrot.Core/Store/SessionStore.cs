@@ -48,6 +48,9 @@ internal sealed class SessionStore(
         }
     }
 
+    public bool IsActive(SessionCatalogEntry entry) =>
+        new WorkingDirectoryClaim(paths.State, hostKey).IsActive(entry.Id, entry.WorkingDirectory);
+
     public AdmissionResult DiscoverLatest() =>
         new WorkingDirectoryClaim(paths.State, hostKey).DiscoverLatest(workingDirectory);
 

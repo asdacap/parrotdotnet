@@ -15,11 +15,13 @@ export function SessionPicker() {
   const [creating, setCreating] = useState(false)
 
   useEffect(() => {
-    describeHost().then((host) => { setWorkingDirectory(host.workingDirectory) }, (error: unknown) => { setFailure(ConnectError.from(error).message) })
-    parrot.listSessions({}).then(
-      (response) => { setSessions(response.sessions.toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))) },
-      (error: unknown) => { setFailure(ConnectError.from(error).message) },
-    )
+    describeHost()
+      .then(async (host) => {
+        setWorkingDirectory(host.workingDirectory)
+        const response = await parrot.listSessions({ workingDirectory: host.workingDirectory })
+        setSessions(response.sessions.toSorted((left, right) => right.createdAt.localeCompare(left.createdAt)))
+      })
+      .catch((error: unknown) => { setFailure(ConnectError.from(error).message) })
   }, [])
 
   async function createSession() {

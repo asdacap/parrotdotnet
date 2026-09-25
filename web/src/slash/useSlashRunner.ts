@@ -15,7 +15,6 @@ export function useSlashRunner(userSessionId: string, busy: boolean, dispatch: D
   const [running, setRunning] = useState<{ text: string } | null>(null)
   const [prompt, setPrompt] = useState<{ runId: string; frame: SlashPromptFrame } | null>(null)
   const [loadingActivity, setLoadingActivity] = useState<string | null>(null)
-  const [exited, setExited] = useState(false)
 
   const [next, ...rest] = queued
   if (!busy && running === null && next !== undefined) {
@@ -57,9 +56,6 @@ export function useSlashRunner(userSessionId: string, busy: boolean, dispatch: D
             case "sessionReplaced":
               replacementSessionId = payload.value.id
               break
-            case "exited":
-              setExited(true)
-              break
           }
         }
       } catch (error) {
@@ -88,5 +84,5 @@ export function useSlashRunner(userSessionId: string, busy: boolean, dispatch: D
     }
   }
 
-  return { queued, running, prompt, loadingActivity, exited, submit, answer }
+  return { queued, running, prompt, loadingActivity, submit, answer }
 }

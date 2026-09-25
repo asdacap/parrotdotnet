@@ -11,11 +11,12 @@ using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Web;
 
+// The browser has no process of its own to exit, so /exit is left out.
 internal sealed class WebSlashService(
+    WebSessionRouter router,
     GeneratedParrot.ParrotClient client,
     Configuration configuration,
     string workingDirectory,
-    CancellationTokenSource applicationExit,
     ICredentialStore credentials,
     IOAuthClient oauth,
     IReadOnlyList<string> providerIds,
@@ -26,11 +27,17 @@ internal sealed class WebSlashService(
     public override Task<DescribeHostResponse> DescribeHost(DescribeHostRequest request, ServerCallContext context) =>
         Task.FromResult(new DescribeHostResponse { WorkingDirectory = workingDirectory });
 
+    public override Task<UserSession> OpenDefaultSession(OpenDefaultSessionRequest request, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        return router.OpenDefault(context.CancellationToken);
+    }
+
     public override Task<ListSlashCommandsResponse> ListSlashCommands(
         ListSlashCommandsRequest request, ServerCallContext context)
     {
         var frames = Channel.CreateUnbounded<SlashFrame>();
-        var registry = CreateRegistry(new WebSlashDialog(frames.Writer), new UserSession(), frames.Writer);
+        var registry = CreateRegistry(client, new WebSlashDialog(frames.Writer), new UserSession(), frames.Writer);
         var response = new ListSlashCommandsResponse();
         response.Commands.AddRange(registry.Commands.Select(static command =>
             new SlashCommand { Name = command.Name, Summary = command.Summary }));
@@ -53,10 +60,12 @@ internal sealed class WebSlashService(
         {
             await responseStream.WriteAsync(new SlashFrame { Started = new SlashStarted { RunId = runId } }, cancellationToken)
                 .ConfigureAwait(false);
-            var session = await client.AttachSessionAsync(
+            var sessionClient = router.For(request.UserSessionId);
+            var session = await sessionClient.AttachSessionAsync(
                 new AttachSessionRequest { UserSessionId = request.UserSessionId, WorkingDirectory = workingDirectory },
                 cancellationToken: cancellationToken);
-            var dispatching = Dispatch(CreateRegistry(dialog, session, frames.Writer), request.Text, frames.Writer, cancellationToken);
+            var dispatching = Dispatch(
+                CreateRegistry(sessionClient, dialog, session, frames.Writer), request.Text, frames.Writer, cancellationToken);
             await foreach (var frame in frames.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
                 await responseStream.WriteAsync(frame, cancellationToken).ConfigureAwait(false);
@@ -99,10 +108,11 @@ internal sealed class WebSlashService(
         }
     }
 
-    private SlashCommandRegistry CreateRegistry(WebSlashDialog dialog, UserSession session, ChannelWriter<SlashFrame> frames)
+    private SlashCommandRegistry CreateRegistry(
+        GeneratedParrot.ParrotClient sessionClient, WebSlashDialog dialog, UserSession session, ChannelWriter<SlashFrame> frames)
     {
         var slashSession = SlashSession.Create(
-            client,
+            sessionClient,
             session,
             configuration,
             true,
@@ -111,11 +121,11 @@ internal sealed class WebSlashService(
 
         // The browser dispatches a slash command only while the session is idle.
         return SlashCommands.Create(
-            client,
+            sessionClient,
             dialog,
             slashSession,
             new SlashActivity(static () => false),
-            new WebApplicationExit(frames, applicationExit),
+            null,
             credentials,
             oauth,
             providerIds,

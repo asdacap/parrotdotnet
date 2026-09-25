@@ -11,6 +11,7 @@ import "parrot.proto";
 // and the browser answers each prompt with a separate unary call.
 service ParrotWeb {
   rpc DescribeHost(DescribeHostRequest) returns (DescribeHostResponse);
+  rpc OpenDefaultSession(OpenDefaultSessionRequest) returns (parrot.v1.UserSession);
   rpc ListSlashCommands(ListSlashCommandsRequest) returns (ListSlashCommandsResponse);
   rpc RunSlashCommand(RunSlashCommandRequest) returns (stream SlashFrame);
   rpc AnswerSlashPrompt(AnswerSlashPromptRequest) returns (AnswerSlashPromptResponse);
@@ -23,6 +24,10 @@ message DescribeHostRequest {}
 message DescribeHostResponse {
   string working_directory = 1;
 }
+
+// Opens the workspace's latest user session, as the terminal CLI does on
+// start: resumed here, attached where another process hosts it, or created.
+message OpenDefaultSessionRequest {}
 
 message ListSlashCommandsRequest {}
 
@@ -54,7 +59,6 @@ message SlashFrame {
     SlashLoading loading                  = 8;
     SlashLoaded loaded                    = 9;
     parrot.v1.UserSession session_replaced = 10;
-    SlashExited exited                    = 11;
   }
 }
 
@@ -104,8 +108,6 @@ message SlashLoading {
 }
 
 message SlashLoaded {}
-
-message SlashExited {}
 
 message AnswerSlashPromptRequest {
   string run_id    = 1;

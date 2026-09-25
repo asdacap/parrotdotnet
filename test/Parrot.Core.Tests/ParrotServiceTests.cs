@@ -394,6 +394,8 @@ internal sealed class ParrotServiceTests : IDisposable
 
         var listed = await client.ListSessionsAsync(
             new ListSessionsRequest(), cancellationToken: cancellationToken);
+        var workspaceListed = await client.ListSessionsAsync(
+            new ListSessionsRequest { WorkingDirectory = Path.Combine(_root, "inactive-work") }, cancellationToken: cancellationToken);
 
         var activeSummary = listed.Sessions.Single(item => item.UserSessionId == active.Id);
         var inactiveSummary = listed.Sessions.Single(item => item.UserSessionId == "user-session-inactive");
@@ -405,6 +407,8 @@ internal sealed class ParrotServiceTests : IDisposable
         _ = await Assert.That(inactiveSummary.RootAgentName).IsEqualTo("main-2");
         _ = await Assert.That(corruptSummary.State).IsEqualTo(SessionState.Corrupt);
         _ = await Assert.That(corruptSummary.Model).IsEmpty();
+        _ = await Assert.That(workspaceListed.Sessions.Select(item => item.UserSessionId))
+            .IsEquivalentTo(["user-session-inactive"]);
     }
 
     [Test]

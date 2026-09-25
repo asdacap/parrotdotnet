@@ -483,24 +483,27 @@ internal sealed class CommandDispatcher(
         }
 
         await WarnAboutMissingCliUtilities(composition.CliUtilities, cancellationToken).ConfigureAwait(false);
-        using var applicationExit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var localClient = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(composition.Service));
+        using var router = new WebSessionRouter(
+            localClient, StatePaths.ResolveFromEnvironment(), Directory.GetCurrentDirectory(), error, diagnostics.Global);
         var slashService = new WebSlashService(
-            new GeneratedParrot.ParrotClient(new InProcessCallInvoker(composition.Service)),
+            router,
+            localClient,
             configuration,
             Directory.GetCurrentDirectory(),
-            applicationExit,
             credentials,
             oauthClient,
             ProviderRegistryBuilder.BuildableProviderIds(configuration),
             diagnostics.Global);
         try
         {
-            await using var server = await WebServer.Start(composition.Service, slashService, port, diagnostics.Global, cancellationToken)
+            await using var server = await WebServer.Start(
+                    new WebParrotProxy(composition.Service, router), slashService, port, diagnostics.Global, cancellationToken)
                 .ConfigureAwait(false);
             await output.WriteLineAsync(
                 $"parrot web on {server.Addresses.Single()} (ctrl-c to stop)".AsMemory(), cancellationToken)
                 .ConfigureAwait(false);
-            return await server.Run(applicationExit.Token).ConfigureAwait(false);
+            return await server.Run(cancellationToken).ConfigureAwait(false);
         }
         catch (InvalidOperationException failure)
         {

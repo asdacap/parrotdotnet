@@ -57,7 +57,7 @@ export function SessionView({ userSessionId }: { userSessionId: string }) {
 }
 
 function SessionChat({ userSessionId }: { userSessionId: string }) {
-  const { timeline, dispatch, connected, permissionRevision } = useSessionEvents(userSessionId)
+  const { timeline, dispatch, connected, permissionRevision, lost } = useSessionEvents(userSessionId)
   const slash = useSlashRunner(userSessionId, timeline.busy, dispatch)
 
   const reportFailure = (message: string) => { dispatch({ type: "error", message }) }
@@ -76,8 +76,8 @@ function SessionChat({ userSessionId }: { userSessionId: string }) {
     parrot.interrupt({ userSessionId }).catch((error: unknown) => { reportFailure(ConnectError.from(error).message) })
   }
 
-  if (slash.exited) {
-    return <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">The Parrot server stopped.</div>
+  if (lost) {
+    return <div className="flex flex-1 items-center justify-center text-sm text-destructive">{lost}</div>
   }
 
   return (

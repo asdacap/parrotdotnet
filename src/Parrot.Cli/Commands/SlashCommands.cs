@@ -11,7 +11,7 @@ internal static class SlashCommands
         ISlashDialog dialog,
         ISlashSession session,
         ISlashActivity activity,
-        IApplicationExit applicationExit,
+        IApplicationExit? applicationExit,
         ICredentialStore credentials,
         IOAuthClient oauth,
         IReadOnlyList<string> providerIds,
@@ -26,7 +26,11 @@ internal static class SlashCommands
         commands.Add(new ClearCommand(models, modes, session, activity, dialog));
         commands.Add(new CompactCommand(session, activity, dialog));
         commands.Add(new EffortCommand(client, session, activity, dialog));
-        commands.Add(new ExitCommand(applicationExit));
+        if (applicationExit is not null)
+        {
+            commands.Add(new ExitCommand(applicationExit));
+        }
+
         commands.Add(new GoalCommand(session));
         commands.Add(new HelpCommand(registry, dialog));
         commands.Add(new ModeCommand(modes, session, activity, dialog, refreshSkillCompletion));

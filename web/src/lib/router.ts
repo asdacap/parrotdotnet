@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react"
 
-export type Route = { page: "sessions" } | { page: "session"; userSessionId: string }
+// An empty hash opens the workspace's latest session, as the terminal CLI does; "#/" is the session list.
+export type Route = { page: "default" } | { page: "sessions" } | { page: "session"; userSessionId: string }
 
 function subscribe(onChange: () => void) {
   window.addEventListener("hashchange", onChange)
@@ -9,10 +10,13 @@ function subscribe(onChange: () => void) {
 
 export function useRoute(): Route {
   const hash = useSyncExternalStore(subscribe, () => location.hash)
+  if (hash === "") return { page: "default" }
   const sessionMatch = /^#\/s\/(.+)$/.exec(hash)
   return sessionMatch?.[1] ? { page: "session", userSessionId: decodeURIComponent(sessionMatch[1]) } : { page: "sessions" }
 }
 
-export function navigateToSession(userSessionId: string) {
-  location.hash = `#/s/${encodeURIComponent(userSessionId)}`
+export function navigateToSession(userSessionId: string, replace = false) {
+  const hash = `#/s/${encodeURIComponent(userSessionId)}`
+  if (replace) location.replace(hash)
+  else location.hash = hash
 }

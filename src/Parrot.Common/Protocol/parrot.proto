@@ -235,7 +235,10 @@ message ConfigureSkillResponse {
   Skill skill = 1;
 }
 
-message ListSessionsRequest {}
+// An empty working directory lists every session.
+message ListSessionsRequest {
+  string working_directory = 1;
+}
 
 message ListSessionsResponse {
   repeated SessionSummary sessions = 1;

@@ -341,8 +341,10 @@ internal sealed class ParrotService(
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(context);
 
+        var workspace = request.WorkingDirectory.Length == 0 ? null : CanonicalWorkspace(request.WorkingDirectory);
         var response = new ListSessionsResponse();
         response.Sessions.AddRange(sessionCatalog.List()
+            .Where(entry => workspace is null || CanonicalWorkspace(entry.WorkingDirectory) == workspace)
             .OrderBy(entry => entry.CreatedAt, StringComparer.Ordinal)
             .ThenBy(entry => entry.Id.Value, StringComparer.Ordinal)
             .Select(entry => new SessionSummary
@@ -356,7 +358,9 @@ internal sealed class ParrotService(
                     ? SessionState.Active
                     : entry.State == SessionCatalogState.Corrupt
                         ? SessionState.Corrupt
-                        : SessionState.Inactive,
+                        : IsActiveElsewhere(entry)
+                            ? SessionState.Active
+                            : SessionState.Inactive,
             }));
         return Task.FromResult(response);
     }
@@ -1063,6 +1067,18 @@ internal sealed class ParrotService(
             ? id
             : throw new RpcException(new Status(StatusCode.InvalidArgument, "a valid user session id is required"));
 
+    private static string? CanonicalWorkspace(string workingDirectory)
+    {
+        try
+        {
+            return WorkingDirectoryClaim.Canonicalize(workingDirectory);
+        }
+        catch (Exception failure) when (failure is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     private static void ValidateWorkspace(string requestedDirectory, string sessionDirectory)
     {
         try
@@ -1337,6 +1353,18 @@ internal sealed class ParrotService(
         catch (Exception)
         {
             return ["Usage unavailable"];
+        }
+    }
+
+    private bool IsActiveElsewhere(SessionCatalogEntry entry)
+    {
+        try
+        {
+            return store.IsActive(entry);
+        }
+        catch (Exception failure) when (failure is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 
