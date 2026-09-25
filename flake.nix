@@ -29,7 +29,7 @@
           npmRoot = "web";
           npmDeps = pkgs.fetchNpmDeps {
             src = ./web;
-            hash = "sha256-OKpA7SkrhpZhRIVtvJMBsyxqpX0ab3pgNZsnPtt5BJc=";
+            hash = "sha256-xjFBESklDvax+mZAI4r9bZBXAJnqUH/TxdOEny1AahM=";
           };
           env.PROTOBUF_PROTOC = "${pkgs.protobuf_29}/bin/protoc";
           buildPhase = ''
