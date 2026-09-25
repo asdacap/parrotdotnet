@@ -1,4 +1,8 @@
 import ReactMarkdown, { type Components } from "react-markdown"
+import rehypeHighlight from "rehype-highlight"
+import remarkGfm from "remark-gfm"
+
+import { cn } from "@/lib/utils"
 
 const components: Components = {
   p: ({ children }) => <p className="my-2 leading-relaxed">{children}</p>,
@@ -9,10 +13,17 @@ const components: Components = {
   h2: ({ children }) => <h2 className="my-3 text-base font-semibold">{children}</h2>,
   h3: ({ children }) => <h3 className="my-2 font-semibold">{children}</h3>,
   pre: ({ children }) => <pre className="my-2 overflow-x-auto rounded-md bg-muted p-3 text-xs">{children}</pre>,
-  code: ({ children }) => <code className="rounded-sm bg-muted px-1 font-mono text-xs">{children}</code>,
+  code: ({ children, className }) => <code className={cn("rounded-sm bg-muted px-1 font-mono text-xs", className)}>{children}</code>,
+  table: ({ children }) => <table className="my-2 border-collapse text-xs">{children}</table>,
+  th: ({ children }) => <th className="border px-2 py-1 text-left font-semibold">{children}</th>,
+  td: ({ children }) => <td className="border px-2 py-1">{children}</td>,
   blockquote: ({ children }) => <blockquote className="my-2 border-l-2 pl-3 text-muted-foreground">{children}</blockquote>,
 }
 
 export function Markdown({ text }: { text: string }) {
-  return <ReactMarkdown components={components}>{text}</ReactMarkdown>
+  return (
+    <ReactMarkdown components={components} remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+      {text}
+    </ReactMarkdown>
+  )
 }

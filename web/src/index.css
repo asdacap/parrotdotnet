@@ -21,6 +21,13 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+  --code-keyword: oklch(0.5 0.2 300);
+  --code-string: oklch(0.5 0.13 150);
+  --code-number: oklch(0.55 0.15 50);
+  --code-comment: oklch(0.556 0 0);
+  --code-title: oklch(0.5 0.15 250);
+  --diff-added: oklch(0.5 0.13 150);
+  --diff-removed: oklch(0.577 0.245 27.325);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -43,6 +50,13 @@
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.556 0 0);
+    --code-keyword: oklch(0.75 0.15 300);
+    --code-string: oklch(0.78 0.13 150);
+    --code-number: oklch(0.8 0.13 60);
+    --code-comment: oklch(0.708 0 0);
+    --code-title: oklch(0.78 0.12 250);
+    --diff-added: oklch(0.78 0.13 150);
+    --diff-removed: oklch(0.704 0.191 22.216);
   }
 }
 
@@ -81,4 +95,34 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Code highlighting (rehype-highlight) on the theme's tokens, so both schemes read. */
+.hljs-keyword,
+.hljs-built_in,
+.hljs-type,
+.hljs-literal {
+  color: var(--code-keyword);
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition {
+  color: var(--code-string);
+}
+.hljs-number,
+.hljs-attr {
+  color: var(--code-number);
+}
+.hljs-comment,
+.hljs-meta {
+  color: var(--code-comment);
+  font-style: italic;
+}
+.hljs-title,
+.hljs-section,
+.hljs-name {
+  color: var(--code-title);
+}
+.hljs-deletion {
+  color: var(--diff-removed);
 }

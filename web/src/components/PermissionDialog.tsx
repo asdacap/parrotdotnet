@@ -12,17 +12,18 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { parrot } from "@/rpc/client"
+import type { AgentInfo } from "@/session/timeline"
 
 // Polled, as the terminal CLI does, so a permission answered elsewhere or timed out closes here too.
 const pollMilliseconds = 250
 
 interface PermissionDialogProps {
   userSessionId: string
-  subagentIds: ReadonlySet<string>
+  agents: ReadonlyMap<string, AgentInfo>
   onFailure: (message: string) => void
 }
 
-export function PermissionDialog({ userSessionId, subagentIds, onFailure }: PermissionDialogProps) {
+export function PermissionDialog({ userSessionId, agents, onFailure }: PermissionDialogProps) {
   const [pending, setPending] = useState<PendingPermission[]>([])
   const [reasonChoice, setReasonChoice] = useState<PermissionChoice | null>(null)
   const [reason, setReason] = useState("")
@@ -72,7 +73,7 @@ export function PermissionDialog({ userSessionId, subagentIds, onFailure }: Perm
           <DialogTitle>Permission requested</DialogTitle>
           <DialogDescription>
             {permission.reason}
-            {subagentIds.has(permission.agentSessionId) && ` (from subagent ${permission.agentSessionId})`}
+            {agents.has(permission.agentSessionId) && ` (from subagent ${agents.get(permission.agentSessionId)?.name ?? ""})`}
           </DialogDescription>
         </DialogHeader>
         <ul className="flex flex-col gap-1 font-mono text-xs">

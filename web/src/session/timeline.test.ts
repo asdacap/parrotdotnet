@@ -1,7 +1,7 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf"
 import { describe, expect, it } from "vitest"
 
-import { EventSchema } from "@/gen/parrot_pb"
+import { EventSchema, ReasoningKind } from "@/gen/parrot_pb"
 import { emptyTimeline, reduceTimeline, type TimelineState } from "@/session/timeline"
 
 type Payload = MessageInitShape<typeof EventSchema>["payload"]
@@ -23,7 +23,7 @@ describe("reduceTimeline", () => {
       "concatenates streamed text until another item from the same agent intervenes",
       [
         [root, { case: "textChunk", value: { fragment: "Hel" } }],
-        [child, { case: "reasoningChunk", value: { fragment: "thinking" } }],
+        [child, { case: "reasoningChunk", value: { fragment: "thinking", kind: ReasoningKind.SUMMARY } }],
         [root, { case: "textChunk", value: { fragment: "lo" } }],
         [root, { case: "toolStarted", value: { toolCallId: "call-1", toolName: "read" } }],
         [root, { case: "textChunk", value: { fragment: "Done" } }],
@@ -31,7 +31,7 @@ describe("reduceTimeline", () => {
       {
         items: [
           { kind: "assistant", agentSessionId: root, text: "Hello" },
-          { kind: "reasoning", agentSessionId: child, text: "thinking" },
+          { kind: "reasoning", agentSessionId: child, text: "thinking", completed: false },
           { kind: "tool", agentSessionId: root, toolCallId: "call-1", name: "read", args: "", status: "running", output: "" },
           { kind: "assistant", agentSessionId: root, text: "Done" },
         ],
@@ -55,17 +55,58 @@ describe("reduceTimeline", () => {
       },
     ],
     [
-      "ends a busy turn on failure",
+      "ends a busy turn on failure, keeping the provider's response",
       [
         [root, { case: "turnStarted", value: { model: "gpt" } }],
-        [root, { case: "turnFailed", value: { message: "rate limited" } }],
+        [root, { case: "turnFailed", value: { message: "rate limited", providerResponseBody: "429" } }],
       ],
       {
         busy: false,
+        items: [{ kind: "notice", agentSessionId: root, tone: "error", text: "rate limited", detail: "429" }],
+      },
+    ],
+    [
+      "reports how the main agent's turn ended, and nothing for a subagent's",
+      [
+        [child, { case: "agentStarted", value: { parentAgentSessionId: root, name: "helper" } }],
+        [child, { case: "turnEnded", value: { finishReason: "stop" } }],
+        [child, { case: "agentFinished", value: { name: "helper", elapsedMs: 65_000n } }],
+        [root, { case: "turnEnded", value: { finishReason: "interrupted" } }],
+      ],
+      {
         items: [
-          { kind: "turn", agentSessionId: root, outcome: "started", detail: "gpt" },
-          { kind: "turn", agentSessionId: root, outcome: "failed", detail: "rate limited" },
+          { kind: "notice", agentSessionId: child, tone: "active", text: "agent helper started" },
+          { kind: "notice", agentSessionId: child, tone: "success", text: "agent helper finished (1m 05s)" },
+          { kind: "notice", agentSessionId: root, tone: "error", text: "agent interrupted" },
         ],
+      },
+    ],
+    [
+      "keeps only reasoning summaries, starting a new block after a completed one",
+      [
+        [root, { case: "reasoningChunk", value: { fragment: "raw", kind: ReasoningKind.RAW } }],
+        [root, { case: "reasoningChunk", value: { fragment: "one", kind: ReasoningKind.SUMMARY, completed: true } }],
+        [root, { case: "reasoningChunk", value: { fragment: "two", kind: ReasoningKind.SUMMARY } }],
+      ],
+      {
+        items: [
+          { kind: "reasoning", agentSessionId: root, text: "one", completed: true },
+          { kind: "reasoning", agentSessionId: root, text: "two", completed: false },
+        ],
+      },
+    ],
+    [
+      "drops a canceled input and keeps the newest task progress",
+      [
+        [root, { case: "inputAdmitted", value: { inputId: "input-1", content: "first" } }],
+        [root, { case: "inputAdmitted", value: { inputId: "input-2", content: "second" } }],
+        [root, { case: "inputCanceled", value: { inputId: "input-1" } }],
+        [root, { case: "agentTaskProgressSnapshot", value: { originToolCallId: "call-1", revision: 2n, rootNodes: [{ name: "new" }] } }],
+        [root, { case: "agentTaskProgressSnapshot", value: { originToolCallId: "call-1", revision: 1n, rootNodes: [{ name: "old" }] } }],
+      ],
+      {
+        items: [{ kind: "user", inputId: "input-2", text: "second" }],
+        taskProgress: new Map([["call-1", { revision: 2n, rootNodes: [{ name: "new" }] }]]),
       },
     ],
     [

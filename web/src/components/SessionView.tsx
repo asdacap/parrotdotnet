@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 
 import { Delivery, type UserSession } from "@/gen/parrot_pb"
 import { Composer } from "@/components/Composer"
+import { LiveActivity } from "@/components/LiveActivity"
 import { PermissionDialog } from "@/components/PermissionDialog"
 import { PlanCompletionDialog } from "@/components/PlanCompletionDialog"
 import { QuestionPanel } from "@/components/QuestionPanel"
@@ -119,7 +120,8 @@ function SessionChat({ userSessionId, onCycleMode, onSessionChanged }: SessionCh
 
   return (
     <>
-      <Timeline items={timeline.items} subagentIds={timeline.subagentIds} />
+      <Timeline items={timeline.items} agents={timeline.agents} taskProgress={timeline.taskProgress} />
+      <LiveActivity queues={timeline.queues} processes={timeline.processes} />
       {slash.queued.length > 0 && (
         <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center gap-2 px-4 pb-2 text-xs text-muted-foreground">
           waiting for the turn to finish:
@@ -130,7 +132,7 @@ function SessionChat({ userSessionId, onCycleMode, onSessionChanged }: SessionCh
       )}
       <QuestionPanel userSessionId={userSessionId} onFailure={reportFailure} />
       <SlashDialogHost frame={slash.prompt?.frame} loadingActivity={slash.loadingActivity} onAnswer={(answer) => void slash.answer(answer)} />
-      <PermissionDialog userSessionId={userSessionId} subagentIds={timeline.subagentIds} onFailure={reportFailure} />
+      <PermissionDialog userSessionId={userSessionId} agents={timeline.agents} onFailure={reportFailure} />
       {!timeline.busy && timeline.pendingPlan?.dialog && (
         <PlanCompletionDialog
           userSessionId={userSessionId}

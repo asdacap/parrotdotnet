@@ -1,23 +1,24 @@
 import { useEffect, useRef } from "react"
 
+import type { AgentTaskProgressSnapshot } from "@/gen/parrot_pb"
 import { Markdown } from "@/components/Markdown"
+import { TaskTree, fromDeclaration } from "@/components/TaskTree"
+import { ToolEntry } from "@/components/ToolEntry"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import type { TimelineItem, ToolStatus } from "@/session/timeline"
+import { agentDepth, type AgentInfo, type NoticeTone, type TimelineItem } from "@/session/timeline"
 
-const toolBadgeVariants = {
-  running: "secondary",
-  finished: "outline",
-  cancelled: "outline",
-  error: "destructive",
-} as const satisfies Record<ToolStatus, string>
+// Deeper subagents stop indenting further, so the transcript keeps its width.
+const depthIndents = ["", "", "ml-4", "ml-8", "ml-12"] as const
 
-function brief(text: string, limit: number) {
-  const singleLine = text.replace(/\s+/g, " ").trim()
-  return singleLine.length > limit ? `${singleLine.slice(0, limit)}…` : singleLine
-}
+const noticeTones = {
+  muted: "text-muted-foreground",
+  active: "text-muted-foreground",
+  success: "text-(--diff-added)",
+  error: "text-destructive",
+} as const satisfies Record<NoticeTone, string>
 
-function TimelineEntry({ item }: { item: TimelineItem }) {
+function TimelineEntry({ item, taskProgress }: { item: TimelineItem; taskProgress: ReadonlyMap<string, AgentTaskProgressSnapshot> }) {
   switch (item.kind) {
     case "user":
       return <div className="self-end rounded-lg bg-secondary px-3 py-2 text-sm whitespace-pre-wrap">{item.text}</div>
@@ -27,40 +28,26 @@ function TimelineEntry({ item }: { item: TimelineItem }) {
       return (
         <details className="text-xs text-muted-foreground">
           <summary className="cursor-pointer select-none">Reasoning</summary>
-          <p className="mt-1 whitespace-pre-wrap">{item.text}</p>
+          <div className="mt-1"><Markdown text={item.text} /></div>
         </details>
       )
     case "tool":
-      return (
-        <details className="rounded-md border px-3 py-1.5 text-xs">
-          <summary className="flex cursor-pointer items-center gap-2 select-none">
-            <span className="font-mono font-medium">{item.name}</span>
-            <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">{brief(item.args, 160)}</span>
-            <Badge variant={toolBadgeVariants[item.status]}>{item.status}</Badge>
-          </summary>
-          {item.args && <pre className="mt-2 overflow-x-auto font-mono whitespace-pre-wrap text-muted-foreground">{item.args}</pre>}
-          {item.output && <pre className="mt-2 max-h-80 overflow-auto font-mono whitespace-pre-wrap">{item.output}</pre>}
+      return <ToolEntry item={item} progress={taskProgress.get(item.toolCallId)} />
+    case "notice":
+      return item.detail ? (
+        <details className={cn("text-xs", noticeTones[item.tone])}>
+          <summary className="cursor-pointer select-none">{item.text}</summary>
+          <pre className="mt-1 overflow-x-auto font-mono whitespace-pre-wrap">{item.detail}</pre>
         </details>
-      )
-    case "agent":
-      return (
-        <div className={cn("text-xs", item.outcome === "failed" ? "text-destructive" : "text-muted-foreground")}>
-          agent {item.name} {item.outcome}
-          {item.detail && `: ${item.detail}`}
-        </div>
-      )
-    case "turn":
-      return (
-        <div className={cn("text-xs", item.outcome === "failed" ? "text-destructive" : "text-muted-foreground")}>
-          turn {item.outcome}
-          {item.detail && ` · ${item.detail}`}
-        </div>
+      ) : (
+        <div className={cn("text-xs", noticeTones[item.tone])}>{item.text}</div>
       )
     case "plan":
       return (
-        <div className="rounded-md border bg-card px-3 py-2 text-sm">
-          <div className="mb-1 text-xs font-medium text-muted-foreground uppercase">Plan</div>
-          <Markdown text={item.markdown} />
+        <div className="flex flex-col gap-2 rounded-md border bg-card px-3 py-2 text-sm">
+          <div className="text-xs font-medium text-muted-foreground uppercase">Plan</div>
+          {item.markdown && <Markdown text={item.markdown} />}
+          {item.taskDeclarations.length > 0 && <TaskTree title="Tasks:" nodes={item.taskDeclarations.map(fromDeclaration)} />}
         </div>
       )
     case "print":
@@ -70,7 +57,13 @@ function TimelineEntry({ item }: { item: TimelineItem }) {
   }
 }
 
-export function Timeline({ items, subagentIds }: { items: TimelineItem[]; subagentIds: ReadonlySet<string> }) {
+interface TimelineProps {
+  items: TimelineItem[]
+  agents: ReadonlyMap<string, AgentInfo>
+  taskProgress: ReadonlyMap<string, AgentTaskProgressSnapshot>
+}
+
+export function Timeline({ items, agents, taskProgress }: TimelineProps) {
   const scrollerRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
 
@@ -89,14 +82,17 @@ export function Timeline({ items, subagentIds }: { items: TimelineItem[]; subage
       }}
     >
       <div className="mx-auto flex max-w-4xl flex-col gap-2 px-4 py-4">
-        {items.map((item, index) => (
-          <div
-            key={index}
-            className={cn("flex flex-col", "agentSessionId" in item && subagentIds.has(item.agentSessionId) && "border-l pl-4")}
-          >
-            <TimelineEntry item={item} />
-          </div>
-        ))}
+        {items.map((item, index) => {
+          const agent = "agentSessionId" in item ? agents.get(item.agentSessionId) : undefined
+          const depth = "agentSessionId" in item ? agentDepth(agents, item.agentSessionId) : 0
+          return (
+            // Nested under its agent, as the terminal CLI indents a subagent's activity.
+            <div key={index} className={cn("flex flex-col gap-1", depth > 0 && "border-l pl-3", depthIndents[Math.min(depth, 4)])}>
+              {agent && <Badge variant="outline">{agent.name}</Badge>}
+              <TimelineEntry item={item} taskProgress={taskProgress} />
+            </div>
+          )
+        })}
       </div>
     </div>
   )
