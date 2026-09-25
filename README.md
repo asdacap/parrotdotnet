@@ -994,13 +994,9 @@ to the service but does not weaken the per-user-session ownership checks.
 ```sh
 parrot web                 # http://127.0.0.1:7420
 parrot web --port 8080     # any port; 0 picks a free one
-parrot web --token-file ~/.config/parrot/web.token   # reuse a 0600 token
 ```
 
-It binds loopback only and prints the URL to open, which carries a bearer token
-in its fragment (`/#token=...`). Without `--token-file`, the token is new for
-each run. Pages are public; every call needs the token. The fragment never
-reaches the server in a request, and a cross-site page cannot read it.
+It binds loopback only, prints the URL to open, and requires no authentication.
 
 The browser talks to the same `parrot.proto` service as the CLIs, over
 gRPC-Web. Slash commands run the CLI's own implementations on the server; their

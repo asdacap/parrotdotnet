@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -14,7 +13,7 @@ using GeneratedParrot = Parrot.Protocol.Parrot;
 namespace Parrot.Cli.Web;
 
 // Hosts the browser UI and both gRPC services, as gRPC-Web, on one loopback
-// HTTP/1.1 port. Pages are public; every call needs the bearer token.
+// HTTP/1.1 port.
 internal sealed class WebServer(WebApplication application) : IAsyncDisposable
 {
     public IReadOnlyList<string> Addresses =>
@@ -25,7 +24,6 @@ internal sealed class WebServer(WebApplication application) : IAsyncDisposable
         GeneratedParrot.ParrotBase service,
         ParrotWeb.ParrotWebBase webService,
         int port,
-        TransportToken token,
         CancellationToken cancellationToken)
     {
         var builder = WebApplication.CreateSlimBuilder();
@@ -41,16 +39,6 @@ internal sealed class WebServer(WebApplication application) : IAsyncDisposable
         _ = builder.Services.AddSingleton(webService);
 
         var application = builder.Build();
-        _ = application.Use(async (context, next) =>
-        {
-            if (!HttpMethods.IsGet(context.Request.Method) && !Authenticate(context, token))
-            {
-                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                return;
-            }
-
-            await next(context).ConfigureAwait(false);
-        });
         _ = application.UseGrpcWeb(new GrpcWebOptions { DefaultEnabled = true });
         _ = application.MapGrpcService<GeneratedParrot.ParrotBase>();
         _ = application.MapGrpcService<ParrotWeb.ParrotWebBase>();
@@ -76,12 +64,4 @@ internal sealed class WebServer(WebApplication application) : IAsyncDisposable
     }
 
     public ValueTask DisposeAsync() => application.DisposeAsync();
-
-    private static bool Authenticate(HttpContext context, TransportToken token)
-    {
-        var authorization = context.Request.Headers.Authorization.ToString();
-        const string prefix = "Bearer ";
-        return authorization.StartsWith(prefix, StringComparison.Ordinal)
-            && token.Matches(authorization[prefix.Length..]);
-    }
 }

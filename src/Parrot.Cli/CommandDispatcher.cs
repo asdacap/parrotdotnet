@@ -55,8 +55,7 @@ internal sealed class CommandDispatcher(
                                       A session, or one prompt if text is given
           chat --connect <address>    Connect through unix:/path, http, or https
           serve [--listen <address>]  Host on the owner-only default Unix socket
-          web [--port <n>] [--token-file <path>]
-                                      Serve the browser UI on 127.0.0.1:<n>
+          web [--port <n>]            Serve the browser UI on 127.0.0.1:<n>
 
         TCP listen/connect requires --token-file <owner-only-file>. Plaintext
         non-loopback listen also requires --unsafe-allow-external.
@@ -449,7 +448,6 @@ internal sealed class CommandDispatcher(
         CancellationToken cancellationToken)
     {
         var port = DefaultWebPort;
-        var tokenFile = string.Empty;
 
         for (var index = 1; index < arguments.Count; index++)
         {
@@ -461,27 +459,11 @@ internal sealed class CommandDispatcher(
                     index++;
                     break;
 
-                case "--token-file" when index + 1 < arguments.Count:
-                    tokenFile = arguments[++index];
-                    break;
-
                 default:
-                    await error.WriteLineAsync("usage: parrot web [--port <n>] [--token-file <path>]".AsMemory(), cancellationToken)
+                    await error.WriteLineAsync("usage: parrot web [--port <n>]".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
                     return ExitUsage;
             }
-        }
-
-        TransportToken token;
-        try
-        {
-            token = tokenFile.Length > 0 ? TransportToken.Load(tokenFile) : TransportToken.Generate();
-        }
-        catch (InvalidOperationException failure)
-        {
-            await error.WriteLineAsync($"parrot: {failure.Message}".AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
-            return ExitUsage;
         }
 
         var configuration = await LoadConfiguration(cancellationToken).ConfigureAwait(false);
@@ -513,10 +495,10 @@ internal sealed class CommandDispatcher(
             diagnostics.Global);
         try
         {
-            await using var server = await WebServer.Start(composition.Service, slashService, port, token, cancellationToken)
+            await using var server = await WebServer.Start(composition.Service, slashService, port, cancellationToken)
                 .ConfigureAwait(false);
             await output.WriteLineAsync(
-                $"parrot web on {server.Addresses.Single()}/#token={token.Bearer} (ctrl-c to stop)".AsMemory(), cancellationToken)
+                $"parrot web on {server.Addresses.Single()} (ctrl-c to stop)".AsMemory(), cancellationToken)
                 .ConfigureAwait(false);
             return await server.Run(applicationExit.Token).ConfigureAwait(false);
         }
