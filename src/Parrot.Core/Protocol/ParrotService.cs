@@ -404,6 +404,10 @@ internal sealed class ParrotService(
             {
                 throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
             }
+            catch (SessionAdmissionException failure)
+            {
+                throw new RpcException(new Status(StatusCode.FailedPrecondition, failure.Message));
+            }
 
             userSessionId = created.Id;
             return UserSessionMapping.Map(created, false);

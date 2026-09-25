@@ -213,6 +213,7 @@ internal sealed class GrpcServer : IAsyncDisposable
         {
             options.MaxReceiveMessageSize = GrpcTransportLimits.MessageBytes;
             options.MaxSendMessageSize = GrpcTransportLimits.MessageBytes;
+            options.Interceptors.Add<UnhandledFailureInterceptor>(diagnostics);
         });
         _ = builder.Services.AddSingleton(service);
 

@@ -495,7 +495,7 @@ internal sealed class CommandDispatcher(
             diagnostics.Global);
         try
         {
-            await using var server = await WebServer.Start(composition.Service, slashService, port, cancellationToken)
+            await using var server = await WebServer.Start(composition.Service, slashService, port, diagnostics.Global, cancellationToken)
                 .ConfigureAwait(false);
             await output.WriteLineAsync(
                 $"parrot web on {server.Addresses.Single()} (ctrl-c to stop)".AsMemory(), cancellationToken)

@@ -87,6 +87,11 @@ internal sealed class WebSlashService(
             await registry.Dispatch(text, cancellationToken).ConfigureAwait(false);
             frames.Complete();
         }
+        catch (Exception failure) when (failure is not RpcException and not OperationCanceledException)
+        {
+            _ = frames.TryWrite(new SlashFrame { Error = new SlashError { Message = failure.Message } });
+            frames.Complete();
+        }
         catch (Exception failure)
         {
             frames.Complete(failure);

@@ -67,7 +67,8 @@ internal sealed class WebSlashDialog(ChannelWriter<SlashFrame> frames) : ISlashD
         }
         finally
         {
-            await frames.WriteAsync(new SlashFrame { Loaded = new SlashLoaded() }, cancellationToken).ConfigureAwait(false);
+            // Unbounded, so this never waits; a cancelled token must not mask the load's own failure.
+            _ = frames.TryWrite(new SlashFrame { Loaded = new SlashLoaded() });
         }
     }
 

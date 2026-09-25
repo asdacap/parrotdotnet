@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Parrot.Diagnostics;
 using Parrot.Web.Protocol;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
@@ -24,6 +25,7 @@ internal sealed class WebServer(WebApplication application) : IAsyncDisposable
         GeneratedParrot.ParrotBase service,
         ParrotWeb.ParrotWebBase webService,
         int port,
+        IDiagnosticLog diagnostics,
         CancellationToken cancellationToken)
     {
         var builder = WebApplication.CreateSlimBuilder();
@@ -34,6 +36,7 @@ internal sealed class WebServer(WebApplication application) : IAsyncDisposable
         {
             options.MaxReceiveMessageSize = GrpcTransportLimits.MessageBytes;
             options.MaxSendMessageSize = GrpcTransportLimits.MessageBytes;
+            options.Interceptors.Add<UnhandledFailureInterceptor>(diagnostics);
         });
         _ = builder.Services.AddSingleton(service);
         _ = builder.Services.AddSingleton(webService);
