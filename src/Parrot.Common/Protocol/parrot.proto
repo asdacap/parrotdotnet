@@ -720,9 +720,11 @@ message PendingChildQuestionReminderInjected {}
 
 message ExitReminderChanged {
   oneof state {
-    string reminder = 1;
+    string description = 1;
     bool cleared = 2;
   }
+  // Empty on events recorded before reminders had titles.
+  string title = 3;
 }
 
 // Transient notification that the retained assistant response and a durable

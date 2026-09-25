@@ -1745,15 +1745,20 @@ internal sealed class ConfigurationTests : IDisposable
 
         var definitions = Load(path).ToolDefinitions.Definitions;
 
-        _ = await Assert.That(definitions.Count).IsEqualTo(27);
+        _ = await Assert.That(definitions.Count).IsEqualTo(28);
         _ = await Assert.That(definitions).ContainsKey("set_exit_reminder");
+        _ = await Assert.That(definitions).ContainsKey("clear_exit_reminder");
         using var compactContext = JsonDocument.Parse(definitions["compact_context"].ParametersJson);
         _ = await Assert.That(compactContext.RootElement.GetProperty("type").GetString()).IsEqualTo("object");
         _ = await Assert.That(compactContext.RootElement.GetProperty("additionalProperties").GetBoolean()).IsFalse();
         using var exitReminder = JsonDocument.Parse(definitions["set_exit_reminder"].ParametersJson);
         _ = await Assert.That(exitReminder.RootElement.GetProperty("additionalProperties").GetBoolean()).IsFalse();
-        _ = await Assert.That(exitReminder.RootElement.GetProperty("properties").GetProperty("reminder").GetProperty("type").GetString()).IsEqualTo("string");
-        _ = await Assert.That(exitReminder.RootElement.GetProperty("properties").GetProperty("reminder").GetProperty("nullable").GetBoolean()).IsTrue();
+        _ = await Assert.That(exitReminder.RootElement.GetProperty("required").EnumerateArray().Select(required => required.GetString() ?? string.Empty))
+            .IsEquivalentTo(["title", "description"]);
+        using var clearExitReminder = JsonDocument.Parse(definitions["clear_exit_reminder"].ParametersJson);
+        _ = await Assert.That(clearExitReminder.RootElement.GetProperty("additionalProperties").GetBoolean()).IsFalse();
+        _ = await Assert.That(clearExitReminder.RootElement.GetProperty("required").EnumerateArray().Select(required => required.GetString() ?? string.Empty))
+            .IsEquivalentTo(["title"]);
         _ = await Assert.That(definitions["question"].Description)
             .StartsWith("Ask ordered questions");
         using var question = JsonDocument.Parse(definitions["question"].ParametersJson);

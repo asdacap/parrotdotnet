@@ -300,6 +300,12 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<IExitReminder>(out var reminder);
                 return new SetExitReminderToolFactory(reminder, arguments.PromptTemplates, arguments.ToolDefinitions);
             })
+            .Bind<ClearExitReminderToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                ctx.Inject<IExitReminder>(out var reminder);
+                return new ClearExitReminderToolFactory(reminder, arguments.PromptTemplates, arguments.ToolDefinitions);
+            })
             .Bind<AgentSendToolFactory>().As(Lifetime.Scoped).To<AgentSendToolFactory>()
             .Bind<AgentInterruptToolFactory>().As(Lifetime.Scoped).To(ctx =>
             {
@@ -361,6 +367,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<RunAgentTasksToolFactory>(out var runAgentTasks);
                 ctx.Inject<SetCheckpointToolFactory>(out var setCheckpoint);
                 ctx.Inject<SetExitReminderToolFactory>(out var setExitReminder);
+                ctx.Inject<ClearExitReminderToolFactory>(out var clearExitReminder);
                 ctx.Inject<AgentSendToolFactory>(out var agentSend);
                 ctx.Inject<AgentInterruptToolFactory>(out var agentInterrupt);
                 ctx.Inject<AgentStatusToolFactory>(out var agentStatus);
@@ -390,6 +397,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                     runAgentTasks,
                     setCheckpoint,
                     setExitReminder,
+                    clearExitReminder,
                     agentSend,
                     agentInterrupt,
                     agentStatus,

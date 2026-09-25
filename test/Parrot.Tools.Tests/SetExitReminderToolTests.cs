@@ -10,77 +10,44 @@ namespace Parrot.Core.Tests;
 internal sealed class SetExitReminderToolTests
 {
     [Test]
-    public async Task Reminder_values_are_set_replaced_or_cleared()
+    public async Task Reminders_are_set_replaced_cleared_and_block_exit_until_all_are_cleared()
     {
         using var database = SessionDatabase.Open(":memory:");
         var repository = new EventRepository(database);
         using var broker = new EventBroker();
         var reminder = new ExitReminder(repository, broker, TestModels.PromptTemplates, "agent");
-        ITool tool = new SetExitReminderTool(reminder, TestModels.PromptTemplates);
+        ITool set = new SetExitReminderTool(reminder, TestModels.PromptTemplates);
+        ITool clear = new ClearExitReminderTool(reminder, TestModels.PromptTemplates);
         var provider = new UnusedProvider();
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
         var selection = new AgentTurnSelection(new ModelSelector(model.Selector), TestModels.Resolve(model), new TestProfileFixture().Mode, SecurityProfile.Compose(readOnly: false, [], [], []));
-        var cases = new (string Json, string? Expected, string Output)[]
+        const string First = "Exit reminders are set. You cannot finish until every one is cleared with clear_exit_reminder:\n";
+        var steps = new (ITool? Tool, string? Json, string? Output, string? ExpectedBuild)[]
         {
-            ("{\"reminder\":\"alpha\"}", "alpha", "Exit reminder set: alpha"),
-            ("{\"reminder\":\"beta\"}", "beta", "Exit reminder set: beta"),
-            ("{\"reminder\":\"  first\\n{second}  \"}", "  first\n{second}  ", "Exit reminder set:   first\n{second}  "),
-            ("{\"reminder\":\" \"}", " ", "Exit reminder set:  "),
-            ("{\"reminder\":\"\"}", null, "Exit reminder cleared."),
-            ("{\"reminder\":null}", null, "Exit reminder cleared."),
-            ("{}", null, "Exit reminder cleared."),
-            ("{\"reminder\":\"alpha\"}", "alpha", "Exit reminder set: alpha"),
-            ("{\"reminder\":\"null\"}", null, "Exit reminder cleared."),
-            ("{\"reminder\":\"beta\"}", "beta", "Exit reminder set: beta"),
-            ("{\"reminder\":\"undefined\"}", null, "Exit reminder cleared."),
-            ("{\"reminder\":\"check null or undefined\"}", "check null or undefined", "Exit reminder set: check null or undefined"),
+            (null, null, null, null),
+            (set, "{\"title\":\"tests\",\"description\":\"run tests\"}", "Exit reminder set: tests: run tests", First + "- tests: run tests"),
+            (null, null, null, "This is the 2nd exit reminder. Remaining exit reminders:\n- tests: run tests"),
+            (set, "{\"title\":\"docs\",\"description\":\"  update {docs}  \"}", "Exit reminder set: docs:   update {docs}  ", First + "- tests: run tests\n- docs:   update {docs}  "),
+            (set, "{\"title\":\"tests\",\"description\":\"run all tests\"}", "Exit reminder set: tests: run all tests", First + "- tests: run all tests\n- docs:   update {docs}  "),
+            (null, null, null, "This is the 2nd exit reminder. Remaining exit reminders:\n- tests: run all tests\n- docs:   update {docs}  "),
+            (clear, "{\"title\":\"missing\"}", "error: No exit reminder titled missing. Active titles: tests, docs", "This is the 3rd exit reminder. Remaining exit reminders:\n- tests: run all tests\n- docs:   update {docs}  "),
+            (clear, "{\"title\":\"tests\"}", "Exit reminder cleared: tests", First + "- docs:   update {docs}  "),
+            (clear, "{\"title\":\"docs\"}", "Exit reminder cleared: docs", null),
+            (clear, "{\"title\":\"docs\"}", "error: No exit reminder titled docs. Active titles: ", null),
         };
 
-        foreach (var testCase in cases)
+        foreach (var (tool, json, output, expectedBuild) in steps)
         {
-            var (json, expected, output) = testCase;
-            var result = await tool.Execute(new ToolInvocation("call", json), selection, CancellationToken.None);
-            _ = await Assert.That(result.Text).IsEqualTo(output);
-            _ = await Assert.That(repository.LatestExitReminder("agent")).IsEqualTo(expected);
-        }
-    }
-
-    [Test]
-    public async Task Repeated_injections_count_up_and_reset_on_change_or_clear()
-    {
-        using var database = SessionDatabase.Open(":memory:");
-        var repository = new EventRepository(database);
-        using var broker = new EventBroker();
-        var reminder = new ExitReminder(repository, broker, TestModels.PromptTemplates, "agent");
-        var steps = new (string? Set, bool Clear, string? ExpectedBuild)[]
-        {
-            (null, false, null),
-            ("X", false, "An exit reminder was set: X"),
-            (null, false, "This is the 2nd exit reminder: X"),
-            (null, false, "This is the 3rd exit reminder: X"),
-            ("Y", false, "An exit reminder was set: Y"),
-            (null, false, "This is the 2nd exit reminder: Y"),
-            (null, true, null),
-            ("Z", false, "An exit reminder was set: Z"),
-            ("null", false, null),
-            ("Z", false, "An exit reminder was set: Z"),
-            ("undefined", false, null),
-            ("Z", false, "An exit reminder was set: Z"),
-        };
-
-        foreach (var (set, clear, expectedBuild) in steps)
-        {
-            if (set is not null)
+            if (tool is not null && json is not null)
             {
-                await reminder.Set(set, CancellationToken.None);
-            }
-            else if (clear)
-            {
-                await reminder.Set(null, CancellationToken.None);
+                var result = await tool.Execute(new ToolInvocation("call", json), selection, CancellationToken.None);
+                _ = await Assert.That(result.Text).IsEqualTo(output);
             }
 
             _ = await Assert.That(reminder.Build()).IsEqualTo(expectedBuild);
         }
+
+        _ = await Assert.That(repository.ExitReminders("agent")).IsEmpty();
     }
 
     [Test]
@@ -90,17 +57,31 @@ internal sealed class SetExitReminderToolTests
         var repository = new EventRepository(database);
         using var broker = new EventBroker();
         var reminder = new ExitReminder(repository, broker, TestModels.PromptTemplates, "agent");
-        ITool tool = new SetExitReminderTool(reminder, TestModels.PromptTemplates);
+        ITool set = new SetExitReminderTool(reminder, TestModels.PromptTemplates);
+        ITool clear = new ClearExitReminderTool(reminder, TestModels.PromptTemplates);
         var provider = new UnusedProvider();
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
         var selection = new AgentTurnSelection(new ModelSelector(model.Selector), TestModels.Resolve(model), new TestProfileFixture().Mode, SecurityProfile.Compose(readOnly: false, [], [], []));
+        var cases = new (ITool Tool, string Json)[]
+        {
+            (set, "null"),
+            (set, "{}"),
+            (set, "{\"title\":\"tests\"}"),
+            (set, "{\"title\":\"\",\"description\":\"run tests\"}"),
+            (set, "{\"title\":\"tests\",\"description\":1}"),
+            (set, "{\"title\":\"tests\",\"description\":\"run tests\",\"extra\":true}"),
+            (clear, "null"),
+            (clear, "{\"title\":\"\"}"),
+            (clear, "{\"title\":1}"),
+            (clear, "{\"title\":\"tests\",\"extra\":true}"),
+        };
 
-        var nullResult = await tool.Execute(new ToolInvocation("null", "null"), selection, CancellationToken.None);
-        var nonString = await tool.Execute(new ToolInvocation("number", "{\"reminder\":1}"), selection, CancellationToken.None);
-        var unexpected = await tool.Execute(new ToolInvocation("extra", "{\"extra\":true}"), selection, CancellationToken.None);
+        foreach (var (tool, json) in cases)
+        {
+            var result = await tool.Execute(new ToolInvocation("call", json), selection, CancellationToken.None);
+            _ = await Assert.That(result.Text).StartsWith("error:");
+        }
 
-        _ = await Assert.That(nullResult.Text).DoesNotStartWith("error:");
-        _ = await Assert.That(nonString.Text).StartsWith("error:");
-        _ = await Assert.That(unexpected.Text).StartsWith("error:");
+        _ = await Assert.That(reminder.Build()).IsNull();
     }
 }

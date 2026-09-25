@@ -491,8 +491,8 @@ internal sealed class BasicCliTests
     }
 
     [Test]
-    [Arguments("finish the port", "↻ Exit reminder set: finish the port")]
-    [Arguments(null, "↻ Exit reminder cleared")]
+    [Arguments("finish the port", "↻ Exit reminder set: port: finish the port")]
+    [Arguments(null, "↻ Exit reminder cleared: port")]
     public async Task Exit_reminder_changes_render_as_their_own_notification(
         string? reminder,
         string expected,
@@ -507,8 +507,8 @@ internal sealed class BasicCliTests
             {
                 Id = "goal",
                 ExitReminderChanged = reminder is null
-                    ? new ExitReminderChanged { Cleared = true }
-                    : new ExitReminderChanged { Reminder = reminder },
+                    ? new ExitReminderChanged { Title = "port", Cleared = true }
+                    : new ExitReminderChanged { Title = "port", Description = reminder },
             },
             cancellationToken);
         await stream.WriteAsync(

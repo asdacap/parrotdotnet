@@ -550,9 +550,9 @@ internal sealed class RawActivityView(
     }
 
     private static string ExitReminderNotice(ExitReminderChanged changed) =>
-        changed.StateCase == ExitReminderChanged.StateOneofCase.Reminder
-            ? $"Exit reminder set: {TerminalText.Sanitize(changed.Reminder)}"
-            : "Exit reminder cleared";
+        changed.StateCase == ExitReminderChanged.StateOneofCase.Description
+            ? $"Exit reminder set: {TerminalText.Sanitize(changed.Title)}: {TerminalText.Sanitize(changed.Description)}"
+            : $"Exit reminder cleared: {TerminalText.Sanitize(changed.Title)}";
 
     private static string ProcessKey(string inventoryInstanceId, string processId) =>
         string.Concat(inventoryInstanceId, "\n", processId);

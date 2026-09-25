@@ -26,6 +26,7 @@ internal sealed partial class EventRepository : IEventRepository
     private const long ConversationProjectionVersion = 1;
     private const string AgentHistoryProjection = "agent-history";
     private const long AgentHistoryProjectionVersion = 1;
+    private const string LegacyExitReminderTitle = "reminder";
     private const string ImageArtifactSelect =
         "SELECT artifact.artifact_id, content.sha256, content.media_type, content.byte_length, content.width, content.height, content.frame_count, content.aggregate_pixels, artifact.display_name, artifact.origin FROM image_artifact AS artifact JOIN image_content AS content ON content.sha256 = artifact.sha256";
 
@@ -468,15 +469,16 @@ internal sealed partial class EventRepository : IEventRepository
         }
     }
 
-    public string? LatestExitReminder(string agentSessionId)
+    public IReadOnlyList<ExitReminderEntry> ExitReminders(string agentSessionId)
     {
         lock (_database.Gate)
         {
             using var read = _database.Connection.CreateCommand();
             read.CommandText =
-                "SELECT payload FROM event WHERE agent_session = $session ORDER BY sequence DESC;";
+                "SELECT payload FROM event WHERE agent_session = $session ORDER BY sequence;";
             _ = read.Parameters.AddWithValue("$session", agentSessionId);
 
+            var reminders = new List<ExitReminderEntry>();
             using var reader = read.ExecuteReader();
             while (reader.Read())
             {
@@ -486,22 +488,26 @@ internal sealed partial class EventRepository : IEventRepository
                     continue;
                 }
 
-                return published.ExitReminderChanged.StateCase == ExitReminderChanged.StateOneofCase.Reminder
-                    ? published.ExitReminderChanged.Reminder
-                    : null;
+                var changed = published.ExitReminderChanged;
+                var title = changed.Title is { Length: > 0 } ? changed.Title : LegacyExitReminderTitle;
+                _ = reminders.RemoveAll(reminder => reminder.Title == title);
+                if (changed.StateCase == ExitReminderChanged.StateOneofCase.Description)
+                {
+                    reminders.Add(new ExitReminderEntry(title, changed.Description));
+                }
             }
 
-            return null;
+            return reminders;
         }
     }
 
-    public void AppendExitReminderChanged(Event published, string? reminder)
+    public void AppendExitReminderChanged(Event published, string title, string? description)
     {
         ArgumentNullException.ThrowIfNull(published);
-        var normalized = reminder is { Length: > 0 } ? reminder : null;
-        published.ExitReminderChanged = normalized is null
-            ? new ExitReminderChanged { Cleared = true }
-            : new ExitReminderChanged { Reminder = normalized };
+        ArgumentException.ThrowIfNullOrEmpty(title);
+        published.ExitReminderChanged = description is { Length: > 0 }
+            ? new ExitReminderChanged { Title = title, Description = description }
+            : new ExitReminderChanged { Title = title, Cleared = true };
 
         lock (_database.Gate)
         {

@@ -74,9 +74,9 @@ internal interface IEventRepository
 
     AgentStatistics? LatestStatistics(string agentSessionId);
 
-    string? LatestExitReminder(string agentSessionId);
+    IReadOnlyList<ExitReminderEntry> ExitReminders(string agentSessionId);
 
-    void AppendExitReminderChanged(Event published, string? reminder);
+    void AppendExitReminderChanged(Event published, string title, string? description);
 
     void AppendExitReminder(Event published, string assistantContent, string renderedReminder);
 
