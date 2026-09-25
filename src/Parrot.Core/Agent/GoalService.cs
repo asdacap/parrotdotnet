@@ -8,12 +8,14 @@ internal sealed class GoalService(
     IAgentSession session,
     IPromptTemplateCatalog promptTemplates) : IGoalService
 {
+    private const string GoalTitle = "goal";
+
     public async Task SetGoal(string goal, CancellationToken cancellationToken)
     {
         var reminder = promptTemplates.Render(
             "goal.root-reminder",
             [new PromptTemplateArgument("goal", goal)]);
-        await session.SetExitReminder(reminder, cancellationToken).ConfigureAwait(false);
+        await session.SetExitReminder(GoalTitle, reminder, cancellationToken).ConfigureAwait(false);
         var notice = promptTemplates.Render(
             "goal.root-reminder-notice",
             [new PromptTemplateArgument("reminder", reminder)]);
@@ -26,5 +28,5 @@ internal sealed class GoalService(
     }
 
     public Task ClearGoal(CancellationToken cancellationToken) =>
-        session.SetExitReminder(null, cancellationToken);
+        session.ClearExitReminder(GoalTitle, cancellationToken);
 }

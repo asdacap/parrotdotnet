@@ -1559,11 +1559,14 @@ context estimate, percentage or unavailable window, 5% notification interval,
 and automatic trigger. Wizard commands ignore text after the command name because
 the wizard asks for the complete selection. `/goal <text>` and the two model-preset
 commands consume their arguments directly. `/goal <text>` stores a persistent
-reminder on the root session using the exact wrapped text
-`User set goal is {goal}. Clear exit reminder if end condition met.` (with `{goal}`
+exit reminder titled `goal` on the root session using the exact wrapped text
+`User set goal is {goal}. Clear exit reminder "goal" if end condition met.` (with `{goal}`
 replaced by the supplied text), sends one templated steering notice, and shows a
-set confirmation. A bare `/goal` clears that reminder without steering and shows
-a distinct clear confirmation. Escape or Ctrl-C dismisses an enhanced wizard
+set confirmation. A bare `/goal` clears only the `goal` reminder without steering and shows
+a distinct clear confirmation. Agents may hold several exit reminders, each with a
+title and description: `set_exit_reminder` sets or replaces one by title,
+`clear_exit_reminder` clears one by title, and the agent cannot finish a turn
+until every exit reminder is cleared. Escape or Ctrl-C dismisses an enhanced wizard
 without applying partial changes.
 
 The basic CLI prints choices and reads them as lines. The enhanced CLI replaces

@@ -34,12 +34,12 @@ internal sealed class EnhancedTurnRendererTests
                 new Event
                 {
                     Id = "exit-reminder-set",
-                    ExitReminderChanged = new ExitReminderChanged { Reminder = "finish the port\u001b[2J" },
+                    ExitReminderChanged = new ExitReminderChanged { Title = "port\u001b[2J", Description = "finish the port\u001b[2J" },
                 },
                 new Event
                 {
                     Id = "exit-reminder-cleared",
-                    ExitReminderChanged = new ExitReminderChanged { Cleared = true },
+                    ExitReminderChanged = new ExitReminderChanged { Title = "port", Cleared = true },
                 },
                 new Event
                 {
@@ -140,9 +140,9 @@ internal sealed class EnhancedTurnRendererTests
         _ = await Assert.That(output).DoesNotContain("  ↻ Active work reminder injected");
         _ = await Assert.That(output).Contains("↻ Context reminder injected (27% context used)");
         _ = await Assert.That(output).DoesNotContain("  ↻ Context reminder injected");
-        _ = await Assert.That(output).Contains("↻ Exit reminder set: finish the port[2J");
+        _ = await Assert.That(output).Contains("↻ Exit reminder set: port[2J: finish the port[2J");
         _ = await Assert.That(output).DoesNotContain("  ↻ Exit reminder set:");
-        _ = await Assert.That(output).Contains("↻ Exit reminder cleared");
+        _ = await Assert.That(output).Contains("↻ Exit reminder cleared: port");
         _ = await Assert.That(output).DoesNotContain("  ↻ Exit reminder cleared");
         _ = await Assert.That(output).Contains("↻ Final provider request prompt injected");
         _ = await Assert.That(output).DoesNotContain("  ↻ Final provider request prompt injected");

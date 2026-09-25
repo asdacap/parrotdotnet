@@ -348,9 +348,9 @@ internal sealed class BasicCli(
     }
 
     private static string ExitReminderNotice(ExitReminderChanged changed) =>
-        changed.StateCase == ExitReminderChanged.StateOneofCase.Reminder
-            ? $"Exit reminder set: {changed.Reminder}"
-            : "Exit reminder cleared";
+        changed.StateCase == ExitReminderChanged.StateOneofCase.Description
+            ? $"Exit reminder set: {changed.Title}: {changed.Description}"
+            : $"Exit reminder cleared: {changed.Title}";
 
     private static string Summarise(TurnEnded ended) =>
         $"turn ended ({ended.FinishReason}, {ended.InputTokens} total in / {ended.OutputTokens} total out)";

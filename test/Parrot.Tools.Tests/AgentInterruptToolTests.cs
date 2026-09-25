@@ -189,7 +189,10 @@ internal sealed class AgentInterruptToolTests
             IncomingActivity reason,
             CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task SetExitReminder(string? reminder, CancellationToken cancellationToken) =>
+        public Task SetExitReminder(string title, string description, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<bool> ClearExitReminder(string title, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public Task<AgentSendResult> SendTextMessage(string message, CancellationToken cancellationToken) => throw new NotSupportedException();

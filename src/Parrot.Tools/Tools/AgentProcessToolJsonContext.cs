@@ -8,4 +8,5 @@ namespace Parrot.Tools;
 [JsonSerializable(typeof(AgentSpawnTool.Input), TypeInfoPropertyName = "AgentSpawnToolInput")]
 [JsonSerializable(typeof(SetCheckpointTool.Input), TypeInfoPropertyName = "SetCheckpointToolInput")]
 [JsonSerializable(typeof(SetExitReminderTool.Input), TypeInfoPropertyName = "SetExitReminderToolInput")]
+[JsonSerializable(typeof(ClearExitReminderTool.Input), TypeInfoPropertyName = "ClearExitReminderToolInput")]
 internal sealed partial class AgentProcessToolJsonContext : JsonSerializerContext;

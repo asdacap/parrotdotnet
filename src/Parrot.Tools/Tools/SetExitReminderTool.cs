@@ -19,12 +19,18 @@ internal sealed class SetExitReminderTool(IExitReminder reminder, IPromptTemplat
             var input = JsonSerializer.Deserialize(
                 invocation.ArgumentsJson,
                 AgentProcessToolJsonContext.Default.SetExitReminderToolInput);
-            await reminder.Set(input?.Reminder, cancellationToken).ConfigureAwait(false);
-            var response = input?.Reminder is null or "" or "null" or "undefined"
-                ? promptTemplates.Render("set-exit-reminder-tool.cleared", [])
-                : promptTemplates.Render(
-                    "set-exit-reminder-tool.set",
-                    [new PromptTemplateArgument("reminder", input.Reminder)]);
+            if (input is not { Title.Length: > 0, Description.Length: > 0 })
+            {
+                return ToolResultFormatter.Error(invocation, "set_exit_reminder requires a nonempty title and description.");
+            }
+
+            await reminder.Set(input.Title, input.Description, cancellationToken).ConfigureAwait(false);
+            var response = promptTemplates.Render(
+                "set-exit-reminder-tool.set",
+                [
+                    new PromptTemplateArgument("title", input.Title),
+                    new PromptTemplateArgument("description", input.Description),
+                ]);
             return ToolResultFormatter.Text(invocation, response);
         }
         catch (Exception failure) when (failure is JsonException or FormatException or ArgumentException or Store.InputConflictException)
@@ -35,7 +41,10 @@ internal sealed class SetExitReminderTool(IExitReminder reminder, IPromptTemplat
 
     internal sealed class Input
     {
-        [JsonPropertyName("reminder")]
-        public string? Reminder { get; init; }
+        [JsonPropertyName("title")]
+        public string? Title { get; init; }
+
+        [JsonPropertyName("description")]
+        public string? Description { get; init; }
     }
 }

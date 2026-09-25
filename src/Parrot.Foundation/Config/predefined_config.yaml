@@ -277,13 +277,16 @@ prompt_templates:
     required_arguments: [run_id, status, outcome]
   agent-session.exit-reminder:
     template: |-
-      An exit reminder was set: {reminder}
-    allowed_arguments: [reminder]
-    required_arguments: [reminder]
+      Exit reminders are set. You cannot finish until every one is cleared with clear_exit_reminder:
+      {reminders}
+    allowed_arguments: [reminders]
+    required_arguments: [reminders]
   agent-session.exit-reminder-nth:
-    template: 'This is the {ordinal} exit reminder: {reminder}'
-    allowed_arguments: [reminder, ordinal]
-    required_arguments: [reminder, ordinal]
+    template: |-
+      This is the {ordinal} exit reminder. Remaining exit reminders:
+      {reminders}
+    allowed_arguments: [reminders, ordinal]
+    required_arguments: [reminders, ordinal]
   agent-session.context-reminder:
     template: 'Context usage entered the {percentage}% notification band ({estimated_tokens} estimated tokens / {context_limit} configured limit). Notifications occur every {notification_interval}%; automatic compaction triggers strictly above {trigger}%.'
     allowed_arguments: [percentage, estimated_tokens, context_limit, notification_interval, trigger]
@@ -317,21 +320,25 @@ prompt_templates:
     allowed_arguments: [estimated_tokens, context_limit, notification_interval, trigger, trigger_tokens]
     required_arguments: [estimated_tokens, context_limit, notification_interval, trigger_tokens]
   goal.root-reminder:
-    template: 'User set goal is {goal}. Clear exit reminder if end condition met.'
+    template: 'User set goal is {goal}. Clear exit reminder "goal" if end condition met.'
     allowed_arguments: [goal]
     required_arguments: [goal]
   goal.root-reminder-notice:
     template: 'A new exit reminder was set: {reminder}'
     allowed_arguments: [reminder]
     required_arguments: [reminder]
-  set-exit-reminder-tool.cleared:
-    template: Exit reminder cleared.
-    allowed_arguments: []
-    required_arguments: []
   set-exit-reminder-tool.set:
-    template: 'Exit reminder set: {reminder}'
-    allowed_arguments: [reminder]
-    required_arguments: [reminder]
+    template: 'Exit reminder set: {title}: {description}'
+    allowed_arguments: [title, description]
+    required_arguments: [title, description]
+  clear-exit-reminder-tool.cleared:
+    template: 'Exit reminder cleared: {title}'
+    allowed_arguments: [title]
+    required_arguments: [title]
+  clear-exit-reminder-tool.not-found:
+    template: 'No exit reminder titled {title}. Active titles: {titles}'
+    allowed_arguments: [title, titles]
+    required_arguments: [title, titles]
   agent-send-tool.description-without-parent:
     template: Send a message to a direct child or to a descendant in this sender's own descendant tree. Descendants use
       relative, slash-separated friendly-name paths such as child/grandchild; paths only travel downward. Sending to the
@@ -1450,14 +1457,33 @@ tools:
       - title
       additionalProperties: false
   set_exit_reminder:
-    description: Set or clear the reminder injected before this agent finishes a turn.
+    description: Set or replace a titled reminder injected before this agent finishes a turn. The agent cannot finish until every exit reminder is cleared with clear_exit_reminder.
     parameters:
       type: object
       properties:
-        reminder:
+        title:
           type: string
-          nullable: true
-          description: Reminder text; omit, use null, or use an empty string to clear the reminder.
+          minLength: 1
+          description: Unique title of the reminder; setting an existing title replaces its description.
+        description:
+          type: string
+          minLength: 1
+          description: Reminder text, including the condition for clearing it.
+      required:
+      - title
+      - description
+      additionalProperties: false
+  clear_exit_reminder:
+    description: Clear the exit reminder with the given title once its condition is met.
+    parameters:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          description: Title of the exit reminder to clear.
+      required:
+      - title
       additionalProperties: false
   status:
     description: Query current runtime status without adding it to the system prompt.
