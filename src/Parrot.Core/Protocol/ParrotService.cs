@@ -953,7 +953,8 @@ internal sealed class ParrotService(
 
         var found = Find(request.UserSessionId);
 
-        await foreach (var published in found.Listen(context.CancellationToken).ConfigureAwait(false))
+        var replayAfterEventId = request.Replay ? request.ReplayAfterEventId : null;
+        await foreach (var published in found.Listen(replayAfterEventId, context.CancellationToken).ConfigureAwait(false))
         {
             await responseStream.WriteAsync(published, context.CancellationToken).ConfigureAwait(false);
         }

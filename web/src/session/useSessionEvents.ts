@@ -18,15 +18,23 @@ export function useSessionEvents(userSessionId: string) {
 
   useEffect(() => {
     const abort = new AbortController()
+    // The first connection replays the whole transcript; a reconnection replays only what came after the last event seen.
+    const seenEventIds = new Set<string>()
+    let lastEventId = ""
     void (async () => {
       let retryMilliseconds = initialRetryMilliseconds
       while (!abort.signal.aborted) {
         try {
-          const stream = parrot.listen({ userSessionId }, { signal: abort.signal })
+          const stream = parrot.listen({ userSessionId, replay: true, replayAfterEventId: lastEventId }, { signal: abort.signal })
           setPermissionRevision((revision) => revision + 1)
           for await (const event of stream) {
             setConnected(true)
             retryMilliseconds = initialRetryMilliseconds
+            if (event.id) {
+              if (seenEventIds.has(event.id)) continue
+              seenEventIds.add(event.id)
+              lastEventId = event.id
+            }
             dispatch({ type: "event", event })
             if (event.payload.case === "permissionPending") setPermissionRevision((revision) => revision + 1)
           }

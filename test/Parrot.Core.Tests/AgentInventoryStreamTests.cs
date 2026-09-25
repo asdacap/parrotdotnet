@@ -120,7 +120,7 @@ internal sealed class AgentInventoryStreamTests
         await root.ChildRegistry.DisposeChildren();
         _ = await Assert.That(root.ChildRegistry.TryAdd(rejected)).IsFalse();
 
-        await using var listener = session.Listen(timeout.Token).GetAsyncEnumerator(timeout.Token);
+        await using var listener = session.Listen(null, timeout.Token).GetAsyncEnumerator(timeout.Token);
         _ = await Assert.That(await listener.MoveNextAsync()).IsTrue();
         _ = await Assert.That(listener.Current.PayloadCase).IsEqualTo(Event.PayloadOneofCase.QueueSnapshot);
         var initialRevision = listener.Current.QueueSnapshot.Revision;
@@ -147,7 +147,7 @@ internal sealed class AgentInventoryStreamTests
             }
         }
 
-        await using var reconnected = session.Listen(timeout.Token).GetAsyncEnumerator(timeout.Token);
+        await using var reconnected = session.Listen(null, timeout.Token).GetAsyncEnumerator(timeout.Token);
         _ = await Assert.That(await reconnected.MoveNextAsync()).IsTrue();
         _ = await Assert.That(reconnected.Current.QueueSnapshot).IsEqualTo(latest);
     }
@@ -182,7 +182,7 @@ internal sealed class AgentInventoryStreamTests
             _ = await earlyChild.GetService<IAgentQueues>().Push("child-queue", ["item"], QueueDirection.Back, false, timeout.Token);
         }
 
-        await using var listener = session.Listen(timeout.Token).GetAsyncEnumerator(timeout.Token);
+        await using var listener = session.Listen(null, timeout.Token).GetAsyncEnumerator(timeout.Token);
         var initial = await ReadInitial(listener);
         _ = await Assert.That(initial.Where(item => item.QueueSnapshot is not null)
             .Select(item => item.QueueSnapshot.OwnerAgentSessionId).SequenceEqual([root.Session.SessionId, sibling.Session.SessionId])).IsTrue();
@@ -226,7 +226,7 @@ internal sealed class AgentInventoryStreamTests
         _ = sibling.GetService<IAgentQueues>().Create("after-disconnect", "reconnect");
         _ = await sibling.GetService<IAgentQueues>().Push("after-disconnect", ["item"], QueueDirection.Back, false, timeout.Token);
         using var reconnectCancellation = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
-        await using var reconnected = session.Listen(reconnectCancellation.Token).GetAsyncEnumerator(reconnectCancellation.Token);
+        await using var reconnected = session.Listen(null, reconnectCancellation.Token).GetAsyncEnumerator(reconnectCancellation.Token);
         var refreshed = await ReadInitial(reconnected);
         _ = await Assert.That(refreshed.Where(item => item.QueueSnapshot is not null)
             .Select(item => item.QueueSnapshot.OwnerAgentSessionId).SequenceEqual([root.Session.SessionId, sibling.Session.SessionId, sibling.Session.SessionId])).IsTrue();

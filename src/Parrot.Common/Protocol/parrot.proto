@@ -492,6 +492,10 @@ message ReplyPermissionResponse {}
 
 message ListenRequest {
   string user_session_id = 1;
+  // Replays the persisted events first: all of them, or only those after
+  // replay_after_event_id, so a reconnecting client resumes where it stopped.
+  bool replay                  = 2;
+  string replay_after_event_id = 3;
 }
 
 // Flat, and named by its session.

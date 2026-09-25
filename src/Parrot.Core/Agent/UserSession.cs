@@ -305,11 +305,27 @@ internal sealed class UserSession : IUserSession
     // Indefinite by design. It ends when the caller stops listening, not when
     // a turn finishes -- and it does not wait for an agent session to exist, so
     // a client can subscribe before sending anything.
+    //
+    // Replay runs after subscribing, so an event committed in between arrives
+    // twice and its live copy is dropped by id.
     public async IAsyncEnumerable<Event> Listen(
+        string? replayAfterEventId,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         using var events = _eventBroker.Subscribe();
         var main = Main();
+        var replayed = new HashSet<string>(StringComparer.Ordinal);
+        if (replayAfterEventId is not null)
+        {
+            var persisted = _eventRepository.Replay();
+            var after = persisted.ToList().FindIndex(published => published.Id == replayAfterEventId);
+            foreach (var published in persisted.Skip(after + 1))
+            {
+                _ = replayed.Add(published.Id);
+                yield return published;
+            }
+        }
+
         foreach (var published in Registry.SnapshotScopes().SelectMany(static scope => scope.CaptureSnapshotEvents()))
         {
             yield return published;
@@ -318,7 +334,10 @@ internal sealed class UserSession : IUserSession
         yield return new Event { SessionUsageSnapshot = _eventRepository.GetRuntimeStatistics().CaptureUsage(main) };
         await foreach (var published in events.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
-            yield return published;
+            if (!replayed.Remove(published.Id))
+            {
+                yield return published;
+            }
         }
     }
 

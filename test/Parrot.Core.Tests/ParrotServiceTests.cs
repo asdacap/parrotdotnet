@@ -1189,6 +1189,29 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    public async Task Listener_replays_persisted_events_before_the_current_inventory(CancellationToken cancellationToken)
+    {
+        await using var service = Service(Store());
+        var context = new InProcessServerCallContext(cancellationToken);
+        var session = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
+        _ = await service.SendMessage(
+            new SendMessageRequest { UserSessionId = session.Id, Text = "first", MessageId = "msg-first", Delivery = Delivery.Steer }, context);
+        _ = await service.SendMessage(
+            new SendMessageRequest { UserSessionId = session.Id, Text = "second", MessageId = "msg-second", Delivery = Delivery.Steer }, context);
+
+        var all = await ReplayedInputs(service, new ListenRequest { UserSessionId = session.Id, Replay = true }, cancellationToken);
+        var after = await ReplayedInputs(
+            service,
+            new ListenRequest { UserSessionId = session.Id, Replay = true, ReplayAfterEventId = all[0].Id },
+            cancellationToken);
+        var none = await ReplayedInputs(service, new ListenRequest { UserSessionId = session.Id }, cancellationToken);
+
+        _ = await Assert.That(all.Select(published => published.InputAdmitted.MessageId)).IsEquivalentTo(["msg-first", "msg-second"]);
+        _ = await Assert.That(after.Select(published => published.InputAdmitted.MessageId)).IsEquivalentTo(["msg-second"]);
+        _ = await Assert.That(none).IsEmpty();
+    }
+
+    [Test]
     public async Task Shutdown_completes_an_existing_listener(CancellationToken cancellationToken)
     {
         var store = Store();
@@ -1279,6 +1302,35 @@ internal sealed class ParrotServiceTests : IDisposable
         var refused = await Assert.That(async () => await service.CreateSession(
             new CreateSessionRequest { Model = Selection }, context)).Throws<RpcException>();
         _ = await Assert.That(refused?.StatusCode).IsEqualTo(StatusCode.Unavailable);
+    }
+
+    // Everything before the usage snapshot is replayed; the listener is then stopped.
+    private static async Task<List<Event>> ReplayedInputs(
+        ParrotService service, ListenRequest request, CancellationToken cancellationToken)
+    {
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var stream = new ChannelStreamWriter<Event>();
+        var listening = service.Listen(request, stream, new InProcessServerCallContext(stop.Token));
+        var inputs = new List<Event>();
+        while (await stream.Reader.MoveNext(cancellationToken)
+            && stream.Reader.Current.PayloadCase != Event.PayloadOneofCase.SessionUsageSnapshot)
+        {
+            if (stream.Reader.Current.PayloadCase == Event.PayloadOneofCase.InputAdmitted)
+            {
+                inputs.Add(stream.Reader.Current);
+            }
+        }
+
+        await stop.CancelAsync();
+        try
+        {
+            await listening;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        return inputs;
     }
 
     private static async Task WaitForPermission(

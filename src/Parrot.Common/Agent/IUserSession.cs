@@ -49,8 +49,11 @@ internal interface IUserSession : IAsyncDisposable
     /// <summary>Updates the foreground model and mode without replacing its agent session.</summary>
     void Update(ResolvedModelSelection? model, IMode? mode);
 
-    /// <summary>Streams current inventory and subsequent events until cancelled or the session closes.</summary>
-    IAsyncEnumerable<Event> Listen(CancellationToken cancellationToken);
+    /// <summary>
+    /// Streams current inventory and subsequent events until cancelled or the session closes. A non-null
+    /// <paramref name="replayAfterEventId"/> first replays the persisted events after that one, or all of them when empty.
+    /// </summary>
+    IAsyncEnumerable<Event> Listen(string? replayAfterEventId, CancellationToken cancellationToken);
 
     /// <summary>Durably admits text for the foreground agent without waiting for its turn to finish.</summary>
     Task<Admission> SendText(string prompt, string messageId, Delivery delivery, CancellationToken cancellationToken);

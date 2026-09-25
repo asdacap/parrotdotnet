@@ -367,7 +367,7 @@ internal sealed class StatusDrainTests : IDisposable
         Parrot.Agent.IUserSession session,
         CancellationToken cancellationToken)
     {
-        await foreach (var published in session.Listen(cancellationToken).ConfigureAwait(false))
+        await foreach (var published in session.Listen(null, cancellationToken).ConfigureAwait(false))
         {
             if (published.PayloadCase == Event.PayloadOneofCase.StatusInjected)
             {
