@@ -294,7 +294,9 @@ function reduceItems(state: TimelineState, event: Event): TimelineState {
         ? notice(
             state,
             event,
-            payload.value.state.case === "reminder" ? `↻ Exit reminder set: ${payload.value.state.value}` : "↻ Exit reminder cleared",
+            payload.value.state.case === "description"
+              ? `↻ Exit reminder set: ${payload.value.title}: ${payload.value.state.value}`
+              : `↻ Exit reminder cleared: ${payload.value.title}`,
           )
         : state
     case "exitReminderInjected":
