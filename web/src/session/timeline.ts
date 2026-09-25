@@ -1,4 +1,4 @@
-import type { Event, SessionUsageSnapshot } from "@/gen/parrot_pb"
+import type { Event, PlanCompleted, SessionUsageSnapshot } from "@/gen/parrot_pb"
 
 export type ToolStatus = "running" | "finished" | "cancelled" | "error"
 
@@ -17,6 +17,7 @@ export type TimelineItem =
     }
   | { kind: "agent"; agentSessionId: string; name: string; outcome: "started" | "finished" | "failed"; detail: string }
   | { kind: "turn"; agentSessionId: string; outcome: "started" | "ended" | "failed"; detail: string }
+  | { kind: "plan"; agentSessionId: string; markdown: string }
   | { kind: "print"; lines: string[] }
   | { kind: "error"; message: string }
 
@@ -27,14 +28,23 @@ export interface TimelineState {
   subagentIds: ReadonlySet<string>
   busy: boolean
   usage: SessionUsageSnapshot | undefined
+  // The main agent's plan still waiting for the user's decision; any later input settles it.
+  pendingPlan: PlanCompleted | undefined
 }
 
 export type TimelineAction =
   | { type: "event"; event: Event }
   | { type: "print"; lines: string[] }
   | { type: "error"; message: string }
+  | { type: "planSettled" }
 
-export const emptyTimeline: TimelineState = { items: [], subagentIds: new Set(), busy: false, usage: undefined }
+export const emptyTimeline: TimelineState = {
+  items: [],
+  subagentIds: new Set(),
+  busy: false,
+  usage: undefined,
+  pendingPlan: undefined,
+}
 
 function appendStreamed(state: TimelineState, event: Event, kind: "assistant" | "reasoning", fragment: string): TimelineState {
   const lastIndex = state.items.findLastIndex(
@@ -80,7 +90,15 @@ function reduceEvent(state: TimelineState, event: Event): TimelineState {
   const payload = event.payload
   switch (payload.case) {
     case "inputAdmitted":
-      return append(state, { kind: "user", agentSessionId, text: payload.value.content })
+      return append(
+        { ...state, pendingPlan: isRoot ? undefined : state.pendingPlan },
+        { kind: "user", agentSessionId, text: payload.value.content },
+      )
+    case "planCompleted":
+      return append(
+        { ...state, pendingPlan: isRoot && payload.value.dialog ? payload.value : state.pendingPlan },
+        { kind: "plan", agentSessionId, markdown: payload.value.markdown },
+      )
     case "textChunk":
       return appendStreamed(state, event, "assistant", payload.value.fragment)
     case "reasoningChunk":
@@ -114,7 +132,7 @@ function reduceEvent(state: TimelineState, event: Event): TimelineState {
       })
     case "turnStarted":
       return append(
-        { ...state, busy: state.busy || isRoot },
+        { ...state, busy: state.busy || isRoot, pendingPlan: isRoot ? undefined : state.pendingPlan },
         { kind: "turn", agentSessionId, outcome: "started", detail: payload.value.model },
       )
     case "turnEnded":
@@ -142,5 +160,7 @@ export function reduceTimeline(state: TimelineState, action: TimelineAction): Ti
       return append(state, { kind: "print", lines: action.lines })
     case "error":
       return append(state, { kind: "error", message: action.message })
+    case "planSettled":
+      return { ...state, pendingPlan: undefined }
   }
 }

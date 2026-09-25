@@ -88,6 +88,22 @@ internal sealed class WebSlashService(
             : throw new RpcException(new Status(StatusCode.NotFound, "the slash prompt is not waiting for an answer"));
     }
 
+    public override async Task<AttachmentUploadResponse> UploadAttachment(
+        UploadAttachmentRequest request, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+        await using var content = new MemoryStream(request.Content.ToByteArray(), writable: false);
+        var artifact = await PromptAttachmentUploader.Send(
+            router.For(request.UserSessionId),
+            request.UserSessionId,
+            content,
+            request.DisplayName,
+            request.MediaType,
+            context.CancellationToken).ConfigureAwait(false);
+        return new AttachmentUploadResponse { Artifact = artifact };
+    }
+
     private static async Task Dispatch(
         SlashCommandRegistry registry, string text, ChannelWriter<SlashFrame> frames, CancellationToken cancellationToken)
     {

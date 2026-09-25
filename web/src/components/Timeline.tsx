@@ -56,6 +56,13 @@ function TimelineEntry({ item }: { item: TimelineItem }) {
           {item.detail && ` · ${item.detail}`}
         </div>
       )
+    case "plan":
+      return (
+        <div className="rounded-md border bg-card px-3 py-2 text-sm">
+          <div className="mb-1 text-xs font-medium text-muted-foreground uppercase">Plan</div>
+          <Markdown text={item.markdown} />
+        </div>
+      )
     case "print":
       return <pre className="font-mono text-xs whitespace-pre-wrap">{item.lines.join("\n")}</pre>
     case "error":

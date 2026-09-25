@@ -15,6 +15,7 @@ service ParrotWeb {
   rpc ListSlashCommands(ListSlashCommandsRequest) returns (ListSlashCommandsResponse);
   rpc RunSlashCommand(RunSlashCommandRequest) returns (stream SlashFrame);
   rpc AnswerSlashPrompt(AnswerSlashPromptRequest) returns (AnswerSlashPromptResponse);
+  rpc UploadAttachment(UploadAttachmentRequest) returns (parrot.v1.AttachmentUploadResponse);
 }
 
 message DescribeHostRequest {}
@@ -121,3 +122,12 @@ message AnswerSlashPromptRequest {
 }
 
 message AnswerSlashPromptResponse {}
+
+// The whole image in one message: gRPC-Web cannot stream a request, so the
+// host streams it on to the session.
+message UploadAttachmentRequest {
+  string user_session_id = 1;
+  string display_name    = 2;
+  string media_type      = 3;
+  bytes content          = 4;
+}

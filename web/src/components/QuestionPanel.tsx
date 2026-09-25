@@ -1,4 +1,4 @@
-import { ConnectError } from "@connectrpc/connect"
+import { Code, ConnectError } from "@connectrpc/connect"
 import { useEffect, useState } from "react"
 
 import type { PendingQuestion } from "@/gen/parrot_pb"
@@ -15,6 +15,14 @@ interface QuestionPanelProps {
 
 export function QuestionPanel({ userSessionId, onFailure }: QuestionPanelProps) {
   const [pendingQuestions, setPendingQuestions] = useState<PendingQuestion[]>([])
+  // The countdown runs down locally between polls, from the time the last poll answered.
+  const [polledAt, setPolledAt] = useState(0)
+  const [now, setNow] = useState(0)
+
+  useEffect(() => {
+    const timer = setInterval(() => { setNow(Date.now()) }, 1000)
+    return () => { clearInterval(timer) }
+  }, [])
 
   useEffect(() => {
     let polling = false
@@ -23,14 +31,26 @@ export function QuestionPanel({ userSessionId, onFailure }: QuestionPanelProps) 
       polling = true
       parrot
         .listPendingQuestions({ userSessionId })
-        .then((response) => { setPendingQuestions(response.questions) }, () => undefined)
+        .then(
+          (response) => {
+            setPendingQuestions(response.questions)
+            setPolledAt(Date.now())
+          },
+          () => undefined,
+        )
         .finally(() => { polling = false })
     }, pollMilliseconds)
     return () => { clearInterval(timer) }
   }, [userSessionId])
 
   return pendingQuestions.map((pending) => (
-    <PendingQuestionCard key={pending.id} userSessionId={userSessionId} pending={pending} onFailure={onFailure} />
+    <PendingQuestionCard
+      key={pending.id}
+      userSessionId={userSessionId}
+      pending={pending}
+      elapsedMilliseconds={Math.max(0, now - polledAt)}
+      onFailure={onFailure}
+    />
   ))
 }
 
@@ -39,7 +59,17 @@ interface Draft {
   custom: string
 }
 
-function PendingQuestionCard({ userSessionId, pending, onFailure }: QuestionPanelProps & { pending: PendingQuestion }) {
+function formatCountdown(milliseconds: number) {
+  const seconds = Math.max(0, Math.ceil(milliseconds / 1000))
+  return `Auto-return in ${String(Math.floor(seconds / 60))}:${String(seconds % 60).padStart(2, "0")}`
+}
+
+function PendingQuestionCard({
+  userSessionId,
+  pending,
+  elapsedMilliseconds,
+  onFailure,
+}: QuestionPanelProps & { pending: PendingQuestion; elapsedMilliseconds: number }) {
   const [drafts, setDrafts] = useState<Draft[]>(() => pending.questions.map(() => ({ selected: [], custom: "" })))
   const [submitting, setSubmitting] = useState(false)
 
@@ -52,13 +82,14 @@ function PendingQuestionCard({ userSessionId, pending, onFailure }: QuestionPane
     try {
       await send()
     } catch (error) {
-      onFailure(ConnectError.from(error).message)
+      // Not found: already answered elsewhere or timed out, and the next poll removes it.
+      const failure = ConnectError.from(error)
+      if (failure.code !== Code.NotFound) onFailure(failure.message)
       setSubmitting(false)
     }
   }
 
   const answers = drafts.map((draft) => [...draft.selected, draft.custom.trim()].filter(Boolean).join(", "))
-  const remainingSeconds = pending.remainingTimeoutMs === undefined ? undefined : Math.ceil(Number(pending.remainingTimeoutMs) / 1000)
 
   return (
     <section className="mx-auto flex w-full max-w-4xl flex-col gap-3 px-4 pb-3">
@@ -74,8 +105,8 @@ function PendingQuestionCard({ userSessionId, pending, onFailure }: QuestionPane
                   <Button
                     key={option.label}
                     size="sm"
+                    className="h-auto flex-col items-start"
                     variant={chosen ? "default" : "outline"}
-                    title={option.description}
                     onClick={() => {
                       updateDraft(questionIndex, (draft) => ({
                         ...draft,
@@ -85,7 +116,8 @@ function PendingQuestionCard({ userSessionId, pending, onFailure }: QuestionPane
                       }))
                     }}
                   >
-                    {option.label}
+                    <span>{option.label}</span>
+                    {option.description && <span className="text-xs font-normal whitespace-normal opacity-70">{option.description}</span>}
                   </Button>
                 )
               })}
@@ -100,7 +132,11 @@ function PendingQuestionCard({ userSessionId, pending, onFailure }: QuestionPane
           </div>
         ))}
         <div className="flex items-center gap-2">
-          {remainingSeconds !== undefined && <span className="text-xs text-muted-foreground">{remainingSeconds}s left</span>}
+          {pending.remainingTimeoutMs !== undefined && (
+            <span className="text-xs text-muted-foreground">
+              {formatCountdown(Number(pending.remainingTimeoutMs) - elapsedMilliseconds)}
+            </span>
+          )}
           <Button
             className="ml-auto"
             variant="outline"

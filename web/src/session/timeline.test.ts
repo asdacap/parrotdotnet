@@ -18,7 +18,7 @@ function replay(events: [agentSessionId: string, payload: Payload][]): TimelineS
 }
 
 describe("reduceTimeline", () => {
-  it.each<[string, [string, Payload][], Partial<TimelineState>]>([
+  it.each<[string, [string, Payload][], object]>([
     [
       "concatenates streamed text until another item from the same agent intervenes",
       [
@@ -87,6 +87,23 @@ describe("reduceTimeline", () => {
         [root, { case: "turnEnded", value: { finishReason: "stop" } }],
       ],
       { busy: false },
+    ],
+    [
+      "keeps the main agent's plan pending until later input, ignoring a subagent's plan",
+      [
+        [child, { case: "agentStarted", value: { parentAgentSessionId: root, name: "helper" } }],
+        [root, { case: "planCompleted", value: { markdown: "# Plan", dialog: { prompt: "Proceed?" } } }],
+        [child, { case: "planCompleted", value: { markdown: "# Child", dialog: { prompt: "Child?" } } }],
+      ],
+      { pendingPlan: { markdown: "# Plan" } },
+    ],
+    [
+      "settles a pending plan once the main agent admits new input",
+      [
+        [root, { case: "planCompleted", value: { markdown: "# Plan", dialog: { prompt: "Proceed?" } } }],
+        [root, { case: "inputAdmitted", value: { content: "go" } }],
+      ],
+      { pendingPlan: undefined },
     ],
   ])("%s", (_name, events, expected) => {
     expect(replay(events)).toMatchObject(expected)

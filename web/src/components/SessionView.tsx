@@ -5,13 +5,14 @@ import { useEffect, useState } from "react"
 import { Delivery, type UserSession } from "@/gen/parrot_pb"
 import { Composer } from "@/components/Composer"
 import { PermissionDialog } from "@/components/PermissionDialog"
+import { PlanCompletionDialog } from "@/components/PlanCompletionDialog"
 import { QuestionPanel } from "@/components/QuestionPanel"
 import { SlashDialogHost } from "@/components/SlashDialogHost"
 import { StatusBar } from "@/components/StatusBar"
 import { Timeline } from "@/components/Timeline"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { describeHost, parrot } from "@/rpc/client"
+import { describeHost, parrot, parrotWeb } from "@/rpc/client"
 import { useSessionEvents } from "@/session/useSessionEvents"
 import { useSlashRunner } from "@/slash/useSlashRunner"
 
@@ -33,6 +34,17 @@ export function SessionView({ userSessionId }: { userSessionId: string }) {
     openSession(userSessionId).then(setSession, (error: unknown) => { setFailure(ConnectError.from(error).message) })
   }, [userSessionId])
 
+  async function cycleMode() {
+    if (!session) return
+    try {
+      const { modes } = await parrot.listModes({})
+      const next = modes[(modes.findIndex((mode) => mode.id === session.mode) + 1) % modes.length]
+      if (next) setSession(await parrot.updateSession({ userSessionId: session.id, mode: next.id }))
+    } catch (error) {
+      setFailure(ConnectError.from(error).message)
+    }
+  }
+
   return (
     <div className="flex h-dvh flex-col">
       <header className="flex items-center gap-3 border-b px-4 py-2 text-sm">
@@ -43,10 +55,14 @@ export function SessionView({ userSessionId }: { userSessionId: string }) {
         </Button>
         <span className="truncate font-mono">{userSessionId}</span>
         {session && <Badge variant="secondary">{session.model || "default model"}</Badge>}
-        {session?.mode && <Badge variant="outline">{session.mode}</Badge>}
+        {session?.mode && (
+          <Button variant="outline" size="sm" title="Switch mode (Shift+Tab)" onClick={() => void cycleMode()}>
+            {session.mode}
+          </Button>
+        )}
       </header>
       {session ? (
-        <SessionChat userSessionId={session.id} />
+        <SessionChat userSessionId={session.id} onCycleMode={() => void cycleMode()} onSessionChanged={setSession} />
       ) : (
         <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
           {failure ? <span className="text-destructive">{failure}</span> : "Opening session…"}
@@ -56,20 +72,41 @@ export function SessionView({ userSessionId }: { userSessionId: string }) {
   )
 }
 
-function SessionChat({ userSessionId }: { userSessionId: string }) {
-  const { timeline, dispatch, connected, permissionRevision, lost } = useSessionEvents(userSessionId)
+interface SessionChatProps {
+  userSessionId: string
+  onCycleMode: () => void
+  onSessionChanged: (session: UserSession) => void
+}
+
+function SessionChat({ userSessionId, onCycleMode, onSessionChanged }: SessionChatProps) {
+  const { timeline, dispatch, connected, lost } = useSessionEvents(userSessionId)
   const slash = useSlashRunner(userSessionId, timeline.busy, dispatch)
 
   const reportFailure = (message: string) => { dispatch({ type: "error", message }) }
 
-  function send(text: string) {
-    if (text.startsWith("/")) {
+  function send(text: string, images: File[]) {
+    if (images.length === 0 && text.startsWith("/")) {
       slash.submit(text)
       return
     }
-    parrot
-      .sendMessage({ userSessionId, text, messageId: crypto.randomUUID(), delivery: Delivery.STEER })
-      .catch((error: unknown) => { reportFailure(ConnectError.from(error).message) })
+    void (async () => {
+      try {
+        const uploaded = await Promise.all(
+          images.map(async (image) => {
+            const content = new Uint8Array(await image.arrayBuffer())
+            const response = await parrotWeb.uploadAttachment({ userSessionId, displayName: image.name, mediaType: image.type, content })
+            return response.artifact?.artifactId ?? ""
+          }),
+        )
+        const parts = [
+          ...(text ? [{ content: { case: "text" as const, value: text } }] : []),
+          ...uploaded.map((artifactId) => ({ content: { case: "artifactId" as const, value: artifactId } })),
+        ]
+        await parrot.sendMessage({ userSessionId, parts, messageId: crypto.randomUUID(), delivery: Delivery.STEER })
+      } catch (error) {
+        reportFailure(ConnectError.from(error).message)
+      }
+    })()
   }
 
   function interrupt() {
@@ -93,8 +130,17 @@ function SessionChat({ userSessionId }: { userSessionId: string }) {
       )}
       <QuestionPanel userSessionId={userSessionId} onFailure={reportFailure} />
       <SlashDialogHost frame={slash.prompt?.frame} loadingActivity={slash.loadingActivity} onAnswer={(answer) => void slash.answer(answer)} />
-      <PermissionDialog userSessionId={userSessionId} revision={permissionRevision} onFailure={reportFailure} />
-      <Composer busy={timeline.busy} onSend={send} onInterrupt={interrupt} />
+      <PermissionDialog userSessionId={userSessionId} subagentIds={timeline.subagentIds} onFailure={reportFailure} />
+      {!timeline.busy && timeline.pendingPlan?.dialog && (
+        <PlanCompletionDialog
+          userSessionId={userSessionId}
+          dialog={timeline.pendingPlan.dialog}
+          onSettled={() => { dispatch({ type: "planSettled" }) }}
+          onSessionChanged={onSessionChanged}
+          onFailure={reportFailure}
+        />
+      )}
+      <Composer userSessionId={userSessionId} busy={timeline.busy} onSend={send} onInterrupt={interrupt} onCycleMode={onCycleMode} />
       <StatusBar usage={timeline.usage} connected={connected} busy={timeline.busy} />
     </>
   )

@@ -11,8 +11,6 @@ const maximumRetryMilliseconds = 10_000
 export function useSessionEvents(userSessionId: string) {
   const [timeline, dispatch] = useReducer(reduceTimeline, emptyTimeline)
   const [connected, setConnected] = useState(false)
-  // Bumped on (re)connect and on every permission event so the permission list reconciles.
-  const [permissionRevision, setPermissionRevision] = useState(0)
   // Set when the session is no longer hosted anywhere this server can reach; retrying cannot help.
   const [lost, setLost] = useState("")
 
@@ -26,7 +24,6 @@ export function useSessionEvents(userSessionId: string) {
       while (!abort.signal.aborted) {
         try {
           const stream = parrot.listen({ userSessionId, replay: true, replayAfterEventId: lastEventId }, { signal: abort.signal })
-          setPermissionRevision((revision) => revision + 1)
           for await (const event of stream) {
             setConnected(true)
             retryMilliseconds = initialRetryMilliseconds
@@ -36,7 +33,6 @@ export function useSessionEvents(userSessionId: string) {
               lastEventId = event.id
             }
             dispatch({ type: "event", event })
-            if (event.payload.case === "permissionPending") setPermissionRevision((revision) => revision + 1)
           }
         } catch (error) {
           const failure = ConnectError.from(error)
@@ -54,5 +50,5 @@ export function useSessionEvents(userSessionId: string) {
     return () => { abort.abort() }
   }, [userSessionId])
 
-  return { timeline, dispatch, connected, permissionRevision, lost }
+  return { timeline, dispatch, connected, lost }
 }

@@ -14,6 +14,58 @@ internal sealed class PromptAttachmentUploader(ToolWorkspace workspace, ModeRegi
 {
     private const int ChunkBytes = 1024 * 1024;
 
+    // Streams one image to the session as upload frames: header, chunks, then its description.
+    public static async Task<ArtifactReference> Send(
+        GeneratedParrot.ParrotClient client,
+        string userSessionId,
+        Stream source,
+        string displayName,
+        string mediaType,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(source);
+        using var call = client.UploadAttachment(cancellationToken: cancellationToken);
+        await call.RequestStream.WriteAsync(
+            new AttachmentUploadFrame
+            {
+                Header = new AttachmentUploadHeader
+                {
+                    UserSessionId = userSessionId,
+                    UploadId = Guid.CreateVersion7().ToString("n", System.Globalization.CultureInfo.InvariantCulture),
+                },
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        var buffer = GC.AllocateUninitializedArray<byte>(ChunkBytes);
+        long byteLength = 0;
+        int read;
+        while ((read = await source.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            byteLength += read;
+            await call.RequestStream.WriteAsync(
+                new AttachmentUploadFrame
+                {
+                    Chunk = ByteString.CopyFrom(buffer, 0, read),
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        await call.RequestStream.WriteAsync(
+            new AttachmentUploadFrame
+            {
+                Description = new AttachmentUploadDescription
+                {
+                    DisplayName = displayName,
+                    MediaType = mediaType,
+                    ByteLength = byteLength,
+                },
+            },
+            cancellationToken).ConfigureAwait(false);
+        await call.RequestStream.CompleteAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
+        return (await call.ResponseAsync.ConfigureAwait(false)).Artifact;
+    }
+
     public async Task<SendMessageRequest?> Prepare(
         GeneratedParrot.ParrotClient client,
         string userSessionId,
@@ -88,44 +140,6 @@ internal sealed class PromptAttachmentUploader(ToolWorkspace workspace, ModeRegi
             ?? throw new InvalidDataException("The image format is not supported.");
         var mediaType = MediaType(format);
         source.Position = 0;
-        using var call = client.UploadAttachment(cancellationToken: cancellationToken);
-        await call.RequestStream.WriteAsync(
-            new AttachmentUploadFrame
-            {
-                Header = new AttachmentUploadHeader
-                {
-                    UserSessionId = userSessionId,
-                    UploadId = Guid.CreateVersion7().ToString("n", System.Globalization.CultureInfo.InvariantCulture),
-                },
-            },
-            cancellationToken).ConfigureAwait(false);
-
-        var buffer = GC.AllocateUninitializedArray<byte>(ChunkBytes);
-        long byteLength = 0;
-        int read;
-        while ((read = await source.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false)) > 0)
-        {
-            byteLength += read;
-            await call.RequestStream.WriteAsync(
-                new AttachmentUploadFrame
-                {
-                    Chunk = ByteString.CopyFrom(buffer, 0, read),
-                },
-                cancellationToken).ConfigureAwait(false);
-        }
-
-        await call.RequestStream.WriteAsync(
-            new AttachmentUploadFrame
-            {
-                Description = new AttachmentUploadDescription
-                {
-                    DisplayName = Path.GetFileName(path),
-                    MediaType = mediaType,
-                    ByteLength = byteLength,
-                },
-            },
-            cancellationToken).ConfigureAwait(false);
-        await call.RequestStream.CompleteAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
-        return (await call.ResponseAsync.ConfigureAwait(false)).Artifact;
+        return await Send(client, userSessionId, source, Path.GetFileName(path), mediaType, cancellationToken).ConfigureAwait(false);
     }
 }
