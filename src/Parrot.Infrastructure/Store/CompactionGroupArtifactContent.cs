@@ -9,5 +9,5 @@ internal sealed record CompactionGroupArtifactContent(
     string MediaType)
 {
     public static CompactionGroupArtifactContent From(LLMContent content) =>
-        new(content.Kind.ToString(), content.Text, content.Image, content.MediaType);
+        new(content.Kind.ToString(), content.Text, content.Kind == LLMContentKind.Image ? content.ReadImage() : [], content.MediaType);
 }

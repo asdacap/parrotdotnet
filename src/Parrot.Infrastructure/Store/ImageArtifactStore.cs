@@ -80,7 +80,10 @@ internal sealed class ImageArtifactStore
         File.Delete(path);
     }
 
-    public Stream Open(string artifactId)
+    public Stream Open(string artifactId) =>
+        new FileStream(PathOf(artifactId), FileMode.Open, FileAccess.Read, FileShare.Read);
+
+    public string PathOf(string artifactId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(artifactId);
         if (artifactId.Length != 64 || !artifactId.All(Uri.IsHexDigit))
@@ -89,9 +92,8 @@ internal sealed class ImageArtifactStore
         }
 
         var paths = Directory.EnumerateFiles(_directory, $"{artifactId}.*");
-        var path = paths.SingleOrDefault()
+        return paths.SingleOrDefault()
             ?? throw new FileNotFoundException("The image artifact does not exist.", artifactId);
-        return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
     }
 
     private static async Task<long> Copy(Stream source, string staging, CancellationToken cancellationToken)

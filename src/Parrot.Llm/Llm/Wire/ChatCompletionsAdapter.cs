@@ -230,7 +230,7 @@ internal static class ChatCompletionsAdapter
     }
 
     private static string DataUrl(LLMContent content) =>
-        $"data:{content.MediaType};base64,{Convert.ToBase64String(content.Image)}";
+        $"data:{content.MediaType};base64,{Convert.ToBase64String(content.ReadImage())}";
 
     private static JsonElement WrapSystemUpdate(LLMMessage message) =>
         JsonSerializer.SerializeToElement(

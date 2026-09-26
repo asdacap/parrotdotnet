@@ -7,8 +7,6 @@ using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Security;
 using Parrot.Store;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace Parrot.Core.Tests;
 
@@ -1766,8 +1764,8 @@ internal sealed class CompactorAndContextTests : IDisposable
     [Arguments(5 * 1024 * 1024)]
     public async Task Image_file_size_does_not_trigger_compaction(int byteLength)
     {
-        var image = LLMContent.ImagePart(new byte[byteLength], "image/png");
-        var referenceImage = LLMContent.ImagePart(new byte[4096], "image/png");
+        var image = TestModels.ImageFile(new byte[byteLength], 1, 1);
+        var referenceImage = TestModels.ImageFile(new byte[4096], 1, 1);
         var imageMessage = LLMMessage.User([image]);
         var provider = new ScriptedProvider("SUMMARY");
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_050_000 });
@@ -1784,7 +1782,7 @@ internal sealed class CompactorAndContextTests : IDisposable
     [Test]
     public async Task Compaction_counts_and_preserves_image_content(CancellationToken cancellationToken)
     {
-        var image = LLMContent.ImagePart(new byte[4096], "image/png");
+        var image = TestModels.ImageFile(new byte[4096], 1, 1);
         var history = new List<LLMMessage>
         {
             LLMMessage.User([LLMContent.TextPart("evidence"), image]),
@@ -2241,12 +2239,9 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
-    public async Task Image_context_uses_selected_model_and_preserves_absolute_trigger(CancellationToken cancellationToken)
+    public async Task Image_context_uses_selected_model_and_preserves_absolute_trigger()
     {
-        using var image = new Image<Rgba32>(1200, 1200);
-        using var stream = new MemoryStream();
-        await image.SaveAsPngAsync(stream, cancellationToken);
-        var content = LLMContent.ImagePart(stream.ToArray(), "image/png");
+        var content = TestModels.ImageFile([1], 1200, 1200);
         var history = Enumerable.Range(0, 56).Select(_ => LLMMessage.User([content])).ToArray();
         var provider = new ScriptedProvider("summary") { ImageTokenCalculator = OpenAiImageTokenCalculator.Instance };
         var model = new ProviderModel(provider, new LLMModel("gpt-6-astra", provider.Id) { ContextWindow = 1_050_000 });
@@ -2272,7 +2267,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var provider = new ScriptedProvider(string.Empty) { ImageTokenCalculator = calculator };
         var first = new ProviderModel(provider, new LLMModel("first", provider.Id) { ContextWindow = 1_000 });
         var second = new ProviderModel(provider, new LLMModel("second", provider.Id) { ContextWindow = 2_000 });
-        var image = LLMContent.ImagePart([1], "image/png");
+        var image = TestModels.ImageFile([1], 1, 1);
         IReadOnlyList<LLMMessage> messages = [LLMMessage.User([LLMContent.TextPart("12345"), image])];
 
         _ = await Assert.That(Compactor.EstimateInputTokens(first, "12345", [], messages)).IsEqualTo(1_016L);
@@ -2287,10 +2282,7 @@ internal sealed class CompactorAndContextTests : IDisposable
     [Test]
     public async Task Compaction_uses_provider_image_cost_for_retention_and_summary_chunks(CancellationToken cancellationToken)
     {
-        using var image = new Image<Rgba32>(400, 400);
-        using var stream = new MemoryStream();
-        await image.SaveAsPngAsync(stream, cancellationToken);
-        var content = LLMContent.ImagePart(stream.ToArray(), "image/png");
+        var content = TestModels.ImageFile([1], 400, 400);
         var provider = new ScriptedProvider("summary") { ImageTokenCalculator = OpenAiImageTokenCalculator.Instance };
         var model = new ProviderModel(provider, new LLMModel("gpt-6-astra", provider.Id) { ContextWindow = 10_000 });
         var compactor = new Compactor(90, 5, 600, 100, TestModels.PromptTemplates);

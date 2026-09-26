@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Parrot.Llm.Wire;
 
@@ -47,15 +48,17 @@ internal sealed class OpenAICompatibleProviderSession(
             }
 
             var prepared = ResponsesAdapter.Prepare(prepare(request));
+            var settings = Settings(prepared);
+            var inputHashes = prepared.Input.Select(Hash).ToList();
             var previousResponse = _completedResponse;
             _completedResponse = null;
-            var incrementalRequest = IncrementalRequest.Select(prepared, previousResponse);
+            var incrementalRequest = IncrementalRequest.Select(prepared, settings, inputHashes, previousResponse);
             var recovered = false;
             while (true)
             {
                 AttemptStep recovery;
                 await using (var attempt = new WebSocketAttempt(
-                    prepared, incrementalRequest, GetTurnState, GetConnection, CaptureTurnState, request.Diagnostics))
+                    prepared, settings, inputHashes, incrementalRequest, GetTurnState, GetConnection, CaptureTurnState, request.Diagnostics))
                 {
                     var releasedForRecovery = false;
                     try
@@ -157,6 +160,14 @@ internal sealed class OpenAICompatibleProviderSession(
         published.Kind is LLMEventKind.TextDelta or LLMEventKind.ReasoningDelta
             or LLMEventKind.ToolCallDelta or LLMEventKind.Completed;
 
+    // Settings and items are kept as hashes so no request body, and no Base64 image, outlives its call.
+    private static string Settings(ResponsesAdapter.PreparedRequest prepared) =>
+        Convert.ToHexStringLower(SHA256.HashData(prepared.EncodeWebSocket(string.Empty, [], string.Empty)));
+
+    private static string Hash(ResponsesAdapter.InputItem item) =>
+        Convert.ToHexStringLower(SHA256.HashData(
+            JsonSerializer.SerializeToUtf8Bytes(item, WireJsonContext.Default.ResponsesInputItem)));
+
     private async Task<AttemptStep> Step(
         WebSocketAttempt attempt,
         bool mayRecover,
@@ -170,7 +181,7 @@ internal sealed class OpenAICompatibleProviderSession(
                 attempt.Visible |= IsVisible(published);
                 if (published.Kind == LLMEventKind.Completed)
                 {
-                    StoreCompletion(attempt.Prepared, attempt.Response);
+                    StoreCompletion(attempt);
                 }
 
                 return AttemptStep.Emitting(published);
@@ -221,11 +232,9 @@ internal sealed class OpenAICompatibleProviderSession(
         }
     }
 
-    private void StoreCompletion(
-        ResponsesAdapter.PreparedRequest prepared,
-        ResponsesAdapter.ParseState response) =>
-        _completedResponse = response.FinishReason is "stop" or "tool_calls" && response.ResponseId.Length > 0
-            ? new CompletedResponse(prepared, response.ResponseId, [.. response.Output])
+    private void StoreCompletion(WebSocketAttempt attempt) =>
+        _completedResponse = attempt.Response.FinishReason is "stop" or "tool_calls" && attempt.Response.ResponseId.Length > 0
+            ? new CompletedResponse(attempt.Settings, attempt.Response.ResponseId, [.. attempt.InputHashes, .. attempt.Response.Output.Select(Hash)])
             : null;
 
     private async Task<ResponsesWebSocket> GetConnection(CancellationToken cancellationToken)
@@ -278,6 +287,8 @@ internal sealed class OpenAICompatibleProviderSession(
 
     private sealed class WebSocketAttempt(
         ResponsesAdapter.PreparedRequest prepared,
+        string settings,
+        IReadOnlyList<string> inputHashes,
         IncrementalRequest request,
         Func<string> getTurnState,
         Func<CancellationToken, Task<ResponsesWebSocket>> getConnection,
@@ -288,6 +299,10 @@ internal sealed class OpenAICompatibleProviderSession(
         private bool _disposalStarted;
 
         public ResponsesAdapter.PreparedRequest Prepared { get; } = prepared;
+
+        public string Settings { get; } = settings;
+
+        public IReadOnlyList<string> InputHashes { get; } = inputHashes;
 
         public ResponsesAdapter.ParseState Response { get; } = new() { CaptureTurnState = captureTurnState };
 
@@ -361,9 +376,9 @@ internal sealed class OpenAICompatibleProviderSession(
     }
 
     private sealed record CompletedResponse(
-        ResponsesAdapter.PreparedRequest Request,
+        string Settings,
         string ResponseId,
-        IReadOnlyList<ResponsesAdapter.InputItem> Output);
+        IReadOnlyList<string> Items);
 
     private sealed record IncrementalRequest(
         string PreviousResponseId,
@@ -374,69 +389,14 @@ internal sealed class OpenAICompatibleProviderSession(
 
         public static IncrementalRequest Select(
             ResponsesAdapter.PreparedRequest current,
-            CompletedResponse? previous)
-        {
-            if (previous is null || !SameProperties(current, previous.Request))
-            {
-                return Full(current);
-            }
-
-            var prefixLength = previous.Request.Input.Count + previous.Output.Count;
-            if (current.Input.Count <= prefixLength
-                || !EqualItems(current.Input, 0, previous.Request.Input)
-                || !EqualItems(current.Input, previous.Request.Input.Count, previous.Output))
-            {
-                return Full(current);
-            }
-
-            return new IncrementalRequest(previous.ResponseId, [.. current.Input.Skip(prefixLength)]);
-        }
-
-        private static bool SameProperties(
-            ResponsesAdapter.PreparedRequest current,
-            ResponsesAdapter.PreparedRequest previous)
-        {
-            var currentBody = current.Body;
-            var previousBody = previous.Body;
-            return currentBody.Model == previousBody.Model
-                && currentBody.Instructions == previousBody.Instructions
-                && currentBody.Stream == previousBody.Stream
-                && currentBody.Store == previousBody.Store
-                && currentBody.MaxOutputTokens == previousBody.MaxOutputTokens
-                && JsonEqual(currentBody.Tools, previousBody.Tools, WireJsonContext.Default.ResponsesFunctionTools)
-                && JsonEqual(currentBody.Reasoning, previousBody.Reasoning, WireJsonContext.Default.ResponsesReasoning)
-                && NullableJsonEqual(currentBody.Provider, previousBody.Provider);
-        }
-
-        private static bool EqualItems(
-            IReadOnlyList<ResponsesAdapter.InputItem> candidate,
-            int offset,
-            IReadOnlyList<ResponsesAdapter.InputItem> expected)
-        {
-            if (candidate.Count < offset + expected.Count)
-            {
-                return false;
-            }
-
-            for (var index = 0; index < expected.Count; index++)
-            {
-                if (!JsonEqual(candidate[offset + index], expected[index], WireJsonContext.Default.ResponsesInputItem))
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        private static bool NullableJsonEqual(JsonElement? left, JsonElement? right) =>
-            left.HasValue == right.HasValue
-            && (!left.HasValue || JsonElement.DeepEquals(left.GetValueOrDefault(), right.GetValueOrDefault()));
-
-        private static bool JsonEqual<T>(
-            T left,
-            T right,
-            System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo) =>
-            JsonSerializer.Serialize(left, typeInfo) == JsonSerializer.Serialize(right, typeInfo);
+            string settings,
+            List<string> inputHashes,
+            CompletedResponse? previous) =>
+            previous is null
+                || previous.Settings != settings
+                || inputHashes.Count <= previous.Items.Count
+                || !inputHashes.Take(previous.Items.Count).SequenceEqual(previous.Items)
+                ? Full(current)
+                : new IncrementalRequest(previous.ResponseId, [.. current.Input.Skip(previous.Items.Count)]);
     }
 }

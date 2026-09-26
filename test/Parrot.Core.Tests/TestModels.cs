@@ -143,6 +143,14 @@ internal static class TestModels
             Guid.NewGuid().ToString("N"),
             "scratch")));
 
+    public static LLMContent ImageFile(byte[] bytes, int width, int height)
+    {
+        var directory = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("N")));
+        var path = Path.Combine(directory.FullName, "image.png");
+        File.WriteAllBytes(path, bytes);
+        return LLMContent.ImageFile(path, "image/png", width, height);
+    }
+
     public static AgentQueueTestFixture Queues(AgentIdentity identity) => new(identity);
 
     public static UserSessionResources Resources()

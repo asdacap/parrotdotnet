@@ -580,12 +580,9 @@ internal sealed partial class EventRepository : IEventRepository
 
             var store = _imageStore
                 ?? throw new InvalidOperationException("image artifacts cannot be materialized without session resources");
-            _ = ResolveImageArtifact(part.ArtifactId)
+            var artifact = ResolveImageArtifact(part.ArtifactId)
                 ?? throw new FileNotFoundException("The image artifact does not exist.", part.ArtifactId);
-            using var source = store.Open(part.ArtifactId);
-            using var bytes = new MemoryStream();
-            source.CopyTo(bytes);
-            contents.Add(LLMContent.ImagePart(bytes.ToArray(), part.MediaType));
+            contents.Add(LLMContent.ImageFile(store.PathOf(part.ArtifactId), part.MediaType, artifact.Width, artifact.Height));
         }
 
         return contents;

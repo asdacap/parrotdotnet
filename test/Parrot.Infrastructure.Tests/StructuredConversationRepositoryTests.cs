@@ -582,8 +582,11 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
 
         _ = await Assert.That(string.Join(',', contents.Select(content => content.Kind)))
             .IsEqualTo("Text,Image");
-        _ = await Assert.That(contents[1].Image).IsNotEmpty();
+        _ = await Assert.That(File.Exists(contents[1].ImagePath)).IsTrue();
+        _ = await Assert.That(Convert.ToBase64String(contents[1].ReadImage()))
+            .IsEqualTo("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==");
         _ = await Assert.That(contents[1].MediaType).IsEqualTo("image/png");
+        _ = await Assert.That((contents[1].ImageWidth, contents[1].ImageHeight)).IsEqualTo((1, 1));
     }
 
     private UserSessionResources Resources(string id) => new(

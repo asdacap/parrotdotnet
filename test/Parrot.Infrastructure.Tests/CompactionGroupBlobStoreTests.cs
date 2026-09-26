@@ -24,11 +24,13 @@ internal sealed class CompactionGroupBlobStoreTests : IDisposable
         await File.WriteAllTextAsync(collision, "existing", cancellationToken);
         var names = new Queue<string>(["existing.json", "group.json"]);
         var store = new CompactionGroupBlobStore(_scratch, names.Dequeue);
+        var imagePath = Path.Combine(_root, "image.png");
+        await File.WriteAllBytesAsync(imagePath, Convert.FromHexString("0001ff"), cancellationToken);
         var group = new CompactionGroup(
         [
             LLMMessage.Assistant("ask", [new LLMToolCall("call-1", "first", "{\"a\":1}"), new LLMToolCall("call-2", "second", "raw")]),
             LLMMessage.ToolResult("call-1", "one"),
-            LLMMessage.User([LLMContent.ImagePart([0, 1, 255], "image/png"), LLMContent.TextPart("tail")]),
+            LLMMessage.User([LLMContent.ImageFile(imagePath, "image/png", 1, 1), LLMContent.TextPart("tail")]),
         ],
         3,
         false,

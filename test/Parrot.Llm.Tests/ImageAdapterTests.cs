@@ -12,7 +12,7 @@ internal sealed class ImageAdapterTests
         var request = new LLMRequest
         {
             Model = "model",
-            Messages = [LLMMessage.User([LLMContent.TextPart("before"), LLMContent.ImagePart([0, 1, 2], "image/png"), LLMContent.TextPart("after")])],
+            Messages = [LLMMessage.User([LLMContent.TextPart("before"), Image(), LLMContent.TextPart("after")])],
         };
 
         using var document = JsonDocument.Parse(ResponsesAdapter.Encode(request));
@@ -28,7 +28,7 @@ internal sealed class ImageAdapterTests
         var request = new LLMRequest
         {
             Model = "model",
-            Messages = [LLMMessage.User([LLMContent.TextPart("before"), LLMContent.ImagePart([0, 1, 2], "image/png"), LLMContent.TextPart("after")])],
+            Messages = [LLMMessage.User([LLMContent.TextPart("before"), Image(), LLMContent.TextPart("after")])],
         };
 
         using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request));
@@ -36,5 +36,12 @@ internal sealed class ImageAdapterTests
 
         _ = await Assert.That(content.GetRawText()).IsEqualTo("[{\"type\":\"text\",\"text\":\"before\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,AAEC\"}},{\"type\":\"text\",\"text\":\"after\"}]");
         _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
+    }
+
+    private static LLMContent Image()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"parrot-image-{Guid.NewGuid():n}.png");
+        File.WriteAllBytes(path, Convert.FromHexString("000102"));
+        return LLMContent.ImageFile(path, "image/png", 1, 1);
     }
 }

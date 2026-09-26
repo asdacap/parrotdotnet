@@ -1,8 +1,6 @@
 using Parrot.Auth;
 using Parrot.Config;
 using Parrot.Llm;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace Parrot.Core.Tests;
 
@@ -39,12 +37,9 @@ internal sealed class ImageTokenCalculatorTests
     [Arguments("gpt-4o-mini", 1024, 1024, 25501L)]
     [Arguments("gpt-4.1-mini-unknown", 400, 400, 4096L)]
     [Arguments("gpt-6-astra-special", 400, 400, 4096L)]
-    public async Task Calculates_documented_auto_detail(string model, int width, int height, long expected, CancellationToken cancellationToken)
+    public async Task Calculates_documented_auto_detail(string model, int width, int height, long expected)
     {
-        using var image = new Image<Rgba32>(width, height);
-        using var stream = new MemoryStream();
-        await image.SaveAsPngAsync(stream, cancellationToken);
-        var content = LLMContent.ImagePart(stream.ToArray(), "image/png");
+        var content = LLMContent.ImageFile("unused.png", "image/png", width, height);
         var actual = OpenAiImageTokenCalculator.Instance.CalculateImageTokens(new(model, "openai"), content);
         _ = await Assert.That(actual).IsEqualTo(expected);
     }
@@ -53,9 +48,9 @@ internal sealed class ImageTokenCalculatorTests
     public async Task Invalid_images_and_unknown_providers_retain_fallback()
     {
         var model = new LLMModel("gpt-6-astra", "openai");
-        var invalid = LLMContent.ImagePart([1, 2, 3], "image/png");
+        var invalid = LLMContent.ImageFile("unused.png", "image/png", 0, 0);
         _ = await Assert.That(OpenAiImageTokenCalculator.Instance.CalculateImageTokens(model, invalid)).IsEqualTo(4096L);
-        _ = await Assert.That(OpenAiImageTokenCalculator.Instance.CalculateImageTokens(model, LLMContent.ImagePart([], "image/png"))).IsEqualTo(4096L);
+        _ = await Assert.That(OpenAiImageTokenCalculator.Instance.CalculateImageTokens(model, LLMContent.ImageFile("unused.png", "image/png", 400, 0))).IsEqualTo(4096L);
         ILLMProvider unknown = new UnusedProvider();
         _ = await Assert.That(unknown.CalculateImageTokens(model, invalid)).IsEqualTo(4096L);
     }
@@ -65,11 +60,8 @@ internal sealed class ImageTokenCalculatorTests
     [Arguments("chatgpt", 203L)]
     [Arguments("generic", 4096L)]
     [Arguments("openrouter", 4096L)]
-    public async Task Composition_and_retry_preserve_provider_calculation(string providerId, long expected, CancellationToken cancellationToken)
+    public async Task Composition_and_retry_preserve_provider_calculation(string providerId, long expected)
     {
-        using var image = new Image<Rgba32>(400, 400);
-        using var stream = new MemoryStream();
-        await image.SaveAsPngAsync(stream, cancellationToken);
         using var client = new HttpClient();
         var context = new ProviderBuildContext(
             providerId,
@@ -80,26 +72,8 @@ internal sealed class ImageTokenCalculatorTests
             []);
         var built = ProviderImplementations.Resolve(providerId).Build(context);
         ILLMProvider provider = new RetryingProvider(built.Provider);
-        var content = LLMContent.ImagePart(stream.ToArray(), "image/png");
+        var content = LLMContent.ImageFile("unused.png", "image/png", 400, 400);
         _ = await Assert.That(provider.CalculateImageTokens(new("gpt-6-astra", providerId), content)).IsEqualTo(expected);
-    }
-
-    [Test]
-    public async Task Encoded_size_and_media_type_do_not_change_dimension_cost(CancellationToken cancellationToken)
-    {
-        using var image = new Image<Rgba32>(400, 400);
-        using var png = new MemoryStream();
-        using var jpeg = new MemoryStream();
-        await image.SaveAsPngAsync(png, cancellationToken);
-        await image.SaveAsJpegAsync(jpeg, cancellationToken);
-        var model = new LLMModel("gpt-6-astra", "openai");
-        _ = await Assert.That(png.Length).IsNotEqualTo(jpeg.Length);
-        _ = await Assert.That(OpenAiImageTokenCalculator.Instance.CalculateImageTokens(
-            model,
-            LLMContent.ImagePart(png.ToArray(), "image/png"))).IsEqualTo(203L);
-        _ = await Assert.That(OpenAiImageTokenCalculator.Instance.CalculateImageTokens(
-            model,
-            LLMContent.ImagePart(jpeg.ToArray(), "image/jpeg"))).IsEqualTo(203L);
     }
 
     private sealed class UnusedBrowser : IBrowserOpener

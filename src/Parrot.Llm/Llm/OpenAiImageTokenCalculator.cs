@@ -1,5 +1,3 @@
-using SixLabors.ImageSharp;
-
 namespace Parrot.Llm;
 
 // Auto-detail rules: https://developers.openai.com/api/docs/guides/images-vision (2026-09-12).
@@ -31,28 +29,12 @@ internal sealed class OpenAiImageTokenCalculator : IImageTokenCalculator
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(image);
-        if (!Rules.TryGetValue(model.Id, out var rule) || image.Kind != LLMContentKind.Image || image.Image.Length == 0)
-        {
-            return FallbackImageTokenCalculator.ImageTokens;
-        }
-
-        try
-        {
-            var info = Image.Identify(image.Image);
-            return rule.CalculateTokens(info.Width, info.Height);
-        }
-        catch (UnknownImageFormatException)
-        {
-            return FallbackImageTokenCalculator.ImageTokens;
-        }
-        catch (InvalidImageContentException)
-        {
-            return FallbackImageTokenCalculator.ImageTokens;
-        }
-        catch (NotSupportedException)
-        {
-            return FallbackImageTokenCalculator.ImageTokens;
-        }
+        return !Rules.TryGetValue(model.Id, out var rule)
+            || image.Kind != LLMContentKind.Image
+            || image.ImageWidth <= 0
+            || image.ImageHeight <= 0
+                ? FallbackImageTokenCalculator.ImageTokens
+                : rule.CalculateTokens(image.ImageWidth, image.ImageHeight);
     }
 
     private sealed record ImageTokenRule(int MaximumDimension, int PatchBudget, int MultiplierPercent, int BaseTokens, int TileTokens)
