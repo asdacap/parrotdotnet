@@ -205,8 +205,10 @@ are 16 MiB of original image-file bytes per assistant tool-request batch and
 can override either setting independently.
 
 `read_image` counts each accepted attachment, including repeated reads of the same
-file, before Base64 encoding. The read that would exceed the batch budget fails,
-and all later image reads in that batch also fail, even if smaller. Non-image tools
+file, before Base64 encoding. Image reads in one batch run in parallel, so which
+read is accepted depends on completion order. The first read that would exceed the
+batch budget fails, and every image read that has not been accepted by then also
+fails, even if smaller. Non-image tools
 continue; the agent must retry image reads in a new tool-call cycle, which has a
 fresh budget. Existing per-image size, format, and permission checks still apply.
 

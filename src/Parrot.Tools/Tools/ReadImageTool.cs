@@ -9,6 +9,12 @@ internal sealed class ReadImageTool(ToolWorkspace workspace, IImageArtifactRepos
 {
     public string Name => "read_image";
 
+    public bool IsParallelSafe(ToolInvocation invocation)
+    {
+        ArgumentNullException.ThrowIfNull(invocation);
+        return true;
+    }
+
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
         AgentTurnSelection selection,
