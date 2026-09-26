@@ -217,6 +217,57 @@ internal sealed class ChatGptProviderWebSocketTests
     }
 
     [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Incremental_request_uses_streamed_output_items_when_completed_output_is_empty(
+        bool toolCall,
+        CancellationToken cancellationToken)
+    {
+        var itemDone = toolCall
+            ? """{"type":"response.output_item.done","item":{"type":"function_call","call_id":"call-1","name":"lookup","arguments":"{}"}}"""
+            : """{"type":"response.output_item.done","item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer"}]}}""";
+        const string emptyCompleted =
+            """{"type":"response.completed","response":{"id":"resp-1","usage":{"input_tokens":1,"output_tokens":1},"output":[]}}""";
+        using var socket = new ScriptedWebSocket([
+            itemDone,
+            emptyCompleted,
+            Completed.Replace("resp-1", "resp-2", StringComparison.Ordinal),
+        ]);
+        var connector = new RecordingConnector([socket]);
+        using var handler = new UnexpectedHttpHandler();
+        using var client = new HttpClient(handler, disposeHandler: false);
+        ILLMProvider provider = new ChatGptProvider(new FixedOAuthTokenSource(), client, [], [], [], false, connector);
+        await using var session = provider.OpenSession();
+
+        _ = await Drain(session.Call(new LLMRequest { Model = "gpt-5.6-sol", Messages = [LLMMessage.User("hello")] }, cancellationToken));
+        var continued = new LLMRequest
+        {
+            Model = "gpt-5.6-sol",
+            Messages = toolCall
+                ?
+                [
+                    LLMMessage.User("hello"),
+                    LLMMessage.Assistant(string.Empty, [new LLMToolCall("call-1", "lookup", "{}")]),
+                    LLMMessage.ToolResult("call-1", "result"),
+                ]
+                :
+                [
+                    LLMMessage.User("hello"),
+                    LLMMessage.Assistant("answer", []),
+                    LLMMessage.User("next"),
+                ],
+        };
+        _ = await Drain(session.Call(continued, cancellationToken));
+
+        using var second = JsonDocument.Parse(socket.Sent[1]);
+        var input = second.RootElement.GetProperty("input");
+        _ = await Assert.That(second.RootElement.GetProperty("previous_response_id").GetString()).IsEqualTo("resp-1");
+        _ = await Assert.That(input.GetArrayLength()).IsEqualTo(1);
+        _ = await Assert.That(input[0].GetProperty("type").GetString())
+            .IsEqualTo(toolCall ? "function_call_output" : "message");
+    }
+
+    [Test]
     public async Task Unsupported_upgrade_falls_back_to_http_stickily(CancellationToken cancellationToken)
     {
         var connector = new RecordingConnector([

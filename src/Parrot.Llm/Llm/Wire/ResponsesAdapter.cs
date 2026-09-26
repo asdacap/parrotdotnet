@@ -239,6 +239,11 @@ internal static class ResponsesAdapter
                 var name = isItemDone ? item.Name : ReadString(root, "name");
                 var arguments = isItemDone ? item.Arguments : ReadString(root, "arguments");
 
+                if (isItemDone)
+                {
+                    state.CaptureOutputItem(root);
+                }
+
                 if (isItemDone && item.Type != "function_call")
                 {
                     break;
@@ -577,6 +582,7 @@ internal static class ResponsesAdapter
         private readonly Dictionary<string, string> _aliases = [];
         private readonly List<ToolAccumulator> _toolOrder = [];
         private readonly List<InputItem> _output = [];
+        private readonly List<InputItem> _streamedOutput = [];
         private string _createdResponseId = string.Empty;
         private long? _sequenceNumber;
 
@@ -766,6 +772,16 @@ internal static class ResponsesAdapter
             }
         }
 
+        public void CaptureOutputItem(JsonElement root)
+        {
+            if (root.TryGetProperty("item", out var item)
+                && item.ValueKind == JsonValueKind.Object
+                && OutputItem(item) is { } captured)
+            {
+                _streamedOutput.Add(captured);
+            }
+        }
+
         private static string ReadNestedResponseId(JsonElement root) =>
             root.TryGetProperty("response", out var response) && response.ValueKind == JsonValueKind.Object
                 ? ReadString(response, "id")
@@ -789,6 +805,25 @@ internal static class ResponsesAdapter
             return content;
         }
 
+        private static InputItem? OutputItem(JsonElement item) =>
+            ReadString(item, "type") switch
+            {
+                "function_call" => new InputItem
+                {
+                    Type = "function_call",
+                    CallId = ReadString(item, "call_id"),
+                    Name = ReadString(item, "name"),
+                    Arguments = ReadString(item, "arguments"),
+                },
+                "message" => new InputItem
+                {
+                    Type = "message",
+                    Role = ReadString(item, "role"),
+                    Content = ReadContent(item),
+                },
+                _ => null,
+            };
+
         private void CaptureCompletion(string data)
         {
             using var document = JsonDocument.Parse(data);
@@ -801,29 +836,13 @@ internal static class ResponsesAdapter
             ResponseId = ReadString(response, "id");
             if (response.TryGetProperty("output", out var output) && output.ValueKind == JsonValueKind.Array)
             {
-                foreach (var item in output.EnumerateArray())
-                {
-                    var type = ReadString(item, "type");
-                    if (type == "function_call")
-                    {
-                        _output.Add(new InputItem
-                        {
-                            Type = type,
-                            CallId = ReadString(item, "call_id"),
-                            Name = ReadString(item, "name"),
-                            Arguments = ReadString(item, "arguments"),
-                        });
-                    }
-                    else if (type == "message")
-                    {
-                        _output.Add(new InputItem
-                        {
-                            Type = type,
-                            Role = ReadString(item, "role"),
-                            Content = ReadContent(item),
-                        });
-                    }
-                }
+                _output.AddRange(output.EnumerateArray().Select(OutputItem).OfType<InputItem>());
+            }
+
+            // The ChatGPT backend leaves the terminal output empty; its items arrive only as output_item.done.
+            if (_output.Count == 0)
+            {
+                _output.AddRange(_streamedOutput);
             }
         }
     }
