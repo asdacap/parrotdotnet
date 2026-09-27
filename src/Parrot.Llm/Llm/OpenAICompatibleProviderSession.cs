@@ -18,6 +18,7 @@ internal sealed class OpenAICompatibleProviderSession(
     private string? _turnState;
     private bool _httpOnly = disableWebSocket;
     private bool _disposed;
+    private bool _resetConnection;
 
     private enum Recovery
     {
@@ -26,7 +27,11 @@ internal sealed class OpenAICompatibleProviderSession(
         Http,
     }
 
-    public void BeginTurn() => _turnState = null;
+    public void BeginTurn()
+    {
+        _turnState = null;
+        _resetConnection = true;
+    }
 
     public async IAsyncEnumerable<LLMEvent> Call(
         LLMRequest request,
@@ -45,6 +50,14 @@ internal sealed class OpenAICompatibleProviderSession(
                 }
 
                 yield break;
+            }
+
+            // Idle remote closure may leave the socket locally Open; lineage belongs to that connection.
+            if (_resetConnection)
+            {
+                _completedResponse = null;
+                await Poison().ConfigureAwait(false);
+                _resetConnection = false;
             }
 
             var prepared = ResponsesAdapter.Prepare(prepare(request));

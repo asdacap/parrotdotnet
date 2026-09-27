@@ -127,7 +127,7 @@ internal sealed class DiagnosticProviderSession(
                 Operation = "call_finished",
                 Severity = severity,
                 Outcome = terminalOutcome,
-                ErrorCode = cause is null ? null : DiagnosticEvent.ClassifyFailure(cause),
+                ErrorCode = cause is null ? null : ProviderRequestDiagnostics.ClassifyFailure(cause),
                 DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
             });
         }

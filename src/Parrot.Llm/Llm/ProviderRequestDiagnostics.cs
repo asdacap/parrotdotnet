@@ -1,11 +1,24 @@
 using System.Diagnostics;
+using System.Net.WebSockets;
 using System.Runtime.CompilerServices;
 using Parrot.Diagnostics;
+using Parrot.Llm.Wire;
 
 namespace Parrot.Llm;
 
 internal sealed class ProviderRequestDiagnostics(IDiagnosticLog diagnostics, DiagnosticEvent call, LastRequestDumper? lastRequestDumper) : IProviderRequestDiagnostics
 {
+    public static string ClassifyFailure(Exception failure) => failure switch
+    {
+        WebSocketException { WebSocketErrorCode: WebSocketError.ConnectionClosedPrematurely } => "websocket_closed",
+        WebSocketException => "websocket",
+        WireProtocolException => "wire_protocol",
+        ResponsesWebSocketUpgradeException => "websocket_upgrade",
+        ResponsesWebSocketTransportException { InnerException: { } inner } => ClassifyFailure(inner),
+        ResponsesWebSocketTransportException => "websocket_transport",
+        _ => DiagnosticEvent.ClassifyFailure(failure),
+    };
+
     public void DumpRequest(byte[] body) => lastRequestDumper?.Dump(body);
 
     public async IAsyncEnumerable<LLMEvent> Trace(
@@ -106,7 +119,7 @@ internal sealed class ProviderRequestDiagnostics(IDiagnosticLog diagnostics, Dia
                 ResponseBytes = attempt.ResponseBytes,
                 Severity = severity,
                 Outcome = terminalOutcome,
-                ErrorCode = cause is null ? null : DiagnosticEvent.ClassifyFailure(cause),
+                ErrorCode = cause is null ? null : ClassifyFailure(cause),
                 DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
             });
         }
