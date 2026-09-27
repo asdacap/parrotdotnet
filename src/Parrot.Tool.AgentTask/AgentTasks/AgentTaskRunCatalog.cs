@@ -176,6 +176,7 @@ internal sealed class AgentTaskRunCatalog(string ownerAgentSessionId, IDiagnosti
         AgentTaskRunCatalog catalog,
         CancellationToken lifetime)
     {
+        private const int MaximumDeliveryAttempts = 3;
         private const int MaximumShutdownDeliveryAttempts = 2;
         private static readonly TimeSpan DeliveryRetryDelay = TimeSpan.FromSeconds(1);
         private readonly string _completionMessageId = Identifier.MessageId();
@@ -251,6 +252,15 @@ internal sealed class AgentTaskRunCatalog(string ownerAgentSessionId, IDiagnosti
                     return;
                 }
 
+                if (!lifetime.IsCancellationRequested)
+                {
+                    WriteDiagnostic("delivery", "failed", started, _deliveryFailure);
+                    catalog.RecordFailure(
+                        this,
+                        _deliveryFailure ?? new InvalidOperationException("AgentTask completion delivery did not report a failure."));
+                    return;
+                }
+
                 for (var attempt = 0; attempt < MaximumShutdownDeliveryAttempts; attempt++)
                 {
                     try
@@ -278,8 +288,20 @@ internal sealed class AgentTaskRunCatalog(string ownerAgentSessionId, IDiagnosti
 
         private async Task<bool> DeliverUntilShutdown(AgentTaskRunTerminal terminal)
         {
-            while (!lifetime.IsCancellationRequested)
+            for (var attempt = 0; attempt < MaximumDeliveryAttempts && !lifetime.IsCancellationRequested; attempt++)
             {
+                if (attempt > 0)
+                {
+                    try
+                    {
+                        await Task.Delay(DeliveryRetryDelay, lifetime).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
+                    {
+                        return false;
+                    }
+                }
+
                 try
                 {
                     await request.Completion.Deliver(terminal, lifetime).ConfigureAwait(false);
@@ -292,15 +314,6 @@ internal sealed class AgentTaskRunCatalog(string ownerAgentSessionId, IDiagnosti
                 catch (Exception failure)
                 {
                     _deliveryFailure = failure;
-                }
-
-                try
-                {
-                    await Task.Delay(DeliveryRetryDelay, lifetime).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
-                {
-                    return false;
                 }
             }
 

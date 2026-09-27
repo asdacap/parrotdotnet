@@ -175,6 +175,57 @@ internal sealed class ShellProcessOwnersTests : IDisposable
     }
 
     [Test]
+    public async Task Failed_terminal_delivery_retires_process_and_clears_blocker(
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var lifetime = new CancellationTokenSource();
+        using var events = new EventBroker();
+        using var database = SessionDatabase.Open(":memory:");
+        var repository = new EventRepository(database);
+        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".state"),
+                Path.Combine(_workspace, ".config"),
+                Path.Combine(_workspace, ".data")),
+            UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
+        await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch(["agent-1"]).BlobDirectory, lifetime.Token);
+        await using var owner = new ShellProcessOwner(
+            AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
+            resources,
+            new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
+            new ProcessRunner(CreateSandboxPassThrough()),
+            TestDiagnosticLog.Instance,
+            lifetime.Token);
+        var marker = Path.Combine(_workspace, "allow-completion");
+        var process = owner.StartPipe(
+            "delivery-fails",
+            $"while [ ! -f '{marker}' ]; do sleep 0.01; done",
+            "call-id",
+            ProcessEnvironmentOverrides.Empty,
+            agent,
+            SecurityProfile.Compose(readOnly: false, [], [], []));
+        var blocker = new ProcessActiveWorkBlocker(owner);
+        _ = await process.Wait(TimeSpan.Zero, cancellationToken);
+        _ = await Assert.That(owner.Active()).HasSingleItem();
+        _ = await Assert.That(blocker.Observe()).IsNotNull();
+
+        database.Dispose();
+        await File.WriteAllTextAsync(marker, string.Empty, cancellationToken);
+        await owner.Settle().WaitAsync(cancellationToken);
+
+        _ = await Assert.That(process.Retired).IsTrue();
+        _ = await Assert.That(owner.Active()).IsEmpty();
+        _ = await Assert.That(blocker.Observe()).IsNull();
+    }
+
+    [Test]
     public async Task Inventory_tracks_process_from_start_until_completion(
         CancellationToken cancellationToken)
     {

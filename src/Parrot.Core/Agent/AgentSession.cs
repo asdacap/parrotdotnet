@@ -243,7 +243,7 @@ internal sealed partial class AgentSession(
 
             // Somebody is already stopping this drain. Wait for the same
             // unwinding rather than cancelling and disposing it twice.
-            if (!_drainLifecycle.Stopping)
+            if (!ReferenceEquals(_drainLifecycle.Stopping, _drainLifecycle.Cancellation))
             {
                 _drainLifecycle.State = DrainState.Interrupting;
                 Activity.ChangeState(DrainState.Interrupting);
@@ -251,30 +251,35 @@ internal sealed partial class AgentSession(
                 // Cleared behind the same gate as the capture: a wake that
                 // survived it would restart the drain this is stopping.
                 _drainLifecycle.Wake = false;
-                _drainLifecycle.Stopping = true;
                 stopping = _drainLifecycle.Cancellation;
+                _drainLifecycle.Stopping = stopping;
             }
         }
 
-        // Outside the gate: cancelling runs the token's callbacks on this
-        // thread, and the drain needs the gate to settle.
-        if (stopping is not null)
+        try
         {
-            await stopping.CancelAsync().ConfigureAwait(false);
-        }
-
-        await draining.WaitAsync(cancellationToken).ConfigureAwait(false);
-
-        if (stopping is not null)
-        {
-            lock (_drainLifecycle.Gate)
+            // Outside the gate: cancelling runs the token's callbacks on this
+            // thread, and the drain needs the gate to settle.
+            if (stopping is not null)
             {
-                _drainLifecycle.Stopping = false;
+                await stopping.CancelAsync().ConfigureAwait(false);
             }
 
-            // The drain left it alone because the stopping flag was set, and it
-            // has finished, so nothing else can be holding it.
-            stopping.Release();
+            await draining.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (stopping is not null)
+            {
+                if (draining.IsCompleted)
+                {
+                    await ReleaseStoppingWhenDrained(draining, stopping).ConfigureAwait(false);
+                }
+                else
+                {
+                    _ = ReleaseStoppingWhenDrained(draining, stopping);
+                }
+            }
         }
 
         if (!_disposing && eventRepository.HasPendingInputs(SessionId))
@@ -625,6 +630,30 @@ internal sealed partial class AgentSession(
     // The drain state -- the task, its cancellation, the wake flag and the
     // state itself -- is shared with whatever thread admits or interrupts, and
     // the gate is the whole of its synchronisation.
+    private async Task ReleaseStoppingWhenDrained(Task draining, DrainLifecycle.DrainCancellation stopping)
+    {
+        try
+        {
+            await draining.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // The caller observes the drain fault; this wait only owns cleanup.
+        }
+        finally
+        {
+            lock (_drainLifecycle.Gate)
+            {
+                if (ReferenceEquals(_drainLifecycle.Stopping, stopping))
+                {
+                    _drainLifecycle.Stopping = null;
+                }
+            }
+
+            stopping.Release();
+        }
+    }
+
     private sealed class DrainLifecycle
     {
         internal Lock Gate { get; } = new();
@@ -643,7 +672,7 @@ internal sealed partial class AgentSession(
         // interrupter still holding it to cancel would then be cancelling a
         // disposed source, so it hands that duty over for the one case where the
         // two overlap.
-        internal bool Stopping { get; set; }
+        internal DrainCancellation? Stopping { get; set; }
 
         internal sealed class DrainCancellation(CancellationToken lifetime, CancellationToken executionCancellation)
         {

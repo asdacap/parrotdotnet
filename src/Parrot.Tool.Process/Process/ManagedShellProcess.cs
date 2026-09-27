@@ -355,10 +355,23 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
             DeleteSpeculativeBlob(completed);
             ReleaseClaim();
         }
-        catch
+        catch (Exception failure)
         {
-            DeleteSpeculativeBlob(completed);
-            ReleaseClaim();
+            try
+            {
+                WriteDiagnostic("delivery", "failed", failure);
+            }
+            finally
+            {
+                try
+                {
+                    DeleteSpeculativeBlob(completed);
+                }
+                finally
+                {
+                    MarkDelivered();
+                }
+            }
         }
     }
 

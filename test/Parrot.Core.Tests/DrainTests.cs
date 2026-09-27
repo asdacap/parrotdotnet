@@ -43,6 +43,45 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    public async Task Faulted_repository_drain_retires_active_work(CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(Answer("done"));
+        using var database = SessionDatabase.Open(":memory:");
+        var repository = new EventRepository(database);
+        var session = Session(provider, repository, [], cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
+        await provider.Arrived(cancellationToken);
+        database.Dispose();
+        provider.Release();
+
+        _ = await Assert.That(session.Settled).Throws<Exception>();
+        _ = await Assert.That(session.IsActive()).IsFalse();
+        _ = await Assert.That(session.Activity.Capture().State).IsEqualTo(DrainState.Idle);
+        await session.DisposeAsync();
+    }
+
+    [Test]
+    public async Task Interrupt_releases_stopping_after_repository_fault(CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(Answer("done"));
+        using var database = SessionDatabase.Open(":memory:");
+        var repository = new EventRepository(database);
+        var session = Session(provider, repository, [], cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
+        await provider.Arrived(cancellationToken);
+        database.Dispose();
+        var interrupt = session.Interrupt(cancellationToken);
+        provider.Release();
+
+        _ = await Assert.That(() => interrupt.WaitAsync(CancellationToken.None)).Throws<Exception>();
+        _ = await Assert.That(session.IsActive()).IsFalse();
+        _ = await Assert.That(session.Activity.Capture().State).IsEqualTo(DrainState.Idle);
+        await session.DisposeAsync();
+    }
+
+    [Test]
     public async Task Prompts_admitted_during_a_turn_are_answered_by_one_drain_in_order(
         CancellationToken cancellationToken)
     {

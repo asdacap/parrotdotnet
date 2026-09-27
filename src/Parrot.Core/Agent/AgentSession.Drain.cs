@@ -534,15 +534,15 @@ internal sealed partial class AgentSession
 
         var drainId = Identifier.EventId();
         var drainStarted = Stopwatch.GetTimestamp();
-        diagnostics.Write(new("drain", "started", DiagnosticSeverity.Information)
-        {
-            AgentSessionId = SessionId,
-            CorrelationId = drainId,
-        });
         var completed = AgentExecution.Succeeded(string.Empty);
         string? errorCode = null;
         try
         {
+            diagnostics.Write(new("drain", "started", DiagnosticSeverity.Information)
+            {
+                AgentSessionId = SessionId,
+                CorrelationId = drainId,
+            });
             var started = ownedExecution is null || await ownedExecution.WaitForStartup().ConfigureAwait(false);
             while (true)
             {
@@ -612,21 +612,7 @@ internal sealed partial class AgentSession
                         continue;
                     }
 
-                    // Left alone while an interrupt is unwinding: that caller is
-                    // still holding it, and disposes it once this task has ended.
-                    if (!_drainLifecycle.Stopping)
-                    {
-                        _drainLifecycle.Cancellation?.Release();
-                    }
-
-                    _drainLifecycle.Cancellation = null;
-                    while (_forcedCompactions.TryDequeue(out var forcedCompaction))
-                    {
-                        _ = forcedCompaction.Completion.TrySetCanceled(cancellationToken);
-                    }
-
-                    _drainLifecycle.State = DrainState.Idle;
-                    Activity.ChangeState(DrainState.Idle);
+                    SettleDrain(cancellationToken);
                 }
 
                 return completed;
@@ -635,6 +621,11 @@ internal sealed partial class AgentSession
         catch (Exception failure)
         {
             errorCode = DiagnosticEvent.ClassifyFailure(failure);
+            lock (_drainLifecycle.Gate)
+            {
+                SettleDrain(cancellationToken);
+            }
+
             throw;
         }
         finally
@@ -648,6 +639,23 @@ internal sealed partial class AgentSession
                 DurationMilliseconds = (long)Stopwatch.GetElapsedTime(drainStarted).TotalMilliseconds,
             });
         }
+    }
+
+    private void SettleDrain(CancellationToken cancellationToken)
+    {
+        if (!ReferenceEquals(_drainLifecycle.Stopping, _drainLifecycle.Cancellation))
+        {
+            _drainLifecycle.Cancellation?.Release();
+        }
+
+        _drainLifecycle.Cancellation = null;
+        while (_forcedCompactions.TryDequeue(out var forcedCompaction))
+        {
+            _ = forcedCompaction.Completion.TrySetCanceled(cancellationToken);
+        }
+
+        _drainLifecycle.State = DrainState.Idle;
+        Activity.ChangeState(DrainState.Idle);
     }
 
     // One pass: promote what is due, call the provider, run what it asks for,

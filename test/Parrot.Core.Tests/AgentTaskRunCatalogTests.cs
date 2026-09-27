@@ -273,6 +273,64 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
     }
 
     [Test]
+    public async Task Permanent_delivery_failure_retires_run_and_reports_failure(CancellationToken cancellationToken)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-run-delivery", Guid.NewGuid().ToString("n"));
+        _ = Directory.CreateDirectory(directory);
+        try
+        {
+            var resources = new UserSessionResources(
+                new State.StatePaths(Path.Combine(directory, "state"), Path.Combine(directory, "config"), Path.Combine(directory, "data")),
+                UserSessionId.Parse("session-delivery"),
+                ProjectWorkspace.FromLaunchDirectory(directory));
+            using var diagnostics = FileDiagnosticLog.OpenSession(resources, "test", TextWriter.Null, TimeProvider.System);
+            var provider = new AgentTaskQueueProvider(["{\"result\":\"done\",\"verdict\":\"accept\",\"evidence\":\"done\"}"]);
+            var runtime = Runtime(provider, cancellationToken);
+            await using var registry = runtime.Registry;
+            await using var catalog = new AgentTaskRunCatalog(runtime.Parent.SessionId, diagnostics, cancellationToken);
+            var completion = new AlwaysFailCompletion();
+            catalog.Start(
+                new AgentTaskRunRequest(
+                    "failed-delivery",
+                    "leaf",
+                    AgentTaskParser.ParseArtifact("""
+                        {"schema_version":1,"tasks":[{"name":"leaf","description":"Leaf","payload":"work","acceptance_criteria":"Done"}]}
+                        """),
+                    runtime.Router,
+                    runtime.ParentScope,
+                    runtime.Selection,
+                    new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "failed-delivery", diagnostics),
+                    new AgentTaskConfig(1, 3, true, TestModels.PromptTemplates),
+                    new HistoryForkBoundary.AfterCompletedHistory(),
+                    completion),
+                cancellationToken);
+            await completion.Attempted.WaitAsync(cancellationToken);
+            while (catalog.Active().Count != 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await Task.Yield();
+            }
+
+            _ = await Assert.That(completion.Attempts).IsEqualTo(3);
+            _ = await Assert.That(completion.MessageIds.Distinct(StringComparer.Ordinal).Count()).IsEqualTo(1);
+            _ = await Assert.That(catalog.Snapshot()).IsEmpty();
+            var log = await File.ReadAllTextAsync(resources.LogPath, cancellationToken);
+            _ = await Assert.That(log).Contains("category=\"task_run\" event=\"delivery\"")
+                .And.Contains("outcome=\"failed\"")
+                .And.DoesNotContain("private-delivery-error");
+            var settlement = catalog.Settle();
+            _ = await Assert.That(settlement).Throws<InvalidOperationException>();
+        }
+        catch (InvalidOperationException failure) when (failure.Message.Contains("completion delivery failed", StringComparison.Ordinal))
+        {
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Retired_run_id_can_be_reused_without_settling_the_owner(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
@@ -402,6 +460,51 @@ internal sealed class AgentTaskRunCatalogTests : IAsyncDisposable
             _ = cancellationToken;
             _ = _delivered.TrySetResult(terminal);
             return Task.CompletedTask;
+        }
+
+        public Task DeliverDuringShutdown(AgentTaskRunTerminal terminal, CancellationToken cancellationToken) =>
+            Deliver(terminal, cancellationToken);
+    }
+
+    private sealed class AlwaysFailCompletion : IAgentTaskRunCompletion
+    {
+        private readonly TaskCompletionSource _attempted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly List<string> _messageIds = [];
+
+        internal Task Attempted => _attempted.Task;
+
+        internal int Attempts
+        {
+            get
+            {
+                lock (_messageIds)
+                {
+                    return _messageIds.Count;
+                }
+            }
+        }
+
+        internal IReadOnlyList<string> MessageIds
+        {
+            get
+            {
+                lock (_messageIds)
+                {
+                    return [.. _messageIds];
+                }
+            }
+        }
+
+        public Task Deliver(AgentTaskRunTerminal terminal, CancellationToken cancellationToken)
+        {
+            _ = cancellationToken;
+            lock (_messageIds)
+            {
+                _messageIds.Add(terminal.CompletionMessageId);
+            }
+
+            _ = _attempted.TrySetResult();
+            throw new IOException("private-delivery-error");
         }
 
         public Task DeliverDuringShutdown(AgentTaskRunTerminal terminal, CancellationToken cancellationToken) =>

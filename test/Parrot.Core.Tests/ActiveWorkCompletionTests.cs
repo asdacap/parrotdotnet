@@ -43,6 +43,61 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
     }
 
     [Test]
+    public async Task Failed_child_turn_failure_append_does_not_block_parent_completion(CancellationToken cancellationToken)
+    {
+        using var parentProvider = new HeldProvider("parent", LLMEvent.Completed("stop", 1, 0, 1, "finished", []));
+        using var childProvider = new HeldProvider("child", LLMEvent.Completed("stop", 1, 0, 1, "unused", []))
+        {
+            FailureMessage = "child-provider-failure-marker",
+        };
+        var router = Router(parentProvider, childProvider);
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var resources = new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace));
+        var runner = new ProcessRunner(string.Empty);
+        var repository = new EventRepository(_database);
+        var factory = new CompletionAgentSessions(router, runner, resources, _broker, _workspace);
+        await using IAgentRegistry registry = new AgentRegistry(factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), TestDiagnosticLog.Instance, lifetime.Token);
+        var mode = new CompletionMode(enforce: true, maxTurns: 4);
+        await using var parent = Session("parent", parentProvider, router, repository, registry, runner, resources, mode, lifetime.Token);
+        var parentScope = TestModels.ScopeOf(parent);
+        var child = parentScope.AgentSpawner.SpawnScope(new AgentLaunchRequest(
+            parent,
+            new TurnFixture(parent, router).Selection,
+            "worker",
+            new ModelSelector("child/model"),
+            "faulting-child",
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            new HistoryForkBoundary.AfterCompletedHistory(),
+            AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
+        using (var trigger = _database.Connection.CreateCommand())
+        {
+            trigger.CommandText = """
+                CREATE TRIGGER reject_child_turn_failed BEFORE INSERT ON event
+                WHEN instr(NEW.payload, 'child-provider-failure-marker') > 0
+                BEGIN SELECT RAISE(ABORT, 'rejected TurnFailed append'); END;
+                """;
+            _ = await trigger.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        _ = await child.SendTextMessage("work", cancellationToken);
+        await childProvider.Arrived(cancellationToken);
+        _ = await Assert.That(new ChildAgentActiveWorkBlocker(parentScope.ChildRegistry, parent.Identity).Observe()).IsNotNull();
+        childProvider.Release();
+        _ = await child.Wait(0, cancellationToken);
+        _ = await Assert.That(Payloads(repository, child.SessionId, Event.PayloadOneofCase.TurnStarted)).IsEqualTo(1);
+        _ = await Assert.That(Payloads(repository, child.SessionId, Event.PayloadOneofCase.TurnFailed)).IsEqualTo(0);
+        _ = await Assert.That(new ChildAgentActiveWorkBlocker(parentScope.ChildRegistry, parent.Identity).Observe()).IsNull();
+
+        _ = await parent.SendTextMessage("finish", cancellationToken);
+        await parentProvider.Arrived(cancellationToken);
+        parentProvider.Release();
+        _ = await parent.Wait(0, cancellationToken);
+        _ = await Assert.That(mode.Completions).IsEqualTo(1);
+        _ = await Assert.That(Payloads(repository, parent.SessionId, Event.PayloadOneofCase.PlanCompleted)).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task Enabled_profile_defers_completion_until_direct_work_settles(
         CancellationToken cancellationToken)
     {
@@ -756,6 +811,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         private readonly SemaphoreSlim _arrived = new(0);
         private readonly SemaphoreSlim _released = new(0);
 
+        public string? FailureMessage { get; init; }
+
         public string Id { get; } = id;
 
         public IReadOnlyList<LLMRequest> Requests
@@ -791,6 +848,11 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
 
             _ = _arrived.Release();
             await _released.WaitAsync(cancellationToken).ConfigureAwait(false);
+            if (FailureMessage is not null)
+            {
+                throw new InvalidOperationException(FailureMessage);
+            }
+
             yield return answer;
         }
 
