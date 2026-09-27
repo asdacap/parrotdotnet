@@ -64,6 +64,15 @@ internal sealed class ProviderRequestLog : IDisposable
         }
     }
 
+    public async Task AssertFailureCodes(string requestCode, string callCode)
+    {
+        var request = _log.Entries.Single(entry => entry.Operation == "request_finished");
+        var call = _log.Entries.Single(entry => entry.Operation == "call_finished");
+        _ = await Assert.That(request.ErrorCode).IsEqualTo(requestCode);
+        _ = await Assert.That(call.ErrorCode).IsEqualTo(callCode);
+        _ = await Assert.That(_log.Entries.Any(entry => entry.ToString().Contains("private-sentinel", StringComparison.Ordinal))).IsFalse();
+    }
+
     public void Dispose() => _log.Dispose();
 
     private sealed class RecordingDiagnosticLog : IDiagnosticLog

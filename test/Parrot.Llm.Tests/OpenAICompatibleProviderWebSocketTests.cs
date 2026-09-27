@@ -17,6 +17,63 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
     private static readonly ImmediateTimeProvider Time = new();
 
     [Test]
+    [Arguments("websocket_closed")]
+    [Arguments("websocket")]
+    [Arguments("wire_protocol")]
+    [Arguments("websocket_upgrade")]
+    [Arguments("websocket_transport")]
+    public async Task Transport_failure_diagnostics_classify_without_recording_exception_messages(
+        string code,
+        CancellationToken cancellationToken)
+    {
+        Exception failure = code switch
+        {
+            "websocket_closed" => new WebSocketException(WebSocketError.ConnectionClosedPrematurely, "private-sentinel"),
+            "websocket" => new WebSocketException("private-sentinel"),
+            "wire_protocol" => new WireProtocolException("private-sentinel"),
+            "websocket_upgrade" => new ResponsesWebSocketUpgradeException(503, "private-sentinel", new IOException("private-sentinel")),
+            "websocket_transport" => new ResponsesWebSocketTransportException("private-sentinel"),
+            _ => throw new InvalidOperationException("Unknown failure code."),
+        };
+        using var log = new ProviderRequestLog();
+        var connector = new ScriptedConnector([failure]);
+        using var handler = new EmptyHandler();
+        using var client = new HttpClient(handler, disposeHandler: false);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+            },
+            client,
+            connector);
+        var sessions = log.OpenSessions("websocket-agent");
+        try
+        {
+            var session = sessions.Get(provider);
+            async Task Consume() => _ = await Drain(session.Call(
+                new LLMRequest { Model = "model", Messages = [LLMMessage.User("private-sentinel")] }, cancellationToken));
+            if (code == "websocket_upgrade")
+            {
+                _ = await Assert.That(Consume).Throws<ResponsesWebSocketUpgradeException>();
+            }
+            else
+            {
+                _ = await Assert.That(Consume).Throws<ResponsesWebSocketTransportException>();
+            }
+        }
+        finally
+        {
+            await sessions.Close();
+        }
+
+        await log.AssertFailureCodes(code, code);
+    }
+
+    [Test]
     [Arguments(0)]
     [Arguments(1250)]
     public async Task Configured_header_timeout_reaches_websocket_connector(
@@ -264,13 +321,20 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
     }
 
     [Test]
-    public async Task Turn_state_from_upgrade_is_sent_from_first_request_and_reset_without_losing_lineage(
+    [Timeout(10_000)]
+    [Arguments("")]
+    [Arguments("new-upgrade-state")]
+    public async Task New_turn_replaces_idle_socket_and_lineage_but_preserves_reuse_within_turn(
+        string newTurnState,
         CancellationToken cancellationToken)
     {
         using var socket = new ScriptedWebSocket([
             Completed,
             Completed.Replace("resp-1", "resp-2", StringComparison.Ordinal),
+        ]);
+        using var nextSocket = new ScriptedWebSocket([
             Completed.Replace("resp-1", "resp-3", StringComparison.Ordinal),
+            Completed.Replace("resp-1", "resp-4", StringComparison.Ordinal),
         ]);
         var connector = new ScriptedConnector([
             new ResponsesWebSocketOutcome(
@@ -278,6 +342,12 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
                 new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 {
                     ["X-Codex-Turn-State"] = "upgrade-state",
+                }),
+            new ResponsesWebSocketOutcome(
+                nextSocket,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["X-Codex-Turn-State"] = newTurnState,
                 }),
         ]);
         using var handler = new EmptyHandler();
@@ -307,7 +377,11 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
             ],
         };
         _ = await Drain(session.Call(secondRequest, cancellationToken));
+        _ = await Assert.That(socket.State).IsEqualTo(WebSocketState.Open);
         session.BeginTurn();
+        session.BeginTurn();
+        _ = await Assert.That(connector.Calls).IsEqualTo(1);
+        _ = await Assert.That(socket.Aborted).IsFalse();
         var thirdRequest = new LLMRequest
         {
             Model = "model",
@@ -320,17 +394,44 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
                 LLMMessage.User("three"),
             ],
         };
-        _ = await Drain(session.Call(thirdRequest, cancellationToken));
+        var thirdEvents = await Drain(session.Call(thirdRequest, cancellationToken));
+        var fourthRequest = thirdRequest with
+        {
+            Messages = [.. thirdRequest.Messages, LLMMessage.Assistant("answer", []), LLMMessage.User("four")],
+        };
+        var fourthEvents = await Drain(session.Call(fourthRequest, cancellationToken));
 
+        _ = await Assert.That(socket.Aborted).IsTrue();
+        _ = await Assert.That(socket.State).IsEqualTo(WebSocketState.Closed);
+        _ = await Assert.That(socket.Sent).Count().IsEqualTo(2);
+        _ = await Assert.That(nextSocket.Sent).Count().IsEqualTo(2);
+        _ = await Assert.That(connector.Calls).IsEqualTo(2);
+        _ = await Assert.That(thirdEvents.Any(item => item.Kind == LLMEventKind.Retry)).IsFalse();
+        _ = await Assert.That(fourthEvents.Any(item => item.Kind == LLMEventKind.Retry)).IsFalse();
         using var first = JsonDocument.Parse(socket.Sent[0]);
         using var second = JsonDocument.Parse(socket.Sent[1]);
-        using var third = JsonDocument.Parse(socket.Sent[2]);
+        using var third = JsonDocument.Parse(nextSocket.Sent[0]);
+        using var fourth = JsonDocument.Parse(nextSocket.Sent[1]);
         _ = await Assert.That(first.RootElement.GetProperty("client_metadata")
             .GetProperty("x-codex-turn-state").GetString()).IsEqualTo("upgrade-state");
         _ = await Assert.That(second.RootElement.GetProperty("client_metadata")
             .GetProperty("x-codex-turn-state").GetString()).IsEqualTo("upgrade-state");
-        _ = await Assert.That(third.RootElement.TryGetProperty("client_metadata", out _)).IsFalse();
-        _ = await Assert.That(third.RootElement.GetProperty("previous_response_id").GetString()).IsEqualTo("resp-2");
+        _ = await Assert.That(second.RootElement.GetProperty("previous_response_id").GetString()).IsEqualTo("resp-1");
+        _ = await Assert.That(second.RootElement.GetProperty("input").GetArrayLength()).IsEqualTo(1);
+        if (newTurnState.Length == 0)
+        {
+            _ = await Assert.That(third.RootElement.TryGetProperty("client_metadata", out _)).IsFalse();
+        }
+        else
+        {
+            _ = await Assert.That(third.RootElement.GetProperty("client_metadata")
+                .GetProperty("x-codex-turn-state").GetString()).IsEqualTo(newTurnState);
+        }
+
+        _ = await Assert.That(third.RootElement.TryGetProperty("previous_response_id", out _)).IsFalse();
+        _ = await Assert.That(third.RootElement.GetProperty("input").GetArrayLength()).IsEqualTo(5);
+        _ = await Assert.That(fourth.RootElement.GetProperty("previous_response_id").GetString()).IsEqualTo("resp-3");
+        _ = await Assert.That(fourth.RootElement.GetProperty("input").GetArrayLength()).IsEqualTo(1);
     }
 
     [Test]
@@ -496,6 +597,7 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         await using var session = provider.OpenSession();
 
         var first = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("one")] }, cancellationToken));
+        session.BeginTurn();
         var second = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("two")] }, cancellationToken));
 
         _ = await Assert.That(first.Single(published => published.Kind == LLMEventKind.Retry)).IsEqualTo(
