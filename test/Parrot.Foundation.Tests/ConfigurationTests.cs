@@ -149,16 +149,18 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(provider.BaseUrl).IsEqualTo("https://api.openai.com/v1");
         _ = await Assert.That(provider.ApiKeyEnv).IsEqualTo("OPENAI_API_KEY");
         _ = await Assert.That(provider.DisableWebSocket).IsTrue();
-        _ = await Assert.That(providers["chatgpt"].DisableWebSocket).IsTrue();
+        _ = await Assert.That(providers["chatgpt"].DisableWebSocket).IsFalse();
         _ = await Assert.That(provider.ModelDefaults.Keys).Contains("gpt-5.4");
     }
 
     [Test]
-    [Arguments("true", true)]
-    [Arguments("false", false)]
-    public async Task Provider_disable_websocket_is_parsed_as_a_boolean(string value, bool expected)
+    [Arguments("custom", "true", true)]
+    [Arguments("custom", "false", false)]
+    [Arguments("chatgpt", "true", true)]
+    [Arguments("chatgpt", "false", false)]
+    public async Task Provider_disable_websocket_is_parsed_as_a_boolean(string providerId, string value, bool expected)
     {
-        var provider = Load(Write($"providers:\n  custom:\n    disable_websocket: {value}\n")).Providers["custom"];
+        var provider = Load(Write($"providers:\n  {providerId}:\n    disable_websocket: {value}\n")).Providers[providerId];
 
         _ = await Assert.That(provider.DisableWebSocket).IsEqualTo(expected);
     }

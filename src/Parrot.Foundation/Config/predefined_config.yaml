@@ -1654,6 +1654,7 @@ providers:
   # Header timeout includes request upload. Zero disables it; overrides are per provider.
   # header_timeout_max_retries defaults to 5; zero disables header-timeout retries.
   chatgpt:
+    disable_websocket: false
     header_timeout_ms: 60000
     header_timeout_max_retries: 5
     model_defaults:
