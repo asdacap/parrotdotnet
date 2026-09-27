@@ -93,6 +93,128 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
+    [Arguments(ShellProcessTerminalMode.Pipe)]
+    [Arguments(ShellProcessTerminalMode.PseudoTerminal)]
+    public async Task Configured_devices_mount_after_synthetic_devices_for_all_profiles(
+        ShellProcessTerminalMode terminalMode,
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
+        var argumentsPath = Path.Combine(_workspace, "device-arguments");
+        var sandboxPath = CreateArgumentCapturingSandbox(_workspace, argumentsPath);
+        var locator = new ExecutableLocator(_workspace, string.Empty);
+        File.Move(sandboxPath, Path.Combine(_workspace, "bwrap"));
+        var gate = new SandboxGate(enabled: false);
+        var devices = new[] { "/dev/null", "/dev/dri", "/dev", "/dev/parrot-device-not-present" };
+        var runner = ProcessRunner.LocateConfigured(locator, gate, devices);
+        var marker = Path.Combine(_workspace, "unconfined-marker");
+        var securityProfile = AgentProfile(
+            resources,
+            SecurityProfile.Compose(
+                false,
+                [
+                    new SandboxRule("/dev", SandboxRuleAction.DenyRead),
+                    new SandboxRule("/dev/dri", SandboxRuleAction.DenyWrite),
+                ],
+                [],
+                []),
+            []);
+
+        await using (var unconfined = runner.Start(
+            $"printf unconfined > '{marker}'",
+            ProcessEnvironmentOverrides.Empty,
+            resources,
+            Scratch(resources),
+            securityProfile,
+            terminalMode,
+            cancellationToken))
+        {
+            var result = await unconfined.Result.WaitAsync(cancellationToken);
+            _ = await Assert.That(result.ExitCode).IsEqualTo(0);
+        }
+
+        _ = await Assert.That(File.Exists(argumentsPath)).IsFalse();
+        _ = await Assert.That(await File.ReadAllTextAsync(marker, cancellationToken)).IsEqualTo("unconfined");
+        gate.SetEnabled(true);
+
+        await using (var sandboxed = runner.Start(
+            "true",
+            ProcessEnvironmentOverrides.Empty,
+            resources,
+            Scratch(resources),
+            securityProfile,
+            terminalMode,
+            cancellationToken))
+        {
+            var result = await sandboxed.Result.WaitAsync(cancellationToken);
+            _ = await Assert.That(result.ExitCode).IsEqualTo(0);
+        }
+
+        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        var syntheticDevices = Array.LastIndexOf(arguments, "--dev");
+        var proc = Array.LastIndexOf(arguments, "--proc");
+        var command = Array.IndexOf(arguments, "--chdir");
+        _ = await Assert.That(arguments[syntheticDevices + 1]).IsEqualTo("/dev");
+        _ = await Assert.That(arguments[proc + 1]).IsEqualTo("/proc");
+        _ = await Assert.That(proc).IsGreaterThan(syntheticDevices);
+        for (var index = 0; index < devices.Length; index++)
+        {
+            var mount = proc + 2 + (index * 3);
+            _ = await Assert.That(arguments[mount]).IsEqualTo("--dev-bind-try");
+            _ = await Assert.That(arguments[mount + 1]).IsEqualTo(devices[index]);
+            _ = await Assert.That(arguments[mount + 2]).IsEqualTo(devices[index]);
+        }
+
+        _ = await Assert.That(arguments[proc + 2 + (devices.Length * 3)]).IsEqualTo("--chdir");
+        _ = await Assert.That(proc + 2 + (devices.Length * 3)).IsEqualTo(command);
+    }
+
+    [Test]
+    public async Task Configured_device_defaults_to_no_extra_mounts(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
+        var argumentsPath = Path.Combine(_workspace, "empty-device-arguments");
+        var sandboxPath = CreateArgumentCapturingSandbox(_workspace, argumentsPath);
+        File.Move(sandboxPath, Path.Combine(_workspace, "bwrap"));
+        var runner = ProcessRunner.LocateConfigured(
+            new ExecutableLocator(_workspace, string.Empty), new SandboxGate(enabled: true), []);
+
+        _ = await runner.Run(
+            "true",
+            ProcessEnvironmentOverrides.Empty,
+            resources,
+            Scratch(resources),
+            WritableProfile(resources),
+            cancellationToken);
+
+        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        _ = await Assert.That(arguments).DoesNotContain("--dev-bind-try");
+        _ = await Assert.That(arguments[Array.LastIndexOf(arguments, "--proc") + 2]).IsEqualTo("--chdir");
+    }
+
+    [Test]
     public async Task Gate_off_pty_runs_without_bwrap(CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsLinux())
@@ -1016,6 +1138,54 @@ internal sealed class ProcessRunnerTests : IDisposable
             releaseCaller.Set();
             caller.Join();
         }
+    }
+
+    [Test]
+    [Arguments("/dev/zero", ShellProcessTerminalMode.Pipe)]
+    [Arguments("/dev/zero", ShellProcessTerminalMode.PseudoTerminal)]
+    [Arguments("/dev", ShellProcessTerminalMode.Pipe)]
+    [Arguments("/dev", ShellProcessTerminalMode.PseudoTerminal)]
+    public async Task Real_sandbox_binds_devices_and_skips_missing_devices(
+        string devicePath,
+        ShellProcessTerminalMode terminalMode,
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var runner = ProcessRunner.LocateConfigured(
+            ExecutableLocator.Capture(),
+            new SandboxGate(enabled: true),
+            [devicePath, "/dev/parrot-device-definitely-not-present-ef0cd182"]);
+        if (!runner.SandboxAvailable)
+        {
+            return;
+        }
+
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
+        var mountedPath = devicePath == "/dev" ? "/dev" : "/dev/zero";
+        await using var execution = runner.Start(
+            $"grep ' {mountedPath} ' /proc/self/mountinfo >/dev/null && "
+            + "test \"$(dd if=/dev/zero bs=4 count=1 2>/dev/null | wc -c)\" -eq 4 && "
+            + "test ! -e /dev/parrot-device-definitely-not-present-ef0cd182 && printf device-ready",
+            ProcessEnvironmentOverrides.Empty,
+            resources,
+            Scratch(resources),
+            AgentProfile(resources, SecurityProfile.Compose(true, [], [], []), []),
+            terminalMode,
+            cancellationToken);
+        var result = await execution.Result;
+
+        _ = await Assert.That(result.ExitCode).IsEqualTo(0);
+        _ = await Assert.That(result.Stdout).Contains("device-ready");
     }
 
     [Test]

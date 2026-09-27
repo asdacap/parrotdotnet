@@ -5,7 +5,7 @@ using Parrot.Store;
 
 namespace Parrot.Process;
 
-internal sealed class LinuxSandboxProcessLauncher : ILinuxSandboxProcessLauncher
+internal sealed class LinuxSandboxProcessLauncher(IReadOnlyList<string> devicePaths) : ILinuxSandboxProcessLauncher
 {
     public IProcessExecution StartPipe(
         string bubblewrapPath,
@@ -155,55 +155,6 @@ internal sealed class LinuxSandboxProcessLauncher : ILinuxSandboxProcessLauncher
         }
     }
 
-    // Read-only host root first, followed by policy mounts in order.
-    // --unshare-* and --cap-drop are the containment; --die-with-parent stops
-    // an orphan outliving the turn.
-    private static List<string> SandboxArguments(
-        string command,
-        ProcessEnvironmentOverrides environment,
-        UserSessionResources resources,
-        AgentScratchDirectory scratch,
-        SecurityProfile securityProfile,
-        string pseudoTerminalHelperPath)
-    {
-        scratch.Provision();
-        var arguments = new List<string>
-        {
-            "--die-with-parent",
-            "--new-session",
-            "--unshare-user",
-            "--unshare-pid",
-            "--unshare-ipc",
-            "--unshare-uts",
-            "--cap-drop", "ALL",
-            "--ro-bind", "/", "/",
-        };
-
-        foreach (var entry in environment.Entries)
-        {
-            arguments.AddRange(["--setenv", entry.Key, entry.Value]);
-        }
-
-        AddSecurityRules(arguments, resources, securityProfile);
-        if (pseudoTerminalHelperPath.Length > 0)
-        {
-            arguments.AddRange(["--ro-bind", pseudoTerminalHelperPath, pseudoTerminalHelperPath]);
-        }
-
-        // must be AFTER other mount
-        arguments.AddRange(["--dev", "/dev", "--proc", "/proc"]);
-
-        arguments.AddRange(["--chdir", resources.Workspace.LaunchDirectory, "--"]);
-
-        if (pseudoTerminalHelperPath.Length > 0)
-        {
-            arguments.AddRange([pseudoTerminalHelperPath, "--attach", "--"]);
-        }
-
-        arguments.AddRange(["/bin/sh", "-c", command]);
-        return arguments;
-    }
-
     private static void AddSyntheticParents(
         List<string> arguments,
         UserSessionResources resources,
@@ -254,6 +205,59 @@ internal sealed class LinuxSandboxProcessLauncher : ILinuxSandboxProcessLauncher
         {
             arguments.AddRange(["--ro-bind", "/dev/null", path]);
         }
+    }
+
+    // Read-only host root first, followed by policy mounts in order.
+    // --unshare-* and --cap-drop are the containment; --die-with-parent stops
+    // an orphan outliving the turn.
+    private List<string> SandboxArguments(
+        string command,
+        ProcessEnvironmentOverrides environment,
+        UserSessionResources resources,
+        AgentScratchDirectory scratch,
+        SecurityProfile securityProfile,
+        string pseudoTerminalHelperPath)
+    {
+        scratch.Provision();
+        var arguments = new List<string>
+        {
+            "--die-with-parent",
+            "--new-session",
+            "--unshare-user",
+            "--unshare-pid",
+            "--unshare-ipc",
+            "--unshare-uts",
+            "--cap-drop", "ALL",
+            "--ro-bind", "/", "/",
+        };
+
+        foreach (var entry in environment.Entries)
+        {
+            arguments.AddRange(["--setenv", entry.Key, entry.Value]);
+        }
+
+        AddSecurityRules(arguments, resources, securityProfile);
+        if (pseudoTerminalHelperPath.Length > 0)
+        {
+            arguments.AddRange(["--ro-bind", pseudoTerminalHelperPath, pseudoTerminalHelperPath]);
+        }
+
+        // must be AFTER other mount
+        arguments.AddRange(["--dev", "/dev", "--proc", "/proc"]);
+        foreach (var devicePath in devicePaths)
+        {
+            arguments.AddRange(["--dev-bind-try", devicePath, devicePath]);
+        }
+
+        arguments.AddRange(["--chdir", resources.Workspace.LaunchDirectory, "--"]);
+
+        if (pseudoTerminalHelperPath.Length > 0)
+        {
+            arguments.AddRange([pseudoTerminalHelperPath, "--attach", "--"]);
+        }
+
+        arguments.AddRange(["/bin/sh", "-c", command]);
+        return arguments;
     }
 
     private sealed class PipeProcessLauncher(System.Diagnostics.Process process)

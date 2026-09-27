@@ -471,6 +471,40 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task Sandbox_dev_bind_defaults_to_empty_and_replaces_inherited_list()
+    {
+        var missing = Load(Path.Combine(_directory, "missing.yaml"));
+        var empty = Load(Write("sandbox:\n  dev_bind: []\n"));
+        var configured = Load(Write("sandbox:\n  enabled: false\n  dev_bind: [/dev, /dev/dri, /dev/zero, /dev/not-present, /dev/dri/../null]\n"));
+        var reloaded = configured.ReloadModelConfiguration();
+
+        _ = await Assert.That(missing.SandboxDevBind).IsEmpty();
+        _ = await Assert.That(empty.SandboxDevBind).IsEmpty();
+        _ = await Assert.That(configured.SandboxEnabled).IsFalse();
+        _ = await Assert.That(string.Join(',', configured.SandboxDevBind))
+            .IsEqualTo("/dev,/dev/dri,/dev/zero,/dev/not-present,/dev/null");
+        _ = await Assert.That(reloaded.SandboxEnabled).IsFalse();
+        _ = await Assert.That(string.Join(',', reloaded.SandboxDevBind))
+            .IsEqualTo("/dev,/dev/dri,/dev/zero,/dev/not-present,/dev/null");
+    }
+
+    [Test]
+    [Arguments("sandbox:\n  dev_bind: /dev/dri\n")]
+    [Arguments("sandbox:\n  dev_bind: [null]\n")]
+    [Arguments("sandbox:\n  dev_bind: [{}]\n")]
+    [Arguments("sandbox:\n  dev_bind: ['']\n")]
+    [Arguments("sandbox:\n  dev_bind: [relative/device]\n")]
+    [Arguments("sandbox:\n  dev_bind: [/device]\n")]
+    [Arguments("sandbox:\n  dev_bind: [/dev/../../tmp]\n")]
+    public async Task Sandbox_dev_bind_rejects_invalid_paths_and_shapes(string content)
+    {
+        var path = Write(content);
+
+        _ = await Assert.That(() => Load(path)).Throws<InvalidDataException>();
+        _ = await Assert.That(() => Load(path).ReloadModelConfiguration()).Throws<InvalidDataException>();
+    }
+
+    [Test]
     [Arguments("sandbox:\n  enabled: yes\n")]
     [Arguments("sandbox:\n  enabled: 1\n")]
     [Arguments("sandbox:\n  unknown_key: true\n")]
