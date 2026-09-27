@@ -83,6 +83,8 @@ internal sealed partial class Configuration(string path)
 
     public bool SandboxEnabled { get; private set; } = true;
 
+    public IReadOnlyList<string> SandboxDevBind { get; private set; } = [];
+
     public IReadOnlySet<string> DisabledTools { get; private set; } = new HashSet<string>(StringComparer.Ordinal);
 
     public IReadOnlyDictionary<string, ProfileConfig> Profiles { get; private set; } =
@@ -254,6 +256,7 @@ internal sealed partial class Configuration(string path)
             RequestLimits = ReadRequestLimits(root),
             SandboxRules = ReadSandboxRules(root, "sandbox_rules", environmentTemplates, directories),
             SandboxEnabled = ReadSandboxEnabled(root),
+            SandboxDevBind = ReadSandboxDevBind(root),
             DisabledTools = ReadDisabledTools(root),
             Profiles = profiles,
             DefaultProfile = ReadDefaultProfile(root, profiles),
@@ -281,6 +284,7 @@ internal sealed partial class Configuration(string path)
             ContextLimit = ReadContextLimit(root, "context_limit", "context_limit"),
             Model = Scalar(root, ModelKey),
             SandboxEnabled = ReadSandboxEnabled(root),
+            SandboxDevBind = ReadSandboxDevBind(root),
             ModelAliases = ReadModelAliases(root),
             ModelPresets = ReadModelPresets(root),
         };
@@ -1376,8 +1380,57 @@ internal sealed partial class Configuration(string path)
             throw new InvalidDataException("sandbox must be a mapping");
         }
 
-        ValidateKeys(sandbox, "sandbox", "enabled");
+        ValidateKeys(sandbox, "sandbox", "enabled", "dev_bind");
         return ReadBoolean(sandbox, "enabled", "sandbox.enabled");
+    }
+
+    private static ReadOnlyCollection<string> ReadSandboxDevBind(YamlMappingNode root)
+    {
+        if (!Child(root, "sandbox", out var node))
+        {
+            return Array.AsReadOnly(Array.Empty<string>());
+        }
+
+        if (node is not YamlMappingNode sandbox)
+        {
+            throw new InvalidDataException("sandbox must be a mapping");
+        }
+
+        if (!Child(sandbox, "dev_bind", out var deviceNode) || deviceNode is not YamlSequenceNode sequence)
+        {
+            throw new InvalidDataException("sandbox.dev_bind must be a sequence");
+        }
+
+        var paths = new List<string>(sequence.Children.Count);
+        for (var index = 0; index < sequence.Children.Count; index++)
+        {
+            var field = $"sandbox.dev_bind[{index}]";
+            if (sequence.Children[index] is not YamlScalarNode { Value: { } path } scalar ||
+                (scalar.Style == ScalarStyle.Plain && path is "null" or "Null" or "NULL" or "~") ||
+                string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
+            {
+                throw new InvalidDataException($"{field} must be an absolute device path under /dev");
+            }
+
+            string normalized;
+            try
+            {
+                normalized = Path.GetFullPath(path);
+            }
+            catch (Exception failure) when (failure is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                throw new InvalidDataException($"{field} must be an absolute device path under /dev", failure);
+            }
+
+            if (normalized != "/dev" && !normalized.StartsWith("/dev/", StringComparison.Ordinal))
+            {
+                throw new InvalidDataException($"{field} must be an absolute device path under /dev");
+            }
+
+            paths.Add(normalized);
+        }
+
+        return Array.AsReadOnly(paths.ToArray());
     }
 
     private static bool ReadInlineDiff(YamlMappingNode root)

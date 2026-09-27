@@ -16,7 +16,7 @@ internal sealed class ProcessRunner
 
     public ProcessRunner(string bubblewrapPath, bool requireTrustedPath, SandboxGate sandboxGate)
     {
-        _sandbox = new LinuxBubblewrapSandbox(bubblewrapPath, requireTrustedPath, new LinuxSandboxProcessLauncher());
+        _sandbox = new LinuxBubblewrapSandbox(bubblewrapPath, requireTrustedPath, new LinuxSandboxProcessLauncher([]));
         _unsandboxed = new UnsandboxedProcessSandbox();
         SandboxGate = sandboxGate;
     }
@@ -48,7 +48,7 @@ internal sealed class ProcessRunner
                 new LinuxBubblewrapSandbox(
                     ExecutableLocator.Capture().Locate("bwrap"),
                     requireTrustedPath: true,
-                    new LinuxSandboxProcessLauncher()),
+                    new LinuxSandboxProcessLauncher([])),
                 sandboxGate);
         }
 
@@ -65,16 +65,23 @@ internal sealed class ProcessRunner
     public static ProcessRunner Locate(ExecutableLocator locator) =>
         Locate(locator, new SandboxGate(enabled: true));
 
-    public static ProcessRunner Locate(ExecutableLocator locator, SandboxGate sandboxGate)
+    public static ProcessRunner Locate(ExecutableLocator locator, SandboxGate sandboxGate) =>
+        LocateConfigured(locator, sandboxGate, []);
+
+    public static ProcessRunner LocateConfigured(
+        ExecutableLocator locator,
+        SandboxGate sandboxGate,
+        IReadOnlyList<string> devicePaths)
     {
         ArgumentNullException.ThrowIfNull(locator);
         ArgumentNullException.ThrowIfNull(sandboxGate);
+        ArgumentNullException.ThrowIfNull(devicePaths);
         return OperatingSystem.IsLinux()
             ? new ProcessRunner(
                 new LinuxBubblewrapSandbox(
                     locator.Locate("bwrap"),
                     requireTrustedPath: false,
-                    new LinuxSandboxProcessLauncher()),
+                    new LinuxSandboxProcessLauncher(devicePaths)),
                 sandboxGate)
             : Locate(sandboxGate);
     }

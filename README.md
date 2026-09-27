@@ -417,7 +417,24 @@ sandbox:
   enabled: false
 ```
 
-The value is read once at startup. When it is `false`, shell commands run
+The value is read once at startup. On Linux, `sandbox.dev_bind` can expose host
+paths under `/dev` to every sandboxed shell command, regardless of agent profile
+or filesystem sandbox rules:
+
+```yaml
+sandbox:
+  dev_bind:
+    - /dev/dri
+```
+
+The default is an empty list. Paths must be absolute and either `/dev` itself or
+beneath it; they bind to the same path inside the sandbox. Missing paths are
+skipped at command launch, and host device permissions still apply. Binding
+`/dev` itself exposes **all** host devices instead of the sandbox's minimal
+`/dev`, including to read-only agents. macOS ignores this list. Device bindings
+are loaded at startup and do not alter file-tool permission checks.
+
+When `sandbox.enabled` is `false`, shell commands run
 unconfined; filesystem permission checks for the file tools are unaffected.
 `/sandbox_enable <true|false>` flips the same switch at runtime, for the whole
 host process, without persisting it; the config file remains the persistent

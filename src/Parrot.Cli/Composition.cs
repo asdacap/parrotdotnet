@@ -87,7 +87,7 @@ internal partial class Composition
                 ctx.Inject<Configuration>(out var configuration);
                 ctx.Inject<ExecutableLocator>(out var locator);
                 ctx.Inject<SandboxGate>(out var sandboxGate);
-                return ProcessRunner.Locate(locator, sandboxGate);
+                return ProcessRunner.LocateConfigured(locator, sandboxGate, configuration.SandboxDevBind);
             })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>
