@@ -161,6 +161,71 @@ internal sealed class EnhancedRenderingSessionTests
     }
 
     [Test]
+    [Arguments(null)]
+    [Arguments(60L)]
+    public async Task Question_interaction_hides_modeline_spinner_and_restores_activity(
+        long? remainingSeconds, CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var terminal = new TestTerminal(driver.Input, output, error, 160);
+        var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
+        var presenters = new ToolPresenterRegistry([new QuestionToolPresenter()], new GenericToolPresenter());
+        var stream = new ChannelStreamWriter<Event>();
+        var observed = System.Threading.Channels.Channel.CreateUnbounded<Event>();
+        await using var session = new EnhancedRenderingSession(
+            new EnhancedTurnRenderer(terminal, configuration, presenters),
+            presenters,
+            new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(false), 10, 12, true),
+            new TestSlashSession("provider/model"),
+            [new PromptValue("> ", "typed answer", 4)],
+            (published, token) => observed.Writer.WriteAsync(published, token).AsTask(),
+            static _ => Task.CompletedTask,
+            static _ => Task.CompletedTask,
+            static () => true,
+            static (_, _) => Task.CompletedTask,
+            false);
+        var running = session.Run(stream.Reader, cancellationToken);
+        try
+        {
+            await stream.WriteAsync(new Event { AgentSessionId = "root", TurnStarted = new TurnStarted() }, cancellationToken);
+            _ = await observed.Reader.ReadAsync(cancellationToken);
+            await stream.WriteAsync(
+                new Event
+                {
+                    AgentSessionId = "root",
+                    ToolStarted = new ToolStarted { ToolCallId = "question-call", ToolName = "question" },
+                },
+                cancellationToken);
+            _ = await observed.Reader.ReadAsync(cancellationToken);
+            await session.Refresh(cancellationToken);
+            _ = await Assert.That(output.ToString()).Contains("Working: question");
+
+            await session.UpdateQuestionCountdown(remainingSeconds, cancellationToken);
+            var waitingAt = output.GetStringBuilder().Length;
+            await session.SetAwaitingQuestionAnswer(true, cancellationToken);
+            await session.Refresh(cancellationToken);
+            var waitingFrame = output.ToString()[waitingAt..];
+            _ = await Assert.That(waitingFrame).Contains("Waiting for your answer…");
+            _ = await Assert.That(waitingFrame).DoesNotContain("Working: question");
+            _ = await Assert.That(waitingFrame.Any(TerminalIcons.SpinnerFrames.Contains)).IsFalse();
+
+            var resumedAt = output.GetStringBuilder().Length;
+            await session.SetAwaitingQuestionAnswer(false, cancellationToken);
+            var resumedFrame = output.ToString()[resumedAt..];
+            _ = await Assert.That(resumedFrame).DoesNotContain("Waiting for your answer…");
+            _ = await Assert.That(resumedFrame).Contains("Working: question");
+            _ = await Assert.That(resumedFrame.Any(TerminalIcons.SpinnerFrames.Contains)).IsTrue();
+        }
+        finally
+        {
+            stream.Complete();
+            _ = await running;
+        }
+    }
+
+    [Test]
     public async Task Live_usage_is_modeline_only_aggregates_all_agents_and_resets(
         CancellationToken cancellationToken)
     {

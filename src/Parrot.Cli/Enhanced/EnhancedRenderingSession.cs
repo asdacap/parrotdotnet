@@ -31,6 +31,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
     private IReadOnlyList<ILiveBufferItem> _body = [];
     private IReadOnlyList<ILiveBufferItem> _input;
     private long? _questionRemainingSeconds;
+    private bool _awaitingQuestionAnswer;
     private string _mainAgentActivity = string.Empty;
     private string _modelineActivity = string.Empty;
     private uint _requestAttempt;
@@ -146,6 +147,20 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
         try
         {
             _input = [.. items];
+            await DrawFrame(CancellationToken.None).ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = _composing.Release();
+        }
+    }
+
+    internal async Task SetAwaitingQuestionAnswer(bool awaitingAnswer, CancellationToken cancellationToken)
+    {
+        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _awaitingQuestionAnswer = awaitingAnswer;
             await DrawFrame(CancellationToken.None).ConfigureAwait(false);
         }
         finally
@@ -349,9 +364,11 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
             activityLabel = $"{activityLabel} (running {duration.Format()})";
         }
 
-        var activity = activityLabel.Length == 0
-            ? string.Empty
-            : $"{TerminalIcons.SpinnerFrames[_modelineFrame % TerminalIcons.SpinnerFrames.Length]} {activityLabel}";
+        var activity = _awaitingQuestionAnswer
+            ? "Waiting for your answer…"
+            : activityLabel.Length == 0
+                ? string.Empty
+                : $"{TerminalIcons.SpinnerFrames[_modelineFrame % TerminalIcons.SpinnerFrames.Length]} {activityLabel}";
         return new ModelineValue(
             _session.Mode,
             activity,

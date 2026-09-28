@@ -508,12 +508,21 @@ internal sealed class EnhancedCli(
 
                 if (questionRequests.Read() is { } questionRequest)
                 {
-                    await CompleteQuestion(
-                        questionRequest.Session.UserSessionId,
-                        questionRequest.Pending,
-                        dialog,
-                        renderingSession.UpdateQuestionCountdown,
-                        cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        await renderingSession.SetAwaitingQuestionAnswer(true, cancellationToken).ConfigureAwait(false);
+                        await CompleteQuestion(
+                            questionRequest.Session.UserSessionId,
+                            questionRequest.Pending,
+                            dialog,
+                            renderingSession.UpdateQuestionCountdown,
+                            cancellationToken).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        await renderingSession.SetAwaitingQuestionAnswer(false, CancellationToken.None).ConfigureAwait(false);
+                    }
+
                     await DrawPrompt(CancellationToken.None).ConfigureAwait(false);
                     continue;
                 }
