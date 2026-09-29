@@ -15,6 +15,7 @@ internal partial class EnhancedComposition
             .Arg<GeneratedParrot.ParrotClient>("client")
             .Arg<Interrupts>("interrupts")
             .Arg<ICredentialStore>("credentials")
+            .Arg<CredentialPresets>("credentialPresets")
             .Arg<IOAuthClient>("oauthClient")
             .Arg<Configuration>("configuration")
             .Arg<IReadOnlyList<string>>("providerIds")

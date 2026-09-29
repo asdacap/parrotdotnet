@@ -18,6 +18,7 @@ internal sealed class WebSlashService(
     Configuration configuration,
     string workingDirectory,
     ICredentialStore credentials,
+    CredentialPresets credentialPresets,
     IOAuthClient oauth,
     IReadOnlyList<string> providerIds,
     IDiagnosticLog diagnostics) : ParrotWeb.ParrotWebBase
@@ -150,6 +151,7 @@ internal sealed class WebSlashService(
             activity,
             null,
             credentials,
+            credentialPresets,
             oauth,
             providerIds,
             static _ => Task.CompletedTask,

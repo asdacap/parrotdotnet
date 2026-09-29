@@ -27,6 +27,15 @@ internal sealed record Credential
     public static Credential ForOAuth(OAuthCredential value) =>
         new() { Version = CurrentVersion, Type = CredentialType.OAuth, OAuth = value };
 
+    // Same account, ignoring rotating OAuth tokens and expiry.
+    public bool Matches(Credential other) =>
+        other is not null && Type == other.Type && Type switch
+        {
+            CredentialType.ApiKey => ApiKey?.Key == other.ApiKey?.Key,
+            CredentialType.OAuth => string.Equals(OAuth?.AccountId, other.OAuth?.AccountId, StringComparison.Ordinal),
+            _ => false,
+        };
+
     public void Validate()
     {
         if (Version != CurrentVersion)

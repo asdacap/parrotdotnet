@@ -13,6 +13,7 @@ internal static class SlashCommands
         ISlashActivity activity,
         IApplicationExit? applicationExit,
         ICredentialStore credentials,
+        CredentialPresets credentialPresets,
         IOAuthClient oauth,
         IReadOnlyList<string> providerIds,
         Func<CancellationToken, Task> refreshSkillCompletion,
@@ -23,6 +24,8 @@ internal static class SlashCommands
         var models = new ModelWizard(client, dialog);
         var modes = new ModeSelection(client, dialog);
         commands.Add(new AuthCommand(credentials, oauth, providerIds, dialog, diagnostics));
+        commands.Add(new AuthPresetSelectCommand(credentialPresets, credentials, activity, dialog));
+        commands.Add(new AuthPresetSetCommand(credentialPresets, credentials, dialog));
         commands.Add(new ClearCommand(models, modes, session, activity, dialog));
         commands.Add(new CompactCommand(session, activity, dialog));
         commands.Add(new EffortCommand(client, session, activity, dialog));

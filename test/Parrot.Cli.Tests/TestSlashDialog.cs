@@ -6,6 +6,7 @@ internal sealed class TestSlashDialog : ISlashDialog
 {
     private readonly Queue<string?> _secrets = [];
     private readonly Queue<string?> _selections = [];
+    private readonly Queue<bool> _confirmations = [];
 
     public List<string> Shown { get; } = [];
 
@@ -16,6 +17,8 @@ internal sealed class TestSlashDialog : ISlashDialog
     public List<(string Title, IReadOnlyList<SlashDialogOption> Options)> Pickers { get; } = [];
 
     public List<string> Loads { get; } = [];
+
+    public List<string> Confirmed { get; } = [];
 
     public TestSlashDialog Select(params string?[] ids)
     {
@@ -32,6 +35,17 @@ internal sealed class TestSlashDialog : ISlashDialog
         foreach (var value in values)
         {
             _secrets.Enqueue(value);
+        }
+
+        return this;
+    }
+
+    // Unqueued confirmations are accepted.
+    public TestSlashDialog Confirmation(params bool[] answers)
+    {
+        foreach (var answer in answers)
+        {
+            _confirmations.Enqueue(answer);
         }
 
         return this;
@@ -68,7 +82,8 @@ internal sealed class TestSlashDialog : ISlashDialog
     public Task<bool> Confirm(IReadOnlyList<string> lines, CancellationToken cancellationToken)
     {
         Shown.AddRange(lines);
-        return Task.FromResult(true);
+        Confirmed.AddRange(lines);
+        return Task.FromResult(_confirmations.Count == 0 || _confirmations.Dequeue());
     }
 
     public Task ShowError(string message, CancellationToken cancellationToken)

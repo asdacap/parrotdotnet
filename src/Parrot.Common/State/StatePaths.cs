@@ -14,6 +14,8 @@ internal sealed class StatePaths(string state, string config, string data)
 
     public string CredentialsFile => Path.Combine(Config, "credentials.json");
 
+    public string CredentialPresetDirectory => Path.Combine(Config, "credential_presets");
+
     public string Control => Path.Combine(State, "control");
 
     public string LogDirectory => Path.Combine(State, "logs");

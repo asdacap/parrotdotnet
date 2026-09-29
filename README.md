@@ -1659,6 +1659,8 @@ non-interactive commands and ordinary stdin/stdout pipes instead.
 | `/model-alias` | wizard | Configure a predefined or custom alias, or apply provider defaults |
 | `/clear` | wizard | Configure and start a fresh session, keeping the old one |
 | `/auth` | wizard | Manage provider credentials |
+| `/auth-preset-select [name]` | wizard | Replace all stored credentials with a saved preset, picking one when unnamed |
+| `/auth-preset-set <name>` | argument | Save all stored credentials as a preset |
 | `/skills` | wizard | List, enable, or disable skills; rejects arguments |
 | `/model-preset-set <name>` | argument | Save the current selector and alias targets as a preset |
 | `/model-preset-select <name>` | argument | Restore a saved preset |
@@ -1672,7 +1674,21 @@ non-interactive commands and ordinary stdin/stdout pipes instead.
 
 The argument-driven `/model-preset-set <name>` snapshots the
 current selector and alias targets, while `/model-preset-select <name>` restores
-one saved snapshot; both require exactly one valid name token. `/compact [size]`
+one saved snapshot; both require exactly one valid name token.
+
+Credential presets switch accounts in one step. `/auth-preset-set <name>`
+copies every credential in `credentials.json` to
+`$XDG_CONFIG_HOME/parrotdotnet/credential_presets/<name>.json` (owner-only,
+same format), and `/auth-preset-select` replaces the stored credentials with a
+preset. Selection compares the stored credentials with each preset by account
+(API key value, or OAuth account id ignoring tokens): when one matches, the
+current credentials, including refreshed OAuth tokens, are written back to it
+first; when none matches, Parrot asks for confirmation before discarding them.
+Presets cover only stored credentials, not `api_key_env` variables or provider
+headers, and like `/auth` they act on the credentials of the machine running
+the CLI, even when connected to a remote server.
+
+`/compact [size]`
 explicitly compacts the current root session even when it is below the automatic
 threshold. `size` is optional and accepts positive whole tokens (for example
 `100000`), an integer `k` suffix (`100k` means 100,000 tokens), or a whole

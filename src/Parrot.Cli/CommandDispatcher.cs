@@ -474,6 +474,7 @@ internal sealed class CommandDispatcher(
         }
 
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
+        var credentialPresets = new CredentialPresets(StatePaths.ResolveFromEnvironment().CredentialPresetDirectory);
         await using var composition = await BuildComposition(credentials, configuration, new LocalUserSessionHost(), cancellationToken)
             .ConfigureAwait(false);
 
@@ -492,6 +493,7 @@ internal sealed class CommandDispatcher(
             configuration,
             Directory.GetCurrentDirectory(),
             credentials,
+            credentialPresets,
             oauthClient,
             ProviderRegistryBuilder.BuildableProviderIds(configuration),
             diagnostics.Global);
@@ -671,6 +673,7 @@ internal sealed class CommandDispatcher(
             }
 
             using var remoteCredentials = new FileCredentialStore(paths.CredentialsFile);
+            var remoteCredentialPresets = new CredentialPresets(paths.CredentialPresetDirectory);
             var remoteProviderIds = ProviderRegistryBuilder.BuildableProviderIds(configuration);
 
             if (basic || Console.IsOutputRedirected)
@@ -679,6 +682,7 @@ internal sealed class CommandDispatcher(
                     remote,
                     interrupts,
                     remoteCredentials,
+                    remoteCredentialPresets,
                     oauthClient,
                     configuration,
                     remoteProviderIds,
@@ -701,6 +705,7 @@ internal sealed class CommandDispatcher(
                     remote,
                     interrupts,
                     remoteCredentials,
+                    remoteCredentialPresets,
                     oauthClient,
                     configuration,
                     remoteProviderIds,
@@ -721,6 +726,7 @@ internal sealed class CommandDispatcher(
                 remote,
                 interrupts,
                 remoteCredentials,
+                remoteCredentialPresets,
                 oauthClient,
                 configuration,
                 remoteProviderIds,
@@ -741,6 +747,7 @@ internal sealed class CommandDispatcher(
         }
 
         using var credentials = new FileCredentialStore(paths.CredentialsFile);
+        var credentialPresets = new CredentialPresets(paths.CredentialPresetDirectory);
         Composition? composition = null;
         async Task<GeneratedParrot.ParrotClient> OpenLocalClient(CancellationToken token)
         {
@@ -779,6 +786,7 @@ internal sealed class CommandDispatcher(
                     client,
                     interrupts,
                     credentials,
+                    credentialPresets,
                     oauthClient,
                     configuration,
                     providerIds,
@@ -802,6 +810,7 @@ internal sealed class CommandDispatcher(
                     client,
                     interrupts,
                     credentials,
+                    credentialPresets,
                     oauthClient,
                     configuration,
                     providerIds,
@@ -823,6 +832,7 @@ internal sealed class CommandDispatcher(
                 client,
                 interrupts,
                 credentials,
+                credentialPresets,
                 oauthClient,
                 configuration,
                 providerIds,
