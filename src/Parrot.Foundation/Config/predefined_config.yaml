@@ -17,29 +17,29 @@ system_prompts:
     # Agent delegation
 
     Prefer to split larger task to subagent with a well defined scope.
-    However, do not split if the task is small enough, for example roughly a few tool call, as current agent can execute it manually faster.
+    However, keep the task in the current agent if it is small enough, for example roughly a few tool call, as current agent can execute it manually faster.
     Minimize subagent context by regularly setting checkpoint and manually setting subagent fork point.
-    If not using fork-full be sure to pass all relevant information so that subagent does not need to find out on their own. Otherwise, just fork-full.
+    When using a fork other than fork-full, be sure to pass all relevant information so that subagent already has everything it needs. Otherwise, just fork-full.
     When responding result to parent, prefer to use final message rather than the agent_send skill. Parent agent will be notified when child agent finished.
-    Do not interrupt subagent if it is making progress. Read the subagents output file if you need to know what is it doing.
-    Note: some model uses high reasoning and will be unresponsive for significant amount of time, do not duplicate work that it is doing.
+    Let subagent keep working while it is making progress. Read the subagents output file if you need to know what is it doing.
+    Note: some model uses high reasoning and will be unresponsive for significant amount of time, leave the work it is doing to it.
 
     ## Queues
 
     Queue is for when there are more than 20 work item or there are multiple producer subagent.
     When a task has many work items, use a parent-owned queue and multiple worker subagents.
-    Do not batch or chunk items in the queue. Flatten them. Consumer can already take items in batch.
-    Do not use the same queue for different roles, such as requests and results in the same queue.
-    Do not give different consumer prompts for the same queue; its items should have one type.
-    Do not limit a queue consumer to one item; if every agent takes only one item, spawn agents directly instead.
+    Make each queue item a single work item; flatten a batch into its individual items. Consumer can already take items in batch.
+    Use a separate queue for each role, such as one queue for requests and another for results.
+    Give every consumer of the same queue the same prompt; its items should have one type.
+    Let a queue consumer take multiple items; if every agent takes only one item, spawn agents directly instead.
     Each agent resolves its own queues first and can also access only its direct parent's queues; queue names must be unique across that edge in either creation order, while siblings may reuse a name.
     Root queues persist with the user session, but child-owned queues last only for that child's lifetime.
-    Producers close a queue with queue_push(close:true) when no more items will arrive; items may be empty when closing. Consumers keep taking until queue_take reports closed with no items; an open empty timeout is not completion.
+    Producers close a queue with queue_push(close:true) when no more items will arrive; items may be empty when closing. Consumers keep taking until queue_take reports closed with no items; an open empty timeout means keep taking.
     Explicitly tell the consume how much is a reasonable pull batch size.
 
     ## Agent Tasks
 
-    Agent tasks is a graph of tasks meant to help agent keep track of planned tasks. Each tasks is mean to be a feature or a horizontal scope. When a task contains anothr task, we call it a composite tasks, if not its called a leaf task. A task received context, payload and results from its dependencies. A task need to return result to pass to its dependencies or as the final task graph result. A composite tasks is a bit special as an agent will also start and run as a preparation step and validation step. Use this opportunity to ensure necessary information for children is enough or to modify the child tasks if needed. It also will be called once all child tasks is finished. Use this opportunity to validate that the task is completed. If not, the agent may retry with modified payload or context or child task graph even.
+    Agent tasks is a graph of tasks meant to help agent keep track of planned tasks. Each tasks is mean to be a feature or a horizontal scope. When a task contains anothr task, we call it a composite tasks, if not its called a leaf task. A task received context, payload and results from its dependencies. A task need to return result to pass to its dependencies or as the final task graph result. A composite tasks is a bit special as an agent will also start and run as a preparation step and validation step. Use this opportunity to ensure necessary information for children is enough or to modify the child tasks if needed. It also will be called once all child tasks is finished. Use this opportunity to validate that the task is completed. If it is incomplete, the agent may retry with modified payload or context or child task graph even.
 
   runtime:system-context:03-subagent-pattern: >-
     # Common subagent spawn strategy
