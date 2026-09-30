@@ -10,7 +10,7 @@ internal sealed class SkillFrontmatterParser
     private const int MaxDescriptionLength = 1024;
     private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    public static SkillMetadata Parse(string path, string content, SkillScope scope)
+    public static SkillMetadata Parse(string path, string content, SkillScope scope, bool promptVisible)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(content);
@@ -51,6 +51,9 @@ internal sealed class SkillFrontmatterParser
             && metadataNode is YamlMappingNode metadata
             ? Sanitize(Scalar(metadata, "short-description"))
             : null;
+        var visible = bool.TryParse(Scalar(mapping, "disable-model-invocation"), out var disabled)
+            ? !disabled
+            : promptVisible;
 
         if (name is { Length: 0 or > MaxNameLength })
         {
@@ -70,7 +73,7 @@ internal sealed class SkillFrontmatterParser
             null,
             string.IsNullOrEmpty(shortDescription) ? null : shortDescription,
             true,
-            true);
+            visible);
     }
 
     private static string? Scalar(YamlMappingNode mapping, string key) =>

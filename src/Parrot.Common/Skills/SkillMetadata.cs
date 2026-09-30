@@ -11,6 +11,4 @@ internal sealed record SkillMetadata(
     bool PromptVisible)
 {
     public string DiscoveryPath { get; init; } = Path;
-
-    public string EffectiveDescription => ShortDescription ?? Description;
 }

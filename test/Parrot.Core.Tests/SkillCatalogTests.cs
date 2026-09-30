@@ -339,6 +339,34 @@ internal sealed class SkillCatalogTests : IDisposable
         _ = await Assert.That(refreshed.Skills[0].Enabled).IsFalse();
     }
 
+    [Test]
+    [Arguments("", false)]
+    [Arguments("disable-model-invocation: false\n", true)]
+    public async Task Discovery_prefers_skill_frontmatter_over_openai_yaml(
+        string invocationFlag,
+        bool promptVisible,
+        CancellationToken cancellationToken)
+    {
+        var root = Path.Combine(_root, "skills");
+        var skillDirectory = Path.Combine(root, "skill");
+        var agentsDirectory = Directory.CreateDirectory(Path.Combine(skillDirectory, "agents"));
+        await File.WriteAllTextAsync(
+            Path.Combine(skillDirectory, "SKILL.md"),
+            $"---\nname: skill\ndescription: description\n{invocationFlag}metadata:\n  short-description: Frontmatter short\n---\nbody",
+            cancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(agentsDirectory.FullName, "openai.yaml"),
+            "interface:\n  display_name: Display\n  short_description: OpenAI short\npolicy:\n  allow_implicit_invocation: false\n",
+            cancellationToken);
+
+        var snapshot = SkillDiscovery.Discover([new(root, SkillScope.User, true)], SkillConfiguration.Default);
+
+        _ = await Assert.That(snapshot.Skills).HasSingleItem();
+        _ = await Assert.That(snapshot.Skills[0].DisplayName).IsEqualTo("Display");
+        _ = await Assert.That(snapshot.Skills[0].ShortDescription).IsEqualTo("Frontmatter short");
+        _ = await Assert.That(snapshot.Skills[0].PromptVisible).IsEqualTo(promptVisible);
+    }
+
     private static string SkillContent(string name) => $"---\nname: {name}\ndescription: description\n---\nbody";
 
     private static async Task<string> WriteSkill(
