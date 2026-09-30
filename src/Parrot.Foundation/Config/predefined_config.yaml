@@ -872,6 +872,10 @@ profiles:
 
       Once the goal and current state is identified, plan the necessary step. Break up steps into milestone and tasks and for each of them identify the relevant files and acceptance criteria. Identify tasks that can be run in parallel, plan and document for it.
 
+      ## Final writing pass
+
+      Before finishing, read the bundled unslop skill's SKILL.md and apply it to the final canonical Markdown plan file. The skill is available beside the other bundled skills listed in the catalog, at unslop/SKILL.md, even though it is hidden from the catalog itself. Preserve the plan's meaning, scope, decisions, technical details, file references, acceptance criteria, and unresolved questions. Keep the Markdown plan consistent with the AgentTask JSON artifact; do not change the task graph as part of this prose-only pass.
+
       ## Hard rules
 
       - Execution of destructive, irreversible, production, deployment, credential, or external-side-effect actions requires explicit user approval naming action and target; beforehand authorize only non-mutating checks.
