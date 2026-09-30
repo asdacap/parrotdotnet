@@ -95,7 +95,7 @@ internal sealed class SkillDiscovery
         var logicalPath = Path.Combine(skillDirectory.LogicalPath, "agents", "openai.yaml");
         if (!File.Exists(logicalPath))
         {
-            return new(null, null);
+            return new(null, null, null);
         }
 
         try
@@ -109,7 +109,7 @@ internal sealed class SkillDiscovery
             or InvalidOperationException)
         {
             AddError(errors, logicalPath, failure.Message);
-            return new(null, null);
+            return new(null, null, null);
         }
     }
 
@@ -161,13 +161,17 @@ internal sealed class SkillDiscovery
         try
         {
             var content = SkillFileReader.Read(discoveryPath, canonicalPath);
-            var parsed = SkillFrontmatterParser.Parse(canonicalPath, content, root.Scope);
             var display = ReadDisplayMetadata(parent, errors);
+            var parsed = SkillFrontmatterParser.Parse(
+                canonicalPath,
+                content,
+                root.Scope,
+                display.AllowImplicitInvocation ?? true);
             _ = canonicalPaths.Add(canonicalPath);
             discovered.Add(parsed with
             {
                 DisplayName = display.DisplayName,
-                ShortDescription = display.ShortDescription ?? parsed.ShortDescription,
+                ShortDescription = parsed.ShortDescription ?? display.ShortDescription,
                 Enabled = configuration.Enabled && configuration.IsEnabled(canonicalPath),
                 DiscoveryPath = Path.GetFullPath(discoveryPath),
             });

@@ -23,7 +23,7 @@ internal sealed class SkillFoundationTests
             """;
         var path = Path.Combine(Path.GetTempPath(), "fallback-name", "SKILL.md");
 
-        var parsed = SkillFrontmatterParser.Parse(path, content, SkillScope.User);
+        var parsed = SkillFrontmatterParser.Parse(path, content, SkillScope.User, true);
 
         _ = await Assert.That(parsed.Name).IsEqualTo("fallback-name");
         _ = await Assert.That(parsed.Description).IsEqualTo("A useful skill");
@@ -33,7 +33,8 @@ internal sealed class SkillFoundationTests
         var blankName = SkillFrontmatterParser.Parse(
             path,
             "---\nname: '   '\ndescription: valid\n---\nbody",
-            SkillScope.User);
+            SkillScope.User,
+            true);
         _ = await Assert.That(blankName.Name).IsEqualTo("fallback-name");
     }
 
@@ -50,12 +51,12 @@ internal sealed class SkillFoundationTests
 
         if (valid)
         {
-            var parsed = SkillFrontmatterParser.Parse(path, content, SkillScope.Repo);
+            var parsed = SkillFrontmatterParser.Parse(path, content, SkillScope.Repo, true);
             _ = await Assert.That(parsed.Name).IsEqualTo(name);
         }
         else
         {
-            _ = await Assert.That(() => SkillFrontmatterParser.Parse(path, content, SkillScope.Repo))
+            _ = await Assert.That(() => SkillFrontmatterParser.Parse(path, content, SkillScope.Repo, true))
                 .Throws<SkillParseException>();
         }
     }
@@ -67,9 +68,9 @@ internal sealed class SkillFoundationTests
         var missing = "---\nname: valid\n---\nbody";
         var overlong = $"---\nname: valid\ndescription: {new string('d', 1025)}\n---\nbody";
 
-        _ = await Assert.That(() => SkillFrontmatterParser.Parse(path, missing, SkillScope.User))
+        _ = await Assert.That(() => SkillFrontmatterParser.Parse(path, missing, SkillScope.User, true))
             .Throws<SkillParseException>();
-        _ = await Assert.That(() => SkillFrontmatterParser.Parse(path, overlong, SkillScope.User))
+        _ = await Assert.That(() => SkillFrontmatterParser.Parse(path, overlong, SkillScope.User, true))
             .Throws<SkillParseException>();
     }
 
@@ -92,11 +93,45 @@ internal sealed class SkillFoundationTests
               display_name: {new string('x', 65)}
               short_description: usable
             """);
+        var policyOnly = SkillDisplayMetadataParser.Parse("policy:\n  allow_implicit_invocation: true");
         var malformed = SkillDisplayMetadataParser.Parse("interface: [");
 
-        _ = await Assert.That(valid).IsEqualTo(new SkillDisplayMetadata("Display Name", "Short description"));
-        _ = await Assert.That(mixed).IsEqualTo(new SkillDisplayMetadata(null, "usable"));
-        _ = await Assert.That(malformed).IsEqualTo(new SkillDisplayMetadata(null, null));
+        _ = await Assert.That(valid).IsEqualTo(new SkillDisplayMetadata("Display Name", "Short description", false));
+        _ = await Assert.That(mixed).IsEqualTo(new SkillDisplayMetadata(null, "usable", null));
+        _ = await Assert.That(policyOnly).IsEqualTo(new SkillDisplayMetadata(null, null, true));
+        _ = await Assert.That(malformed).IsEqualTo(new SkillDisplayMetadata(null, null, null));
+    }
+
+    [Test]
+    [Arguments("", true, true)]
+    [Arguments("", false, false)]
+    [Arguments("disable-model-invocation: true\n", true, false)]
+    [Arguments("disable-model-invocation: false\n", false, true)]
+    public async Task Frontmatter_invocation_flag_overrides_fallback_visibility(
+        string invocationFlag,
+        bool fallbackVisible,
+        bool expectedVisible)
+    {
+        var parsed = SkillFrontmatterParser.Parse(
+            Path.Combine(Path.GetTempPath(), "skill", "SKILL.md"),
+            $"---\ndescription: valid\n{invocationFlag}---\nbody",
+            SkillScope.User,
+            fallbackVisible);
+
+        _ = await Assert.That(parsed.PromptVisible).IsEqualTo(expectedVisible);
+    }
+
+    [Test]
+    public async Task Catalog_lists_frontmatter_description_of_prompt_visible_skills()
+    {
+        var visible = new SkillMetadata("visible", "Full description", "/visible/SKILL.md", SkillScope.User, null, "Short blurb", true, true);
+        var hidden = new SkillMetadata("hidden", "Hidden description", "/hidden/SKILL.md", SkillScope.User, null, null, true, false);
+
+        var rendered = AgentSkillPromptProvider.Render([visible, hidden], TestModels.PromptTemplates);
+
+        _ = await Assert.That(rendered).Contains("- $visible: Full description (/visible/SKILL.md)");
+        _ = await Assert.That(rendered).DoesNotContain("Short blurb");
+        _ = await Assert.That(rendered).DoesNotContain("$hidden");
     }
 
     [Test]

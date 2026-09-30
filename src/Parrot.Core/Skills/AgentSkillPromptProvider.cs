@@ -42,7 +42,7 @@ internal sealed class AgentSkillPromptProvider(AgentSkills skills) : ISystemProm
         var omitted = 0;
         foreach (var skill in available)
         {
-            var entry = $"- ${skill.Name}: {skill.EffectiveDescription} ({skill.DiscoveryPath})\n";
+            var entry = $"- ${skill.Name}: {skill.Description} ({skill.DiscoveryPath})\n";
             var entryBytes = Encoding.UTF8.GetByteCount(entry);
             if (consumedBytes + entryBytes > listingBudget)
             {
