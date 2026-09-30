@@ -203,9 +203,9 @@ internal sealed class SkillFoundationTests
         var packaged = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "skills"));
         var files = RelativeFiles(packaged);
 
-        _ = await Assert.That(files.Count).IsEqualTo(59);
+        _ = await Assert.That(files.Count).IsEqualTo(76);
         var manifest = await Manifest(packaged, files);
-        _ = await Assert.That(manifest).IsEqualTo("AAC486CADD6DB7EC231932D8AB71BD19C066432A99D950BB48F5633CBF46BA3D");
+        _ = await Assert.That(manifest).IsEqualTo("5BFB4AA236CA33A70F722595DFEA7D7429B45BBCE96B2E970F7B529CF6611CA8");
     }
 
     private static List<string> RelativeFiles(string root) =>
