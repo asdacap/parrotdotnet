@@ -628,6 +628,15 @@ prompt_templates:
       </skill-unavailable>
     allowed_arguments: [name, message]
     required_arguments: [name, message]
+  context.skill-too-large:
+    template: |-
+      <skill-too-large>
+      <name>{name}</name>
+      <path>{path}</path>
+      <message>The skill instructions exceed the {limit_bytes}-byte injection limit and were not loaded. Read the file at the path above completely before using this skill.</message>
+      </skill-too-large>
+    allowed_arguments: [name, path, limit_bytes]
+    required_arguments: [name, path, limit_bytes]
 
 # Markdown skills discovered from repository, user, and packaged roots.
 skills:

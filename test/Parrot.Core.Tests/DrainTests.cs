@@ -530,7 +530,7 @@ internal sealed class DrainTests : IDisposable
         const string overBudgetHeader = "---\nname: over-budget\ndescription: over budget\n---\n";
         await File.WriteAllTextAsync(
             overBudgetPath,
-            overBudgetHeader + new string('x', (1024 * 1024) - overBudgetHeader.Length),
+            overBudgetHeader + new string('x', (8 * 1024) - overBudgetHeader.Length + 1),
             cancellationToken);
         var catalog = new SkillCatalog(
             [new(skillRoot.FullName, SkillScope.User, true)],
@@ -567,7 +567,9 @@ internal sealed class DrainTests : IDisposable
             .And.DoesNotContain(message => message.Content.Contains("DISABLED BODY", StringComparison.Ordinal));
         _ = await Assert.That(repository.ModelHistory("agent"))
             .Contains(message => message.Content.Contains("ENABLED BODY", StringComparison.Ordinal))
-            .And.DoesNotContain(message => message.Content.Contains("DISABLED BODY", StringComparison.Ordinal));
+            .And.DoesNotContain(message => message.Content.Contains("DISABLED BODY", StringComparison.Ordinal))
+            .And.Contains(message => message.Content.Contains($"<skill-too-large>\n<name>over-budget</name>\n<path>{overBudgetPath}</path>", StringComparison.Ordinal))
+            .And.DoesNotContain(message => message.Content.Contains("xxxx", StringComparison.Ordinal));
         _ = await Assert.That(repository.Replay().Count(
             published => published.PayloadCase == Event.PayloadOneofCase.SkillLoaded)).IsEqualTo(1);
     }
