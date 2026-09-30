@@ -62,6 +62,35 @@ internal sealed class QuestionToolTests
     }
 
     [Test]
+    [Arguments("{\"questions\":[{\"prompt\":\"Pick\"}]}", true)]
+    [Arguments("{\"questions\":[{\"prompt\":\"Pick\",\"options\":[\"Blue\"]}]}", false)]
+    public async Task Omitted_custom_is_true_only_when_options_are_omitted(string argumentsJson, bool expectedCustom, CancellationToken cancellationToken)
+    {
+        using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System, TestDiagnosticLog.Instance);
+        ITool tool = new QuestionTool(new UserQuestionRequester(broker));
+        var executing = tool.Execute(new ToolInvocation("test-call", argumentsJson), new SelectionFixture().Selection, cancellationToken);
+        var pending = await WaitForPending(broker, cancellationToken);
+
+        _ = await Assert.That(pending.Questions.Single().Custom).IsEqualTo(expectedCustom);
+
+        broker.Reject(pending.Id);
+        _ = await executing;
+    }
+
+    [Test]
+    public async Task Explicit_false_custom_without_options_returns_error(CancellationToken cancellationToken)
+    {
+        using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System, TestDiagnosticLog.Instance);
+        ITool tool = new QuestionTool(new UserQuestionRequester(broker));
+        var result = (await tool.Execute(
+            new ToolInvocation("test-call", """{"questions":[{"prompt":"Pick","custom":false}]}"""),
+            new SelectionFixture().Selection,
+            cancellationToken)).Text;
+
+        _ = await Assert.That(result).IsEqualTo("error: question requires options or custom answers");
+    }
+
+    [Test]
     [Arguments("{\"questions\":[],\"unexpected\":true}")]
     [Arguments("{\"questions\":[{\"id\":\"colour\",\"prompt\":\"Pick\",\"options\":[{\"id\":\"blue\",\"label\":\"Blue\"}],\"unexpected\":true}]}")]
     [Arguments("{\"questions\":[{\"id\":\"colour\",\"prompt\":\"Pick\",\"options\":[{\"id\":\"blue\",\"label\":\"Blue\",\"unexpected\":true}]}]}")]

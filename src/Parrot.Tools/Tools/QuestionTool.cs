@@ -23,7 +23,7 @@ internal sealed class QuestionTool(IQuestionRequester requester) : ITool
                 question.Prompt ?? string.Empty,
                 [.. (question.Options ?? []).Select(option => new Parrot.Questions.QuestionOption(option.Label, option.Description))],
                 question.Multiple,
-                question.Custom))];
+                question.Custom ?? question.Options is null))];
             var reply = await requester.Ask(questions, cancellationToken).ConfigureAwait(false);
             return reply.Kind == QuestionReplyKind.UserAway
                 ? ToolResultFormatter.Text(invocation, "The user is away.")
@@ -59,7 +59,7 @@ internal sealed class QuestionTool(IQuestionRequester requester) : ITool
             public bool Multiple { get; init; }
 
             [JsonPropertyName("custom")]
-            public bool Custom { get; init; }
+            public bool? Custom { get; init; }
         }
     }
 }
