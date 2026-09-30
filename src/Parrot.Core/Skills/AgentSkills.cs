@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Parrot.Config;
 using Parrot.Store;
@@ -8,7 +9,7 @@ internal sealed class AgentSkills(
     ISkillCatalog catalog,
     IPromptTemplateCatalog promptTemplates)
 {
-    private const int MaximumSkillBytes = 1024 * 1024;
+    private const int MaximumSkillBytes = 8 * 1024;
     private const int MaximumTurnBytes = 1024 * 1024;
     private const int MaximumDiagnosticLength = 1024;
     private readonly List<SelectedSkill> _selected = [];
@@ -123,6 +124,25 @@ internal sealed class AgentSkills(
         _ = rendered.Append(content);
     }
 
+    private static void AppendNotice(
+        StringBuilder rendered,
+        string notice,
+        int contentBudget,
+        ref int consumedBytes,
+        ref int omittedDiagnostics)
+    {
+        var separatorBytes = rendered.Length > 0 ? 2 : 0;
+        var noticeBytes = Encoding.UTF8.GetByteCount(notice);
+        if (noticeBytes + separatorBytes > contentBudget - consumedBytes)
+        {
+            omittedDiagnostics++;
+            return;
+        }
+
+        Append(rendered, notice);
+        consumedBytes += noticeBytes + separatorBytes;
+    }
+
     private void EnsureTurn()
     {
         if (!_turnActive)
@@ -170,13 +190,30 @@ internal sealed class AgentSkills(
                 continue;
             }
 
+            if (Encoding.UTF8.GetByteCount(content) > MaximumSkillBytes)
+            {
+                AppendNotice(
+                    rendered,
+                    promptTemplates.Render(
+                        "context.skill-too-large",
+                        [
+                            new PromptTemplateArgument("name", Escape(selection.Skill.Name)),
+                            new PromptTemplateArgument("path", Escape(selection.Skill.DiscoveryPath)),
+                            new PromptTemplateArgument("limit_bytes", MaximumSkillBytes.ToString(CultureInfo.InvariantCulture)),
+                        ]),
+                    contentBudget,
+                    ref consumedBytes,
+                    ref omittedDiagnostics);
+                continue;
+            }
+
             var selected = promptTemplates.RenderSelectedSkill(
                 Escape(selection.Skill.Name),
                 Escape(selection.Skill.DiscoveryPath),
                 content);
             var separatorBytes = rendered.Length > 0 ? 2 : 0;
             var selectedBytes = Encoding.UTF8.GetByteCount(selected);
-            if (selectedBytes > MaximumSkillBytes || selectedBytes + separatorBytes > contentBudget - consumedBytes)
+            if (selectedBytes + separatorBytes > contentBudget - consumedBytes)
             {
                 AppendDiagnostic(
                     rendered,
@@ -225,17 +262,12 @@ internal sealed class AgentSkills(
             normalized = normalized[..MaximumDiagnosticLength];
         }
 
-        var diagnostic = promptTemplates.RenderUnavailableSkill(Escape(name), Escape(normalized));
-        var separatorBytes = rendered.Length > 0 ? 2 : 0;
-        var diagnosticBytes = Encoding.UTF8.GetByteCount(diagnostic);
-        if (diagnosticBytes + separatorBytes > contentBudget - consumedBytes)
-        {
-            omittedDiagnostics++;
-            return;
-        }
-
-        Append(rendered, diagnostic);
-        consumedBytes += diagnosticBytes + separatorBytes;
+        AppendNotice(
+            rendered,
+            promptTemplates.RenderUnavailableSkill(Escape(name), Escape(normalized)),
+            contentBudget,
+            ref consumedBytes,
+            ref omittedDiagnostics);
     }
 
     public sealed record SkillRendering(string Content, IReadOnlyList<string> LoadedPaths);
