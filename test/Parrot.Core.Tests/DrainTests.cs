@@ -423,7 +423,7 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
-    public async Task Selected_skill_context_is_request_only_and_follows_the_active_turn(
+    public async Task Selected_skill_context_is_recorded_in_history_after_its_input(
         CancellationToken cancellationToken)
     {
         var skillRoot = Directory.CreateDirectory(Path.Combine(_blobDirectory, "skills"));
@@ -431,6 +431,8 @@ internal sealed class DrainTests : IDisposable
         var secondDirectory = Directory.CreateDirectory(Path.Combine(skillRoot.FullName, "second"));
         var firstPath = Path.Combine(firstDirectory.FullName, "SKILL.md");
         var secondPath = Path.Combine(secondDirectory.FullName, "SKILL.md");
+        var thirdDirectory = Path.Combine(skillRoot.FullName, "third");
+        var thirdPath = Path.Combine(thirdDirectory, "SKILL.md");
         await File.WriteAllTextAsync(firstPath, "---\nname: first\ndescription: first description\n---\nFIRST BODY", cancellationToken);
         await File.WriteAllTextAsync(secondPath, "---\nname: second\ndescription: second description\n---\nSECOND BODY", cancellationToken);
         var catalog = new SkillCatalog(
@@ -461,54 +463,54 @@ internal sealed class DrainTests : IDisposable
 
         var firstRequest = provider.Requests[0];
         var continuedRequest = provider.Requests[1];
-        var firstSkillContext = firstRequest.Messages[^1];
-        var continuedSkillContext = continuedRequest.Messages[^1];
         _ = await Assert.That(firstRequest.Instructions)
             .Contains("$first")
             .And.Contains("$second")
             .And.Contains(firstPath)
             .And.Contains(secondPath);
-        _ = await Assert.That(firstSkillContext.Role).IsEqualTo(LLMRole.User);
-        _ = await Assert.That(firstSkillContext.Content)
+        _ = await Assert.That(firstRequest.Messages[^1].Role).IsEqualTo(LLMRole.User);
+        _ = await Assert.That(firstRequest.Messages[^1].Content)
             .Contains("SECOND BODY")
             .And.DoesNotContain("FIRST BODY");
-        _ = await Assert.That(firstSkillContext.Content.Split("SECOND BODY", StringSplitOptions.None).Length).IsEqualTo(2);
-        _ = await Assert.That(continuedSkillContext.Content.IndexOf("SECOND BODY", StringComparison.Ordinal))
-            .IsLessThan(continuedSkillContext.Content.IndexOf("FIRST BODY", StringComparison.Ordinal));
-        _ = await Assert.That(continuedSkillContext.Content.Split("SECOND BODY", StringSplitOptions.None).Length).IsEqualTo(2);
-        _ = await Assert.That(continuedSkillContext.Content.Split("FIRST BODY", StringSplitOptions.None).Length).IsEqualTo(2);
-        _ = await Assert.That(repository.ModelHistory("agent"))
-            .DoesNotContain(message => message.Content.Contains("<skill>", StringComparison.Ordinal));
-        _ = await Assert.That(Conversation(repository)).IsEqualTo(
-            $"user: {originalPrompt} | assistant:  | tool: settled | user: {steer}");
+        _ = await Assert.That(continuedRequest.Messages[^1].Content)
+            .Contains("FIRST BODY")
+            .And.DoesNotContain("SECOND BODY");
+        _ = await Assert.That(continuedRequest.Messages.Sum(message => message.Content.Split("SECOND BODY", StringSplitOptions.None).Length - 1)).IsEqualTo(1);
 
         provider.Release();
         await session.Settled();
+        _ = Directory.CreateDirectory(thirdDirectory);
+        await File.WriteAllTextAsync(thirdPath, "---\nname: third\ndescription: third description\n---\nTHIRD BODY", cancellationToken);
         _ = await session.Send(
-            [ConversationPart.TextPart("next turn $first")],
+            [ConversationPart.TextPart("next turn $first $third")],
             "msg-3",
             Delivery.Steer,
             new IncomingActivity(string.Empty, null),
             cancellationToken);
         await provider.Arrived(cancellationToken);
-        var nextRequest = provider.Requests[2];
-        _ = await Assert.That(nextRequest.Messages[^1].Content)
+        _ = await Assert.That(provider.Requests[2].Messages[^1].Content)
             .Contains("FIRST BODY")
-            .And.DoesNotContain("SECOND BODY");
+            .And.Contains("THIRD BODY");
         provider.Release();
         await session.Settled();
         await session.DisposeAsync();
 
+        string[] skillBodies = ["FIRST", "SECOND", "THIRD"];
+        var history = repository.Messages("agent").Select(message => message.Contains("<skill>", StringComparison.Ordinal)
+            ? "skill: " + string.Join(' ', skillBodies.Where(body => message.Contains($"{body} BODY", StringComparison.Ordinal)))
+            : message);
+        _ = await Assert.That(string.Join(" | ", history)).IsEqualTo(
+            $"user: {originalPrompt} | skill: SECOND | assistant:  | tool: settled | user: {steer} | skill: FIRST | assistant: first answer"
+            + " | user: next turn $first $third | skill: FIRST THIRD | assistant: second answer");
         var replay = repository.Replay().ToList();
         var loadedSkills = replay
             .Where(published => published.PayloadCase == Event.PayloadOneofCase.SkillLoaded)
             .ToArray();
         _ = await Assert.That(string.Join('|', loadedSkills.Select(published => published.SkillLoaded.Path)))
-            .IsEqualTo($"{secondPath}|{firstPath}|{firstPath}");
+            .IsEqualTo($"{secondPath}|{firstPath}|{firstPath}|{thirdPath}");
+        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.SkillContextInjected)).IsEqualTo(3);
         _ = await Assert.That(replay.IndexOf(loadedSkills[0]))
             .IsLessThan(replay.FindIndex(published => published.PayloadCase == Event.PayloadOneofCase.ToolStarted));
-        _ = await Assert.That(repository.ModelHistory("agent"))
-            .DoesNotContain(message => message.Content.Contains("<skill>", StringComparison.Ordinal));
         _ = await Assert.That(replay)
             .DoesNotContain(published => published.ToString().Contains("<skill>", StringComparison.Ordinal));
     }
@@ -564,7 +566,8 @@ internal sealed class DrainTests : IDisposable
             .Contains(message => message.Content.Contains("ENABLED BODY", StringComparison.Ordinal))
             .And.DoesNotContain(message => message.Content.Contains("DISABLED BODY", StringComparison.Ordinal));
         _ = await Assert.That(repository.ModelHistory("agent"))
-            .DoesNotContain(message => message.Content.Contains("BODY", StringComparison.Ordinal));
+            .Contains(message => message.Content.Contains("ENABLED BODY", StringComparison.Ordinal))
+            .And.DoesNotContain(message => message.Content.Contains("DISABLED BODY", StringComparison.Ordinal));
         _ = await Assert.That(repository.Replay().Count(
             published => published.PayloadCase == Event.PayloadOneofCase.SkillLoaded)).IsEqualTo(1);
     }

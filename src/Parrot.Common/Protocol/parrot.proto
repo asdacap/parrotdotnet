@@ -563,6 +563,7 @@ message Event {
     RequestUsageRecorded request_usage_recorded = 43;
     ToolExecutionStarted tool_execution_started = 44;
     ToolRequestReceived tool_request_received = 45;
+    SkillContextInjected skill_context_injected = 46;
   }
 }
 
@@ -755,6 +756,10 @@ message ToolAvailabilityRestoredPromptInjected {}
 message SkillLoadedEvent {
   string path = 1;
 }
+
+// Transient notification that durable selected-skill context was added to
+// model history. Its text remains in history, not on the wire.
+message SkillContextInjected {}
 
 message CompactionStarted {}
 

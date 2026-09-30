@@ -170,7 +170,7 @@ internal sealed class SkillFoundationTests
 
         _ = await Assert.That(files.Count).IsEqualTo(59);
         var manifest = await Manifest(packaged, files);
-        _ = await Assert.That(manifest).IsEqualTo("BD7D89ADF935D43B990B4102F6CA01BC5748AD5A504B4E5E0E002377E2669208");
+        _ = await Assert.That(manifest).IsEqualTo("AAC486CADD6DB7EC231932D8AB71BD19C066432A99D950BB48F5633CBF46BA3D");
     }
 
     private static List<string> RelativeFiles(string root) =>
