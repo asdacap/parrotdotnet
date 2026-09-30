@@ -218,6 +218,11 @@ internal sealed class ShellProcessOwnersTests : IDisposable
 
         database.Dispose();
         await File.WriteAllTextAsync(marker, string.Empty, cancellationToken);
+        while (!process.Completed)
+        {
+            await Task.Delay(10, cancellationToken);
+        }
+
         await owner.Settle().WaitAsync(cancellationToken);
 
         _ = await Assert.That(process.Retired).IsTrue();

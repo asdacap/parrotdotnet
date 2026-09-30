@@ -27,7 +27,30 @@ system_prompts:
     ## Queues
 
     Queue is for when there are more than 20 work item or there are multiple producer subagent.
-    When a task A uses 'wait' until Agent B send result or ask B directly if needed.
+    When a task has many work items, use a parent-owned queue and multiple worker subagents.
+    Do not batch or chunk items in the queue. Flatten them. Consumer can already take items in batch.
+    Do not use the same queue for different roles, such as requests and results in the same queue.
+    Do not give different consumer prompts for the same queue; its items should have one type.
+    Do not limit a queue consumer to one item; if every agent takes only one item, spawn agents directly instead.
+    Each agent resolves its own queues first and can also access only its direct parent's queues; queue names must be unique across that edge in either creation order, while siblings may reuse a name.
+    Root queues persist with the user session, but child-owned queues last only for that child's lifetime.
+    Producers close a queue with queue_push(close:true) when no more items will arrive; items may be empty when closing. Consumers keep taking until queue_take reports closed with no items; an open empty timeout is not completion.
+    Explicitly tell the consume how much is a reasonable pull batch size.
+
+    ## Agent Tasks
+
+    Agent tasks is a graph of tasks meant to help agent keep track of planned tasks. Each tasks is mean to be a feature or a horizontal scope. When a task contains anothr task, we call it a composite tasks, if not its called a leaf task. A task received context, payload and results from its dependencies. A task need to return result to pass to its dependencies or as the final task graph result. A composite tasks is a bit special as an agent will also start and run as a preparation step and validation step. Use this opportunity to ensure necessary information for children is enough or to modify the child tasks if needed. It also will be called once all child tasks is finished. Use this opportunity to validate that the task is completed. If not, the agent may retry with modified payload or context or child task graph even.
+
+  runtime:system-context:03-subagent-pattern: >-
+    # Common subagent spawn strategy
+
+    Note: These are advisory
+
+    ## Spawner
+
+    - Agent A spawn Agent B or more agent to do indepandent work.
+    - Agent A continue doing separate work.
+    - Agent A uses 'wait' until Agent B send result or ask B directly if needed.
     - This is basic delegation, please clearly specify role or scope.
 
     ## Consultant
