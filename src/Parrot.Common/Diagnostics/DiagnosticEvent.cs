@@ -29,6 +29,8 @@ internal sealed record DiagnosticEvent(string Category, string Operation, Diagno
 
     public long? ResponseBytes { get; init; }
 
+    public int? CloseStatus { get; init; }
+
     public string? ErrorCode { get; init; }
 
     public static string ClassifyFailure(Exception failure) => failure switch

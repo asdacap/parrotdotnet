@@ -209,6 +209,7 @@ internal sealed class FileDiagnosticLog : IDiagnosticLog
         Append(text, "duration_ms", entry.DurationMilliseconds?.ToString(CultureInfo.InvariantCulture));
         Append(text, "request_bytes", entry.RequestBytes?.ToString(CultureInfo.InvariantCulture));
         Append(text, "response_bytes", entry.ResponseBytes?.ToString(CultureInfo.InvariantCulture));
+        Append(text, "close_status", entry.CloseStatus?.ToString(CultureInfo.InvariantCulture));
         Append(text, "count", entry.Count?.ToString(CultureInfo.InvariantCulture));
         Append(text, "error", entry.ErrorCode);
         return text.Append('\n').ToString();

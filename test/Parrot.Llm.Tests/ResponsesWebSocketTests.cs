@@ -22,7 +22,11 @@ internal sealed class ResponsesWebSocketTests
         }
         else if (behavior == "partial_failed")
         {
-            frames.Add(new([], WebSocketMessageType.Close, true));
+            frames.Add(new([], WebSocketMessageType.Close, true)
+            {
+                CloseStatus = WebSocketCloseStatus.MessageTooBig,
+                CloseDescription = "message too big",
+            });
         }
 
         using var socket = new ScriptedWebSocket(frames);
@@ -56,7 +60,37 @@ internal sealed class ResponsesWebSocketTests
         _ = await Assert.That(failure is not null).IsEqualTo(behavior != "completed");
         _ = await Assert.That(attempt.RequestBytes).IsEqualTo(4);
         _ = await Assert.That(attempt.ResponseBytes).IsEqualTo(behavior == "completed" ? payload.Length : 11);
+        _ = await Assert.That(attempt.CloseStatus).IsEqualTo(behavior == "partial_failed" ? 1009 : null);
+        _ = await Assert.That(failure?.Message.Contains("status 1009: message too big", StringComparison.Ordinal) ?? false)
+            .IsEqualTo(behavior == "partial_failed");
         _ = await Assert.That(socket.Aborted).IsEqualTo(behavior != "completed");
+    }
+
+    [Test]
+    [Arguments(1, 1)]
+    [Arguments(ResponsesWebSocket.FrameBytes, 1)]
+    [Arguments((2 * ResponsesWebSocket.FrameBytes) + 1, 3)]
+    public async Task Request_is_sent_as_one_message_split_into_frames(int requestBytes, int expectedFrames, CancellationToken cancellationToken)
+    {
+        var request = Enumerable.Range(0, requestBytes).Select(index => (byte)index).ToArray();
+        using var socket = new ScriptedWebSocket([
+            new ScriptedFrame(Encoding.UTF8.GetBytes("{\"type\":\"response.completed\",\"response\":{\"output\":[]}}"), WebSocketMessageType.Text, true),
+        ]);
+        await using var connection = new ResponsesWebSocket(
+            socket,
+            new Dictionary<string, string>(StringComparer.Ordinal),
+            TimeSpan.FromSeconds(1),
+            new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes);
+
+        await foreach (var published in connection.Send(request, new ResponsesAdapter.ParseState(), null, cancellationToken))
+        {
+            _ = published;
+        }
+
+        _ = await Assert.That(socket.SentFrames.Select(frame => frame.End))
+            .IsEquivalentTo(Enumerable.Range(1, expectedFrames).Select(index => index == expectedFrames));
+        _ = await Assert.That(socket.SentFrames.All(frame => frame.Length <= ResponsesWebSocket.FrameBytes)).IsTrue();
+        _ = await Assert.That(socket.Sent).IsEquivalentTo(request);
     }
 
     [Test]
@@ -304,20 +338,28 @@ internal sealed class ResponsesWebSocketTests
         }
     }
 
-    private sealed record ScriptedFrame(byte[] Bytes, WebSocketMessageType Type, bool End);
+    private sealed record ScriptedFrame(byte[] Bytes, WebSocketMessageType Type, bool End)
+    {
+        public WebSocketCloseStatus? CloseStatus { get; init; }
+
+        public string? CloseDescription { get; init; }
+    }
 
     private sealed class ScriptedWebSocket(IEnumerable<ScriptedFrame> frames) : WebSocket
     {
         private readonly Queue<ScriptedFrame> _frames = new(frames);
         private WebSocketState _state = WebSocketState.Open;
+        private ScriptedFrame? _close;
 
         public byte[] Sent { get; private set; } = [];
 
+        public List<(int Length, bool End)> SentFrames { get; } = [];
+
         public bool Aborted { get; private set; }
 
-        public override WebSocketCloseStatus? CloseStatus => null;
+        public override WebSocketCloseStatus? CloseStatus => _close?.CloseStatus;
 
-        public override string? CloseStatusDescription => null;
+        public override string? CloseStatusDescription => _close?.CloseDescription;
 
         public override string? SubProtocol => null;
 
@@ -346,6 +388,11 @@ internal sealed class ResponsesWebSocketTests
         {
             if (_frames.TryDequeue(out var frame))
             {
+                if (frame.Type == WebSocketMessageType.Close)
+                {
+                    _close = frame;
+                }
+
                 frame.Bytes.AsSpan().CopyTo(buffer.AsSpan());
                 return Task.FromResult(new WebSocketReceiveResult(frame.Bytes.Length, frame.Type, frame.End));
             }
@@ -359,7 +406,8 @@ internal sealed class ResponsesWebSocketTests
             bool endOfMessage,
             CancellationToken cancellationToken)
         {
-            Sent = [.. buffer];
+            Sent = [.. Sent, .. buffer];
+            SentFrames.Add((buffer.Count, endOfMessage));
             return Task.CompletedTask;
         }
 

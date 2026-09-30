@@ -117,6 +117,7 @@ internal sealed class ProviderRequestDiagnostics(IDiagnosticLog diagnostics, Dia
                 Operation = "request_finished",
                 RequestBytes = attempt.RequestBytes,
                 ResponseBytes = attempt.ResponseBytes,
+                CloseStatus = attempt.CloseStatus,
                 Severity = severity,
                 Outcome = terminalOutcome,
                 ErrorCode = cause is null ? null : ClassifyFailure(cause),

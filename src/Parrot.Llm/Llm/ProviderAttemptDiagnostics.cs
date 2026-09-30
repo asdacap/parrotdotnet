@@ -8,6 +8,8 @@ internal sealed class ProviderAttemptDiagnostics(IDiagnosticLog diagnostics, Dia
 
     public long? ResponseBytes { get; private set; }
 
+    public int? CloseStatus { get; private set; }
+
     public void RecordRequestBytes(int count)
     {
         RequestBytes = count;
@@ -17,4 +19,6 @@ internal sealed class ProviderAttemptDiagnostics(IDiagnosticLog diagnostics, Dia
     public void MarkResponseObtained() => ResponseBytes ??= 0;
 
     public void RecordResponseBytes(int count) => ResponseBytes = (ResponseBytes ?? 0) + count;
+
+    public void RecordCloseStatus(int status) => CloseStatus = status;
 }

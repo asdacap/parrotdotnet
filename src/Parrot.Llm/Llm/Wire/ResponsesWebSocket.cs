@@ -11,6 +11,8 @@ internal sealed class ResponsesWebSocket(
     TimeSpan idleTimeout,
     int maximumRequestBytes) : IAsyncDisposable
 {
+    public const int FrameBytes = 1 << 20;
+
     public static readonly TimeSpan DefaultIdleTimeout = TimeSpan.FromMinutes(5);
 
     public IReadOnlyDictionary<string, string> ResponseHeaders { get; } = responseHeaders;
@@ -33,9 +35,14 @@ internal sealed class ResponsesWebSocket(
         attempt?.RecordRequestBytes(request.Length);
         try
         {
-            await WithIdleTimeout(
-                token => socket.SendAsync(request, WebSocketMessageType.Text, WebSocketMessageFlags.EndOfMessage, token).AsTask(),
-                cancellationToken).ConfigureAwait(false);
+            for (var offset = 0; offset < request.Length; offset += FrameBytes)
+            {
+                var frame = request.AsMemory(offset, Math.Min(FrameBytes, request.Length - offset));
+                var flags = offset + frame.Length == request.Length ? WebSocketMessageFlags.EndOfMessage : WebSocketMessageFlags.None;
+                await WithIdleTimeout(
+                    token => socket.SendAsync(frame, WebSocketMessageType.Text, flags, token).AsTask(),
+                    cancellationToken).ConfigureAwait(false);
+            }
 
             var totalBytes = 0L;
             while (!response.Done)
@@ -91,7 +98,13 @@ internal sealed class ResponsesWebSocket(
 
             if (received.MessageType == WebSocketMessageType.Close)
             {
-                throw new WireProtocolException("responses: websocket closed before a terminal event");
+                if (socket.CloseStatus is { } status)
+                {
+                    attempt?.RecordCloseStatus((int)status);
+                }
+
+                throw new WireProtocolException(
+                    $"responses: websocket closed before a terminal event (status {(int?)socket.CloseStatus}: {socket.CloseStatusDescription})");
             }
 
             if (received.MessageType != WebSocketMessageType.Text)
