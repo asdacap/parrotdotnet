@@ -190,7 +190,7 @@ internal sealed partial class AgentSession
             selection.ResolvedModel,
             instructions,
             tools,
-            _skills.HasSelection ? _skills.Augment(_history) : _history);
+            _history);
         var calibratedInputTokens = _providerTokenBudget.EstimateInputTokens(
             selection.ResolvedModel.CanonicalModel.Selector,
             context.EstimatedTokens);
@@ -203,7 +203,7 @@ internal sealed partial class AgentSession
                 selection.ResolvedModel,
                 instructions,
                 tools,
-                _skills.HasSelection ? _skills.Augment(_history) : _history);
+                _history);
             EnsureRequestFitsAfterCompaction(context);
         }
 
@@ -226,16 +226,6 @@ internal sealed partial class AgentSession
                 context,
                 percentage,
                 cancellationToken).ConfigureAwait(false);
-        }
-
-        if (_skills.HasSelection)
-        {
-            var requestContext = compactor.EstimateSelectedContext(
-                selection.ResolvedModel,
-                instructions,
-                tools,
-                _skills.Augment(_history));
-            EnsureRequestFitsAfterCompaction(requestContext);
         }
 
         return instructions;

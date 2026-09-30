@@ -799,18 +799,6 @@ internal sealed partial class AgentSession
                     snapshot.Definitions,
                     cancellationToken).ConfigureAwait(false);
                 var messages = new List<LLMMessage>(_history);
-                var loadedSkillPaths = _skills.AppendTo(messages);
-                foreach (var loadedSkillPath in loadedSkillPaths)
-                {
-                    var loaded = new Event
-                    {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                        SkillLoaded = new SkillLoadedEvent { Path = loadedSkillPath },
-                    };
-                    await EmitEvent(loaded, null, null, cancellationToken).ConfigureAwait(false);
-                }
-
                 providerRequests++;
                 var completed = await Call(activeSelection, snapshot, instructions, messages, cancellationToken)
                     .ConfigureAwait(false);
@@ -1122,7 +1110,39 @@ internal sealed partial class AgentSession
             await eventBroker.PublishWithCancellation(promotion.Published, cancellationToken).ConfigureAwait(false);
         }
 
+        await InjectSelectedSkills(cancellationToken).ConfigureAwait(false);
         return promoted.Count;
+    }
+
+    // Recorded after the promoted inputs, matching the order the repository
+    // already projected them in, so restored history equals this one.
+    private async Task InjectSelectedSkills(CancellationToken cancellationToken)
+    {
+        var rendering = _skills.Render();
+        if (rendering.Content.Length == 0)
+        {
+            return;
+        }
+
+        var published = new Event
+        {
+            Id = Identifier.EventId(),
+            AgentSessionId = SessionId,
+            SkillContextInjected = new SkillContextInjected(),
+        };
+        _ = eventRepository.AppendMessage(published, LLMMessage.User(rendering.Content), ConversationOrigin.System);
+        _history.Add(LLMMessage.User(rendering.Content));
+        await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
+        foreach (var loadedSkillPath in rendering.LoadedPaths)
+        {
+            var loaded = new Event
+            {
+                Id = Identifier.EventId(),
+                AgentSessionId = SessionId,
+                SkillLoaded = new SkillLoadedEvent { Path = loadedSkillPath },
+            };
+            await EmitEvent(loaded, null, null, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     // Whether the model owes an answer. A history ending in a user prompt or a

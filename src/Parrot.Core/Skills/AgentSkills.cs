@@ -1,6 +1,5 @@
 using System.Text;
 using Parrot.Config;
-using Parrot.Llm;
 using Parrot.Store;
 
 namespace Parrot.Skills;
@@ -14,11 +13,8 @@ internal sealed class AgentSkills(
     private const int MaximumDiagnosticLength = 1024;
     private readonly List<SelectedSkill> _selected = [];
     private readonly HashSet<string> _selectedPaths = new(PathComparer());
-    private readonly HashSet<string> _reportedPaths = new(PathComparer());
     private SkillSnapshot _snapshot = SkillSnapshot.Empty;
     private bool _turnActive;
-
-    public bool HasSelection => _selected.Count > 0;
 
     public void BeginTurn()
     {
@@ -26,7 +22,6 @@ internal sealed class AgentSkills(
         _snapshot = catalog.Capture();
         _selected.Clear();
         _selectedPaths.Clear();
-        _reportedPaths.Clear();
     }
 
     public string BuildCatalog()
@@ -53,15 +48,14 @@ internal sealed class AgentSkills(
             positionOffset += part.Text.Length;
         }
 
+        if (mentions.Any(mention => !_snapshot.Skills.Any(candidate => Matches(candidate, mention))))
+        {
+            _snapshot = catalog.Refresh();
+        }
+
         foreach (var mention in mentions.OrderBy(mention => mention.Position))
         {
-            var skill = mention.Path is null
-                ? _snapshot.Skills.FirstOrDefault(candidate =>
-                    candidate.Enabled && string.Equals(candidate.Name, mention.Name, StringComparison.Ordinal))
-                : _snapshot.Skills.FirstOrDefault(candidate =>
-                    candidate.Enabled
-                    && string.Equals(candidate.Name, mention.Name, StringComparison.Ordinal)
-                    && (PathsEqual(candidate.Path, mention.Path) || PathsEqual(candidate.DiscoveryPath, mention.Path)));
+            var skill = _snapshot.Skills.FirstOrDefault(candidate => candidate.Enabled && Matches(candidate, mention));
             if (skill is not null && _selectedPaths.Add(skill.Path))
             {
                 _selected.Add(new(skill, mention.Position));
@@ -69,51 +63,30 @@ internal sealed class AgentSkills(
         }
     }
 
-    public IReadOnlyList<string> AppendTo(List<LLMMessage> messages)
+    public SkillRendering Render()
     {
-        ArgumentNullException.ThrowIfNull(messages);
         EnsureTurn();
         if (_selected.Count == 0)
         {
-            return [];
+            return new SkillRendering(string.Empty, []);
         }
 
         var rendering = RenderSelection();
-        if (rendering.Content.Length > 0)
-        {
-            messages.Add(LLMMessage.User(rendering.Content));
-        }
-
-        return [.. rendering.LoadedPaths.Where(_reportedPaths.Add)];
-    }
-
-    public IReadOnlyList<LLMMessage> Augment(IReadOnlyList<LLMMessage> history)
-    {
-        ArgumentNullException.ThrowIfNull(history);
-        EnsureTurn();
-        var augmented = new List<LLMMessage>(history);
-        if (_selected.Count == 0)
-        {
-            return augmented;
-        }
-
-        var rendering = RenderSelection();
-        if (rendering.Content.Length > 0)
-        {
-            augmented.Add(LLMMessage.User(rendering.Content));
-        }
-
-        return augmented;
+        _selected.Clear();
+        return rendering;
     }
 
     public void EndTurn()
     {
         _selected.Clear();
         _selectedPaths.Clear();
-        _reportedPaths.Clear();
         _turnActive = false;
         _snapshot = SkillSnapshot.Empty;
     }
+
+    private static bool Matches(SkillMetadata candidate, SkillMention mention) =>
+        string.Equals(candidate.Name, mention.Name, StringComparison.Ordinal)
+        && (mention.Path is null || PathsEqual(candidate.Path, mention.Path) || PathsEqual(candidate.DiscoveryPath, mention.Path));
 
     private static bool PathsEqual(string left, string? right)
     {
@@ -265,7 +238,7 @@ internal sealed class AgentSkills(
         consumedBytes += diagnosticBytes + separatorBytes;
     }
 
-    private sealed record SelectedSkill(SkillMetadata Skill, int Position);
+    public sealed record SkillRendering(string Content, IReadOnlyList<string> LoadedPaths);
 
-    private sealed record SkillRendering(string Content, IReadOnlyList<string> LoadedPaths);
+    private sealed record SelectedSkill(SkillMetadata Skill, int Position);
 }
