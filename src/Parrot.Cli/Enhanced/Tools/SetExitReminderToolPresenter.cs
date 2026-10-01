@@ -11,20 +11,21 @@ internal sealed class SetExitReminderToolPresenter : IToolPresenter
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {
         var input = SetExitReminderInput.Parse(call.ArgumentsJson);
-        return new ToolLiveValue(Label(input.Title), ToolBlock.FromText(input.Description), Metadata, frame);
+        return new ToolLiveValue(Label(input), ToolBlock.Empty, Metadata, frame);
     }
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
         var input = SetExitReminderInput.Parse(call.ArgumentsJson);
         var status = terminal.ResolveStatus();
-        var block = status == ToolTerminalStatus.Succeeded
-            ? ToolBlock.FromText(input.Description)
-            : terminal.DescribeBlock(ToolBlockKind.None);
-        return new ToolScrollbackValue(Label(input.Title), block, status, Metadata);
+        return new ToolScrollbackValue(
+            Label(input),
+            status == ToolTerminalStatus.Succeeded ? ToolBlock.Empty : terminal.DescribeBlock(ToolBlockKind.None),
+            status,
+            Metadata);
     }
 
-    private static string Label(string title) => $"Set exit reminder {title}";
+    private static string Label(SetExitReminderInput input) => $"Set exit reminder · {input.Title} · {input.Description}";
 
     private readonly record struct SetExitReminderInput(string Title, string Description)
     {

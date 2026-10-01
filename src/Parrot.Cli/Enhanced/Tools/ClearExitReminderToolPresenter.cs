@@ -21,7 +21,7 @@ internal sealed class ClearExitReminderToolPresenter : IToolPresenter
             Metadata);
     }
 
-    private static string Label(string title) => $"Clear exit reminder {title}";
+    private static string Label(string title) => $"Clear exit reminder · {title}";
 
     private static string Title(string argumentsJson)
     {

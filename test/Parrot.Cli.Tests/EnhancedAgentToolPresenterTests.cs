@@ -42,16 +42,16 @@ internal sealed class EnhancedAgentToolPresenterTests
             new SetExitReminderToolPresenter(),
             new ToolCallPresentation("set_exit_reminder", "{\"title\":\"tests\",\"description\":\"run the suite\"}"),
             "exit reminder set",
-            "Set exit reminder tests|  run the suite",
-            "✓ Set exit reminder tests|  run the suite",
+            "Set exit reminder · tests · run the suite",
+            "✓ Set exit reminder · tests · run the suite",
         ];
         yield return () =>
         [
             new ClearExitReminderToolPresenter(),
             new ToolCallPresentation("clear_exit_reminder", "{\"title\":\"tests\"}"),
             "exit reminder cleared",
-            "Clear exit reminder tests",
-            "✓ Clear exit reminder tests",
+            "Clear exit reminder · tests",
+            "✓ Clear exit reminder · tests",
         ];
     }
 
