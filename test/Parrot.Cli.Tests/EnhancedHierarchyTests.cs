@@ -273,14 +273,14 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
         _ = await Assert.That(string.Join('|', committed))
-            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished (1m 05s)");
+            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished after 1m 05s");
         _ = await Assert.That(drawn[^1]).DoesNotContain("[parent] agent finished");
 
         await view.Render(
             new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } },
             cancellationToken);
         _ = await Assert.That(string.Join('|', committed))
-            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished (1m 05s)|    ● [child] child|      [child] response");
+            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished after 1m 05s|    ● [child] child|      [child] response");
         await view.Render(
             new Event
             {
@@ -289,7 +289,7 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
         _ = await Assert.That(string.Join('|', committed))
-            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished (1m 05s)|    ● [child] child|      [child] response|    ✓ [child] tool call read");
+            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished after 1m 05s|    ● [child] child|      [child] response|    ✓ [child] tool call read");
 
         await view.Render(
             new Event
@@ -304,7 +304,7 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
         _ = await Assert.That(string.Join('|', committed))
-            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished (1m 05s)|    ● [child] child|      [child] response|    ✓ [child] tool call read|    ♟ [child] agent finished (7s)");
+            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished after 1m 05s|    ● [child] child|      [child] response|    ✓ [child] tool call read|    ♟ [child] agent finished after 7s");
     }
 
     [Test]
@@ -478,7 +478,7 @@ internal sealed class EnhancedHierarchyTests
         var rendered = string.Join('|', committed);
         if (fragment is null || fragment.Trim().Length == 0)
         {
-            _ = await Assert.That(rendered).IsEqualTo("  ♟ [worker] agent finished (7s)");
+            _ = await Assert.That(rendered).IsEqualTo("  ♟ [worker] agent finished after 7s");
             _ = await Assert.That(rendered).DoesNotContain("●");
             _ = await Assert.That(drawn[^1]).DoesNotContain("●  [worker]");
         }
@@ -487,7 +487,7 @@ internal sealed class EnhancedHierarchyTests
             _ = await Assert.That(committed).Count().IsEqualTo(2);
             _ = await Assert.That(committed[0]).Contains("  ● [worker] child");
             _ = await Assert.That(committed[0]).Contains("    [worker] response");
-            _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [worker] agent finished (7s)");
+            _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [worker] agent finished after 7s");
         }
     }
 
@@ -646,7 +646,7 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(committed[0]).DoesNotContain("# Findings");
         _ = await Assert.That(committed[0]).DoesNotContain("**");
         _ = await Assert.That(committed[0]).DoesNotContain("```");
-        _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [child] agent finished (7s)");
+        _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [child] agent finished after 7s");
     }
 
     [Test]
@@ -716,7 +716,7 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(committed[0]).Contains("  ● [child] answer:");
         _ = await Assert.That(committed[0]).Contains("value: 1");
         _ = await Assert.That(committed[0]).DoesNotContain("{\\\"answer\\\"");
-        _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [child] agent finished (7s)");
+        _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [child] agent finished after 7s");
     }
 
     [Test]
@@ -802,7 +802,7 @@ internal sealed class EnhancedHierarchyTests
 
         _ = await Assert.That(committed[0]).IsEqualTo(expectedResponse);
         _ = await Assert.That(string.Join('|', committed)).DoesNotContain("line 11");
-        _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [child] agent finished (7s)");
+        _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [child] agent finished after 7s");
     }
 
     [Test]
@@ -989,7 +989,7 @@ internal sealed class EnhancedHierarchyTests
             cancellationToken);
 
         _ = await Assert.That(string.Join('|', committed))
-            .IsEqualTo("  ● [worker] completed work|  ♟ [worker] agent finished (7s)");
+            .IsEqualTo("  ● [worker] completed work|  ♟ [worker] agent finished after 7s");
         _ = await Assert.That(drawn[^1]).DoesNotContain("agent main");
         _ = await Assert.That(drawn[^1]).DoesNotContain("Working:");
     }
@@ -1115,7 +1115,7 @@ internal sealed class EnhancedHierarchyTests
         await view.Render(agentFinished, cancellationToken);
 
         _ = await Assert.That(string.Join('|', committed))
-            .IsEqualTo("  ● [worker] completed work|  ♟ [worker] agent finished (7s)");
+            .IsEqualTo("  ● [worker] completed work|  ♟ [worker] agent finished after 7s");
     }
 
     [Test]

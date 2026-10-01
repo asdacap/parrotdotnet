@@ -252,7 +252,7 @@ internal sealed class AgentSessionState(string agentSessionId)
             ? new ActivityNoticeScrollbackValue(TerminalIcons.Failure, $"agent: {published.AgentFailed.Message}")
             : new ActivityNoticeScrollbackValue(
                 TerminalIcons.Agent,
-                $"agent finished ({AgentDurationFormatter.Format(published.AgentFinished.ElapsedMs)})");
+                $"agent finished after {AgentDurationFormatter.Format(published.AgentFinished.ElapsedMs)}");
         return (AgentActivityId, notice);
     }
 
