@@ -50,6 +50,9 @@ internal sealed class WebParrotProxy(GeneratedParrot.ParrotBase service, WebSess
     public override Task<SetGoalResponse> SetGoal(SetGoalRequest request, ServerCallContext context) =>
         Forward(request.UserSessionId, client => client.SetGoalAsync(request, cancellationToken: context.CancellationToken));
 
+    public override Task<SetStandingInstructionResponse> SetStandingInstruction(SetStandingInstructionRequest request, ServerCallContext context) =>
+        Forward(request.UserSessionId, client => client.SetStandingInstructionAsync(request, cancellationToken: context.CancellationToken));
+
     public override Task<SendMessageResponse> SendMessage(SendMessageRequest request, ServerCallContext context) =>
         Forward(request.UserSessionId, client => client.SendMessageAsync(request, cancellationToken: context.CancellationToken));
 

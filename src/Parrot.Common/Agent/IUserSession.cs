@@ -40,6 +40,8 @@ internal interface IUserSession : IAsyncDisposable
 
     ISkillCatalog SkillCatalog { get; }
 
+    StandingInstruction StandingInstruction { get; }
+
     void UpdateMode(string mode);
 
     IMode ResolveMode(string mode);

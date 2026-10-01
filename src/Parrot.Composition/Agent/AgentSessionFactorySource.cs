@@ -33,7 +33,11 @@ internal sealed class AgentSessionFactorySource(
             requestLimits,
             readOnlyExecCommandPrefixes,
             router,
-            [.. systemPromptProviders, new AgentHistoryProvider(owner.Resources, promptTemplates)],
+            [
+                .. systemPromptProviders,
+                new AgentHistoryProvider(owner.Resources, promptTemplates),
+                new StandingInstructionProvider(owner.StandingInstruction),
+            ],
             promptTemplates,
             composeSession);
 }

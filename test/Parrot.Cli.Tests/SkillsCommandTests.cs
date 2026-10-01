@@ -113,6 +113,8 @@ internal sealed class SkillsCommandTests
 
         public Task ClearGoal(CancellationToken cancellationToken) => Task.CompletedTask;
 
+        public Task SetStandingInstruction(string instruction, CancellationToken cancellationToken) => Task.CompletedTask;
+
         public Task Compact(string? targetContextSize, CancellationToken cancellationToken) => Task.CompletedTask;
 
         public Task<SetContextLimitResponse> SetContextLimit(string contextLimit, CancellationToken cancellationToken) =>

@@ -75,6 +75,11 @@ internal sealed class SlashSession(
             new SetGoalRequest { UserSessionId = Id, Clear = new ClearGoal() },
             cancellationToken: cancellationToken).ResponseAsync;
 
+    public Task SetStandingInstruction(string instruction, CancellationToken cancellationToken) =>
+        client.SetStandingInstructionAsync(
+            new SetStandingInstructionRequest { UserSessionId = Id, Instruction = instruction },
+            cancellationToken: cancellationToken).ResponseAsync;
+
     public Task Compact(string? targetContextSize, CancellationToken cancellationToken) =>
         client.CompactAsync(
             new CompactRequest

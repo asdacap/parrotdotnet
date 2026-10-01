@@ -585,6 +585,14 @@ internal sealed class ParrotService(
         }
     }
 
+    public override Task<SetStandingInstructionResponse> SetStandingInstruction(SetStandingInstructionRequest request, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        Find(request.UserSessionId).StandingInstruction.Update(request.Instruction);
+        return Task.FromResult(new SetStandingInstructionResponse());
+    }
+
     public override Task<UserSession> UpdateSession(UpdateSessionRequest request, ServerCallContext context)
     {
         ArgumentNullException.ThrowIfNull(request);

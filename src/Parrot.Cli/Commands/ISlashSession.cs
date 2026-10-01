@@ -33,6 +33,9 @@ internal interface ISlashSession
 
     Task ClearGoal(CancellationToken cancellationToken);
 
+    /// <summary>Replaces the instruction added to every agent's system prompt; an empty instruction clears it.</summary>
+    Task SetStandingInstruction(string instruction, CancellationToken cancellationToken);
+
     /// <summary>Requests compaction of the current session context.</summary>
     Task Compact(string? targetContextSize, CancellationToken cancellationToken);
 

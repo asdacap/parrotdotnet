@@ -28,6 +28,7 @@ service Parrot {
   rpc AttachSession (AttachSessionRequest) returns (UserSession);
   rpc UpdateSession (UpdateSessionRequest) returns (UserSession);
   rpc SetGoal (SetGoalRequest) returns (SetGoalResponse);
+  rpc SetStandingInstruction (SetStandingInstructionRequest) returns (SetStandingInstructionResponse);
   rpc SendMessage (SendMessageRequest) returns (SendMessageResponse);
   rpc UploadAttachment (stream AttachmentUploadFrame) returns (AttachmentUploadResponse);
   rpc Interrupt (InterruptRequest) returns (InterruptResponse);
@@ -94,6 +95,13 @@ message SetGoalRequest {
 message ClearGoal {}
 
 message SetGoalResponse {}
+
+message SetStandingInstructionRequest {
+  string user_session_id = 1;
+  string instruction = 2;
+}
+
+message SetStandingInstructionResponse {}
 
 message ListModelsRequest {}
 

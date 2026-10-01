@@ -181,6 +181,25 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    public async Task In_process_standing_instruction_calls_set_and_clear_the_instruction(CancellationToken cancellationToken)
+    {
+        await using var service = Service(Store(new DirectAgentSessions()));
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+        var session = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection }, cancellationToken: cancellationToken);
+
+        var set = await client.SetStandingInstructionAsync(
+            new SetStandingInstructionRequest { UserSessionId = session.Id, Instruction = "be terse" },
+            cancellationToken: cancellationToken);
+        var cleared = await client.SetStandingInstructionAsync(
+            new SetStandingInstructionRequest { UserSessionId = session.Id, Instruction = string.Empty },
+            cancellationToken: cancellationToken);
+
+        _ = await Assert.That(set).IsNotNull();
+        _ = await Assert.That(cleared).IsNotNull();
+    }
+
+    [Test]
     public async Task In_process_compact_routes_to_the_selected_live_user_session_and_awaits_it(
         CancellationToken cancellationToken)
     {

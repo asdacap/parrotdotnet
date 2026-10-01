@@ -52,6 +52,28 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    public async Task Standing_instruction_reaches_every_materialized_prompt_until_cleared()
+    {
+        var instruction = new StandingInstruction(TestModels.PromptTemplates);
+        var provider = new StandingInstructionProvider(instruction);
+        var selection = new SelectionFixture(new TestProfileFixture().Mode).Value;
+        var first = provider.Materialize(AgentIdentity.Main("session-1", "main", TestModels.PromptTemplates));
+        var second = provider.Materialize(AgentIdentity.Main("session-2", "main", TestModels.PromptTemplates));
+
+        var initial = first.Build(selection);
+        instruction.Update("be terse");
+        var firstSet = first.Build(selection);
+        var secondSet = second.Build(selection);
+        instruction.Update(string.Empty);
+        var cleared = second.Build(selection);
+
+        _ = await Assert.That(initial).IsEmpty();
+        _ = await Assert.That(firstSet).Contains("be terse");
+        _ = await Assert.That(secondSet).IsEqualTo(firstSet);
+        _ = await Assert.That(cleared).IsEmpty();
+    }
+
+    [Test]
     public async Task System_context_includes_platform_cwd_and_agents_files()
     {
         await File.WriteAllTextAsync(Path.Combine(_configDirectory, "AGENTS.md"), "GLOBAL RULE: be concise.");

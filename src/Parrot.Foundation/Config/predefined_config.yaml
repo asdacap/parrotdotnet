@@ -582,6 +582,10 @@ prompt_templates:
     template: 'Your durable message and compaction history is projected to this JSONL file: "$AGENT_HISTORY_DIR/history.jsonl". SQLite remains authoritative, so Parrot may replace this file when the history changes.'
     allowed_arguments: [path]
     required_arguments: [path]
+  context.standing-instruction:
+    template: 'Standing instruction from the user. Follow it until the user changes it: {instruction}'
+    allowed_arguments: [instruction]
+    required_arguments: [instruction]
   context.agents-file:
     template: |-
       --- {path} ---

@@ -102,6 +102,8 @@ internal sealed class CompactCommandTests
 
         public Task ClearGoal(CancellationToken cancellationToken) => Task.CompletedTask;
 
+        public Task SetStandingInstruction(string instruction, CancellationToken cancellationToken) => Task.CompletedTask;
+
         public Task Compact(string? targetContextSize, CancellationToken cancellationToken)
         {
             Compactions++;

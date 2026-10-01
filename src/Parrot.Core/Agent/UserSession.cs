@@ -84,6 +84,7 @@ internal sealed class UserSession : IUserSession
         _modes = modes;
         _promptTemplates = promptTemplates ?? throw new ArgumentNullException(nameof(promptTemplates));
         SkillCatalog = skillCatalogFactory.Create(resources.Resources.Workspace);
+        StandingInstruction = new StandingInstruction(_promptTemplates);
         var state = _eventRepository.SessionState(id, modes.Resolve(mode).Profile.Id);
         _mainSessionId = state.AgentSessionId;
         _mainIdentity = AgentIdentity.Main(_mainSessionId, rootAgentName, _promptTemplates);
@@ -156,6 +157,8 @@ internal sealed class UserSession : IUserSession
     public IPermissionBroker Permissions { get; }
 
     public ISkillCatalog SkillCatalog { get; }
+
+    public StandingInstruction StandingInstruction { get; }
 
     public static async Task<IUserSession> Create(
         string id,
