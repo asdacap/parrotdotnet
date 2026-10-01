@@ -12,6 +12,25 @@ internal sealed class EnhancedAgentToolPresenterTests
     {
         yield return () =>
         [
+            new AnswerToolPresenter(),
+            new ToolCallPresentation(
+                "answer",
+                "{\"agent_name\":\"agent-session-opaque\",\"answers\":[\"use postgres\"]}",
+                static reference => reference == "agent-session-opaque" ? "scout" : reference),
+            "Answered the pending question from child agent scout.",
+            "Answer · scout · 1 item|  use postgres",
+            "✓ Answer · scout · 1 item|  use postgres",
+        ];
+        yield return () =>
+        [
+            new AnswerToolPresenter(),
+            new ToolCallPresentation("answer", "{\"agent_name\":\"scout\",\"answers\":[\"yes\",\"keep it\\nbut rename\"]}"),
+            "Answered the pending question from child agent scout.",
+            "Answer · scout · 2 items|  1. yes|  2. keep it|     but rename",
+            "✓ Answer · scout · 2 items|  1. yes|  2. keep it|     but rename",
+        ];
+        yield return () =>
+        [
             new AgentSendToolPresenter(),
             new ToolCallPresentation(
                 "agent_send",

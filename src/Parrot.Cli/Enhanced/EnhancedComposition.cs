@@ -34,6 +34,7 @@ internal partial class EnhancedComposition
                 ctx.Inject<TimeProvider>(out var timeProvider);
                 return new ToolPresenterRegistry(
                 [
+                    new AnswerToolPresenter(),
                     new AgentSendToolPresenter(),
                     new AgentSpawnToolPresenter(),
                     new EditToolPresenter(),
