@@ -40,7 +40,7 @@ internal sealed class ImageLinkingProviderTests
         _ = await Assert.That(inner.Requests[1].Messages[0].Contents[1].ImageUrl).IsEqualTo(Url);
         _ = await Assert.That(ReferenceEquals(inner.Requests[2], textOnly)).IsTrue();
         _ = await Assert.That(handler.Requests.Select(static request => $"{request.Method} {request.Uri.PathAndQuery}").ToList())
-            .IsEquivalentTo(["HEAD /b", "PUT /b?lifecycle", "PUT /b?policy", $"PUT {new Uri(Url).AbsolutePath}"]);
+            .IsEquivalentTo(["HEAD /b", "PUT /b?policy", $"PUT {new Uri(Url).AbsolutePath}"]);
     }
 
     [Test]

@@ -226,15 +226,14 @@ image_upload:
   region: us-east-1
   key_prefix: parrot/
   public_base_url: ""
-  expiry_days: 1
 ```
 
 When `image_upload` is configured, each prompt image is uploaded once to the
 bucket and providers receive its public URL instead of inline Base64, so
 requests carrying screenshots stay small. The section is inactive when absent.
 `endpoint` and `bucket` are required; `endpoint` (and `public_base_url` when
-set) must be an `https` URL. `region` defaults to `us-east-1`, `key_prefix` to
-`parrot/`, and `expiry_days` to `1`. Store an S3 access key and secret key using
+set) must be an `https` URL. `region` defaults to `us-east-1` and `key_prefix` to
+`parrot/`. Store an S3 access key and secret key using
 `/auth` → **Image upload**. Both prompts hide the entered keys. The pair is stored
 under `image_upload` in Parrot's separate credentials store, with the same private
 file permissions as provider credentials. `/auth` → **List** shows the entry name;
@@ -257,9 +256,8 @@ image is `<public_base_url or endpoint>/<bucket>/<key_prefix><sha256>.<ext>`.
 Keys are content addressed, so the same image always maps to the same URL.
 
 Use a dedicated bucket. On the first upload of a process Parrot creates the
-bucket if it is missing, then replaces the bucket's lifecycle configuration with
-one rule that expires objects under `key_prefix` after `expiry_days`, and
-replaces the bucket policy with anonymous `s3:GetObject` under `key_prefix`.
+bucket if it is missing, then replaces the bucket policy with anonymous
+`s3:GetObject` under `key_prefix`.
 The credentials therefore need bucket-administration rights. The server is
 assumed to be correctly configured: a failed upload, bucket preparation, or
 missing credential is a permanent provider error, and no Base64 fallback is
@@ -268,7 +266,7 @@ attempted for it.
 `providers.<id>.image_urls` (default `true`) selects which providers receive
 URLs; set it to `false` to keep Base64 for one provider. When a provider rejects
 a request before any output, Parrot checks every URL in that request with an
-unauthenticated `HEAD`. Missing objects, for example after lifecycle expiry,
+unauthenticated `HEAD`. Missing objects, for example after manual deletion,
 are re-uploaded and the call is retried once. If every object is reachable and
 the provider returned a client error, the call is retried once with inline
 Base64 and that provider keeps using Base64 for the rest of the process.

@@ -207,7 +207,6 @@ internal sealed class ConfigurationTests : IDisposable
               public_base_url: https://cdn.example.com
               access_key_env: AK
               secret_key_env: SK
-              expiry_days: 3
             """)).ImageUpload;
 
         _ = await Assert.That(Load(Write(string.Empty)).ImageUpload).IsNull();
@@ -221,7 +220,6 @@ internal sealed class ConfigurationTests : IDisposable
             PublicBaseUrl = "https://cdn.example.com",
             AccessKeyEnv = "AK",
             SecretKeyEnv = "SK",
-            ExpiryDays = 3,
         });
     }
 
@@ -239,8 +237,6 @@ internal sealed class ConfigurationTests : IDisposable
     [Arguments("image_upload:\n  endpoint: https://minio.example.com\n  bucket: Bucket", "image_upload.bucket must be a valid S3 bucket name")]
     [Arguments("image_upload:\n  endpoint: https://minio.example.com\n  bucket: -bucket", "image_upload.bucket must be a valid S3 bucket name")]
     [Arguments("image_upload:\n  endpoint: https://minio.example.com\n  bucket: bkt\n  key_prefix: 'a b/'", "image_upload.key_prefix may contain only letters, digits, '/', '_', '.', and '-'")]
-    [Arguments("image_upload:\n  endpoint: https://minio.example.com\n  bucket: bkt\n  expiry_days: 0", "image_upload.expiry_days must be a positive integer")]
-    [Arguments("image_upload:\n  endpoint: https://minio.example.com\n  bucket: bkt\n  expiry_days: x", "image_upload.expiry_days must be a positive integer")]
     [Arguments("image_upload:\n  endpoint: https://minio.example.com\n  bucket: bkt\n  secret_key: literal", "image_upload contains an unsupported key")]
     public async Task Invalid_image_upload_sections_are_rejected(string yaml, string message)
     {
