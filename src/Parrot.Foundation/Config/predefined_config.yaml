@@ -1210,7 +1210,12 @@ tools:
           description: Environment variables for the command. Values override the inherited environment.
         name:
           type: string
-          description: Name unique among running processes; completed names can be reused and omitted names are generated
+          description: Name unique among running processes; completed names can be reused and omitted names are generated.
+            Required for long commands such as inline scripts.
+        description:
+          type: string
+          description: Short description of what the command does. Required for long commands such as inline scripts;
+            do not specify it for short commands, to save tokens.
         yield_after_ms:
           type: integer
           minimum: 500

@@ -190,6 +190,20 @@ internal sealed class ExecCommandToolTests : IDisposable
         _ = await Assert.That(reusedSleepName.Text).StartsWith("Process exited with code 0 after ");
         _ = await Assert.That(reusedSleepName.Text).EndsWith("s\n[stdout]\nfree");
 
+        var longScript = JsonEncodedText.Encode("printf ok #" + new string('x', ExecCommandTool.LongCommandLength));
+        const string longCommandRejection = "error: commands longer than 200 characters require 'name' and 'description'";
+        var longWithoutName = await Execute(tool, $$"""{"command":"{{longScript}}","description":"print ok"}""", selection, cancellationToken);
+        var longWithoutDescription = await Execute(tool, $$"""{"command":"{{longScript}}","name":"long"}""", selection, cancellationToken);
+        var longWithBlankDescription = await Execute(tool, $$"""{"command":"{{longScript}}","name":"long","description":" "}""", selection, cancellationToken);
+        var longWithNameAndDescription = await Execute(tool, $$"""{"command":"{{longScript}}","name":"long","description":"print ok"}""", selection, cancellationToken);
+        var shortWithDescription = await Execute(tool, """{"command":"printf short","description":"print short"}""", selection, cancellationToken);
+
+        _ = await Assert.That(longWithoutName.Text).IsEqualTo(longCommandRejection);
+        _ = await Assert.That(longWithoutDescription.Text).IsEqualTo(longCommandRejection);
+        _ = await Assert.That(longWithBlankDescription.Text).IsEqualTo(longCommandRejection);
+        _ = await Assert.That(longWithNameAndDescription.Text).EndsWith("s\n[stdout]\nok");
+        _ = await Assert.That(shortWithDescription.Text).EndsWith("s\n[stdout]\nshort");
+
         var spilled = await Execute(tool, """{"command":"awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"x\" }'"}""", selection, cancellationToken);
         const string spillNotice = "\nTool output exceeded 64 KiB and was saved to ";
         const string spilledSuffix = ".";

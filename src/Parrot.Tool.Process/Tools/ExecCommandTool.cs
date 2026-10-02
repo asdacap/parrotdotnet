@@ -14,6 +14,8 @@ internal sealed class ExecCommandTool(
     ToolWorkspace workspace,
     ReadOnlyExecCommandClassifier readOnlyCommandClassifier) : ITool
 {
+    internal const int LongCommandLength = 200;
+
     private readonly ReadOnlyExecCommandClassifier _readOnlyCommandClassifier = readOnlyCommandClassifier;
 
     public string Name => "exec_command";
@@ -55,6 +57,7 @@ internal sealed class ExecCommandTool(
         string command;
         ProcessEnvironmentOverrides environment;
         string? name;
+        string? description;
         TimeSpan? yieldAfter;
         ShellProcessTerminalMode terminalMode;
 
@@ -69,6 +72,7 @@ internal sealed class ExecCommandTool(
                 ? ProcessEnvironmentOverrides.Empty
                 : new ProcessEnvironmentOverrides(input.Environment);
             name = input.Name;
+            description = input.Description;
             yieldAfter = ToolInputConversion.ConvertDelay(input.YieldAfterMilliseconds, "yield_after_ms");
             terminalMode = input.Terminal ? ShellProcessTerminalMode.PseudoTerminal : ShellProcessTerminalMode.Pipe;
         }
@@ -90,6 +94,14 @@ internal sealed class ExecCommandTool(
             {
                 return ToolResultFormatter.Error(invocation, "process name must not be empty");
             }
+        }
+
+        if (command.Length > LongCommandLength
+            && (name is null || string.IsNullOrWhiteSpace(description)))
+        {
+            return ToolResultFormatter.Error(
+                invocation,
+                $"commands longer than {LongCommandLength} characters require 'name' and 'description'");
         }
 
         if (TryRedundantChangeDirectory(command, out var target))
@@ -228,6 +240,9 @@ internal sealed class ExecCommandTool(
 
         [JsonPropertyName("name")]
         public string? Name { get; init; }
+
+        [JsonPropertyName("description")]
+        public string? Description { get; init; }
 
         [JsonPropertyName("yield_after_ms")]
         public long? YieldAfterMilliseconds { get; init; }

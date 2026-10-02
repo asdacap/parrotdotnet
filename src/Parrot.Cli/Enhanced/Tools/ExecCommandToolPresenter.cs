@@ -19,13 +19,25 @@ internal sealed class ExecCommandToolPresenter(
         var isReadOnly = IsReadOnlyCommand(command);
         var metadata = MetadataFor(isReadOnly);
         return isReadOnly
-            ? new ToolLiveValue($"$ {command}", ToolBlock.Empty, metadata, frame)
+            ? new ToolLiveValue(Label(call.ArgumentsJson, command), ToolBlock.Empty, metadata, frame)
             : new ToolLiveValue(
-                $"$ {command}",
+                Label(call.ArgumentsJson, command),
                 [],
                 metadata,
                 frame,
                 RunningTimer(new RunningDuration(timeProvider)));
+    }
+
+    public IScrollbackItem? PresentStarted(ToolCallPresentation call)
+    {
+        var command = Command(call.ArgumentsJson);
+        return command.Length > ExecCommandTool.LongCommandLength
+            ? new ToolScrollbackValue(
+                $"$ {command}",
+                ToolBlock.Empty,
+                ToolTerminalStatus.Succeeded,
+                MetadataFor(IsReadOnlyCommand(command)) with { SuccessIcon = TerminalIcons.Pending })
+            : null;
     }
 
     public IScrollbackItem? PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
@@ -37,7 +49,7 @@ internal sealed class ExecCommandToolPresenter(
 
         var command = Command(call.ArgumentsJson);
         var isReadOnly = IsReadOnlyCommand(command);
-        var label = $"$ {command}";
+        var label = Label(call.ArgumentsJson, command);
         var status = terminal.ResolveProcessStatus();
         var block = status is ToolTerminalStatus.Errored or ToolTerminalStatus.ReportedFailure
             ? ToolBlock.FromOutput(ToolOutputText.Tail(terminal.ResultPresent ? WithoutLoneStdoutLabel(terminal.Result) : terminal.Error, 10))
@@ -63,6 +75,28 @@ internal sealed class ExecCommandToolPresenter(
                         ? aliased.GetString() ?? string.Empty
                         : throw new FormatException("exec_command requires a string command.");
     }
+
+    // A long command, usually an inline script, is committed in full when it starts, so later
+    // presentations show only its name and description, or the program that runs it when they are missing.
+    private static string Label(string argumentsJson, string command)
+    {
+        if (command.Length <= ExecCommandTool.LongCommandLength)
+        {
+            return $"$ {command}";
+        }
+
+        using var document = JsonDocument.Parse(argumentsJson);
+        var root = document.RootElement;
+        var name = OptionalString(root, "name") ?? command.TrimStart().Split([' ', '\t', '\n'], 2)[0];
+        return OptionalString(root, "description") is { } description
+            ? $"$ {name} · {description}"
+            : $"$ {name}";
+    }
+
+    private static string? OptionalString(JsonElement root, string propertyName) =>
+        root.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
 
     private static string WithoutLoneStdoutLabel(string result)
     {
