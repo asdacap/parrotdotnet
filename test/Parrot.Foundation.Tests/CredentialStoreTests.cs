@@ -77,4 +77,35 @@ internal sealed class CredentialStoreTests
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    [Test]
+    public async Task An_unrecognised_entry_is_isolated_and_preserved_on_write(CancellationToken cancellationToken)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"cred-{Guid.NewGuid():N}");
+        var path = Path.Combine(dir, "credentials.json");
+        _ = Directory.CreateDirectory(dir);
+        await File.WriteAllTextAsync(
+            path,
+            """{"version":1,"credentials":{"future":{"version":1,"type":"future","future":{"x":1}},"openrouter":{"version":1,"type":"api_key","api_key":{"key":"sk-123"}}}}""",
+            cancellationToken);
+
+        try
+        {
+            using var storeOwner = new FileCredentialStore(path);
+            ICredentialStore store = storeOwner;
+            await store.Set("other", Credential.ForApiKey("sk-456"), cancellationToken);
+
+            var apiKey = await store.Get("openrouter", cancellationToken);
+            var listed = await store.List(cancellationToken);
+
+            _ = await Assert.That(apiKey?.ApiKey?.Key.Value).IsEqualTo("sk-123");
+            _ = await Assert.That(listed).IsEquivalentTo(["future", "openrouter", "other"]);
+            _ = await Assert.That(async () => await store.Get("future", cancellationToken)).Throws<AuthException>();
+            _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).Contains("\"type\": \"future\"");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

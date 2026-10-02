@@ -4,8 +4,9 @@ namespace Parrot.Auth;
 
 // Credentials live in the private config directory as one whole-file JSON object,
 // written atomically (temp file, fsync, rename) with restrictive permissions.
-// Every entry is validated on read so a malformed store fails loudly. Port of
-// Go's auth.FileStore.
+// Each entry is parsed and validated only when looked up, so a malformed entry
+// fails loudly on its own without breaking the others. Port of Go's
+// auth.FileStore.
 internal sealed class FileCredentialStore(string path) : ICredentialStore, IDisposable
 {
     private const int MaxStoreBytes = 16 << 20;
@@ -23,7 +24,7 @@ internal sealed class FileCredentialStore(string path) : ICredentialStore, IDisp
         try
         {
             var values = await Read(cancellationToken).ConfigureAwait(false);
-            return values.TryGetValue(name, out var value) ? value : null;
+            return values.TryGetValue(name, out var value) ? Parse(value) : null;
         }
         finally
         {
@@ -37,7 +38,8 @@ internal sealed class FileCredentialStore(string path) : ICredentialStore, IDisp
         ArgumentNullException.ThrowIfNull(credential);
         credential.Validate();
 
-        await Mutate(values => values[name] = credential, cancellationToken).ConfigureAwait(false);
+        var value = JsonSerializer.SerializeToElement(credential, CredentialJsonContext.Default.Credential);
+        await Mutate(values => values[name] = value, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask Delete(string name, CancellationToken cancellationToken) =>
@@ -66,7 +68,29 @@ internal sealed class FileCredentialStore(string path) : ICredentialStore, IDisp
         }
     }
 
-    private async ValueTask Mutate(Action<Dictionary<string, Credential>> change, CancellationToken cancellationToken)
+    private static Credential Parse(JsonElement value)
+    {
+        Credential? credential;
+
+        try
+        {
+            credential = value.Deserialize(CredentialJsonContext.Default.Credential);
+        }
+        catch (JsonException failure)
+        {
+            throw new AuthException("auth: malformed credential", failure);
+        }
+
+        if (credential is null)
+        {
+            throw new AuthException("auth: malformed credential");
+        }
+
+        credential.Validate();
+        return credential;
+    }
+
+    private async ValueTask Mutate(Action<Dictionary<string, JsonElement>> change, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
@@ -82,11 +106,11 @@ internal sealed class FileCredentialStore(string path) : ICredentialStore, IDisp
         }
     }
 
-    private async ValueTask<Dictionary<string, Credential>> Read(CancellationToken cancellationToken)
+    private async ValueTask<Dictionary<string, JsonElement>> Read(CancellationToken cancellationToken)
     {
         if (!File.Exists(path))
         {
-            return new Dictionary<string, Credential>(StringComparer.Ordinal);
+            return new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         }
 
         var info = new FileInfo(path);
@@ -114,15 +138,10 @@ internal sealed class FileCredentialStore(string path) : ICredentialStore, IDisp
             throw new AuthException("auth: malformed credential store");
         }
 
-        foreach (var value in file.Credentials.Values)
-        {
-            value.Validate();
-        }
-
-        return new Dictionary<string, Credential>(file.Credentials, StringComparer.Ordinal);
+        return new Dictionary<string, JsonElement>(file.Credentials, StringComparer.Ordinal);
     }
 
-    private async ValueTask Write(Dictionary<string, Credential> values, CancellationToken cancellationToken)
+    private async ValueTask Write(Dictionary<string, JsonElement> values, CancellationToken cancellationToken)
     {
         var directory = Path.GetDirectoryName(path);
 

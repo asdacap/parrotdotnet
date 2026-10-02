@@ -10,4 +10,5 @@ namespace Parrot.Auth;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(CredentialStoreFile))]
+[JsonSerializable(typeof(Credential))]
 internal sealed partial class CredentialJsonContext : JsonSerializerContext;
