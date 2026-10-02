@@ -217,6 +217,51 @@ applies to ordinary model requests over HTTP and WebSocket. It does not change
 image-generation API limits or response limits. A fresh image budget does not
 guarantee that accumulated conversation history fits the provider request limit.
 
+### Image upload to S3-compatible storage
+
+```yaml
+image_upload:
+  endpoint: https://minio.example.com
+  bucket: parrot-images
+  region: us-east-1
+  key_prefix: parrot/
+  public_base_url: ""
+  access_key_env: PARROT_S3_ACCESS_KEY
+  secret_key_env: PARROT_S3_SECRET_KEY
+  expiry_days: 1
+```
+
+When `image_upload` is configured, each prompt image is uploaded once to the
+bucket and providers receive its public URL instead of inline Base64, so
+requests carrying screenshots stay small. The section is inactive when absent.
+`endpoint` and `bucket` are required; `endpoint` (and `public_base_url` when
+set) must be an `https` URL. `region` defaults to `us-east-1`, `key_prefix` to
+`parrot/`, and `expiry_days` to `1`. `access_key_env` and `secret_key_env` name
+environment variables holding the credentials; the configuration file never
+holds secret values. The bucket is addressed path-style, so the public URL of an
+image is `<public_base_url or endpoint>/<bucket>/<key_prefix><sha256>.<ext>`.
+Keys are content addressed, so the same image always maps to the same URL.
+
+Use a dedicated bucket. On the first upload of a process Parrot creates the
+bucket if it is missing, then replaces the bucket's lifecycle configuration with
+one rule that expires objects under `key_prefix` after `expiry_days`, and
+replaces the bucket policy with anonymous `s3:GetObject` under `key_prefix`.
+The credentials therefore need bucket-administration rights. The server is
+assumed to be correctly configured: a failed upload, bucket preparation, or
+missing credential is a permanent provider error, and no Base64 fallback is
+attempted for it.
+
+`providers.<id>.image_urls` (default `true`) selects which providers receive
+URLs; set it to `false` to keep Base64 for one provider. When a provider rejects
+a request before any output, Parrot checks every URL in that request with an
+unauthenticated `HEAD`. Missing objects, for example after lifecycle expiry,
+are re-uploaded and the call is retried once. If every object is reachable and
+the provider returned a client error, the call is retried once with inline
+Base64 and that provider keeps using Base64 for the rest of the process.
+Limits, overloads, and transport failures take the ordinary retry path.
+With URLs in use, `request_limits.provider_request_bytes` is consumed only by
+text. The `imagegen` tool's reference images are not affected and remain inline.
+
 ### Other settings
 
 | Key | Default | Meaning |
@@ -232,6 +277,7 @@ guarantee that accumulated conversation history fits the provider request limit.
 | `providers.<id>.header_timeout_max_retries` | `5` | Retries after a header timeout; `0` disables. |
 | `providers.<id>.session_header` | per provider | Header carrying a stable per-session id for provider routing. |
 | `providers.<id>.models_dev_id` | provider id | models.dev catalog to import when it differs from the provider id. |
+| `providers.<id>.image_urls` | `true` | Send uploaded image URLs instead of Base64 when `image_upload` is configured. |
 
 ### Prompt templates
 
@@ -734,7 +780,9 @@ megapixels per frame, 100 frames, and 100 megapixels decoded across all frames. 
 prompt may contain at most 16 images and 20 MiB encoded in total. Tool-read images
 are bounded instead by `request_limits.image_bytes_per_tool_cycle`, and outbound
 provider requests by `request_limits.provider_request_bytes` (see
-[Request size limits](#request-size-limits)).
+[Request size limits](#request-size-limits)). With
+[image upload](#image-upload-to-s3-compatible-storage) configured, providers
+receive a public URL per image instead of its Base64 bytes.
 
 The client uploads an image through the client-streaming `UploadAttachment` RPC.
 Each `AttachmentUploadFrame` is at most 1 MiB; `AttachmentUploadResponse` returns a

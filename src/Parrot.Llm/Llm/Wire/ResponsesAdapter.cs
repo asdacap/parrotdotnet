@@ -114,7 +114,7 @@ internal static class ResponsesAdapter
                 content.Add(new ContentPart
                 {
                     Type = "input_image",
-                    ImageUrl = DataUrl(part),
+                    ImageUrl = ImageReference(part),
                 });
             }
             else if (part.Text.Length > 0)
@@ -341,8 +341,10 @@ internal static class ResponsesAdapter
         return "incomplete";
     }
 
-    private static string DataUrl(LLMContent content) =>
-        $"data:{content.MediaType};base64,{Convert.ToBase64String(content.ReadImage())}";
+    private static string ImageReference(LLMContent content) =>
+        content.ImageUrl.Length > 0
+            ? content.ImageUrl
+            : $"data:{content.MediaType};base64,{Convert.ToBase64String(content.ReadImage())}";
 
     private static JsonElement ParseSchema(string schema)
     {

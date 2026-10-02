@@ -34,6 +34,7 @@ internal sealed partial class Configuration(string path)
     private const string AgentTasksKey = "agent_tasks";
     private const string AgentSendToParentKey = "agent_send_to_parent";
     private const string RequestLimitsKey = "request_limits";
+    private const string ImageUploadKey = "image_upload";
     private const string ToolsKey = "tools";
     private const string SkillsKey = "skills";
     private static readonly TagName ReplaceTag = new("!replace");
@@ -77,6 +78,9 @@ internal sealed partial class Configuration(string path)
     public WebFetchConfig WebFetch { get; private set; } = new();
 
     public RequestLimitsConfig RequestLimits { get; private set; } = new();
+
+    // Null means prompt images stay inline; providers link uploaded images only when this is configured.
+    public ImageUploadConfig? ImageUpload { get; private set; }
 
     public IReadOnlyList<SandboxRule> SandboxRules { get; private set; } = [];
 
@@ -253,6 +257,7 @@ internal sealed partial class Configuration(string path)
             Providers = ReadProviders(root),
             WebFetch = ReadWebFetch(root),
             RequestLimits = ReadRequestLimits(root),
+            ImageUpload = ReadImageUpload(root),
             SandboxRules = ReadSandboxRules(root, "sandbox_rules", environmentTemplates, directories),
             SandboxEnabled = ReadSandboxEnabled(root),
             SandboxDevBind = ReadSandboxDevBind(root),
@@ -1841,6 +1846,76 @@ internal sealed partial class Configuration(string path)
             ? new() { AllowPrivate = Scalar(webFetch, "allow_private") == "true" }
             : new();
 
+    private static ImageUploadConfig? ReadImageUpload(YamlMappingNode root)
+    {
+        if (!Child(root, ImageUploadKey, out var node))
+        {
+            return null;
+        }
+
+        if (node is not YamlMappingNode upload)
+        {
+            throw new InvalidDataException($"{ImageUploadKey} must be a mapping");
+        }
+
+        ValidateKeys(
+            upload,
+            ImageUploadKey,
+            "endpoint",
+            "bucket",
+            "region",
+            "key_prefix",
+            "public_base_url",
+            "access_key_env",
+            "secret_key_env",
+            "expiry_days");
+        var defaults = new ImageUploadConfig { Endpoint = string.Empty, Bucket = string.Empty };
+        var bucket = Scalar(upload, "bucket");
+        if (bucket.Length is < 3 or > 63 || !bucket.All(IsBucketNameCharacter)
+            || !char.IsAsciiLetterOrDigit(bucket[0]) || !char.IsAsciiLetterOrDigit(bucket[^1]))
+        {
+            throw new InvalidDataException($"{ImageUploadKey}.bucket must be a valid S3 bucket name");
+        }
+
+        var keyPrefix = Child(upload, "key_prefix", out _) ? Scalar(upload, "key_prefix") : defaults.KeyPrefix;
+        if (!keyPrefix.All(IsKeyPrefixCharacter))
+        {
+            throw new InvalidDataException($"{ImageUploadKey}.key_prefix may contain only letters, digits, '/', '_', '.', and '-'");
+        }
+
+        return new ImageUploadConfig
+        {
+            Endpoint = ReadHttpsUrl(upload, "endpoint"),
+            Bucket = bucket,
+            Region = Child(upload, "region", out _) ? Scalar(upload, "region") : defaults.Region,
+            KeyPrefix = keyPrefix,
+            PublicBaseUrl = Scalar(upload, "public_base_url").Length > 0 ? ReadHttpsUrl(upload, "public_base_url") : string.Empty,
+            AccessKeyEnv = Scalar(upload, "access_key_env"),
+            SecretKeyEnv = Scalar(upload, "secret_key_env"),
+            ExpiryDays = Child(upload, "expiry_days", out _)
+                ? PositiveInteger(upload, "expiry_days", $"{ImageUploadKey}.expiry_days")
+                : defaults.ExpiryDays,
+        };
+    }
+
+    private static string ReadHttpsUrl(YamlMappingNode parent, string key)
+    {
+        var value = Scalar(parent, key);
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var parsed) || parsed.Scheme != Uri.UriSchemeHttps
+            || parsed.Host.Length == 0 || parsed.Query.Length > 0 || parsed.Fragment.Length > 0 || parsed.UserInfo.Length > 0)
+        {
+            throw new InvalidDataException($"{ImageUploadKey}.{key} must be an https URL");
+        }
+
+        return value;
+    }
+
+    private static bool IsBucketNameCharacter(char character) =>
+        char.IsAsciiLetterLower(character) || char.IsAsciiDigit(character) || character is '.' or '-';
+
+    private static bool IsKeyPrefixCharacter(char character) =>
+        char.IsAsciiLetterOrDigit(character) || character is '/' or '_' or '.' or '-';
+
     private static Dictionary<string, ProviderConfig> ReadProviders(YamlMappingNode root)
     {
         var result = new Dictionary<string, ProviderConfig>(StringComparer.Ordinal);
@@ -1871,6 +1946,8 @@ internal sealed partial class Configuration(string path)
                     item, "allow_invalid_tls_certificate", $"providers.{id}.allow_invalid_tls_certificate"),
                 DisableWebSocket = !Child(item, "disable_websocket", out var disableWebSocket) ||
                     ParseBoolean(disableWebSocket, $"providers.{id}.disable_websocket"),
+                ImageUrls = !Child(item, "image_urls", out var imageUrls) ||
+                    ParseBoolean(imageUrls, $"providers.{id}.image_urls"),
                 StreamIdleTimeoutMs = Child(item, "stream_idle_timeout_ms", out _)
                     ? NonNegativeInteger(item, "stream_idle_timeout_ms", $"providers.{id}.stream_idle_timeout_ms")
                     : 300000,

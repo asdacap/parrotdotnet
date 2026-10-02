@@ -224,13 +224,15 @@ internal static class ChatCompletionsAdapter
         }
 
         var content = message.Contents.Select(part => part.Kind == LLMContentKind.Image
-            ? new ChatContentPart { Type = "image_url", ImageUrl = new ImageUrl { Url = DataUrl(part) } }
+            ? new ChatContentPart { Type = "image_url", ImageUrl = new ImageUrl { Url = ImageReference(part) } }
             : new ChatContentPart { Type = "text", Text = part.Text }).ToList();
         return JsonSerializer.SerializeToElement(content, WireJsonContext.Default.ChatContentParts);
     }
 
-    private static string DataUrl(LLMContent content) =>
-        $"data:{content.MediaType};base64,{Convert.ToBase64String(content.ReadImage())}";
+    private static string ImageReference(LLMContent content) =>
+        content.ImageUrl.Length > 0
+            ? content.ImageUrl
+            : $"data:{content.MediaType};base64,{Convert.ToBase64String(content.ReadImage())}";
 
     private static JsonElement WrapSystemUpdate(LLMMessage message) =>
         JsonSerializer.SerializeToElement(
