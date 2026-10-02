@@ -126,16 +126,17 @@ internal sealed class ProcessToolPresenterTests
     }
 
     [Test]
-    [Arguments("python3 - <<'PY'\n", 200, "", "○ $ python3 - <<'PY'", "⠋ $ python3 (running 0s)", "✓ $ python3")]
-    [Arguments("python3 - <<'PY'\n", 200, ",\"name\":\"migrate\",\"description\":\"Rewrite config keys\"", "○ $ python3 - <<'PY'", "⠋ $ migrate · Rewrite config keys (running 0s)", "✓ $ migrate · Rewrite config keys")]
-    [Arguments("echo ", 10, ",\"name\":\"migrate\",\"description\":\"Rewrite config keys\"", null, "⠋ $ echo xxxxxxxxxx (running 0s)", "✓ $ echo xxxxxxxxxx")]
+    [Arguments("python3 - <<'PY'\n", 200, "", "○ $ python3\n  python3 - <<'PY'", "⠋ $ python3 (running 0s)", "✓ $ python3", "✓ $ python3\n  python3 - <<'PY'")]
+    [Arguments("python3 - <<'PY'\n", 200, ",\"name\":\"migrate\",\"description\":\"Rewrite config keys\"", "○ $ migrate · Rewrite config keys\n  python3 - <<'PY'", "⠋ $ migrate · Rewrite config keys (running 0s)", "✓ $ migrate · Rewrite config keys", "✓ $ migrate · Rewrite config keys\n  python3 - <<'PY'")]
+    [Arguments("echo ", 10, ",\"name\":\"migrate\",\"description\":\"Rewrite config keys\"", null, "⠋ $ echo xxxxxxxxxx (running 0s)", "✓ $ echo xxxxxxxxxx", null)]
     public async Task Long_exec_command_is_committed_on_start_and_shows_only_its_description_afterwards(
         string prefix,
         int padding,
         string extraArguments,
         string? started,
         string live,
-        string completed)
+        string completed,
+        string? completedWithoutStart)
     {
         IToolPresenter presenter = new ExecCommandToolPresenter(new ControlledTimeProvider(), []);
         var command = prefix + new string('x', padding);
@@ -144,10 +145,16 @@ internal sealed class ProcessToolPresenterTests
             "{\"command\":\"" + System.Text.Json.JsonEncodedText.Encode(command) + "\"" + extraArguments + "}");
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Process exited with code 0 after 0.02s", string.Empty);
 
-        _ = await Assert.That(presenter.PresentStarted(call)?.Render(ScrollbackContext)[0]).IsEqualTo(started);
+        _ = await Assert.That(presenter.PresentStarted(call) is { } startedItem
+            ? string.Join('\n', startedItem.Render(ScrollbackContext).Take(2))
+            : null).IsEqualTo(started);
         _ = await Assert.That(presenter.PresentLive(call, 0).Render(LiveContext).Lines[0].Text).IsEqualTo(live);
         _ = await Assert.That((presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException())
             .Render(ScrollbackContext)[0]).IsEqualTo(completed);
+        _ = await Assert.That(started is null
+            ? null
+            : string.Join('\n', (presenter.PresentTerminal(call, terminal with { StartOmitted = true }) ?? throw new InvalidOperationException())
+                .Render(ScrollbackContext).Take(2))).IsEqualTo(completedWithoutStart);
     }
 
     [Test]

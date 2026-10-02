@@ -402,7 +402,8 @@ internal sealed class AgentSessionState(string agentSessionId)
     public (string ActivityId, IScrollbackItem? Scrollback, ToolCallPresentation Call, ToolTerminalPresentation Terminal) FinishTool(
         Event published,
         ToolPresenterRegistry presenters,
-        Func<string, string> agentReferenceResolver)
+        Func<string, string> agentReferenceResolver,
+        bool startOmitted)
     {
         var (toolCallId, toolName) = GetTerminalTool(published);
         var isAgentTask = string.Equals(toolName, "run_agent_tasks", StringComparison.Ordinal)
@@ -475,6 +476,7 @@ internal sealed class AgentSessionState(string agentSessionId)
                 published.ToolError.Message),
             _ => throw new InvalidOperationException("The tool event is not terminal."),
         };
+        terminal = terminal with { StartOmitted = startOmitted };
         return (activityId, presenters.PresentTerminal(call, terminal), call, terminal);
     }
 

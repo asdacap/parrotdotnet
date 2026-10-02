@@ -11,7 +11,7 @@ internal sealed class ExecCommandToolPresenter(
 
     public string ToolName => "exec_command";
 
-    public ToolPresentationMetadata Metadata => ToolPresentationMetadata.Default with { MultilineLabel = true };
+    public ToolPresentationMetadata Metadata => ToolPresentationMetadata.Default with { MultilineLabel = true, DeferStarted = true };
 
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {
@@ -33,7 +33,7 @@ internal sealed class ExecCommandToolPresenter(
         var command = Command(call.ArgumentsJson);
         return command.Length > ExecCommandTool.LongCommandLength
             ? new ToolScrollbackValue(
-                $"$ {command}",
+                LabelWithCommand(call.ArgumentsJson, command),
                 ToolBlock.Empty,
                 ToolTerminalStatus.Succeeded,
                 MetadataFor(IsReadOnlyCommand(command)) with { SuccessIcon = TerminalIcons.Pending })
@@ -49,7 +49,7 @@ internal sealed class ExecCommandToolPresenter(
 
         var command = Command(call.ArgumentsJson);
         var isReadOnly = IsReadOnlyCommand(command);
-        var label = Label(call.ArgumentsJson, command);
+        var label = terminal.StartOmitted ? LabelWithCommand(call.ArgumentsJson, command) : Label(call.ArgumentsJson, command);
         var status = terminal.ResolveProcessStatus();
         var block = status is ToolTerminalStatus.Errored or ToolTerminalStatus.ReportedFailure
             ? ToolBlock.FromOutput(ToolOutputText.Tail(terminal.ResultPresent ? WithoutLoneStdoutLabel(terminal.Result) : terminal.Error, 10))
@@ -92,6 +92,9 @@ internal sealed class ExecCommandToolPresenter(
             ? $"$ {name} · {description}"
             : $"$ {name}";
     }
+
+    private static string LabelWithCommand(string argumentsJson, string command) =>
+        $"{Label(argumentsJson, command)}\n{command}";
 
     private static string? OptionalString(JsonElement root, string propertyName) =>
         root.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String

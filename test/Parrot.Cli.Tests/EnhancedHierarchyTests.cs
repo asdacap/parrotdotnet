@@ -966,6 +966,66 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
+    [Arguments(false, false, "error: commands longer than 200 characters require 'name' and 'description'", "✗ $ python3|  python3 - <<'PY'")]
+    [Arguments(false, false, "Process exited with code 0 after 0.02s", "✓ $ migrate · Rewrite config keys|  python3 - <<'PY'")]
+    [Arguments(true, false, "Process exited with code 0 after 3s", "○ $ migrate · Rewrite config keys|  python3 - <<'PY'\n✓ $ migrate · Rewrite config keys|  Process exited with code 0 after 3s")]
+    [Arguments(false, true, "Process running with name migrate", "○ $ migrate · Rewrite config keys|  python3 - <<'PY'")]
+    public async Task Long_exec_command_commits_one_entry_when_it_finishes_within_the_grace_period(
+        bool graceElapsed,
+        bool yielded,
+        string result,
+        string expected,
+        CancellationToken cancellationToken)
+    {
+        var namedArguments = result.StartsWith("error: ", StringComparison.Ordinal)
+            ? string.Empty
+            : ",\"name\":\"migrate\",\"description\":\"Rewrite config keys\"";
+        var arguments = "{\"command\":\"" + System.Text.Json.JsonEncodedText.Encode("python3 - <<'PY'\n" + new string('x', 200)) + "\"" + namedArguments + "}";
+        var committed = new List<string>();
+        var scrollbackContext = new ScrollbackRenderContext(120, new TerminalPalette(false));
+        var grace = new TaskCompletionSource();
+        await using var view = new RawActivityView(
+            static (_, _) => Task.CompletedTask,
+            (item, _, _) =>
+            {
+                committed.Add(string.Join('|', item.Render(scrollbackContext).Take(2)));
+                return Task.CompletedTask;
+            },
+            static _ => Task.Delay(Timeout.Infinite, CancellationToken.None),
+            (_, token) => grace.Task.WaitAsync(token),
+            new ToolPresenterRegistry([new ExecCommandToolPresenter(TimeProvider.System, [])], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await view.Render(new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } }, cancellationToken);
+        await view.Render(new Event { AgentSessionId = "root", ToolCallChunk = new ToolCallChunk { ToolCallId = "call", ToolName = "exec_command", ArgumentsFragment = arguments } }, cancellationToken);
+        await view.Render(new Event { AgentSessionId = "root", ToolStarted = new ToolStarted { ToolCallId = "call", ToolName = "exec_command" } }, cancellationToken);
+
+        _ = await Assert.That(committed).IsEmpty();
+
+        if (graceElapsed)
+        {
+            grace.SetResult();
+        }
+
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "root",
+                ToolFinished = new ToolFinished
+                {
+                    ToolCallId = "call",
+                    ToolName = "exec_command",
+                    Result = result,
+                    YieldedProcess = yielded
+                        ? new YieldedShellProcess { ProcessId = "process", Name = "migrate", InventoryInstanceId = "inventory", VisibleRevision = 1 }
+                        : null,
+                },
+            },
+            cancellationToken);
+
+        _ = await Assert.That(string.Join('\n', committed)).IsEqualTo(expected);
+    }
+
+    [Test]
     public async Task Child_modeline_tools_fold_into_agent_status_and_defer_completion(
         CancellationToken cancellationToken)
     {

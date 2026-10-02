@@ -16,7 +16,8 @@ internal sealed class AgentTaskDetachedProgressTests
         _ = state.FinishTool(
             new Event { ToolFinished = new ToolFinished { ToolCallId = "call", ToolName = "run_agent_tasks" } },
             new ToolPresenterRegistry([], new GenericToolPresenter()),
-            static value => value);
+            static value => value,
+            false);
 
         _ = await Assert.That(state.OfferAgentTaskProgress(new ProgressFixture("call", 2, AgentTaskProgressStatus.Succeeded).Snapshot)).IsTrue();
         _ = await Assert.That(state.RetireDetachedAgentTaskProgress("call", 2)).IsTrue();
@@ -32,7 +33,8 @@ internal sealed class AgentTaskDetachedProgressTests
         _ = state.FinishTool(
             new Event { ToolFinished = new ToolFinished { ToolCallId = "call", ToolName = "run_agent_tasks" } },
             new ToolPresenterRegistry([], new GenericToolPresenter()),
-            static value => value);
+            static value => value,
+            false);
 
         _ = await Assert.That(state.OfferAgentTaskProgress(new ProgressFixture("call", 2, AgentTaskProgressStatus.Succeeded).Snapshot)).IsFalse();
     }
@@ -45,7 +47,8 @@ internal sealed class AgentTaskDetachedProgressTests
         _ = state.FinishTool(
             new Event { ToolFinished = new ToolFinished { ToolCallId = "missing", ToolName = "run_agent_tasks" } },
             new ToolPresenterRegistry([], new GenericToolPresenter()),
-            static value => value);
+            static value => value,
+            false);
 
         _ = await Assert.That(state.DetachedAgentTaskProgressIds()).IsEmpty();
     }
@@ -62,7 +65,8 @@ internal sealed class AgentTaskDetachedProgressTests
             _ = state.FinishTool(
                 new Event { ToolFinished = new ToolFinished { ToolCallId = callId, ToolName = "run_agent_tasks" } },
                 new ToolPresenterRegistry([], new GenericToolPresenter()),
-                static value => value);
+                static value => value,
+                false);
         }
 
         _ = await Assert.That(state.OfferAgentTaskProgress(new ProgressFixture("first", 1, AgentTaskProgressStatus.Succeeded).Snapshot)).IsFalse();

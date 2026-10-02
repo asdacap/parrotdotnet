@@ -20,6 +20,8 @@ internal readonly record struct ToolTerminalPresentation(
     {
     }
 
+    public bool StartOmitted { get; init; }
+
     public ToolTerminalStatus ResolveProcessStatus()
     {
         var status = ResolveStatus();

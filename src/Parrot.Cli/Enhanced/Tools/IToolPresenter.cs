@@ -9,7 +9,11 @@ internal interface IToolPresenter
 
     ILiveBufferItem PresentLive(ToolCallPresentation call, int frame);
 
-    /// <summary>Returns the scrollback item committed when any agent starts the tool, or null to commit nothing.</summary>
+    /// <summary>
+    /// Returns the scrollback item committed when any agent starts the tool, or null to commit nothing. With
+    /// <see cref="ToolPresentationMetadata.DeferStarted"/>, it is committed only once the tool runs past a grace period
+    /// or yields; a tool finishing sooner omits it and receives <see cref="ToolTerminalPresentation.StartOmitted"/>.
+    /// </summary>
     IScrollbackItem? PresentStarted(ToolCallPresentation call) => null;
 
     /// <summary>Returns the scrollback item committed when a child agent starts the tool, or null to commit nothing.</summary>

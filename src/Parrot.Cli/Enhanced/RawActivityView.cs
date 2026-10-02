@@ -15,6 +15,7 @@ internal sealed class RawActivityView(
 {
     private const int SpinnerIntervalMilliseconds = 80;
     private static readonly TimeSpan ProgressQuietPeriod = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan StartGracePeriod = TimeSpan.FromSeconds(2);
 
     private readonly List<(AgentSessionState State, string ActivityId)> _activities = [];
     private readonly Dictionary<string, AgentSessionState> _agentSessions = new(StringComparer.Ordinal);
@@ -28,6 +29,7 @@ internal sealed class RawActivityView(
     private readonly Dictionary<string, InventoryState> _processInventories = new(StringComparer.Ordinal);
     private readonly Dictionary<string, InventoryState> _queueInventories = new(StringComparer.Ordinal);
     private readonly Dictionary<(string AgentSessionId, string ToolCallId), PendingProgress> _pendingProgress = [];
+    private readonly Dictionary<(string AgentSessionId, string ToolCallId), PendingStart> _pendingStarts = [];
     private readonly HashSet<Task> _progressTasks = [];
     private readonly object _progressTasksLock = new();
     private readonly object _shutdownLock = new();
@@ -617,6 +619,11 @@ internal sealed class RawActivityView(
             {
                 pending.Cancel();
             }
+
+            foreach (var pendingStart in _pendingStarts.Values)
+            {
+                pendingStart.Cancel();
+            }
         }
         finally
         {
@@ -635,6 +642,19 @@ internal sealed class RawActivityView(
         await _rendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
+            foreach (var pendingStart in _pendingStarts.Values)
+            {
+                try
+                {
+                    await commit(pendingStart.Scrollback, Snapshot(), CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception failure)
+                {
+                    progressFailure ??= ExceptionDispatchInfo.Capture(failure);
+                }
+            }
+
+            _pendingStarts.Clear();
             foreach (var entry in _pendingProgress.OrderBy(static entry => entry.Key.AgentSessionId, StringComparer.Ordinal)
                          .ThenBy(static entry => entry.Key.ToolCallId, StringComparer.Ordinal)
                          .ToArray())
@@ -738,6 +758,47 @@ internal sealed class RawActivityView(
         {
             _ = _pendingProgress.Remove(key);
             await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task DelayAndCommitStart(
+        (string AgentSessionId, string ToolCallId) key,
+        PendingStart pending)
+    {
+        try
+        {
+            await progressDelay(StartGracePeriod, pending.Cancellation.Token).ConfigureAwait(false);
+            await _rendering.WaitAsync(pending.Cancellation.Token).ConfigureAwait(false);
+            try
+            {
+                if (_pendingStarts.Remove(key))
+                {
+                    await commit(pending.Scrollback, Snapshot(), pending.Cancellation.Token).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                _ = _rendering.Release();
+            }
+        }
+        catch (OperationCanceledException) when (pending.Cancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception failure)
+        {
+            await _rendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                _progressFailure ??= ExceptionDispatchInfo.Capture(failure);
+            }
+            finally
+            {
+                _ = _rendering.Release();
+            }
+        }
+        finally
+        {
+            pending.Cancellation.Dispose();
         }
     }
 
@@ -1116,6 +1177,14 @@ internal sealed class RawActivityView(
         {
             await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
         }
+        else if (metadata.DeferStarted && !_progressShutdown)
+        {
+            var key = (published.AgentSessionId, published.ToolStarted.ToolCallId);
+            var pendingStart = new PendingStart(Wrap(state, started));
+            _pendingStarts[key] = pendingStart;
+            TrackProgressTask(DelayAndCommitStart(key, pendingStart));
+            await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+        }
         else
         {
             await commit(Wrap(state, started), Snapshot(), cancellationToken).ConfigureAwait(false);
@@ -1134,10 +1203,25 @@ internal sealed class RawActivityView(
             _ = _pendingProgress.Remove(key);
         }
 
+        var startOmitted = false;
+        if (_pendingStarts.Remove(key, out var pendingStart))
+        {
+            pendingStart.Cancel();
+            if (published.PayloadCase == Event.PayloadOneofCase.ToolFinished && published.ToolFinished.YieldedProcess is not null)
+            {
+                await commit(pendingStart.Scrollback, Snapshot(), cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                startOmitted = true;
+            }
+        }
+
         var (activityId, scrollback, call, terminal) = state.FinishTool(
             published,
             presenters,
-            reference => _hierarchy.ResolveAgentReference(state.AgentSessionId, reference));
+            reference => _hierarchy.ResolveAgentReference(state.AgentSessionId, reference),
+            startOmitted);
         _ = _activities.Remove((state, activityId));
         var deferred = terminal.YieldedProcess;
         if (deferred is null && string.Equals(call.ToolName, "exec_command", StringComparison.Ordinal))
@@ -1451,6 +1535,24 @@ internal sealed class RawActivityView(
                 IsDeferred = true,
                 Command = originalCommand,
             };
+        }
+    }
+
+    private sealed class PendingStart(IScrollbackItem scrollback)
+    {
+        public IScrollbackItem Scrollback { get; } = scrollback;
+
+        public CancellationTokenSource Cancellation { get; } = new();
+
+        public void Cancel()
+        {
+            try
+            {
+                Cancellation.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
         }
     }
 
