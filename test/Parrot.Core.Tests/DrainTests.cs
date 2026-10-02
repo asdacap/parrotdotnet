@@ -2018,7 +2018,7 @@ internal sealed class DrainTests : IDisposable
         await using var session = SessionWithImageLimit(
             provider,
             repository,
-            [new TestTool(new ReadImageTool(new ToolWorkspace(_blobDirectory), images)), new TestTool(new SettledTool("continued"))],
+            [new TestTool(new ReadImageTool(new ToolWorkspace(_blobDirectory), images, new RequestLimitsConfig())), new TestTool(new SettledTool("continued"))],
             imageBytes.Length + spareBytes,
             cancellationToken);
 
@@ -2105,7 +2105,7 @@ internal sealed class DrainTests : IDisposable
         await using var session = SessionWithImageLimit(
             provider,
             repository,
-            [new TestTool(new ReadImageTool(new ToolWorkspace(_blobDirectory), images)), new TestTool(new SettledTool("continued"))],
+            [new TestTool(new ReadImageTool(new ToolWorkspace(_blobDirectory), images, new RequestLimitsConfig())), new TestTool(new SettledTool("continued"))],
             imageBytes.Length * (overflowSettled ? 3 : 1),
             cancellationToken);
         _ = await session.Send([ConversationPart.TextPart("resume")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);

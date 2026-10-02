@@ -1,11 +1,12 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Store;
 
 namespace Parrot.Tools;
 
-internal sealed class ReadImageTool(ToolWorkspace workspace, IImageArtifactRepository artifacts) : ITool
+internal sealed class ReadImageTool(ToolWorkspace workspace, IImageArtifactRepository artifacts, RequestLimitsConfig requestLimits) : ITool
 {
     public string Name => "read_image";
 
@@ -64,6 +65,11 @@ internal sealed class ReadImageTool(ToolWorkspace workspace, IImageArtifactRepos
         try
         {
             await using var source = File.OpenRead(resolved.Physical);
+            if (source.Length > requestLimits.ImageBytesPerRead)
+            {
+                return ToolResultFormatter.Error(invocation, $"An image cannot exceed {requestLimits.ImageBytesPerRead} bytes.");
+            }
+
             var artifact = await artifacts.Persist(
                 source,
                 invocation.CallId,

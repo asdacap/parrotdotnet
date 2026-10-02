@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Security;
@@ -44,7 +45,7 @@ internal sealed class ReadImageToolTests : IDisposable
     {
         var image = Path.Combine(_root, "pixel.png");
         await File.WriteAllBytesAsync(image, Png(), cancellationToken);
-        ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images);
+        ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images, new RequestLimitsConfig());
         var result = await tool.Execute(
             new ToolInvocation("test-call", "{\"path\":\"pixel.png\"}"),
             new SelectionFixture(SecurityProfile.Compose(false, [], [], [])).Selection,
@@ -58,12 +59,30 @@ internal sealed class ReadImageToolTests : IDisposable
     }
 
     [Test]
+    [Arguments(0)]
+    [Arguments(-1)]
+    public async Task Enforces_the_configured_per_read_image_limit(int limitDelta, CancellationToken cancellationToken)
+    {
+        await File.WriteAllBytesAsync(Path.Combine(_root, "pixel.png"), Png(), cancellationToken);
+        var limit = Png().Length + limitDelta;
+        ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images, new RequestLimitsConfig { ImageBytesPerRead = limit });
+        var result = await tool.Execute(
+            new ToolInvocation("test-call", "{\"path\":\"pixel.png\"}"),
+            new SelectionFixture(SecurityProfile.Compose(false, [], [], [])).Selection,
+            cancellationToken);
+
+        var withinLimit = limitDelta == 0;
+        _ = await Assert.That(result.Text).IsEqualTo(withinLimit ? "image read" : $"error: An image cannot exceed {limit} bytes.");
+        _ = await Assert.That(result.ImageArtifacts).Count().IsEqualTo(withinLimit ? 1 : 0);
+    }
+
+    [Test]
     public async Task Reads_renamed_identical_images_using_the_first_artifact(CancellationToken cancellationToken)
     {
         var imageBytes = Png();
         await File.WriteAllBytesAsync(Path.Combine(_root, "pixel.png"), imageBytes, cancellationToken);
         await File.WriteAllBytesAsync(Path.Combine(_root, "renamed.png"), imageBytes, cancellationToken);
-        ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images);
+        ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images, new RequestLimitsConfig());
         var selection = new SelectionFixture(SecurityProfile.Compose(false, [], [], [])).Selection;
         var originalResult = await tool.Execute(
             new ToolInvocation("original-call", "{\"path\":\"pixel.png\"}"),
@@ -102,7 +121,7 @@ internal sealed class ReadImageToolTests : IDisposable
         await File.WriteAllBytesAsync(Path.Combine(_root, "pixel.png"), imageBytes, cancellationToken);
         await File.WriteAllTextAsync(Path.Combine(_root, "invalid.txt"), "not an image", cancellationToken);
         var budget = new ToolCycleImageBudget((imageBytes.Length * 2) + extraBytes, TestModels.PromptTemplates);
-        ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images);
+        ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images, new RequestLimitsConfig());
         var selection = new SelectionFixture(SecurityProfile.Compose(false, [], [], [])).Selection;
         var invalid = await tool.Execute(
             new ToolInvocation("invalid", "{\"path\":\"invalid.txt\"}") { ImageBudget = budget },
@@ -153,7 +172,7 @@ internal sealed class ReadImageToolTests : IDisposable
             [new SandboxRule(privateDirectory, SandboxRuleAction.DenyRead)],
             []);
 
-        ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images);
+        ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images, new RequestLimitsConfig());
         var result = await tool.Execute(
             new ToolInvocation("test-call", "{\"path\":\"alias.png\"}"),
             new SelectionFixture(security).Selection,
@@ -168,7 +187,7 @@ internal sealed class ReadImageToolTests : IDisposable
     {
         await File.WriteAllTextAsync(Path.Combine(_root, "not-image.txt"), "not an image", cancellationToken);
 
-        ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images);
+        ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images, new RequestLimitsConfig());
         var result = await tool.Execute(
             new ToolInvocation("test-call", "{\"path\":\"not-image.txt\"}"),
             new SelectionFixture(SecurityProfile.Compose(false, [], [], [])).Selection,
