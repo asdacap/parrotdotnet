@@ -104,6 +104,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             cancellationToken)).Text;
 
         _ = await Assert.That(report).Contains("\nName: child");
+        _ = await Assert.That(report).Contains($"\nLive output file: {child.OutputPath}\n");
         _ = await Assert.That(report).DoesNotContain(child.SessionId);
         _ = await Assert.That(report).Contains("Request session duration: 2.0s");
         _ = await Assert.That(report).Contains("Current provider request duration: 2.0s");
