@@ -321,14 +321,15 @@ internal sealed class AgentSessionState(string agentSessionId)
         return activityId;
     }
 
-    public IScrollbackItem? PresentChildStartedTool(
+    public IScrollbackItem? PresentStartedTool(
         string toolCallId,
         ToolPresenterRegistry presenters,
-        Func<string, string> agentReferenceResolver)
+        Func<string, string> agentReferenceResolver,
+        bool isRoot)
     {
         var toolCall = _toolCalls[toolCallId];
-        return presenters.PresentChildStarted(
-            new ToolCallPresentation(toolCall.Name, toolCall.Arguments.ToString(), agentReferenceResolver));
+        var call = new ToolCallPresentation(toolCall.Name, toolCall.Arguments.ToString(), agentReferenceResolver);
+        return presenters.PresentStarted(call) ?? (isRoot ? null : presenters.PresentChildStarted(call));
     }
 
     public bool IsFoldedActivity(string activityId) =>
