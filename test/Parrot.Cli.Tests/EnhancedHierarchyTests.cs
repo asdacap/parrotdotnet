@@ -966,7 +966,7 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
-    [Arguments(false, false, "error: commands longer than 200 characters require 'name' and 'description'", "✗ $ python3|  python3 - <<'PY'")]
+    [Arguments(false, false, "error: multiline commands require 'name' and 'description'", "✗ $ python3|  python3 - <<'PY'")]
     [Arguments(false, false, "Process exited with code 0 after 0.02s", "✓ $ migrate · Rewrite config keys|  python3 - <<'PY'")]
     [Arguments(true, false, "Process exited with code 0 after 3s", "○ $ migrate · Rewrite config keys|  python3 - <<'PY'\n✓ $ migrate · Rewrite config keys|  Process exited with code 0 after 3s")]
     [Arguments(false, true, "Process running with name migrate", "○ $ migrate · Rewrite config keys|  python3 - <<'PY'")]

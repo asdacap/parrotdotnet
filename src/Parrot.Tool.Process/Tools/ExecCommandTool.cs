@@ -96,12 +96,10 @@ internal sealed class ExecCommandTool(
             }
         }
 
-        if (command.Length > LongCommandLength
+        if (command.Trim().Contains('\n', StringComparison.Ordinal)
             && (name is null || string.IsNullOrWhiteSpace(description)))
         {
-            return ToolResultFormatter.Error(
-                invocation,
-                $"commands longer than {LongCommandLength} characters require 'name' and 'description'");
+            return ToolResultFormatter.Error(invocation, "multiline commands require 'name' and 'description'");
         }
 
         if (TryRedundantChangeDirectory(command, out var target))
