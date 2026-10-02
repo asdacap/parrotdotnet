@@ -149,7 +149,7 @@ internal sealed class ProviderRegistryTests
             using var document = JsonDocument.Parse(openRouter.RequestBody);
             var url = document.RootElement.GetProperty("messages")[0].GetProperty("content")[0].GetProperty("image_url").GetProperty("url").GetString();
             _ = await Assert.That(url).StartsWith(expectedReference);
-            _ = await Assert.That(bucket.Requests.Count).IsEqualTo(configured && imageUrls ? 3 : 0);
+            _ = await Assert.That(bucket.Requests.Count).IsEqualTo(configured && imageUrls ? 2 : 0);
         }
         finally
         {

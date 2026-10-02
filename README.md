@@ -255,10 +255,11 @@ The bucket is addressed path-style, so the public URL of an
 image is `<public_base_url or endpoint>/<bucket>/<key_prefix><sha256>.<ext>`.
 Keys are content addressed, so the same image always maps to the same URL.
 
-Use a dedicated bucket. On the first upload of a process Parrot creates the
-bucket if it is missing, then replaces the bucket policy with anonymous
-`s3:GetObject` under `key_prefix`.
-The credentials therefore need bucket-administration rights. The server is
+On the first upload of a process Parrot creates the bucket if it is missing.
+Parrot does not change bucket policies or object ACLs: configure the bucket
+manually so objects under `key_prefix` are publicly readable, for example with
+a bucket policy granting anonymous `s3:GetObject` (MinIO, AWS) or by making the
+bucket public in the storage provider's settings. The server is
 assumed to be correctly configured: a failed upload, bucket preparation, or
 missing credential is a permanent provider error, and no Base64 fallback is
 attempted for it.

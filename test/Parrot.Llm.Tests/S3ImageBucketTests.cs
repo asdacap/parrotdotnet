@@ -18,7 +18,7 @@ internal sealed class S3ImageBucketTests
     [Test]
     [Arguments(true)]
     [Arguments(false)]
-    public async Task Prepare_creates_a_missing_bucket_then_installs_policy_once(bool exists, CancellationToken cancellationToken)
+    public async Task Prepare_creates_a_missing_bucket_once(bool exists, CancellationToken cancellationToken)
     {
         using var handler = new RecordingHttpHandler(request => Respond(
             request is { Method: "HEAD" } && !exists ? HttpStatusCode.NotFound : HttpStatusCode.OK));
@@ -32,14 +32,10 @@ internal sealed class S3ImageBucketTests
         await bucket.Prepare(cancellationToken);
 
         string[] expected = exists
-            ? ["HEAD /b", "PUT /b?policy"]
-            : ["HEAD /b", "PUT /b", "PUT /b?policy"];
+            ? ["HEAD /b"]
+            : ["HEAD /b", "PUT /b"];
         _ = await Assert.That(first).IsEquivalentTo(expected);
         _ = await Assert.That(handler.Requests.Count).IsEqualTo(expected.Length * 2);
-        var policy = handler.Requests.First(request => request.Uri.Query == "?policy");
-        _ = await Assert.That(policy.Body).IsEqualTo(
-            "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"parrot-public-read\",\"Effect\":\"Allow\","
-            + "\"Principal\":{\"AWS\":[\"*\"]},\"Action\":[\"s3:GetObject\"],\"Resource\":[\"arn:aws:s3:::b/parrot/*\"]}]}");
         _ = await Assert.That(handler.Requests.All(request =>
             request.Header("Authorization").StartsWith("AWS4-HMAC-SHA256 Credential=ak/19700101/us-east-1/s3/aws4_request, SignedHeaders=host;", StringComparison.Ordinal)
             && request.Header("x-amz-date") == "19700101T000000Z")).IsTrue();
@@ -68,7 +64,6 @@ internal sealed class S3ImageBucketTests
 
     [Test]
     [Arguments("HEAD /b", 403, false)]
-    [Arguments("PUT /b?policy", 403, false)]
     [Arguments("PUT /b/parrot/", 403, true)]
     public async Task Failures_are_permanent_provider_errors(string failing, int status, bool upload, CancellationToken cancellationToken)
     {

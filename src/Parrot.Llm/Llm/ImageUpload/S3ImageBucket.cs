@@ -8,9 +8,9 @@ using Parrot.Config;
 namespace Parrot.Llm.ImageUpload;
 
 // One S3-compatible bucket holding prompt images under content-addressed keys.
-// Preparation (creation, public-read policy) runs once per
+// Preparation (bucket creation) runs once per
 // process and is repeated only after ForgetPreparation. Every failure is
-// permanent: the bucket is assumed to be configured correctly.
+// permanent: the bucket, including public read access, is configured manually.
 internal sealed class S3ImageBucket(HttpClient client, ImageUploadConfig config, TimeProvider timeProvider, ICredentialStore credentials)
 {
     private static readonly TimeSpan ControlTimeout = TimeSpan.FromSeconds(30);
@@ -21,7 +21,7 @@ internal sealed class S3ImageBucket(HttpClient client, ImageUploadConfig config,
     private Task<AwsV4Signer>? _signer;
     private Task? _prepared;
 
-    // Creates the bucket when missing, then installs the public-read policy for the key prefix.
+    // Creates the bucket when missing.
     public Task Prepare(CancellationToken cancellationToken)
     {
         Task preparation;
@@ -133,13 +133,6 @@ internal sealed class S3ImageBucket(HttpClient client, ImageUploadConfig config,
         {
             await EnsureSuccess(exists, head).ConfigureAwait(false);
         }
-
-        var policy = "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"parrot-public-read\",\"Effect\":\"Allow\","
-            + "\"Principal\":{\"AWS\":[\"*\"]},\"Action\":[\"s3:GetObject\"],"
-            + $"\"Resource\":[\"arn:aws:s3:::{config.Bucket}/{config.KeyPrefix}*\"]}}]}}";
-        using var putPolicy = Control($"{config.Bucket}?policy", policy, "application/json");
-        using var policyResponse = await Send(putPolicy, PayloadHash(policy), ControlTimeout, CancellationToken.None).ConfigureAwait(false);
-        await EnsureSuccess(policyResponse, putPolicy).ConfigureAwait(false);
     }
 
     private HttpRequestMessage Control(string relative, string body, string contentType) =>

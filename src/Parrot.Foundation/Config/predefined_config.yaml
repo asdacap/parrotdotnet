@@ -1961,9 +1961,9 @@ web_fetch:
 
 # Upload prompt images to an S3-compatible bucket and send their public URLs
 # instead of inline base64. Inactive unless configured. The endpoint must be
-# https. Credentials are read from the named environment variables. Use a
-# dedicated bucket: Parrot replaces the bucket policy (public read under
-# key_prefix) with its own rules. Set providers.<id>.image_urls: false to keep base64 for one provider.
+# https. Credentials are read from the named environment variables. The bucket
+# must be configured manually so objects under key_prefix are publicly
+# readable; Parrot does not change bucket policies. Set providers.<id>.image_urls: false to keep base64 for one provider.
 # image_upload:
 #   endpoint: https://minio.example.com
 #   bucket: parrot-images
