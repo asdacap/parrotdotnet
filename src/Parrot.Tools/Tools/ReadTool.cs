@@ -9,7 +9,7 @@ namespace Parrot.Tools;
 internal sealed class ReadTool(ToolWorkspace workspace) : ITool
 {
     private const int MaxLines = 2000;
-    private const int MaxOutputBytes = 1 << 20;
+    private const int MaxOutputBytes = 8 * 1024;
     private const int BinaryProbeSize = 8192;
 
     public string Name => "read";
@@ -98,6 +98,7 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
         var outputBytes = 0;
         var lineNumber = 0;
         var truncated = false;
+        var outline = IsMarkdown(full) ? new MarkdownOutline() : null;
 
         while (true)
         {
@@ -110,6 +111,7 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
             }
 
             lineNumber++;
+            outline?.Record(lineNumber, line);
 
             if (lineNumber < offset || lineNumber >= offset + limit || truncated)
             {
@@ -138,8 +140,17 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
         _ = output.Append("total lines in file: ")
             .Append(lineNumber.ToString(System.Globalization.CultureInfo.InvariantCulture))
             .Append('\n');
+
+        if (outline is { IsEmpty: false } && (truncated || offset > 1 || lineNumber >= offset + limit))
+        {
+            _ = output.Append(ToolResultFormatter.MarkdownOutline(invocation, outline.Render()));
+        }
+
         return output.ToString();
     }
+
+    private static bool IsMarkdown(string path) =>
+        Path.GetExtension(path).ToUpperInvariant() is ".MD" or ".MARKDOWN";
 
     private static string ListDirectory(
         ToolInvocation invocation,

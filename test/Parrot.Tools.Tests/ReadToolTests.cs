@@ -75,6 +75,27 @@ internal sealed class ReadToolTests : IDisposable
         _ = await Assert.That(result).EndsWith("[output truncated]\ntotal lines in file: 2001\n");
     }
 
+    [Test]
+    [Arguments("doc.md", 1, 2, true)]
+    [Arguments("doc.md", 3, 100, true)]
+    [Arguments("doc.md", 1, 100, false)]
+    [Arguments("doc.txt", 1, 2, false)]
+    public async Task Appends_markdown_outline_when_file_is_not_fully_shown(
+        string fileName, int offset, int limit, bool expectOutline, CancellationToken cancellationToken)
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(_workspace, fileName),
+            "# Title\nintro\n## Section\n```\n# not a heading\n```\n#hashtag\n### Sub\n",
+            cancellationToken);
+
+        var result = await Execute(
+            $"{{\"path\":\"{fileName}\",\"offset\":{offset},\"limit\":{limit}}}", cancellationToken);
+
+        const string outline = "total lines in file: 8\nmarkdown outline (line: heading):\n1: # Title\n3: ## Section\n8: ### Sub\n";
+        _ = await Assert.That(result.EndsWith(outline, StringComparison.Ordinal)).IsEqualTo(expectOutline);
+        _ = await Assert.That(result.Contains("markdown outline", StringComparison.Ordinal)).IsEqualTo(expectOutline);
+    }
+
     private async Task<string> Execute(string arguments, CancellationToken cancellationToken)
     {
         ITool tool = new ReadTool(new ToolWorkspace(_workspace));

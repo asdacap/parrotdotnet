@@ -145,6 +145,11 @@ system_prompts:
 
     Each environment have its own way of doing things. Each project have its own convention. Keep it, even if you think its worst, unless instructed. Be imperfect. You dont have all information on why its done such a way and researching it consume resource. Focus on what you need to do your designated task.
 
+  runtime:system-context:04a-markdown-reading: >-
+    Prefer to read Markdown files, including skill files and AGENTS.md, with the `read` tool first.
+    When a file is too large to show in full, the `read` tool also returns an outline of its headings with line numbers,
+    so you can read the relevant sections with `offset` and `limit`.
+
   runtime:system-context:05-git-ethics: >-
 
     # Git-ethics
@@ -388,6 +393,12 @@ prompt_templates:
     template: '{value}'
     allowed_arguments: [value]
     required_arguments: [value]
+  tool-result.markdown-outline:
+    template: |
+      markdown outline (line: heading):
+      {outline}
+    allowed_arguments: [outline]
+    required_arguments: [outline]
   tool-result.output-blob-notice:
     template: 'Full output is retained at {path}; metadata: {{literal}}.'
     allowed_arguments: [path]

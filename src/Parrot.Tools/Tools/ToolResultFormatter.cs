@@ -20,5 +20,9 @@ internal static class ToolResultFormatter
         ? templates.Render("tool-result.question-replied", [new PromptTemplateArgument("agent_name", agentName)])
         : $"Answered the pending question from child agent {agentName}.";
 
+    public static string MarkdownOutline(ToolInvocation invocation, string outline) => invocation.PromptTemplates is { } templates
+        ? templates.Render("tool-result.markdown-outline", [new PromptTemplateArgument("outline", outline)])
+        : $"markdown outline (line: heading):\n{outline}\n";
+
     public static string Marker(ToolInvocation invocation, string marker) => Text(invocation, marker);
 }
