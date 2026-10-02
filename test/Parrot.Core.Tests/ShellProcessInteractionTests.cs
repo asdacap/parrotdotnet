@@ -231,14 +231,16 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             new ProcessRunner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             lifetime.Token);
+        var release = Path.Combine(_workspace, "release-spill");
         var process = owner.StartUnattributed(
             "spill",
-            "printf prefix; sleep 0.5; dd if=/dev/zero bs=70000 count=1 2>/dev/null | tr '\\0' x",
+            $"printf prefix; while [ ! -e '{release}' ]; do sleep 0.01; done; dd if=/dev/zero bs=70000 count=1 2>/dev/null | tr '\\0' x",
             ProcessEnvironmentOverrides.Empty,
             agent,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             ShellProcessTerminalMode.PseudoTerminal);
-        var initial = await process.Wait(TimeSpan.FromMilliseconds(100), cancellationToken);
+        var initial = await process.Wait(TimeSpan.FromSeconds(1), cancellationToken);
+        await File.WriteAllTextAsync(release, string.Empty, cancellationToken);
         var completed = await owner.Claim("spill").Wait(null, cancellationToken);
         var result = completed.Result ?? throw new InvalidOperationException("Missing completed process result.");
 
@@ -284,16 +286,18 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             new ProcessRunner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             lifetime.Token);
+        var release = Path.Combine(_workspace, "release-second");
         var process = owner.StartUnattributed(
             "poll",
-            "printf first; sleep 0.2; printf second; sleep 30",
+            $"printf first; while [ ! -e '{release}' ]; do sleep 0.01; done; printf second; sleep 30",
             ProcessEnvironmentOverrides.Empty,
             agent,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             ShellProcessTerminalMode.PseudoTerminal);
 
-        var initial = await process.Wait(TimeSpan.FromMilliseconds(100), cancellationToken);
-        var poll = await owner.WriteStdin("poll", string.Empty, TimeSpan.FromMilliseconds(500), cancellationToken);
+        var initial = await process.Wait(TimeSpan.FromSeconds(1), cancellationToken);
+        await File.WriteAllTextAsync(release, string.Empty, cancellationToken);
+        var poll = await owner.WriteStdin("poll", string.Empty, TimeSpan.FromSeconds(1), cancellationToken);
 
         _ = await Assert.That(initial.Running).IsTrue();
         _ = await Assert.That(initial.Output).Contains("first");
