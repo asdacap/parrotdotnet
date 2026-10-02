@@ -8,7 +8,7 @@ using Parrot.Config;
 namespace Parrot.Llm.ImageUpload;
 
 // One S3-compatible bucket holding prompt images under content-addressed keys.
-// Preparation (creation, expiry lifecycle, public-read policy) runs once per
+// Preparation (creation, public-read policy) runs once per
 // process and is repeated only after ForgetPreparation. Every failure is
 // permanent: the bucket is assumed to be configured correctly.
 internal sealed class S3ImageBucket(HttpClient client, ImageUploadConfig config, TimeProvider timeProvider, ICredentialStore credentials)
@@ -21,7 +21,7 @@ internal sealed class S3ImageBucket(HttpClient client, ImageUploadConfig config,
     private Task<AwsV4Signer>? _signer;
     private Task? _prepared;
 
-    // Creates the bucket when missing, then installs the expiry lifecycle rule and the public-read policy for the key prefix.
+    // Creates the bucket when missing, then installs the public-read policy for the key prefix.
     public Task Prepare(CancellationToken cancellationToken)
     {
         Task preparation;
@@ -133,16 +133,6 @@ internal sealed class S3ImageBucket(HttpClient client, ImageUploadConfig config,
         {
             await EnsureSuccess(exists, head).ConfigureAwait(false);
         }
-
-        var lifecycle = "<LifecycleConfiguration><Rule><ID>parrot-image-expiry</ID>"
-            + $"<Filter><Prefix>{config.KeyPrefix}</Prefix></Filter><Status>Enabled</Status>"
-            + $"<Expiration><Days>{config.ExpiryDays}</Days></Expiration></Rule></LifecycleConfiguration>";
-        using var putLifecycle = Control($"{config.Bucket}?lifecycle", lifecycle, "application/xml");
-        _ = putLifecycle.Headers.TryAddWithoutValidation("x-amz-sdk-checksum-algorithm", "SHA256");
-        _ = putLifecycle.Headers.TryAddWithoutValidation(
-            "x-amz-checksum-sha256", Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(lifecycle))));
-        using var lifecycleResponse = await Send(putLifecycle, PayloadHash(lifecycle), ControlTimeout, CancellationToken.None).ConfigureAwait(false);
-        await EnsureSuccess(lifecycleResponse, putLifecycle).ConfigureAwait(false);
 
         var policy = "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"parrot-public-read\",\"Effect\":\"Allow\","
             + "\"Principal\":{\"AWS\":[\"*\"]},\"Action\":[\"s3:GetObject\"],"

@@ -1867,8 +1867,7 @@ internal sealed partial class Configuration(string path)
             "key_prefix",
             "public_base_url",
             "access_key_env",
-            "secret_key_env",
-            "expiry_days");
+            "secret_key_env");
         var defaults = new ImageUploadConfig { Endpoint = string.Empty, Bucket = string.Empty };
         var bucket = Scalar(upload, "bucket");
         if (bucket.Length is < 3 or > 63 || !bucket.All(IsBucketNameCharacter)
@@ -1892,9 +1891,6 @@ internal sealed partial class Configuration(string path)
             PublicBaseUrl = Scalar(upload, "public_base_url").Length > 0 ? ReadHttpsUrl(upload, "public_base_url") : string.Empty,
             AccessKeyEnv = Scalar(upload, "access_key_env"),
             SecretKeyEnv = Scalar(upload, "secret_key_env"),
-            ExpiryDays = Child(upload, "expiry_days", out _)
-                ? PositiveInteger(upload, "expiry_days", $"{ImageUploadKey}.expiry_days")
-                : defaults.ExpiryDays,
         };
     }
 

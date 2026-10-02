@@ -19,6 +19,4 @@ internal sealed record ImageUploadConfig
     public string AccessKeyEnv { get; init; } = string.Empty;
 
     public string SecretKeyEnv { get; init; } = string.Empty;
-
-    public int ExpiryDays { get; init; } = 1;
 }

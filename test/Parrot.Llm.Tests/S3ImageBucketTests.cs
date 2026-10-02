@@ -18,7 +18,7 @@ internal sealed class S3ImageBucketTests
     [Test]
     [Arguments(true)]
     [Arguments(false)]
-    public async Task Prepare_creates_a_missing_bucket_then_installs_lifecycle_and_policy_once(bool exists, CancellationToken cancellationToken)
+    public async Task Prepare_creates_a_missing_bucket_then_installs_policy_once(bool exists, CancellationToken cancellationToken)
     {
         using var handler = new RecordingHttpHandler(request => Respond(
             request is { Method: "HEAD" } && !exists ? HttpStatusCode.NotFound : HttpStatusCode.OK));
@@ -32,18 +32,10 @@ internal sealed class S3ImageBucketTests
         await bucket.Prepare(cancellationToken);
 
         string[] expected = exists
-            ? ["HEAD /b", "PUT /b?lifecycle", "PUT /b?policy"]
-            : ["HEAD /b", "PUT /b", "PUT /b?lifecycle", "PUT /b?policy"];
+            ? ["HEAD /b", "PUT /b?policy"]
+            : ["HEAD /b", "PUT /b", "PUT /b?policy"];
         _ = await Assert.That(first).IsEquivalentTo(expected);
         _ = await Assert.That(handler.Requests.Count).IsEqualTo(expected.Length * 2);
-        var lifecycle = handler.Requests.First(request => request.Uri.Query == "?lifecycle");
-        _ = await Assert.That(lifecycle.Body).IsEqualTo(
-            "<LifecycleConfiguration><Rule><ID>parrot-image-expiry</ID><Filter><Prefix>parrot/</Prefix></Filter>"
-            + "<Status>Enabled</Status><Expiration><Days>3</Days></Expiration></Rule></LifecycleConfiguration>");
-        _ = await Assert.That(lifecycle.Header("x-amz-checksum-sha256")).IsEqualTo(
-            Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(lifecycle.Body))));
-        _ = await Assert.That(lifecycle.Header("Authorization")).Contains(
-            "SignedHeaders=host;x-amz-checksum-sha256;x-amz-content-sha256;x-amz-date;x-amz-sdk-checksum-algorithm,");
         var policy = handler.Requests.First(request => request.Uri.Query == "?policy");
         _ = await Assert.That(policy.Body).IsEqualTo(
             "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"parrot-public-read\",\"Effect\":\"Allow\","
@@ -76,7 +68,6 @@ internal sealed class S3ImageBucketTests
 
     [Test]
     [Arguments("HEAD /b", 403, false)]
-    [Arguments("PUT /b?lifecycle", 500, false)]
     [Arguments("PUT /b?policy", 403, false)]
     [Arguments("PUT /b/parrot/", 403, true)]
     public async Task Failures_are_permanent_provider_errors(string failing, int status, bool upload, CancellationToken cancellationToken)
@@ -193,7 +184,6 @@ internal sealed class S3ImageBucketTests
         PublicBaseUrl = publicBaseUrl,
         AccessKeyEnv = AccessKeyEnv,
         SecretKeyEnv = SecretKeyEnv,
-        ExpiryDays = 3,
     };
 
     private static HttpResponseMessage Respond(HttpStatusCode status) => new(status) { Content = new StringContent(string.Empty) };
