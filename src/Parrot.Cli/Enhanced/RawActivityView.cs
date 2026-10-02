@@ -1105,11 +1105,12 @@ internal sealed class RawActivityView(
             _activities.Add((state, activityId));
         }
 
-        var started = activityId is not null && !isRoot
-            ? state.PresentChildStartedTool(
+        var started = activityId is not null
+            ? state.PresentStartedTool(
                 published.ToolStarted.ToolCallId,
                 presenters,
-                reference => _hierarchy.ResolveAgentReference(state.AgentSessionId, reference))
+                reference => _hierarchy.ResolveAgentReference(state.AgentSessionId, reference),
+                isRoot)
             : null;
         if (started is null)
         {

@@ -50,6 +50,24 @@ internal sealed class ToolPresenterBatchCTests
     }
 
     [Test]
+    [Arguments("/workspace/out.png", "✓ imagegen out.png|  draw a cat|  references: a.png, b.png")]
+    [Arguments("error: quota exceeded", "✗ imagegen out.png|  draw a cat|  references: a.png, b.png|  error: quota exceeded")]
+    public async Task Imagegen_terminal_repeats_prompt_and_appends_error(string result, string expected)
+    {
+        var presenter = new ImageGenerationToolPresenter();
+        var call = new ToolCallPresentation(
+            "imagegen",
+            """{"prompt":"draw a cat","output_path":"out.png","referenced_image_paths":["a.png","b.png"]}""");
+        var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, result, string.Empty);
+
+        var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines.Select(line => line.Text).ToArray();
+        var completed = presenter.PresentTerminal(call, terminal).Render(ScrollbackContext);
+
+        _ = await Assert.That(live).IsEquivalentTo(["⠋ running imagegen"]);
+        _ = await Assert.That(string.Join('|', completed)).IsEqualTo(expected);
+    }
+
+    [Test]
     public async Task Glob_uses_the_workspace_when_path_is_omitted()
     {
         IToolPresenter presenter = new GlobToolPresenter();

@@ -929,6 +929,43 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
+    public async Task Root_imagegen_commits_prompt_on_start_and_completion_and_keeps_live_buffer_compact(
+        CancellationToken cancellationToken)
+    {
+        const string arguments = """{"prompt":"A very long prompt describing the image","output_path":"out.png"}""";
+        var committed = new List<string>();
+        var live = string.Empty;
+        var liveContext = new LiveBufferRenderContext(120, new TerminalPalette(false));
+        var scrollbackContext = new ScrollbackRenderContext(120, liveContext.Palette);
+
+        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            committed.Add(string.Join('|', item.Render(scrollbackContext)));
+            live = string.Join('|', items.SelectMany(value => value.Render(liveContext).Lines).Select(line => line.Text));
+            return Task.CompletedTask;
+        }
+
+        await using var view = new RawActivityView(
+            static (_, _) => Task.CompletedTask,
+            Commit,
+            new ToolPresenterRegistry([new ImageGenerationToolPresenter()], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await view.Render(new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } }, cancellationToken);
+        await view.Render(new Event { AgentSessionId = "root", ToolCallChunk = new ToolCallChunk { ToolCallId = "call", ToolName = "imagegen", ArgumentsFragment = arguments } }, cancellationToken);
+        await view.Render(new Event { AgentSessionId = "root", ToolStarted = new ToolStarted { ToolCallId = "call", ToolName = "imagegen" } }, cancellationToken);
+
+        _ = await Assert.That(committed).Count().IsEqualTo(1);
+        _ = await Assert.That(committed[0]).EndsWith(" imagegen out.png|  A very long prompt describing the image");
+        _ = await Assert.That(live).Contains("running imagegen");
+        _ = await Assert.That(live).DoesNotContain("A very long prompt");
+
+        await view.Render(new Event { AgentSessionId = "root", ToolFinished = new ToolFinished { ToolCallId = "call", ToolName = "imagegen", Result = "/workspace/out.png" } }, cancellationToken);
+
+        _ = await Assert.That(committed).Count().IsEqualTo(2);
+        _ = await Assert.That(committed[1]).IsEqualTo("✓ imagegen out.png|  A very long prompt describing the image");
+    }
+
+    [Test]
     public async Task Child_modeline_tools_fold_into_agent_status_and_defer_completion(
         CancellationToken cancellationToken)
     {
