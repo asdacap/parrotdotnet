@@ -13,6 +13,24 @@ internal sealed class CredentialTests
     public async Task Matches_compares_the_account_and_ignores_rotating_tokens(string left, string right, bool expected) =>
         _ = await Assert.That(Parse(left).Matches(Parse(right))).IsEqualTo(expected);
 
+    [Test]
+    [Arguments("", "secret")]
+    [Arguments("access", "")]
+    [Arguments(" ", "secret")]
+    public async Task Empty_s3_keys_are_rejected(string accessKey, string secretKey) =>
+        _ = await Assert.That(() => Credential.ForS3(accessKey, secretKey).Validate()).Throws<AuthException>();
+
+    [Test]
+    public async Task S3_matches_both_keys_and_rejects_mixed_variants()
+    {
+        var credential = Credential.ForS3("access", "secret");
+        _ = await Assert.That(credential.Matches(Credential.ForS3("access", "secret"))).IsTrue();
+        _ = await Assert.That(credential.Matches(Credential.ForS3("other", "secret"))).IsFalse();
+        _ = await Assert.That(credential.Matches(Credential.ForS3("access", "other"))).IsFalse();
+        _ = await Assert.That(() => (credential with { ApiKey = new ApiKeyCredential { Key = new Secret("key") } }).Validate())
+            .Throws<AuthException>();
+    }
+
     private static Credential Parse(string description)
     {
         var parts = description.Split(':');

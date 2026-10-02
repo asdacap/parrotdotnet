@@ -14,7 +14,7 @@ internal sealed class AuthCommand(
 {
     public string Name => "/auth";
 
-    public string Summary => "Manage provider credentials";
+    public string Summary => "Manage credentials";
 
     public Task Run(string arguments, CancellationToken cancellationToken) =>
         RunOperation("interactive", SelectAction, cancellationToken);
@@ -25,6 +25,7 @@ internal sealed class AuthCommand(
             "Authentication",
             [
                 new("login", "Login", "Store a provider credential"),
+                new("image-upload", "Image upload", "Store S3-compatible storage credentials"),
                 new("list", "List", "List stored credentials"),
                 new("logout", "Logout", "Remove a stored credential"),
             ],
@@ -35,7 +36,11 @@ internal sealed class AuthCommand(
             return "dismissed";
         }
 
-        if (action.Id == "list")
+        if (action.Id == "image-upload")
+        {
+            return await RunOperation("s3", StoreImageUpload, cancellationToken).ConfigureAwait(false);
+        }
+        else if (action.Id == "list")
         {
             return await RunOperation("list", List, cancellationToken).ConfigureAwait(false);
         }
@@ -81,6 +86,28 @@ internal sealed class AuthCommand(
 
         await credentials.Set(provider.Id, Credential.ForApiKey(key.Trim()), cancellationToken).ConfigureAwait(false);
         await dialog.Show([$"stored a credential for {provider.Id}"], cancellationToken).ConfigureAwait(false);
+        return "completed";
+    }
+
+    private async Task<string> StoreImageUpload(CancellationToken cancellationToken)
+    {
+        var accessKey = await dialog.ReadSecret("S3 access key", cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(accessKey))
+        {
+            await dialog.ShowError("nothing entered", cancellationToken).ConfigureAwait(false);
+            return "empty_input";
+        }
+
+        var secretKey = await dialog.ReadSecret("S3 secret key", cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(secretKey))
+        {
+            await dialog.ShowError("nothing entered", cancellationToken).ConfigureAwait(false);
+            return "empty_input";
+        }
+
+        await credentials.Set(S3Credential.ImageUploadName, Credential.ForS3(accessKey.Trim(), secretKey.Trim()), cancellationToken)
+            .ConfigureAwait(false);
+        await dialog.Show([$"stored a credential for {S3Credential.ImageUploadName}"], cancellationToken).ConfigureAwait(false);
         return "completed";
     }
 

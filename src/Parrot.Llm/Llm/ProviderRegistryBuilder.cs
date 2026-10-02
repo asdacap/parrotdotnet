@@ -30,7 +30,7 @@ internal sealed class ProviderRegistryBuilder(
         var catalogues = new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal);
         var externalCatalogues = await modelsDev.Fetch(cancellationToken).ConfigureAwait(false);
         var imageBucket = configuration.ImageUpload is { } upload
-            ? new S3ImageBucket(httpClients.Resolve(upload.Endpoint, false), upload, TimeProvider.System)
+            ? new S3ImageBucket(httpClients.Resolve(upload.Endpoint, false), upload, TimeProvider.System, store)
             : null;
 
         foreach (var id in BuildableProviderIds(configuration))

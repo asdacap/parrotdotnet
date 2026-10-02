@@ -2,7 +2,7 @@ namespace Parrot.Config;
 
 // An S3-compatible bucket that receives prompt images so providers fetch a
 // public URL instead of inline bytes. Credential values never live here;
-// the *Env fields name environment variables.
+// the credential store supplies the keys, with the *Env fields naming fallback environment variables.
 internal sealed record ImageUploadConfig
 {
     public required string Endpoint { get; init; }

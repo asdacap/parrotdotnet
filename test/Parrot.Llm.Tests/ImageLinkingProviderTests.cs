@@ -150,7 +150,8 @@ internal sealed class ImageLinkingProviderTests
                 AccessKeyEnv = AccessKeyEnv,
                 SecretKeyEnv = SecretKeyEnv,
             },
-            new ImmediateTimeProvider());
+            new ImmediateTimeProvider(),
+            new InMemoryCredentialStore());
 
     private static HttpResponseMessage Respond(HttpStatusCode status) => new(status) { Content = new StringContent(string.Empty) };
 

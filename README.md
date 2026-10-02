@@ -226,8 +226,6 @@ image_upload:
   region: us-east-1
   key_prefix: parrot/
   public_base_url: ""
-  access_key_env: PARROT_S3_ACCESS_KEY
-  secret_key_env: PARROT_S3_SECRET_KEY
   expiry_days: 1
 ```
 
@@ -236,9 +234,25 @@ bucket and providers receive its public URL instead of inline Base64, so
 requests carrying screenshots stay small. The section is inactive when absent.
 `endpoint` and `bucket` are required; `endpoint` (and `public_base_url` when
 set) must be an `https` URL. `region` defaults to `us-east-1`, `key_prefix` to
-`parrot/`, and `expiry_days` to `1`. `access_key_env` and `secret_key_env` name
-environment variables holding the credentials; the configuration file never
-holds secret values. The bucket is addressed path-style, so the public URL of an
+`parrot/`, and `expiry_days` to `1`. Store an S3 access key and secret key using
+`/auth` → **Image upload**. Both prompts hide the entered keys. The pair is stored
+under `image_upload` in Parrot's separate credentials store, with the same private
+file permissions as provider credentials. `/auth` → **List** shows the entry name;
+**Logout** → `image_upload` removes it. Credential presets also include this entry.
+
+For noninteractive setup, `parrot auth login image_upload --s3-stdin` reads the
+access key on the first stdin line and the secret key on the second. Pipe them
+from a secret manager or a private file; do not put secret values in command
+arguments or shell history. Restart the server after changing credentials: an
+image bucket caches its signing credentials once loaded.
+
+Stored credentials take priority. When no `image_upload` credential exists,
+`access_key_env` and `secret_key_env` can name environment variables holding the
+keys, preserving existing configurations. Remove the stored entry and restart to
+return to environment credentials. A wrong or invalid stored credential is an
+error, not a reason to fall back. Secret values never belong in `config.yaml`.
+
+The bucket is addressed path-style, so the public URL of an
 image is `<public_base_url or endpoint>/<bucket>/<key_prefix><sha256>.<ext>`.
 Keys are content addressed, so the same image always maps to the same URL.
 

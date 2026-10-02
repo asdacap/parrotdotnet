@@ -10,4 +10,7 @@ internal enum CredentialType
 
     [JsonStringEnumMemberName("oauth")]
     OAuth,
+
+    [JsonStringEnumMemberName("s3")]
+    S3,
 }

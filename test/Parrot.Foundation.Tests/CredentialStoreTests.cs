@@ -5,7 +5,7 @@ namespace Parrot.Core.Tests;
 internal sealed class CredentialStoreTests
 {
     [Test]
-    public async Task Round_trips_both_variants_and_restricts_file_permissions(CancellationToken cancellationToken)
+    public async Task Round_trips_all_variants_and_restricts_file_permissions(CancellationToken cancellationToken)
     {
         var dir = Path.Combine(Path.GetTempPath(), $"cred-{Guid.NewGuid():N}");
         var path = Path.Combine(dir, "credentials.json");
@@ -26,15 +26,22 @@ internal sealed class CredentialStoreTests
                 }),
                 cancellationToken);
 
+            await store.Set(S3Credential.ImageUploadName, Credential.ForS3("access", "secret"), cancellationToken);
+
             var apiKey = await store.Get("openrouter", cancellationToken);
             var oauth = await store.Get("chatgpt", cancellationToken);
+            var s3 = await store.Get(S3Credential.ImageUploadName, cancellationToken);
             var listed = await store.List(cancellationToken);
 
             _ = await Assert.That(apiKey?.ApiKey?.Key.Value).IsEqualTo("sk-123");
             _ = await Assert.That(oauth?.OAuth?.AccountId).IsEqualTo("acct");
-            _ = await Assert.That(listed.Count).IsEqualTo(2);
+            _ = await Assert.That(listed.Count).IsEqualTo(3);
             _ = await Assert.That(listed[0]).IsEqualTo("chatgpt");
-            _ = await Assert.That(listed[1]).IsEqualTo("openrouter");
+            _ = await Assert.That(listed[1]).IsEqualTo("image_upload");
+            _ = await Assert.That(listed[2]).IsEqualTo("openrouter");
+            _ = await Assert.That(s3?.S3?.AccessKey.Value).IsEqualTo("access");
+            _ = await Assert.That(s3?.S3?.SecretKey.Value).IsEqualTo("secret");
+            _ = await Assert.That(s3?.ToString()).DoesNotContain("access").And.DoesNotContain("secret");
 
             if (!OperatingSystem.IsWindows())
             {

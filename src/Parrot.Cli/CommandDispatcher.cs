@@ -49,6 +49,7 @@ internal sealed class CommandDispatcher(
           help                        Print this message
           version                     Print the build version
           auth login --api-key-stdin  Store the opencode-go key read from stdin
+          auth login image_upload --s3-stdin  Store S3 keys from two stdin lines
           models                      List the models the provider serves
           sessions                    List sessions, reading meta.json only
           chat [--model <id>] [--variant <name>] [--mode <id>] [text]
@@ -176,7 +177,7 @@ internal sealed class CommandDispatcher(
         if (arguments.Count < 3 || arguments[1] != "login")
         {
             await error.WriteLineAsync(
-                "usage: parrot auth login <provider> [--api-key-stdin] [--device]".AsMemory(), cancellationToken)
+                "usage: parrot auth login <provider> [--api-key-stdin] [--device] [--s3-stdin]".AsMemory(), cancellationToken)
                 .ConfigureAwait(false);
             return ExitUsage;
         }
@@ -184,7 +185,34 @@ internal sealed class CommandDispatcher(
         var provider = arguments[2];
         using var store = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
 
-        if (arguments.Contains("--api-key-stdin"))
+        if (arguments.Contains("--s3-stdin"))
+        {
+            if (provider != S3Credential.ImageUploadName || arguments.Count != 4)
+            {
+                await error.WriteLineAsync("usage: parrot auth login image_upload --s3-stdin".AsMemory(), cancellationToken)
+                    .ConfigureAwait(false);
+                return ExitUsage;
+            }
+
+            var accessKey = await Console.In.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+            var secretKey = await Console.In.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+            var remainder = await Console.In.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(accessKey) || string.IsNullOrWhiteSpace(secretKey) || !string.IsNullOrWhiteSpace(remainder))
+            {
+                await error.WriteLineAsync("parrot: expected an access key and secret key on two stdin lines".AsMemory(), cancellationToken)
+                    .ConfigureAwait(false);
+                return ExitUsage;
+            }
+
+            await store.Set(provider, Credential.ForS3(accessKey.Trim(), secretKey.Trim()), cancellationToken).ConfigureAwait(false);
+        }
+        else if (provider == S3Credential.ImageUploadName)
+        {
+            await error.WriteLineAsync("usage: parrot auth login image_upload --s3-stdin".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+            return ExitUsage;
+        }
+        else if (arguments.Contains("--api-key-stdin"))
         {
             var key = (await Console.In.ReadToEndAsync(cancellationToken).ConfigureAwait(false)).Trim();
 

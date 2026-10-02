@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using Parrot.Auth;
 using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Llm.ImageUpload;
@@ -101,7 +102,7 @@ internal sealed class S3ImageBucketTests
     {
         using var handler = new RecordingHttpHandler(static _ => Respond(HttpStatusCode.OK));
         using var client = new HttpClient(handler, disposeHandler: false);
-        var bucket = new S3ImageBucket(client, Config(string.Empty) with { AccessKeyEnv = accessKeyEnv }, new ImmediateTimeProvider());
+        var bucket = new S3ImageBucket(client, Config(string.Empty) with { AccessKeyEnv = accessKeyEnv }, new ImmediateTimeProvider(), new InMemoryCredentialStore());
 
         var exception = await Assert.ThrowsAsync<LLMProviderException>(() => bucket.PutImage(Image, "image/png", cancellationToken));
 
@@ -128,8 +129,62 @@ internal sealed class S3ImageBucketTests
         _ = await Assert.That(request.Headers.Keys).IsEmpty();
     }
 
+    [Test]
+    public async Task Stored_s3_credentials_override_environment_variables(CancellationToken cancellationToken)
+    {
+        using var handler = new RecordingHttpHandler(static _ => Respond(HttpStatusCode.OK));
+        using var client = new HttpClient(handler, disposeHandler: false);
+        var store = new InMemoryCredentialStore();
+        await store.Set(S3Credential.ImageUploadName, Credential.ForS3("stored-access", "stored-secret"), cancellationToken);
+        var config = Config(string.Empty);
+        var bucket = new S3ImageBucket(client, config, new ImmediateTimeProvider(), store);
+
+        _ = await bucket.PutImage(Image, "image/png", cancellationToken);
+
+        var expectedSigner = new AwsV4Signer("stored-access", "stored-secret", config.Region);
+        using var expected = new HttpRequestMessage(HttpMethod.Put, handler.Requests.Single().Uri);
+        expectedSigner.Sign(expected, ImageHash, DateTimeOffset.UnixEpoch);
+        _ = await Assert.That(handler.Requests.Single().Header("Authorization"))
+            .IsEqualTo(expected.Headers.GetValues("Authorization").Single());
+    }
+
+    [Test]
+    public async Task Wrong_stored_credential_type_is_a_permanent_error_without_environment_fallback(CancellationToken cancellationToken)
+    {
+        using var handler = new RecordingHttpHandler(static _ => Respond(HttpStatusCode.OK));
+        using var client = new HttpClient(handler, disposeHandler: false);
+        var store = new InMemoryCredentialStore();
+        await store.Set(S3Credential.ImageUploadName, Credential.ForApiKey("not-s3"), cancellationToken);
+        var bucket = new S3ImageBucket(client, Config(string.Empty), new ImmediateTimeProvider(), store);
+
+        var exception = await Assert.ThrowsAsync<LLMProviderException>(() => bucket.PutImage(Image, "image/png", cancellationToken));
+
+        _ = await Assert.That(exception?.Message).IsEqualTo("image_upload: stored credential must be an s3 credential");
+        _ = await Assert.That(handler.Requests).IsEmpty();
+    }
+
+    [Test]
+    public async Task Concurrent_uploads_share_an_async_credential_read_without_sharing_caller_cancellation(CancellationToken cancellationToken)
+    {
+        using var handler = new RecordingHttpHandler(static _ => Respond(HttpStatusCode.OK));
+        using var client = new HttpClient(handler, disposeHandler: false);
+        var store = new DelayedCredentials();
+        var bucket = new S3ImageBucket(client, Config(string.Empty), new ImmediateTimeProvider(), store);
+        using var canceled = new CancellationTokenSource();
+        var abandoned = bucket.PutImage(Image, "image/png", canceled.Token);
+        var upload = bucket.PutImage(Image, "image/png", cancellationToken);
+        await canceled.CancelAsync();
+        _ = await Assert.ThrowsAsync<OperationCanceledException>(() => abandoned.WaitAsync(cancellationToken));
+        store.Complete();
+
+        _ = await upload;
+
+        _ = await Assert.That(store.Reads).IsEqualTo(1);
+        _ = await Assert.That(handler.Requests.Count).IsEqualTo(1);
+    }
+
     private static S3ImageBucket Bucket(HttpClient client, string publicBaseUrl) =>
-        new(client, Config(publicBaseUrl), new ImmediateTimeProvider());
+        new(client, Config(publicBaseUrl), new ImmediateTimeProvider(), new InMemoryCredentialStore());
 
     private static ImageUploadConfig Config(string publicBaseUrl) => new()
     {
@@ -147,5 +202,26 @@ internal sealed class S3ImageBucketTests
     {
         Environment.SetEnvironmentVariable(name, value);
         return name;
+    }
+
+    private sealed class DelayedCredentials : ICredentialStore
+    {
+        private readonly TaskCompletionSource<Credential?> _credential = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int Reads { get; private set; }
+
+        public void Complete() => _credential.SetResult(Credential.ForS3("async-access", "async-secret"));
+
+        public async ValueTask<Credential?> Get(string name, CancellationToken cancellationToken)
+        {
+            Reads++;
+            return await _credential.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        public ValueTask Set(string name, Credential credential, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public ValueTask Delete(string name, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public ValueTask<IReadOnlyList<string>> List(CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 }

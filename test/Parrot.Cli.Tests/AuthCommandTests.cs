@@ -6,6 +6,49 @@ namespace Parrot.Cli.Tests;
 internal sealed class AuthCommandTests
 {
     [Test]
+    [Arguments("", "unused")]
+    [Arguments("access", "")]
+    public async Task Image_upload_login_does_not_save_partial_credentials(
+        string accessKey, string secretKey, CancellationToken cancellationToken)
+    {
+        using var diagnostics = new TransportDiagnosticsFixture();
+        var dialog = new TestSlashDialog().Select("image-upload").Secret(accessKey, secretKey);
+        ISlashCommand command = new AuthCommand(new UnusedCredentials(), new DiagnosticOAuthClient(false), [], dialog, diagnostics.Log);
+
+        await command.Run(string.Empty, cancellationToken);
+
+        _ = await Assert.That(diagnostics.Read()).Contains("outcome=\"empty_input\"");
+    }
+
+    [Test]
+    public async Task Image_upload_login_stores_both_redacted_keys(CancellationToken cancellationToken)
+    {
+        using var diagnostics = new TransportDiagnosticsFixture();
+        var directory = Path.Combine(Path.GetTempPath(), $"parrot-credentials-{Guid.NewGuid():N}");
+        _ = Directory.CreateDirectory(directory);
+        try
+        {
+            using var store = new FileCredentialStore(Path.Combine(directory, "credentials.json"));
+            using var http = new HttpClient();
+            IOAuthClient oauth = new OpenAiOAuthClient(http, new UnusedBrowser(), new OpenAiOAuthOptions());
+            var dialog = new TestSlashDialog().Select("image-upload").Secret(" access-value ", " secret-value ");
+            ISlashCommand command = new AuthCommand(store, oauth, [], dialog, diagnostics.Log);
+
+            await command.Run(string.Empty, cancellationToken);
+
+            var credential = await store.Get(S3Credential.ImageUploadName, cancellationToken);
+            _ = await Assert.That(credential?.S3?.AccessKey.Value).IsEqualTo("access-value");
+            _ = await Assert.That(credential?.S3?.SecretKey.Value).IsEqualTo("secret-value");
+            _ = await Assert.That(string.Join('|', dialog.Shown) + diagnostics.Read() + credential)
+                .DoesNotContain("access-value").And.DoesNotContain("secret-value");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Api_key_login_list_and_logout_follow_the_wizard_without_leaking_the_secret(
         CancellationToken cancellationToken)
     {

@@ -21,6 +21,17 @@ internal sealed record Credential
     [JsonPropertyName("oauth")]
     public OAuthCredential? OAuth { get; init; }
 
+    [JsonPropertyName("s3")]
+    public S3Credential? S3 { get; init; }
+
+    public static Credential ForS3(string accessKey, string secretKey) =>
+        new()
+        {
+            Version = CurrentVersion,
+            Type = CredentialType.S3,
+            S3 = new S3Credential { AccessKey = new Secret(accessKey), SecretKey = new Secret(secretKey) },
+        };
+
     public static Credential ForApiKey(string key) =>
         new() { Version = CurrentVersion, Type = CredentialType.ApiKey, ApiKey = new ApiKeyCredential { Key = new Secret(key) } };
 
@@ -31,6 +42,7 @@ internal sealed record Credential
     public bool Matches(Credential other) =>
         other is not null && Type == other.Type && Type switch
         {
+            CredentialType.S3 => S3?.AccessKey == other.S3?.AccessKey && S3?.SecretKey == other.S3?.SecretKey,
             CredentialType.ApiKey => ApiKey?.Key == other.ApiKey?.Key,
             CredentialType.OAuth => string.Equals(OAuth?.AccountId, other.OAuth?.AccountId, StringComparison.Ordinal),
             _ => false,
@@ -45,14 +57,19 @@ internal sealed record Credential
 
         switch (Type)
         {
-            case CredentialType.ApiKey when ApiKey is null || OAuth is not null || ApiKey.Key.Value.Length == 0:
+            case CredentialType.ApiKey when ApiKey is null || OAuth is not null || S3 is not null || ApiKey.Key.Value.Length == 0:
                 throw new AuthException("auth: invalid api key credential");
 
-            case CredentialType.OAuth when OAuth is null || ApiKey is not null
+            case CredentialType.OAuth when OAuth is null || ApiKey is not null || S3 is not null
                 || OAuth.AccessToken.Value.Length == 0 || OAuth.RefreshToken.Value.Length == 0
                 || OAuth.ExpiresAt == default:
                 throw new AuthException("auth: invalid oauth credential");
 
+            case CredentialType.S3 when S3 is null || ApiKey is not null || OAuth is not null
+                || string.IsNullOrWhiteSpace(S3.AccessKey.Value) || string.IsNullOrWhiteSpace(S3.SecretKey.Value):
+                throw new AuthException("auth: invalid s3 credential");
+
+            case CredentialType.S3:
             case CredentialType.ApiKey:
             case CredentialType.OAuth:
                 break;
