@@ -9,7 +9,6 @@ using Parrot.Protocol;
 using Parrot.Queues;
 using Parrot.Security;
 using Parrot.State;
-using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -56,7 +55,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         await childProvider.Arrived(cancellationToken);
         var selection = new SelectionFixture(provider).Selection;
         Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
-            new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(registry, TestModels.PromptTemplates)),
+            [new ChildAgentActiveWorkBlocker(scope.ChildRegistry, session.Identity), new ProcessActiveWorkBlocker(scope.GetService<IProcessOwner>()), new QueueActiveWorkBlocker(queues, TestModels.PromptTemplates)],
             session,
             time);
 
@@ -79,18 +78,13 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var waiting = tool.Execute(new Parrot.Tools.ToolInvocation("test-call", "{}"), selection, cancellationToken);
         await time.WaitForTimer(cancellationToken);
         time.Advance(TimeSpan.FromSeconds(10));
-        var estimatedTokens = session.EstimateContext(selection).EstimatedTokens;
         _ = await Assert.That((await waiting).Text).IsEqualTo(
             $"""
             Wait timed out after 10000 ms.
-
-            Runtime:
-            - agent: main
-              - queue: work (1 items, description: "queued work")
-              - process: agent/process (shell, running, name: process)
-              - agent: worker (running)
-
-            Context: unavailable ({estimatedTokens} estimated tokens / 0 limit); reminders every 10%; automatic compaction at 90%.
+            Running direct subagents:
+            - {childScope.Session.SessionId} (name: worker)
+            Running processes:
+            - agent/process (name: process)
             """);
     }
 
@@ -102,9 +96,8 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var registry = PrepareRegistry(new EventRepository(_database));
         await using var scope = Session(provider, [], repository, registry);
         var session = scope.Session;
-        await using var unobservedRegistry = new UnobservedRegistry(registry);
         Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
-            new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(unobservedRegistry, TestModels.PromptTemplates)),
+            [],
             session,
             TimeProvider.System);
         _ = repository.Admit(
@@ -129,9 +122,8 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var registry = PrepareRegistry(new EventRepository(_database));
         await using var scope = Session(provider, [], selectedRepository: null, registry);
         var session = scope.Session;
-        await using var unobservedRegistry = new UnobservedRegistry(registry);
         Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
-            new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(unobservedRegistry, TestModels.PromptTemplates)),
+            [],
             session,
             TimeProvider.System);
         var waiting = tool.Execute(new Parrot.Tools.ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken);
@@ -155,9 +147,8 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var registry = PrepareRegistry(new EventRepository(_database));
         await using var scope = Session(provider, [], repository, registry);
         var session = scope.Session;
-        await using var unobservedRegistry = new UnobservedRegistry(registry);
         Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
-            new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(unobservedRegistry, TestModels.PromptTemplates)),
+            [],
             session,
             TimeProvider.System);
         var waiting = tool.Execute(new Parrot.Tools.ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken);
@@ -231,9 +222,8 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var registry = PrepareRegistry(new EventRepository(_database));
         await using var scope = Session(provider, [], selectedRepository: null, registry);
         var session = scope.Session;
-        await using var unobservedRegistry = new UnobservedRegistry(registry);
         Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
-            new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(unobservedRegistry, TestModels.PromptTemplates)),
+            [],
             session,
             TimeProvider.System);
         var waiting = tool.Execute(new Parrot.Tools.ToolInvocation("test-call", "{}"), new SelectionFixture(provider).Selection, cancellationToken);
@@ -256,9 +246,8 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var registry = PrepareRegistry(new EventRepository(_database));
         await using var scope = Session(provider, [], selectedRepository: null, registry);
         var session = scope.Session;
-        await using var unobservedRegistry = new UnobservedRegistry(registry);
         Parrot.Tools.ITool tool = new Parrot.Tools.WaitTool(
-            new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(unobservedRegistry, TestModels.PromptTemplates)),
+            [],
             session,
             TimeProvider.System);
         using var canceled = new CancellationTokenSource();
@@ -281,7 +270,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         var repository = new EventRepository(_database);
         var registry = PrepareRegistry(new EventRepository(_database));
-        var factory = new Parrot.Tools.WaitToolFactory(new RuntimeStatus(TestModels.PromptTemplates, TimeProvider.System, TestModels.RuntimeStatusProviders(registry, TestModels.PromptTemplates)), TimeProvider.System, TestModels.ToolDefinitions);
+        var factory = new Parrot.Tools.WaitToolFactory([], TimeProvider.System, TestModels.ToolDefinitions);
         await using var scope = Session(provider, [factory], repository, registry);
         var session = scope.Session;
 
@@ -419,40 +408,6 @@ internal sealed class WaitToolTests : IAsyncDisposable
         }
 
         public AgentTurnSelection Selection { get; }
-    }
-
-    private sealed class UnobservedRegistry(IAgentRegistry registry) : IAgentRegistry
-    {
-        public CancellationToken ChildLifetime => registry.ChildLifetime;
-
-        public bool IsAccepting => registry.IsAccepting;
-
-        public IReadOnlyList<IAgentSessionScope> SnapshotScopes() =>
-            throw new InvalidOperationException("Runtime status was observed before timeout.");
-
-        public void RegisterRootScope(IAgentSessionScope scope) => registry.RegisterRootScope(scope);
-
-        public void UnregisterRootScope(IAgentSessionScope scope) => registry.UnregisterRootScope(scope);
-
-        public IReadOnlyList<ActiveWorkObservation> Active() => registry.Active();
-
-        public IReadOnlyList<ActiveAgentSnapshot> ActiveSnapshot() => registry.ActiveSnapshot();
-
-        public ValueTask BeginShutdown() => registry.BeginShutdown();
-
-        public IAgentProfile ResolveChildProfile(string profileId) => registry.ResolveChildProfile(profileId);
-
-        public RetainedAgentReservation ReserveRetainedAgent() => registry.ReserveRetainedAgent();
-
-        public bool ContainsScope(IAgentSessionScope candidate) => registry.ContainsScope(candidate);
-
-        public IAgentSessionScope CreateChildScope(AgentIdentity identity, AgentSessionParentLink parentLink, ModelSelector model, IMode mode, SecurityProfile securityProfile, IEventRepository childHistory, CancellationToken childLifetime) =>
-            registry.CreateChildScope(identity, parentLink, model, mode, securityProfile, childHistory, childLifetime);
-
-        public IEventRepository InitializeChildHistory(AgentIdentity child, HistoryForkBoundary boundary, HistoryForkSelection fork) =>
-            registry.InitializeChildHistory(child, boundary, fork);
-
-        public ValueTask DisposeAsync() => registry.DisposeAsync();
     }
 
     private sealed class ManualTimeProvider : TimeProvider

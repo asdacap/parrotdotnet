@@ -1,11 +1,10 @@
 using System.Text.Json;
 using Parrot.Agent;
-using Parrot.Statuses;
 
 namespace Parrot.Tools;
 
 internal sealed class WaitTool(
-    IRuntimeStatus status,
+    IReadOnlyList<IActiveWorkBlocker> blockers,
     IAgentSession session,
     TimeProvider timeProvider) : ITool
 {
@@ -63,7 +62,6 @@ internal sealed class WaitTool(
             return activity.Cause is null ? "wait interrupted" : $"wait interrupted due to {activity.Cause}";
         }
 
-        var runtime = await status.ObserveRuntime(session, selection, cancellationToken).ConfigureAwait(false);
-        return $"Wait timed out after {durationMilliseconds} ms.\n\n{runtime}";
+        return $"Wait timed out after {durationMilliseconds} ms.{string.Concat(blockers.Select(static blocker => blocker.Observe()?.WorkSection))}";
     }
 }
