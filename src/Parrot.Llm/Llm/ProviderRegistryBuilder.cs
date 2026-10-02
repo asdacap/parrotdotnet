@@ -1,5 +1,6 @@
 using Parrot.Auth;
 using Parrot.Config;
+using Parrot.Llm.ImageUpload;
 
 namespace Parrot.Llm;
 
@@ -28,6 +29,9 @@ internal sealed class ProviderRegistryBuilder(
         var providers = new List<ILLMProvider>();
         var catalogues = new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal);
         var externalCatalogues = await modelsDev.Fetch(cancellationToken).ConfigureAwait(false);
+        var imageBucket = configuration.ImageUpload is { } upload
+            ? new S3ImageBucket(httpClients.Resolve(upload.Endpoint, false), upload, TimeProvider.System)
+            : null;
 
         foreach (var id in BuildableProviderIds(configuration))
         {
@@ -50,7 +54,10 @@ internal sealed class ProviderRegistryBuilder(
             {
                 RequestLimits = configuration.RequestLimits,
             });
-            providers.Add(new RetryingProvider(built.Provider)
+            var provider = imageBucket is not null && config.ImageUrls
+                ? new ImageLinkingProvider(built.Provider, imageBucket)
+                : built.Provider;
+            providers.Add(new RetryingProvider(provider)
             {
                 HeaderTimeoutMaxRetries = config.HeaderTimeoutMaxRetries,
             });

@@ -92,6 +92,72 @@ internal sealed class ProviderRegistryTests
     }
 
     [Test]
+    [Arguments(false, true, "data:image/png;base64,AAEC")]
+    [Arguments(true, true, "https://minio.example.com/parrot-images/parrot/")]
+    [Arguments(true, false, "data:image/png;base64,AAEC")]
+    public async Task Image_upload_links_provider_images_unless_the_provider_opts_out(
+        bool configured, bool imageUrls, string expectedReference, CancellationToken cancellationToken)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-image-upload", Guid.NewGuid().ToString("n"));
+        var imagePath = Path.Combine(directory, "image.png");
+        var store = new InMemoryCredentialStore();
+        await store.Set("openrouter", Credential.ForApiKey("key"), cancellationToken);
+        using var openRouter = new OpenRouterHandler();
+        using var bucket = new RecordingHttpHandler(static _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(string.Empty) });
+        using var routing = new HostRoutingHandler(openRouter, bucket);
+        using var client = new HttpClient(routing, disposeHandler: false);
+        Environment.SetEnvironmentVariable("PARROT_TEST_REGISTRY_S3_KEY", "secret");
+
+        try
+        {
+            var configurationPath = Path.Combine(directory, "config.yaml");
+            _ = Directory.CreateDirectory(directory);
+            await File.WriteAllBytesAsync(imagePath, Convert.FromHexString("000102"), cancellationToken);
+            var upload = configured
+                ? """
+                  image_upload:
+                    endpoint: https://minio.example.com
+                    bucket: parrot-images
+                    access_key_env: PARROT_TEST_REGISTRY_S3_KEY
+                    secret_key_env: PARROT_TEST_REGISTRY_S3_KEY
+                  """
+                : string.Empty;
+            await File.WriteAllTextAsync(
+                configurationPath,
+                $"{upload}\nproviders:\n  openrouter:\n    image_urls: {(imageUrls ? "true" : "false")}\n  kimi-api:\n    api_key_env: ''\n  kimi-code:\n    api_key_env: ''\n  opencode-go:\n    api_key_env: ''\n",
+                cancellationToken);
+            var configuration = Configuration.Load(configurationPath, Path.Combine(directory, "predefined_config.yaml"));
+            using var httpClients = new ProviderHttpClientCatalog(client);
+            var registry = await new ProviderRegistryBuilder(
+                configuration,
+                store,
+                httpClients,
+                new SystemBrowserOpener(static _ => null),
+                new ModelsDevInformationProvider(client)).Build(cancellationToken);
+            var provider = registry.List().Single(item => item.Id == "openrouter");
+            var request = new LLMRequest
+            {
+                Model = "vendor/model",
+                Messages = [LLMMessage.User([LLMContent.ImageFile(imagePath, "image/png", 1, 1)])],
+            };
+
+            await foreach (var item in provider.Call(request, cancellationToken))
+            {
+                _ = item;
+            }
+
+            using var document = JsonDocument.Parse(openRouter.RequestBody);
+            var url = document.RootElement.GetProperty("messages")[0].GetProperty("content")[0].GetProperty("image_url").GetProperty("url").GetString();
+            _ = await Assert.That(url).StartsWith(expectedReference);
+            _ = await Assert.That(bucket.Requests.Count).IsEqualTo(configured && imageUrls ? 4 : 0);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Resolve_selects_defaults_and_keeps_the_vendor_prefix()
     {
         var registry = new ProviderRegistry(
@@ -833,6 +899,28 @@ internal sealed class ProviderRegistryTests
         finally
         {
             Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private sealed class HostRoutingHandler(HttpMessageHandler openRouter, HttpMessageHandler bucket) : HttpMessageHandler
+    {
+        private readonly HttpMessageInvoker _openRouter = new(openRouter, disposeHandler: false);
+        private readonly HttpMessageInvoker _bucket = new(bucket, disposeHandler: false);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            request.RequestUri?.Host == "minio.example.com"
+                ? _bucket.SendAsync(request, cancellationToken)
+                : _openRouter.SendAsync(request, cancellationToken);
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _openRouter.Dispose();
+                _bucket.Dispose();
+            }
+
+            base.Dispose(disposing);
         }
     }
 

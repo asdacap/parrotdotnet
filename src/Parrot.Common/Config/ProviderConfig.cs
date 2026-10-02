@@ -23,6 +23,9 @@ internal sealed record ProviderConfig
 
     public bool DisableWebSocket { get; init; } = true;
 
+    // Send uploaded image URLs instead of inline bytes when image_upload is configured.
+    public bool ImageUrls { get; init; } = true;
+
     public int StreamIdleTimeoutMs { get; init; } = 300000;
 
     public int HeaderTimeoutMs { get; init; } = 60000;

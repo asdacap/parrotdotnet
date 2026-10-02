@@ -179,6 +179,77 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    [Arguments("custom", "", true)]
+    [Arguments("custom", "    image_urls: true\n", true)]
+    [Arguments("custom", "    image_urls: false\n", false)]
+    [Arguments("chatgpt", "", true)]
+    [Arguments("chatgpt", "    image_urls: false\n", false)]
+    public async Task Provider_image_urls_defaults_to_true_and_parses_booleans(string providerId, string line, bool expected)
+    {
+        var provider = Load(Write($"providers:\n  {providerId}:\n    header_timeout_ms: 1\n{line}")).Providers[providerId];
+        var exception = Assert.Throws<InvalidDataException>(
+            () => Load(Write($"providers:\n  {providerId}:\n    image_urls: maybe\n")));
+
+        _ = await Assert.That(provider.ImageUrls).IsEqualTo(expected);
+        _ = await Assert.That(exception.Message).IsEqualTo($"providers.{providerId}.image_urls must be true or false");
+    }
+
+    [Test]
+    public async Task Image_upload_is_absent_by_default_and_applies_defaults_when_configured()
+    {
+        var minimal = Load(Write("image_upload:\n  endpoint: https://minio.example.com\n  bucket: parrot-images\n")).ImageUpload;
+        var full = Load(Write("""
+            image_upload:
+              endpoint: https://minio.example.com:9000/base
+              bucket: b.1-2
+              region: eu-west-1
+              key_prefix: images/
+              public_base_url: https://cdn.example.com
+              access_key_env: AK
+              secret_key_env: SK
+              expiry_days: 3
+            """)).ImageUpload;
+
+        _ = await Assert.That(Load(Write(string.Empty)).ImageUpload).IsNull();
+        _ = await Assert.That(minimal).IsEqualTo(new ImageUploadConfig { Endpoint = "https://minio.example.com", Bucket = "parrot-images" });
+        _ = await Assert.That(full).IsEqualTo(new ImageUploadConfig
+        {
+            Endpoint = "https://minio.example.com:9000/base",
+            Bucket = "b.1-2",
+            Region = "eu-west-1",
+            KeyPrefix = "images/",
+            PublicBaseUrl = "https://cdn.example.com",
+            AccessKeyEnv = "AK",
+            SecretKeyEnv = "SK",
+            ExpiryDays = 3,
+        });
+    }
+
+    [Test]
+    [Arguments("image_upload: null", "image_upload must be a mapping")]
+    [Arguments("image_upload:\n  bucket: bkt", "image_upload.endpoint must be an https URL")]
+    [Arguments("image_upload:\n  endpoint: http://minio.example.com\n  bucket: bkt", "image_upload.endpoint must be an https URL")]
+    [Arguments("image_upload:\n  endpoint: ftp://minio.example.com\n  bucket: bkt", "image_upload.endpoint must be an https URL")]
+    [Arguments("image_upload:\n  endpoint: not a url\n  bucket: bkt", "image_upload.endpoint must be an https URL")]
+    [Arguments("image_upload:\n  endpoint: https://minio.example.com/?x=1\n  bucket: bkt", "image_upload.endpoint must be an https URL")]
+    [Arguments("image_upload:\n  endpoint: https://user@minio.example.com\n  bucket: bkt", "image_upload.endpoint must be an https URL")]
+    [Arguments("image_upload:\n  endpoint: https://minio.example.com\n  bucket: bkt\n  public_base_url: http://cdn.example.com", "image_upload.public_base_url must be an https URL")]
+    [Arguments("image_upload:\n  endpoint: https://minio.example.com", "image_upload.bucket must be a valid S3 bucket name")]
+    [Arguments("image_upload:\n  endpoint: https://minio.example.com\n  bucket: ab", "image_upload.bucket must be a valid S3 bucket name")]
+    [Arguments("image_upload:\n  endpoint: https://minio.example.com\n  bucket: Bucket", "image_upload.bucket must be a valid S3 bucket name")]
+    [Arguments("image_upload:\n  endpoint: https://minio.example.com\n  bucket: -bucket", "image_upload.bucket must be a valid S3 bucket name")]
+    [Arguments("image_upload:\n  endpoint: https://minio.example.com\n  bucket: bkt\n  key_prefix: 'a b/'", "image_upload.key_prefix may contain only letters, digits, '/', '_', '.', and '-'")]
+    [Arguments("image_upload:\n  endpoint: https://minio.example.com\n  bucket: bkt\n  expiry_days: 0", "image_upload.expiry_days must be a positive integer")]
+    [Arguments("image_upload:\n  endpoint: https://minio.example.com\n  bucket: bkt\n  expiry_days: x", "image_upload.expiry_days must be a positive integer")]
+    [Arguments("image_upload:\n  endpoint: https://minio.example.com\n  bucket: bkt\n  secret_key: literal", "image_upload contains an unsupported key")]
+    public async Task Invalid_image_upload_sections_are_rejected(string yaml, string message)
+    {
+        var exception = Assert.Throws<InvalidDataException>(() => Load(Write(yaml + "\n")));
+
+        _ = await Assert.That(exception.Message).IsEqualTo(message);
+    }
+
+    [Test]
     [Arguments("allow_insecure_localhost")]
     [Arguments("allow_insecure_remote")]
     [Arguments("allow_invalid_tls_certificate")]

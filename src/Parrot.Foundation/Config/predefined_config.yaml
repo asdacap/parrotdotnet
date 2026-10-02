@@ -1958,3 +1958,19 @@ request_limits:
 web_fetch:
   # Allow fetching from private addresses; increases SSRF risk.
   allow_private: false
+
+# Upload prompt images to an S3-compatible bucket and send their public URLs
+# instead of inline base64. Inactive unless configured. The endpoint must be
+# https. Credentials are read from the named environment variables. Use a
+# dedicated bucket: Parrot replaces the bucket lifecycle (objects expire after
+# expiry_days) and the bucket policy (public read under key_prefix) with its
+# own rules. Set providers.<id>.image_urls: false to keep base64 for one provider.
+# image_upload:
+#   endpoint: https://minio.example.com
+#   bucket: parrot-images
+#   region: us-east-1
+#   key_prefix: parrot/
+#   public_base_url: ""
+#   access_key_env: PARROT_S3_ACCESS_KEY
+#   secret_key_env: PARROT_S3_SECRET_KEY
+#   expiry_days: 1
