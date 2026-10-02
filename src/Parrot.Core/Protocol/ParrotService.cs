@@ -1007,8 +1007,14 @@ internal sealed class ParrotService(
             var status = await scope.GetService<IRuntimeStatus>()
                 .ObserveWithContext(agent, selection, selection.Profile, agent.EstimateContext(selection), context.CancellationToken)
                 .ConfigureAwait(false);
+            var statistics = await scope.GetService<IRuntimeStatus>()
+                .ObserveStatistics(agent, selection, context.CancellationToken)
+                .ConfigureAwait(false);
 
-            var response = new SessionStatusResponse { Status = status };
+            var response = new SessionStatusResponse
+            {
+                Status = string.Join("\n\n", new[] { status, statistics }.Where(text => !string.IsNullOrWhiteSpace(text))),
+            };
             response.UsageLines.AddRange(await UsageLines(resolved, context.CancellationToken).ConfigureAwait(false));
             return response;
         }

@@ -248,6 +248,7 @@ internal sealed class ParrotServiceTests : IDisposable
             new SessionStatusRequest { UserSessionId = created.Id }, cancellationToken: cancellationToken);
 
         _ = await Assert.That(status.Status).Contains($"Model: {Selection}");
+        _ = await Assert.That(status.Status).Contains("Statistics (lifetime):");
         _ = await Assert.That(status.UsageLines).Contains("Provider does not report usage");
     }
 
