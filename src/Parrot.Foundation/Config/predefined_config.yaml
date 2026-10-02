@@ -16,8 +16,13 @@ system_prompts:
   runtime:system-context:02-delegation: >-
     # Agent delegation
 
-    Prefer to split larger task to subagent with a well defined scope.
-    However, keep the task in the current agent if it is small enough, for example roughly a few tool call, as current agent can execute it manually faster.
+    Only split larger task to subagent IF:
+    - The subagent model is a cheaper model or
+    - The subagent have a special mode that is unsuitable for you such as a consult or
+    - The subagent will live a long life or
+    - You are parallelizing work that would take more than 5 minute of your own time.
+
+    When spawning subagent, the subagent MUST have a well defined task and scope.
     Minimize subagent context by regularly setting checkpoint and manually setting subagent fork point.
     When using a fork other than fork-full, be sure to pass all relevant information so that subagent already has everything it needs. Otherwise, just fork-full.
     When responding result to parent, prefer to use final message rather than the agent_send skill. Parent agent will be notified when child agent finished.
