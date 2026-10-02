@@ -12,6 +12,22 @@ internal sealed class EnhancedAgentToolPresenterTests
     {
         yield return () =>
         [
+            new AgentStatusToolPresenter(),
+            new ToolCallPresentation(
+                "agent_status",
+                "{\"name\":\"agent-session-opaque\"}",
+                static reference => reference == "agent-session-opaque" ? "scout" : reference),
+            "Agent status\nName: scout\nLifecycle: running\nRequest session duration: 12.0s\nProvider request duration: none\n"
+                + "Current activity: none\nActive direct subagents: none\nActive processes: none\nRecent entries:\n"
+                + "- assistant message (1.0s ago): one\n- assistant message (0.5s ago): two\n- assistant message (10ms ago): three",
+            "Agent status · scout",
+            "✓ Agent status · scout|  Agent status|  Name: scout|  Lifecycle: running|  Request session duration: 12.0s|"
+                + "  Provider request duration: none|  Current activity: none|  Active direct subagents: none|"
+                + "  Active processes: none|  Recent entries:|  - assistant message (1.0s ago): one|"
+                + "  - assistant message (0.5s ago): two|  - assistant message (10ms ago): three",
+        ];
+        yield return () =>
+        [
             new AnswerToolPresenter(),
             new ToolCallPresentation(
                 "answer",
