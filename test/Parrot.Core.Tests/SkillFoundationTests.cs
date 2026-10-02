@@ -200,12 +200,53 @@ internal sealed class SkillFoundationTests
     [Test]
     public async Task Packaged_assets_match_the_reviewed_manifest()
     {
-        var packaged = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "skills"));
-        var files = RelativeFiles(packaged);
+        var packaged = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            PackagedSkills.Extract(packaged);
+            var files = RelativeFiles(packaged);
 
-        _ = await Assert.That(files.Count).IsEqualTo(76);
-        var manifest = await Manifest(packaged, files);
-        _ = await Assert.That(manifest).IsEqualTo("5BFB4AA236CA33A70F722595DFEA7D7429B45BBCE96B2E970F7B529CF6611CA8");
+            _ = await Assert.That(files.Count).IsEqualTo(76);
+            var manifest = await Manifest(packaged, files);
+            _ = await Assert.That(manifest).IsEqualTo("5BFB4AA236CA33A70F722595DFEA7D7429B45BBCE96B2E970F7B529CF6611CA8");
+        }
+        finally
+        {
+            Directory.Delete(packaged, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Extraction_keeps_existing_files_and_marks_scripts_executable()
+    {
+        var packaged = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        var editedSkill = Path.Combine(packaged, "grilling", "SKILL.md");
+        var untouchedSkill = Path.Combine(packaged, "unslop", "SKILL.md");
+        var script = Path.Combine(packaged, "skill-installer", "scripts", "list-skills.py");
+        try
+        {
+            _ = Directory.CreateDirectory(Path.Combine(packaged, "grilling"));
+            await File.WriteAllTextAsync(editedSkill, "edited");
+
+            PackagedSkills.Extract(packaged);
+            var extracted = await File.ReadAllTextAsync(untouchedSkill);
+            File.Delete(untouchedSkill);
+            await File.WriteAllTextAsync(untouchedSkill, "second edit");
+            PackagedSkills.Extract(packaged);
+
+            _ = await Assert.That(await File.ReadAllTextAsync(editedSkill)).IsEqualTo("edited");
+            _ = await Assert.That(extracted).Contains("name:");
+            _ = await Assert.That(await File.ReadAllTextAsync(untouchedSkill)).IsEqualTo("second edit");
+            _ = await Assert.That(RelativeFiles(packaged).Count).IsEqualTo(76);
+            if (!OperatingSystem.IsWindows())
+            {
+                _ = await Assert.That(File.GetUnixFileMode(script).HasFlag(UnixFileMode.UserExecute)).IsTrue();
+            }
+        }
+        finally
+        {
+            Directory.Delete(packaged, recursive: true);
+        }
     }
 
     private static List<string> RelativeFiles(string root) =>

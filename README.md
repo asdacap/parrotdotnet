@@ -1495,8 +1495,9 @@ Skills are discovered in this order:
 1. `.agents/skills` below the session's Git repository, beginning at the launch
    directory and walking toward the repository root (nearest directory first).
 2. `~/.agents/skills` on the server.
-3. The packaged `skills` directory beside Parrot's Core assembly
-   (`AppContext.BaseDirectory/skills`).
+3. The packaged skills, embedded in the binary and extracted at startup to
+   `$XDG_DATA_HOME/parrotdotnet/skills` (or `~/.local/share/parrotdotnet/skills`).
+   A file that already exists there is never overwritten.
 
 Parrot does not search repository ancestors when the launch directory is not
 inside a detected Git repository. Duplicate names remain visible; a bare

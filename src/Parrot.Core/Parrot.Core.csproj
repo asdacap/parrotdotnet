@@ -20,9 +20,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="skills/**/*"
-             CopyToOutputDirectory="PreserveNewest"
-             CopyToPublishDirectory="PreserveNewest" />
+    <EmbeddedResource Include="skills/**/*"
+                      LogicalName="skills/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

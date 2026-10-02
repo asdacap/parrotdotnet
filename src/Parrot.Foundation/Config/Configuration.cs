@@ -37,8 +37,7 @@ internal sealed partial class Configuration(string path)
     private const string ToolsKey = "tools";
     private const string SkillsKey = "skills";
     private static readonly TagName ReplaceTag = new("!replace");
-    private static readonly Lazy<string> Predefined = new(() => File.ReadAllText(
-        Path.Combine(AppContext.BaseDirectory, "Config", "predefined_config.yaml")));
+    private static readonly Lazy<string> Predefined = new(ReadPredefined);
 
     private static readonly ConcurrentDictionary<string, Lock> ModelConfigurationLocks =
         new(StringComparer.Ordinal);
@@ -375,6 +374,14 @@ internal sealed partial class Configuration(string path)
             ContextLimit = contextLimits is null ? ContextLimit : contextLimits.Default;
             ModelAliases = updated;
         }
+    }
+
+    private static string ReadPredefined()
+    {
+        using var stream = typeof(Configuration).Assembly.GetManifestResourceStream("Config/predefined_config.yaml")
+            ?? throw new InvalidOperationException("the predefined configuration was not embedded in this build");
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        return reader.ReadToEnd();
     }
 
     private static void CopyPredefined(string destination)

@@ -57,11 +57,10 @@ internal partial class Composition
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
                 ctx.Inject<Configuration>(out var configuration);
+                ctx.Inject<StatePaths>(out var paths);
                 var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                return new SkillCatalogFactory(
-                    configuration,
-                    home,
-                    Path.Combine(AppContext.BaseDirectory, "skills"));
+                PackagedSkills.Extract(paths.SkillsDirectory);
+                return new SkillCatalogFactory(configuration, home, paths.SkillsDirectory);
             })
             .Bind().As(Lifetime.Singleton).To(_ => ExecutableLocator.Capture())
             .Bind().As(Lifetime.Singleton).To(ctx =>
