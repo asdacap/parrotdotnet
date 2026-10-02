@@ -37,6 +37,7 @@ internal partial class EnhancedComposition
                     new AnswerToolPresenter(),
                     new AgentSendToolPresenter(),
                     new AgentSpawnToolPresenter(),
+                    new AgentStatusToolPresenter(),
                     new ClearExitReminderToolPresenter(),
                     new EditToolPresenter(),
                     new ExecCommandToolPresenter(timeProvider, configuration.ReadOnlyExecCommandPrefixes),

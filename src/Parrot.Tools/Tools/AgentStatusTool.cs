@@ -129,6 +129,7 @@ internal sealed class AgentStatusTool(IAgentResolver resolver) : ITool
     {
         var report = new StringBuilder("Agent status");
         _ = report.Append("\nName: ").Append(childScope.Session.Name);
+        _ = report.Append("\nLive output file: ").Append(childScope.Session.OutputPath);
         _ = report.Append("\nLifecycle: ").Append(activity.State.ToString().ToLowerInvariant());
         AppendActivity(report, activity);
         AppendActive(report, childScope);
