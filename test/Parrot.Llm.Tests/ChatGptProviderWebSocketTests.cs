@@ -268,20 +268,31 @@ internal sealed class ChatGptProviderWebSocketTests
     }
 
     [Test]
-    public async Task Unsupported_upgrade_falls_back_to_http_stickily(CancellationToken cancellationToken)
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Unsupported_upgrade_or_oversized_message_falls_back_to_http_stickily(
+        bool oversized,
+        CancellationToken cancellationToken)
     {
+        using var socket = new ScriptedWebSocket([]);
         var connector = new RecordingConnector([
-            new ResponsesWebSocketUpgradeException(404, "missing", new IOException()),
+            oversized ? socket : new ResponsesWebSocketUpgradeException(404, "missing", new IOException()),
         ]);
         using var handler = new ResponsesHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
         ILLMProvider provider = new ChatGptProvider(new FixedOAuthTokenSource(), client, [], [], [], false, connector);
         await using var session = provider.OpenSession();
+        var prompt = oversized ? new string('a', ResponsesWebSocket.MaximumMessageBytes) : "one";
 
-        _ = await Drain(session.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxOutputTokens = 4096, Messages = [LLMMessage.User("one")] }, cancellationToken));
+        var events = await Drain(session.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxOutputTokens = 4096, Messages = [LLMMessage.User(prompt)] }, cancellationToken));
         _ = await Drain(session.Call(new LLMRequest { Model = "gpt-5.6-sol", MaxOutputTokens = 4096, Messages = [LLMMessage.User("two")] }, cancellationToken));
 
+        var expectedReason = oversized
+            ? $"WebSocket request exceeds {ResponsesWebSocket.MaximumMessageBytes} bytes. Retrying over HTTP."
+            : "WebSocket upgrade is unsupported (HTTP 404). Retrying over HTTP.";
+        _ = await Assert.That(events[0]).IsEqualTo(LLMEvent.Retry(1, TimeSpan.Zero, expectedReason));
         _ = await Assert.That(connector.Calls).IsEqualTo(1);
+        _ = await Assert.That(socket.Sent.Count).IsEqualTo(0);
         _ = await Assert.That(handler.Calls).IsEqualTo(2);
     }
 

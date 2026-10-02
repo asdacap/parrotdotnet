@@ -4,5 +4,7 @@ internal sealed record RequestLimitsConfig
 {
     public int ImageBytesPerToolCycle { get; init; } = 16 << 20;
 
+    public int ImageBytesPerRead { get; init; } = 3 << 20;
+
     public int ProviderRequestBytes { get; init; } = 64 << 20;
 }

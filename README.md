@@ -196,13 +196,15 @@ request timeouts.
 ```yaml
 request_limits:
   image_bytes_per_tool_cycle: 16777216
+  image_bytes_per_read: 3145728
   provider_request_bytes: 67108864
 ```
 
-Both settings are positive integer byte counts, up to 2147483647. The defaults
-are 16 MiB of original image-file bytes per assistant tool-request batch and
-64 MiB of serialized model-provider request bytes, respectively. User configuration
-can override either setting independently.
+All settings are positive integer byte counts, up to 2147483647. The defaults
+are 16 MiB of original image-file bytes per assistant tool-request batch, 3 MiB
+of original image-file bytes per `read_image` call, and 64 MiB of serialized
+model-provider request bytes, respectively. `image_bytes_per_read` cannot raise
+the 5 MiB image limit. User configuration can override each setting independently.
 
 `read_image` counts each accepted attachment, including repeated reads of the same
 file, before Base64 encoding. Image reads in one batch run in parallel, so which
@@ -791,7 +793,8 @@ Parrot accepts PNG, JPEG, GIF, and WebP image attachments, including bounded
 animation. An image may be up to 5 MiB encoded, 8,192 pixels on either axis, 40
 megapixels per frame, 100 frames, and 100 megapixels decoded across all frames. A
 prompt may contain at most 16 images and 20 MiB encoded in total. Tool-read images
-are bounded instead by `request_limits.image_bytes_per_tool_cycle`, and outbound
+are bounded instead by `request_limits.image_bytes_per_read` and
+`request_limits.image_bytes_per_tool_cycle`, and outbound
 provider requests by `request_limits.provider_request_bytes` (see
 [Request size limits](#request-size-limits)). With
 [image upload](#image-upload-to-s3-compatible-storage) configured, providers

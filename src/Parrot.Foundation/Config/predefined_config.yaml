@@ -1957,6 +1957,7 @@ sandbox_rules:
 
 request_limits:
   image_bytes_per_tool_cycle: 16777216
+  image_bytes_per_read: 3145728
   provider_request_bytes: 67108864
 
 # Web fetch restrictions.

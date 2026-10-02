@@ -13,6 +13,9 @@ internal sealed class ResponsesWebSocket(
 {
     public const int FrameBytes = 1 << 20;
 
+    // The ChatGPT endpoint closes larger messages with 1009 (Message Too Big).
+    public const int MaximumMessageBytes = 16 << 20;
+
     public static readonly TimeSpan DefaultIdleTimeout = TimeSpan.FromMinutes(5);
 
     public IReadOnlyDictionary<string, string> ResponseHeaders { get; } = responseHeaders;
@@ -33,6 +36,11 @@ internal sealed class ResponsesWebSocket(
         }
 
         attempt?.RecordRequestBytes(request.Length);
+        if (request.Length > MaximumMessageBytes)
+        {
+            throw new ResponsesWebSocketMessageTooLargeException($"WebSocket request exceeds {MaximumMessageBytes} bytes.");
+        }
+
         try
         {
             for (var offset = 0; offset < request.Length; offset += FrameBytes)

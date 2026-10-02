@@ -1831,11 +1831,13 @@ internal sealed partial class Configuration(string path)
             throw new InvalidDataException($"{RequestLimitsKey} must be a mapping");
         }
 
-        ValidateKeys(requestLimits, RequestLimitsKey, "image_bytes_per_tool_cycle", "provider_request_bytes");
+        ValidateKeys(requestLimits, RequestLimitsKey, "image_bytes_per_tool_cycle", "image_bytes_per_read", "provider_request_bytes");
         return new RequestLimitsConfig
         {
             ImageBytesPerToolCycle = PositiveInteger(
                 requestLimits, "image_bytes_per_tool_cycle", $"{RequestLimitsKey}.image_bytes_per_tool_cycle"),
+            ImageBytesPerRead = PositiveInteger(
+                requestLimits, "image_bytes_per_read", $"{RequestLimitsKey}.image_bytes_per_read"),
             ProviderRequestBytes = PositiveInteger(
                 requestLimits, "provider_request_bytes", $"{RequestLimitsKey}.provider_request_bytes"),
         };
