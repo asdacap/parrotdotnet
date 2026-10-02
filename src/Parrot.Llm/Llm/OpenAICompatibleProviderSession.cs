@@ -220,6 +220,10 @@ internal sealed class OpenAICompatibleProviderSession(
         {
             return AttemptStep.Recovering(Recovery.Http, $"WebSocket upgrade is unsupported (HTTP {failure.StatusCode}). Retrying over HTTP.");
         }
+        catch (ResponsesWebSocketMessageTooLargeException failure)
+        {
+            return AttemptStep.Recovering(Recovery.Http, $"{failure.Message} Retrying over HTTP.");
+        }
         catch (OperationCanceledException)
         {
             await Poison().ConfigureAwait(false);

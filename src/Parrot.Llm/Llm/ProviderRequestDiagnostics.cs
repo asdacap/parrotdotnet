@@ -14,6 +14,7 @@ internal sealed class ProviderRequestDiagnostics(IDiagnosticLog diagnostics, Dia
         WebSocketException => "websocket",
         WireProtocolException => "wire_protocol",
         ResponsesWebSocketUpgradeException => "websocket_upgrade",
+        ResponsesWebSocketMessageTooLargeException => "websocket_message_too_large",
         ResponsesWebSocketTransportException { InnerException: { } inner } => ClassifyFailure(inner),
         ResponsesWebSocketTransportException => "websocket_transport",
         _ => DiagnosticEvent.ClassifyFailure(failure),
