@@ -31,7 +31,7 @@ internal sealed class ExecCommandToolPresenter(
     public IScrollbackItem? PresentStarted(ToolCallPresentation call)
     {
         var command = Command(call.ArgumentsJson);
-        return command.Length > ExecCommandTool.LongCommandLength
+        return IsNamedLongCommand(call.ArgumentsJson, command)
             ? new ToolScrollbackValue(
                 LabelWithCommand(call.ArgumentsJson, command),
                 ToolBlock.Empty,
@@ -76,21 +76,31 @@ internal sealed class ExecCommandToolPresenter(
                         : throw new FormatException("exec_command requires a string command.");
     }
 
-    // A long command, usually an inline script, is committed in full when it starts, so later
-    // presentations show only its name and description, or the program that runs it when they are missing.
+    // A long command with a name and description, usually an inline script, is committed in full when it
+    // starts, so later presentations show only its name and description.
     private static string Label(string argumentsJson, string command)
     {
-        if (command.Length <= ExecCommandTool.LongCommandLength)
+        if (!IsNamedLongCommand(argumentsJson, command))
         {
             return $"$ {command}";
         }
 
         using var document = JsonDocument.Parse(argumentsJson);
         var root = document.RootElement;
-        var name = OptionalString(root, "name") ?? command.TrimStart().Split([' ', '\t', '\n'], 2)[0];
-        return OptionalString(root, "description") is { } description
-            ? $"$ {name} · {description}"
-            : $"$ {name}";
+        return $"$ {OptionalString(root, "name")} · {OptionalString(root, "description")}";
+    }
+
+    private static bool IsNamedLongCommand(string argumentsJson, string command)
+    {
+        if (command.Length <= ExecCommandTool.LongCommandLength)
+        {
+            return false;
+        }
+
+        using var document = JsonDocument.Parse(argumentsJson);
+        var root = document.RootElement;
+        return OptionalString(root, "name") is not null
+            && !string.IsNullOrWhiteSpace(OptionalString(root, "description"));
     }
 
     private static string LabelWithCommand(string argumentsJson, string command) =>

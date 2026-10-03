@@ -999,7 +999,7 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
-    [Arguments(false, false, "error: multiline commands or commands longer than 300 characters require 'name' and 'description'", "✗ $ python3|  python3 - <<'PY'")]
+    [Arguments(false, false, "error: multiline commands or commands longer than 300 characters require 'name' and 'description'", "✗ $ python3 - <<'PY'|  xxxxxxxxxxxxxxxxxxxx")]
     [Arguments(false, false, "Process exited with code 0 after 0.02s", "✓ $ migrate · Rewrite config keys|  python3 - <<'PY'")]
     [Arguments(true, false, "Process exited with code 0 after 3s", "○ $ migrate · Rewrite config keys|  python3 - <<'PY'\n✓ $ migrate · Rewrite config keys|  Process exited with code 0 after 3s")]
     [Arguments(false, true, "Process running with name migrate", "○ $ migrate · Rewrite config keys|  python3 - <<'PY'")]
@@ -1013,7 +1013,7 @@ internal sealed class EnhancedHierarchyTests
         var namedArguments = result.StartsWith("error: ", StringComparison.Ordinal)
             ? string.Empty
             : ",\"name\":\"migrate\",\"description\":\"Rewrite config keys\"";
-        var arguments = "{\"command\":\"" + System.Text.Json.JsonEncodedText.Encode("python3 - <<'PY'\n" + new string('x', 200)) + "\"" + namedArguments + "}";
+        var arguments = "{\"command\":\"" + System.Text.Json.JsonEncodedText.Encode("python3 - <<'PY'\n" + string.Join('\n', Enumerable.Repeat(new string('x', 20), 10))) + "\"" + namedArguments + "}";
         var committed = new List<string>();
         var scrollbackContext = new ScrollbackRenderContext(120, new TerminalPalette(false));
         var grace = new TaskCompletionSource();

@@ -126,7 +126,7 @@ internal sealed class ProcessToolPresenterTests
     }
 
     [Test]
-    [Arguments("python3 - <<'PY'\n", 200, "", "○ $ python3\n  python3 - <<'PY'", "⠋ $ python3 (running 0s)", "✓ $ python3", "✓ $ python3\n  python3 - <<'PY'")]
+    [Arguments("python3 - <<'PY'\n", 200, "", null, "⠋ $ python3 - <<'PY'", "✓ $ python3 - <<'PY'", null)]
     [Arguments("python3 - <<'PY'\n", 200, ",\"name\":\"migrate\",\"description\":\"Rewrite config keys\"", "○ $ migrate · Rewrite config keys\n  python3 - <<'PY'", "⠋ $ migrate · Rewrite config keys (running 0s)", "✓ $ migrate · Rewrite config keys", "✓ $ migrate · Rewrite config keys\n  python3 - <<'PY'")]
     [Arguments("echo ", 10, ",\"name\":\"migrate\",\"description\":\"Rewrite config keys\"", null, "⠋ $ echo xxxxxxxxxx (running 0s)", "✓ $ echo xxxxxxxxxx", null)]
     public async Task Long_exec_command_is_committed_on_start_and_shows_only_its_description_afterwards(
