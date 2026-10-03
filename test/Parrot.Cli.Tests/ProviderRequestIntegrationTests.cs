@@ -84,7 +84,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
         await using var rendering = new EnhancedRenderingSession(
             new EnhancedTurnRenderer(terminal, configuration, presenters),
             presenters,
-            new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(false), 10, 12, true),
+            new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true),
             new TestSlashSession("provider/model"),
             [new PromptValue("> ", "draft", 0)],
             (published, token) =>

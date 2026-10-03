@@ -212,6 +212,7 @@ internal sealed class EnhancedCli(
             new TerminalFrameRenderer(
                 output,
                 terminal.GetColumns,
+                terminal.GetRows,
                 new TerminalPalette(terminal.Color),
                 configuration.LiveBufferRows,
                 TerminalFrameRenderer.DefaultInputRows,

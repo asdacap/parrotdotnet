@@ -93,7 +93,7 @@ internal sealed class EnhancedTerminalFoundationTests
     public async Task Renderer_owns_compact_block_and_role_spacing(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 40, new TerminalPalette(false), 10, 12, true);
+        var renderer = new TerminalFrameRenderer(output, static () => 40, static () => 100, new TerminalPalette(false), 10, 12, true);
         var frame = new ILiveBufferItem[]
         {
             new ModelineValue("build", string.Empty, "model"),

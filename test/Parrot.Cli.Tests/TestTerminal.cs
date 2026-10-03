@@ -15,6 +15,8 @@ internal sealed class TestTerminal(TextReader input, TextWriter output, TextWrit
 
     public int GetColumns() => _columns;
 
+    public int GetRows() => 100;
+
     public void Resize(int resizedColumns) => _columns = resizedColumns;
 
     public async ValueTask<int> Read(byte[] buffer, CancellationToken cancellationToken)

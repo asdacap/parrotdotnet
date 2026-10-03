@@ -5,6 +5,7 @@ namespace Parrot.Cli.Enhanced;
 internal sealed class TerminalFrameRenderer(
     TextWriter output,
     Func<int> columns,
+    Func<int> rows,
     TerminalPalette palette,
     int maxLiveRows,
     int maxInputRows,
@@ -291,9 +292,12 @@ internal sealed class TerminalFrameRenderer(
             }
         }
 
+        var frameCaret = caret ?? throw new InvalidOperationException("The live buffer has no caret.");
+        var height = Math.Max(1, rows());
+        var top = Math.Clamp(lines.Count - height, 0, frameCaret.Row);
         return new TerminalFrame(
-            lines,
-            caret ?? throw new InvalidOperationException("The live buffer has no caret."));
+            lines.GetRange(top, Math.Min(height, lines.Count - top)),
+            frameCaret with { Row = frameCaret.Row - top });
     }
 
     private async Task DrawFrame(

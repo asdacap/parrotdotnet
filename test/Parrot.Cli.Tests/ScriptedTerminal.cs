@@ -16,6 +16,8 @@ internal sealed class ScriptedTerminal(int columns) : ITerminal, IDisposable
 
     public int GetColumns() => columns;
 
+    public int GetRows() => 100;
+
     public void Type(string value) => _input.Writer.TryWrite(Encoding.UTF8.GetBytes(value));
 
     public void Tick() => _input.Writer.TryWrite([]);

@@ -15,7 +15,7 @@ internal sealed class TerminalSpinnerTests
         var delayCount = 0;
         var indices = new ConcurrentQueue<int>();
         var drawItemCounts = new ConcurrentQueue<int>();
-        var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12, true);
+        var renderer = new TerminalFrameRenderer(output, static () => 80, static () => 100, new TerminalPalette(false), 10, 12, true);
         var fixedItems = new ILiveBufferItem[]
         {
             new ModelineValue("chat", string.Empty, "model"),

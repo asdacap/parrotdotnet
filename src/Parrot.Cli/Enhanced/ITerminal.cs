@@ -11,6 +11,8 @@ internal interface ITerminal
 
     int GetColumns();
 
+    int GetRows();
+
     /// <summary>Reads raw bytes into the buffer; zero bytes lets the caller flush pending key decoding and poll again.</summary>
     ValueTask<int> Read(byte[] buffer, CancellationToken cancellationToken);
 }

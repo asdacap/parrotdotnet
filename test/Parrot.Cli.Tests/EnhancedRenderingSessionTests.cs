@@ -28,7 +28,7 @@ internal sealed class EnhancedRenderingSessionTests
         await using var session = new EnhancedRenderingSession(
             new EnhancedTurnRenderer(terminal, configuration, presenters),
             presenters,
-            new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(false), 10, 12, true),
+            new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true),
             new TestSlashSession("provider/model"),
             [new PromptValue("> ", "draft", 0)],
             async (published, token) =>
@@ -136,7 +136,7 @@ internal sealed class EnhancedRenderingSessionTests
         await using var session = new EnhancedRenderingSession(
             new EnhancedTurnRenderer(terminal, configuration, presenters),
             presenters,
-            new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(false), 1, 1, true),
+            new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 1, 1, true),
             new TestSlashSession("provider/model"),
             [new PromptValue("> ", "typed answer", 4)],
             static (_, _) => Task.CompletedTask,
@@ -177,7 +177,7 @@ internal sealed class EnhancedRenderingSessionTests
         await using var session = new EnhancedRenderingSession(
             new EnhancedTurnRenderer(terminal, configuration, presenters),
             presenters,
-            new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(false), 10, 12, true),
+            new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true),
             new TestSlashSession("provider/model"),
             [new PromptValue("> ", "typed answer", 4)],
             (published, token) => observed.Writer.WriteAsync(published, token).AsTask(),
@@ -280,7 +280,7 @@ internal sealed class EnhancedRenderingSessionTests
         await using var session = new EnhancedRenderingSession(
             new EnhancedTurnRenderer(terminal, configuration, presenters),
             presenters,
-            new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(false), 10, 12, true),
+            new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true),
             new TestSlashSession("provider/model"),
             [new PromptValue("> ", string.Empty, 0)],
             (published, _) =>
@@ -381,7 +381,7 @@ internal sealed class EnhancedRenderingSessionTests
         await using var session = new EnhancedRenderingSession(
             new EnhancedTurnRenderer(terminal, configuration, presenters),
             presenters,
-            new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(false), 10, 12, true),
+            new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true),
             new TestSlashSession("provider/model"),
             [new PromptValue("> ", string.Empty, 0)],
             static (_, _) => Task.CompletedTask,
@@ -421,7 +421,7 @@ internal sealed class EnhancedRenderingSessionTests
         await using var session = new EnhancedRenderingSession(
             new EnhancedTurnRenderer(terminal, configuration, presenters),
             presenters,
-            new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(false), 10, 12, true),
+            new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true),
             new TestSlashSession("provider/model"),
             [new PromptValue("> ", string.Empty, 0)],
             (published, _) =>
@@ -542,7 +542,7 @@ internal sealed class EnhancedRenderingSessionTests
         await using var session = new EnhancedRenderingSession(
             new EnhancedTurnRenderer(terminal, configuration, presenters),
             presenters,
-            new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(false), 10, 12, true),
+            new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true),
             new TestSlashSession("provider/model"),
             [new PromptValue("> ", string.Empty, 0)],
             static (_, _) => Task.CompletedTask,
@@ -572,7 +572,7 @@ internal sealed class EnhancedRenderingSessionTests
         var terminal = new TestTerminal(driver.Input, output, error, 80);
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
         var input = new List<ILiveBufferItem> { new PromptValue("first> ", "draft", 0) };
-        var renderer = new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(false), 10, 12, true);
+        var renderer = new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true);
         var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
         await using var session = new EnhancedRenderingSession(
             new EnhancedTurnRenderer(terminal, configuration, presenters),
@@ -647,7 +647,7 @@ internal sealed class EnhancedRenderingSessionTests
         var terminal = new TestTerminal(driver.Input, output, error, 100);
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
         var mainTurns = 0;
-        var renderer = new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(false), 10, 12, true);
+        var renderer = new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true);
         var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
         await using var session = new EnhancedRenderingSession(
             new EnhancedTurnRenderer(terminal, configuration, presenters),
