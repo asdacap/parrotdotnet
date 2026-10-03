@@ -224,14 +224,16 @@ internal sealed class AgentTaskGraphRunner(
             _ = dependencyText.Append(Render("agent-task.dependency-header", []));
             foreach (var dependency in dependencies)
             {
-                _ = dependencyText.Append("\n[").Append(dependency.Name).Append("] ")
-                    .Append(Bound(
-                        dependency.Result
-                        ?? dependency.Execution
-                        ?? dependency.Verdict?.Evidence
-                        ?? dependency.Failure
-                        ?? dependency.Status.ToString(),
-                        MaxSummaryCharacters));
+                var dependencyResult = dependency.Result
+                    ?? dependency.Execution
+                    ?? dependency.Verdict?.Evidence
+                    ?? dependency.Failure
+                    ?? dependency.Status.ToString();
+                _ = dependencyText.Append(Render(
+                    "agent-task.dependency-item",
+                    ("name", dependency.Name),
+                    ("description", siblings.First(sibling => sibling.Name == dependency.Name).Description),
+                    ("result", Bound(dependencyResult, MaxSummaryCharacters))));
             }
         }
 

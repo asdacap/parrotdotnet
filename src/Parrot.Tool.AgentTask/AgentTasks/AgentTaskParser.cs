@@ -4,6 +4,8 @@ namespace Parrot.AgentTasks;
 
 internal static class AgentTaskParser
 {
+    internal const int MaxDescriptionLength = 300;
+
     internal static AgentTaskArtifact ParseArtifact(string json)
     {
         var envelope = JsonEnvelope.Extract(json);
@@ -177,6 +179,11 @@ internal static class AgentTaskParser
     {
         RequireNonblank(name, $"{path} name");
         RequireNonblank(description, $"{path} description");
+        if (description.Length > MaxDescriptionLength)
+        {
+            throw new ArgumentException($"{path} description must be at most {MaxDescriptionLength} characters.");
+        }
+
         RequireNonblank(criteria, $"{path} acceptance_criteria");
         if (model is not null)
         {

@@ -35,6 +35,24 @@ internal sealed class AgentTaskTests
         _ = await Assert.That(() => AgentTaskParser.ParseArtifact(json)).Throws<ArgumentException>();
 
     [Test]
+    public async Task Description_is_limited_to_max_length_for_artifact_nested_and_patched_tasks()
+    {
+        static string Artifact(string topDescription, string childDescription) =>
+            $$"""{"schema_version":1,"tasks":[{"name":"root","description":"{{topDescription}}","payload":[{"name":"child","description":"{{childDescription}}","payload":"p","acceptance_criteria":"a"}],"acceptance_criteria":"a"}]}""";
+        var atLimit = new string('d', AgentTaskParser.MaxDescriptionLength);
+        var overLimit = new string('d', AgentTaskParser.MaxDescriptionLength + 1);
+        var task = EffectiveAgentTask.FromArtifact(AgentTaskParser.ParseArtifact(Artifact(atLimit, atLimit)).Tasks[0]);
+        var overLimitPatch = AgentTaskParser.ParsePrepare($$$"""{"context":"c","task_patch":{"description":"{{{overLimit}}}"}}""").TaskPatch
+            ?? throw new InvalidOperationException();
+
+        _ = await Assert.That(task.Description).IsEqualTo(atLimit);
+        _ = await Assert.That(() => AgentTaskParser.ParseArtifact(Artifact(overLimit, "d"))).Throws<ArgumentException>()
+            .WithMessage($"tasks[0] description must be at most {AgentTaskParser.MaxDescriptionLength} characters.");
+        _ = await Assert.That(() => AgentTaskParser.ParseArtifact(Artifact("d", overLimit))).Throws<ArgumentException>();
+        _ = await Assert.That(() => AgentTaskParser.ValidateEffective(task.Apply(overLimitPatch))).Throws<ArgumentException>();
+    }
+
+    [Test]
     [Arguments("a,a", "")]
     [Arguments("a", "missing")]
     [Arguments("a", "a")]

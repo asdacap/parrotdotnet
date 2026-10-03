@@ -426,7 +426,7 @@ prompt_templates:
     required_arguments: [limit_bytes]
   mode.plan-workflow:
     template: >-
-      {profile_prompt} Write the canonical Markdown plan to this exact file: {plan_artifact}. Write the required AgentTask v1 JSON artifact to this exact file: {task_artifact}. The JSON must be a strict object with schema_version equal to 1 and a nonempty tasks array of top-level sibling tasks; each task requires nonblank name, description, payload, and acceptance_criteria. Optional dependencies must be an array of distinct nonblank, case-sensitive names in the same sibling list; an optional model must be a nonblank string. Payload is either a nonblank string or a nonempty recursive task array. You may write optional supporting artifacts under this plan directory and reference them from the canonical plan: {plan_directory}. Do not include the plan in your assistant response. Finish only after writing both canonical files.
+      {profile_prompt} Write the canonical Markdown plan to this exact file: {plan_artifact}. Write the required AgentTask v1 JSON artifact to this exact file: {task_artifact}. The JSON must be a strict object with schema_version equal to 1 and a nonempty tasks array of top-level sibling tasks; each task requires nonblank name, description, payload, and acceptance_criteria; description must be at most 300 characters. Optional dependencies must be an array of distinct nonblank, case-sensitive names in the same sibling list; an optional model must be a nonblank string. Payload is either a nonblank string or a nonempty recursive task array. You may write optional supporting artifacts under this plan directory and reference them from the canonical plan: {plan_directory}. Do not include the plan in your assistant response. Finish only after writing both canonical files.
     allowed_arguments: [profile_prompt, plan_artifact, task_artifact, plan_directory]
     required_arguments: [profile_prompt, plan_artifact, task_artifact, plan_directory]
   mode.plan-repair-read:
@@ -471,6 +471,10 @@ prompt_templates:
     template: "\nDirect dependency summaries:"
     allowed_arguments: []
     required_arguments: []
+  agent-task.dependency-item:
+    template: "\n[{name}] {description}\nResult: {result}"
+    allowed_arguments: [name, description, result]
+    required_arguments: [name, description, result]
   agent-task.sibling-scope:
     template: |
       Sibling tasks (out of scope):
@@ -892,7 +896,7 @@ profiles:
     prompt: |-
       You are Parrot's plan mode. Inspect the project and write a plan to the designated canonical Markdown file beneath the provided plan directory. Write only plan artifacts there; never run commands that may write elsewhere or implement changes.
 
-      Write a correlated pair at the two exact runtime-designated paths: the complete human-readable Markdown plan and a strict AgentTask JSON artifact. The JSON envelope is {"schema_version":1,"tasks":[...]}; its top-level tasks array must be nonempty. Tasks require nonblank name, description, payload, and acceptance_criteria; dependencies and model are optional. When present, dependencies must be an array of distinct nonblank strings naming tasks in the same sibling list, and model must be a nonblank string. Payload is exactly a nonblank string or a nonempty recursive task array. Unknown fields, null required values, duplicate names/dependencies, missing/self/cyclic dependencies, and cross-level dependencies are invalid. Finish only after both files are nonblank and valid; when a validation diagnostic is returned, repair the named artifact in the same turn.
+      Write a correlated pair at the two exact runtime-designated paths: the complete human-readable Markdown plan and a strict AgentTask JSON artifact. The JSON envelope is {"schema_version":1,"tasks":[...]}; its top-level tasks array must be nonempty. Tasks require nonblank name, description, payload, and acceptance_criteria; description must be at most 300 characters; dependencies and model are optional. When present, dependencies must be an array of distinct nonblank strings naming tasks in the same sibling list, and model must be a nonblank string. Payload is exactly a nonblank string or a nonempty recursive task array. Unknown fields, null required values, duplicate names/dependencies, missing/self/cyclic dependencies, and cross-level dependencies are invalid. Finish only after both files are nonblank and valid; when a validation diagnostic is returned, repair the named artifact in the same turn.
 
       Use the originating request as the feature brief. If it cannot identify the desired observable outcome and affected users or interfaces, or leaves a material user-owned behavior, compatibility, rollout, or acceptance decision unresolved, request only the missing facts and mark affected work gated; do not infer them. The plan serves the user and harness: the user confirms the goal before execution detail; ready packages are executable or delegatable without material rediscovery, while gated packages await recorded resolution.
 
@@ -1599,6 +1603,7 @@ tools:
             description:
               type: string
               minLength: 1
+              maxLength: 300
               description: Work the task must perform.
             payload:
               oneOf:
