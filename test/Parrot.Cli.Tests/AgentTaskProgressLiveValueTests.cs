@@ -177,7 +177,7 @@ internal sealed class AgentTaskProgressLiveValueTests
 
     private static string[] Render(AgentTaskProgressSnapshot snapshot, int columns)
     {
-        ILiveBufferItem value = new AgentTaskProgressLiveValue(snapshot);
+        ILiveBufferItem value = new AgentTaskProgressLiveValue(snapshot, null);
         return [.. value.Render(new LiveBufferRenderContext(columns, Palette)).Lines.Select(static line => line.Text)];
     }
 

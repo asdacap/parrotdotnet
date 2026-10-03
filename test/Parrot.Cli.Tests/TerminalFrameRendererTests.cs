@@ -683,14 +683,16 @@ internal sealed class TerminalFrameRendererTests
             bottomCaretOutput, static () => 24, static () => 3, new TerminalPalette(false), 10, 12, true);
         await bottomCaretRenderer.Draw(
             [
-                new AgentTaskProgressLiveValue(new AgentTaskProgressSnapshot
-                {
-                    RootNodes =
+                new AgentTaskProgressLiveValue(
+                    new AgentTaskProgressSnapshot
                     {
-                        new AgentTaskProgressNode { Name = "oldest", Status = AgentTaskProgressStatus.Running },
-                        new AgentTaskProgressNode { Name = "newest", Status = AgentTaskProgressStatus.Running },
+                        RootNodes =
+                        {
+                            new AgentTaskProgressNode { Name = "oldest", Status = AgentTaskProgressStatus.Running },
+                            new AgentTaskProgressNode { Name = "newest", Status = AgentTaskProgressStatus.Running },
+                        },
                     },
-                }),
+                    null),
                 new ModelineValue("chat", string.Empty, "model"),
                 new PromptValue("> ", "draft", 5),
             ],

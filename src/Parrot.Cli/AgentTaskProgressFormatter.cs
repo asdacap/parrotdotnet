@@ -7,9 +7,15 @@ namespace Parrot.Cli;
 internal static class AgentTaskProgressFormatter
 {
     public static IReadOnlyList<string> Format(AgentTaskProgressSnapshot snapshot) =>
-        [.. FormatRows(snapshot).Select(static row => row.Text)];
+        [.. FormatRows(snapshot, null).Select(static row => row.Text)];
 
-    internal static IReadOnlyList<AgentTaskRow> FormatRows(AgentTaskProgressSnapshot snapshot)
+    /// <summary>
+    /// Formats the tree. A running node whose agent has a line in <paramref name="agentLines"/> shows that line in
+    /// place of its status icon, with the task description beneath it.
+    /// </summary>
+    internal static IReadOnlyList<AgentTaskRow> FormatRows(
+        AgentTaskProgressSnapshot snapshot,
+        IReadOnlyDictionary<string, string>? agentLines)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
@@ -17,12 +23,17 @@ internal static class AgentTaskProgressFormatter
         for (var index = 0; index < snapshot.RootNodes.Count; index++)
         {
             var node = snapshot.RootNodes[index];
-            rows.Add(AgentTaskRow.Create($"{Icon(node.Status)} ", DisplayText(node)));
-            Append(node.Children, string.Empty, rows);
+            AppendNode(node, string.Empty, string.Empty, agentLines, rows);
+            Append(node.Children, string.Empty, agentLines, rows);
         }
 
         return rows;
     }
+
+    internal static IEnumerable<string> RunningAgentSessionIds(AgentTaskProgressSnapshot snapshot) =>
+        snapshot.RootNodes.SelectMany(Flatten)
+            .Where(static node => node.Status == AgentTaskProgressStatus.Running && node.AgentSessionId.Length > 0)
+            .Select(static node => node.AgentSessionId);
 
     internal static string DisplayText(AgentTaskProgressNode node)
     {
@@ -33,17 +44,40 @@ internal static class AgentTaskProgressFormatter
     private static void Append(
         RepeatedField<AgentTaskProgressNode> nodes,
         string ancestors,
+        IReadOnlyDictionary<string, string>? agentLines,
         List<AgentTaskRow> rows)
     {
         for (var index = 0; index < nodes.Count; index++)
         {
             var last = index == nodes.Count - 1;
             var node = nodes[index];
-            var lead = $"{ancestors}{(last ? "└──" : "├──")} {Icon(node.Status)} ";
-            rows.Add(AgentTaskRow.Create(lead, DisplayText(node)));
-            Append(node.Children, ancestors + (last ? "    " : "│   "), rows);
+            var descendants = ancestors + (last ? "    " : "│   ");
+            AppendNode(node, $"{ancestors}{(last ? "└──" : "├──")} ", descendants, agentLines, rows);
+            Append(node.Children, descendants, agentLines, rows);
         }
     }
+
+    private static void AppendNode(
+        AgentTaskProgressNode node,
+        string lead,
+        string continuation,
+        IReadOnlyDictionary<string, string>? agentLines,
+        List<AgentTaskRow> rows)
+    {
+        if (node.Status == AgentTaskProgressStatus.Running
+            && agentLines is not null
+            && agentLines.TryGetValue(node.AgentSessionId, out var agentLine))
+        {
+            rows.Add(AgentTaskRow.Create(lead, agentLine));
+            rows.Add(AgentTaskRow.Create(continuation + "  ", DisplayText(node)));
+            return;
+        }
+
+        rows.Add(AgentTaskRow.Create($"{lead}{Icon(node.Status)} ", DisplayText(node)));
+    }
+
+    private static IEnumerable<AgentTaskProgressNode> Flatten(AgentTaskProgressNode node) =>
+        node.Children.SelectMany(Flatten).Prepend(node);
 
     private static string Icon(AgentTaskProgressStatus status) => status switch
     {

@@ -86,6 +86,20 @@ internal sealed class AgentTaskProgress(
         }
     }
 
+    public void AssignAgent(AgentTaskNodeHandle handle, string agentSessionId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var node = Resolve(handle);
+            if (!string.Equals(node.AgentSessionId, agentSessionId, StringComparison.Ordinal))
+            {
+                node.AgentSessionId = agentSessionId;
+                PublishSnapshot();
+            }
+        }
+    }
+
     public void ReportRetry(string path, int nextAttempt, int maximumAttempts, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -226,6 +240,7 @@ internal sealed class AgentTaskProgress(
             Name = node.Name,
             Description = node.Description,
             Status = node.Status,
+            AgentSessionId = node.AgentSessionId,
         };
         snapshot.Children.Add(node.Children.Select(BuildSnapshotNode));
         return snapshot;
@@ -394,6 +409,8 @@ internal sealed class AgentTaskProgress(
         internal string Description { get; set; } = description;
 
         internal AgentTaskProgressStatus Status { get; set; } = AgentTaskProgressStatus.Pending;
+
+        internal string AgentSessionId { get; set; } = string.Empty;
 
         internal List<ProgressNode> Children { get; } = children;
 

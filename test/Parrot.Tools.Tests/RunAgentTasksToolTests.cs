@@ -413,7 +413,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             subscription,
             runtime.Repository,
             "distinctive-call",
-            3,
+            4,
             cancellationToken);
         var result = await running;
         var terminal = await runtime.Completion.Wait("distinctive-call", cancellationToken);
@@ -430,12 +430,12 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             .Where(published => published.PayloadCase == Event.PayloadOneofCase.AgentTaskProgressSnapshot)
             .ToArray();
         _ = await Assert.That(string.Join(',', durable.Select(published => published.AgentTaskProgressSnapshot.Revision)))
-            .IsEqualTo("1,2,3");
+            .IsEqualTo("1,2,3,4");
         _ = await Assert.That(durable.All(published =>
             published.AgentSessionId == runtime.Parent.SessionId
             && published.AgentTaskProgressSnapshot.OriginToolCallId == "distinctive-call"))
             .IsTrue();
-        _ = await Assert.That(brokered).Count().IsEqualTo(3);
+        _ = await Assert.That(brokered).Count().IsEqualTo(4);
     }
 
     [Test]

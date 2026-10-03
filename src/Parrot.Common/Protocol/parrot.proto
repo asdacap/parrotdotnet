@@ -590,6 +590,8 @@ message AgentTaskProgressNode {
   AgentTaskProgressStatus status = 2;
   repeated AgentTaskProgressNode children = 3;
   string description = 4;
+  // Session of the agent currently running this task's role (prepare/execute/accept); empty until one is spawned.
+  string agent_session_id = 5;
 }
 
 message AgentTaskProgressSnapshot {

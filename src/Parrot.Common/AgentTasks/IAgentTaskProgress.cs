@@ -17,6 +17,9 @@ internal interface IAgentTaskProgress
 
     void MarkRunning(AgentTaskNodeHandle handle, CancellationToken cancellationToken);
 
+    /// <summary>Records the session of the agent currently running the task's role.</summary>
+    void AssignAgent(AgentTaskNodeHandle handle, string agentSessionId, CancellationToken cancellationToken);
+
     void ReportRetry(string path, int nextAttempt, int maximumAttempts, CancellationToken cancellationToken);
 
     void MarkTerminal(AgentTaskNodeHandle handle, AgentTaskExecutionStatus status, CancellationToken cancellationToken);

@@ -14,7 +14,7 @@ internal sealed class AgentTaskProgressScrollbackValue(AgentTaskProgressSnapshot
     {
         var columns = context.Decoration.ContentColumns(context.Columns);
         var result = new List<string>();
-        foreach (var row in AgentTaskProgressFormatter.FormatRows(snapshot))
+        foreach (var row in AgentTaskProgressFormatter.FormatRows(snapshot, null))
         {
             result.AddRange(TerminalText.LayoutWordsHanging(row.Text, columns, row.HangingIndent));
         }

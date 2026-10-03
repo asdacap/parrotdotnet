@@ -11,7 +11,7 @@ internal sealed class AgentTaskProgressFormatterTests
         var snapshot = Snapshot();
 
         var formatted = AgentTaskProgressFormatter.Format(snapshot);
-        var rows = AgentTaskProgressFormatter.FormatRows(snapshot);
+        var rows = AgentTaskProgressFormatter.FormatRows(snapshot, null);
 
         _ = await Assert.That(string.Join('\n', formatted)).IsEqualTo(
             "Agent tasks:\n" +
@@ -30,7 +30,7 @@ internal sealed class AgentTaskProgressFormatterTests
     [Arguments(3, "          ")]
     public async Task FormatRows_hangs_each_row_at_the_start_of_its_description(int index, string indent)
     {
-        var rows = AgentTaskProgressFormatter.FormatRows(Snapshot());
+        var rows = AgentTaskProgressFormatter.FormatRows(Snapshot(), null);
 
         _ = await Assert.That(rows[index].HangingIndent).IsEqualTo(indent);
     }
@@ -45,11 +45,64 @@ internal sealed class AgentTaskProgressFormatterTests
             Status = AgentTaskProgressStatus.Pending,
         });
 
-        var rows = AgentTaskProgressFormatter.FormatRows(snapshot);
+        var rows = AgentTaskProgressFormatter.FormatRows(snapshot, null);
 
         _ = await Assert.That(rows[1].Text).IsEqualTo("○ safe[2J    node");
         _ = await Assert.That(rows[1].HangingIndent).IsEqualTo("  ");
         _ = await Assert.That(TerminalText.Width(rows[1].HangingIndent)).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task FormatRows_puts_running_agent_lines_above_their_descriptions()
+    {
+        var root = new AgentTaskProgressNode
+        {
+            Name = "root",
+            Description = "root description",
+            Status = AgentTaskProgressStatus.Running,
+            AgentSessionId = "root-agent",
+        };
+        root.Children.Add(new AgentTaskProgressNode
+        {
+            Name = "first",
+            Description = "first description",
+            Status = AgentTaskProgressStatus.Running,
+            AgentSessionId = "first-agent",
+        });
+        root.Children.Add(new AgentTaskProgressNode
+        {
+            Name = "unseen",
+            Description = "unseen description",
+            Status = AgentTaskProgressStatus.Running,
+            AgentSessionId = "unseen-agent",
+        });
+        root.Children.Add(new AgentTaskProgressNode
+        {
+            Name = "done",
+            Description = "done description",
+            Status = AgentTaskProgressStatus.Succeeded,
+            AgentSessionId = "done-agent",
+        });
+        var snapshot = new AgentTaskProgressSnapshot();
+        snapshot.RootNodes.Add(root);
+        var agentLines = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["root-agent"] = "⠋ [root] agent root",
+            ["first-agent"] = "⠋ [first] agent first",
+            ["done-agent"] = "⠋ [done] agent done",
+        };
+
+        var rows = AgentTaskProgressFormatter.FormatRows(snapshot, agentLines);
+
+        _ = await Assert.That(string.Join('\n', rows.Select(static row => $"{row.HangingIndent.Length}:{row.Text}")))
+            .IsEqualTo(
+                "0:Agent tasks:\n" +
+                "0:⠋ [root] agent root\n" +
+                "2:  root description\n" +
+                "4:├── ⠋ [first] agent first\n" +
+                "6:│     first description\n" +
+                "6:├── ◐ unseen description\n" +
+                "6:└── ✓ done description");
     }
 
     private static AgentTaskProgressSnapshot Snapshot()

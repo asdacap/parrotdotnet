@@ -2512,6 +2512,87 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(committed).HasSingleItem();
     }
 
+    [Test]
+    public async Task Running_task_shows_its_agent_line_inside_the_task_tree(CancellationToken cancellationToken)
+    {
+        var drawn = new List<string>();
+        var liveContext = new LiveBufferRenderContext(120, new TerminalPalette(false));
+
+        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            drawn.Add(Render(items, liveContext));
+            return Task.CompletedTask;
+        }
+
+        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token) =>
+            Draw(items, token);
+
+        var presenters = new ToolPresenterRegistry([new RunAgentTasksToolPresenter(new GenericToolPresenter())], new GenericToolPresenter());
+        await using var view = new RawActivityView(
+            Draw,
+            Commit,
+            static token => Task.Delay(Timeout.InfiniteTimeSpan, token),
+            new ControlledProgressDelay().Delay,
+            presenters,
+            static (_, _) => Task.CompletedTask);
+        await StartChildAgentTask(view, "call", cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "task-agent",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "child", Name = "higher" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "task-agent",
+                TurnStarted = new TurnStarted
+                {
+                    Model = "model",
+                    ModelAliasIcon = new TurnModelAliasIcon { Glyph = "◆", Color = TurnModelAliasIconColor.Red },
+                },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                {
+                    OriginToolCallId = "call",
+                    Revision = 1,
+                    RootNodes =
+                    {
+                        new AgentTaskProgressNode
+                        {
+                            Name = "higher",
+                            Description = "Implement the higher thing",
+                            Status = AgentTaskProgressStatus.Running,
+                            AgentSessionId = "task-agent",
+                        },
+                        new AgentTaskProgressNode { Name = "later", Status = AgentTaskProgressStatus.Pending },
+                    },
+                },
+            },
+            cancellationToken);
+
+        _ = await Assert.That(drawn[^1]).Contains(
+            "  • [worker] Agent tasks:|" +
+            "    [worker] ⠋ [higher] ◆ agent higher|" +
+            "    [worker]   Implement the higher thing|" +
+            "    [worker] ○ later");
+        _ = await Assert.That(Count(drawn[^1], "agent higher")).IsEqualTo(1);
+
+        await view.Render(
+            new Event { AgentSessionId = "task-agent", TextChunk = new TextChunk { Fragment = "streamed text" } },
+            cancellationToken);
+
+        _ = await Assert.That(drawn[^1]).Contains("    [worker] ⠋ [higher] ◆ agent higher|    [worker]   Implement the higher thing");
+        _ = await Assert.That(drawn[^1]).Contains("● [higher] ◆ streamed text");
+    }
+
     private static async Task StartChildAgentTask(
         RawActivityView view,
         string callId,

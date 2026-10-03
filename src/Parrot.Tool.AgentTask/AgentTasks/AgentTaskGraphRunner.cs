@@ -486,6 +486,7 @@ internal sealed class AgentTaskGraphRunner(
             effective.Model,
             "prepare",
             approved.Name,
+            handle,
             owningAgentScope,
             null,
             BuildPreparePrompt(effective, siblings, ancestors, inheritedContexts, dependencies, path),
@@ -562,6 +563,7 @@ internal sealed class AgentTaskGraphRunner(
                 effective.Model,
                 "execute",
                 approved.Name,
+                handle,
                 owningAgentScope,
                 payloadAgentScope,
                 BuildLeafPrompt(effective, siblings, ancestors, promptContexts, dependencies, feedback, currentResult),
@@ -695,6 +697,7 @@ internal sealed class AgentTaskGraphRunner(
                 effective.Model,
                 "prepare",
                 approved.Name,
+                handle,
                 owningAgentScope,
                 null,
                 BuildPreparePromptWithResult(effective, siblings, ancestors, retryContexts, dependencies, path, currentResult ?? throw new InvalidOperationException("A leaf retry requires a result.")),
@@ -805,6 +808,7 @@ internal sealed class AgentTaskGraphRunner(
                     effective.Model,
                     "execute",
                     approved.Name,
+                    handle,
                     compositeAgentScope,
                     executionAgentScope,
                     BuildExecutionPrompt(effective, siblings, ancestors, currentContexts, dependencies, feedback),
@@ -854,6 +858,7 @@ internal sealed class AgentTaskGraphRunner(
                 effective.Model,
                 "accept",
                 approved.Name,
+                handle,
                 compositeAgentScope,
                 compositeAgentScope,
                 BuildAcceptancePrompt(effective, siblings, ancestors, currentContexts, dependencies, feedback, execution, nested, acceptanceResult),
@@ -990,6 +995,7 @@ internal sealed class AgentTaskGraphRunner(
         string? requestedModel,
         string role,
         string taskName,
+        AgentTaskNodeHandle handle,
         IAgentSessionScope owningAgentScope,
         IAgentSessionScope? retainedAgentScope,
         string prompt,
@@ -997,7 +1003,7 @@ internal sealed class AgentTaskGraphRunner(
         CancellationToken cancellationToken)
         where T : class
     {
-        var run = await RunRole(requestedModel, role, taskName, owningAgentScope, retainedAgentScope, prompt, cancellationToken)
+        var run = await RunRole(requestedModel, role, taskName, handle, owningAgentScope, retainedAgentScope, prompt, cancellationToken)
             .ConfigureAwait(false);
         var repairs = 0;
         while (true)
@@ -1022,6 +1028,7 @@ internal sealed class AgentTaskGraphRunner(
                     requestedModel,
                     role,
                     taskName,
+                    handle,
                     owningAgentScope,
                     run.Scope,
                     Render("agent-task.response-repair", ("error", failure.Message)),
@@ -1034,6 +1041,7 @@ internal sealed class AgentTaskGraphRunner(
         string? requestedModel,
         string role,
         string taskName,
+        AgentTaskNodeHandle handle,
         IAgentSessionScope owningAgentScope,
         IAgentSessionScope? retainedAgentScope,
         string prompt,
@@ -1077,6 +1085,7 @@ internal sealed class AgentTaskGraphRunner(
 
         try
         {
+            progress.AssignAgent(handle, childScope.Session.SessionId, roleCancellation.Token);
             var output = await childScope.Session.SendAndWaitForResult(prompt, roleCancellation.Token).ConfigureAwait(false);
             return new AgentRoleRun(childScope, AgentExecution.Succeeded(output));
         }

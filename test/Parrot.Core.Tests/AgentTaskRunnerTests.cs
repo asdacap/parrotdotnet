@@ -187,14 +187,18 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
 
         var snapshots = ProgressEvents("runner-call");
         _ = await Assert.That(string.Join(',', snapshots.Select(snapshot => snapshot.Revision)))
-            .IsEqualTo("1,2,3");
+            .IsEqualTo("1,2,3,4");
         _ = await Assert.That(snapshots[0].RootNodes.Single().Name).IsEqualTo("leaf");
         _ = await Assert.That(snapshots[0].RootNodes.Single().Description).IsEqualTo("Implement leaf");
         _ = await Assert.That(snapshots[0].RootNodes.Single().Status)
             .IsEqualTo(AgentTaskProgressStatus.Pending);
         _ = await Assert.That(snapshots[1].RootNodes.Single().Status)
             .IsEqualTo(AgentTaskProgressStatus.Running);
+        _ = await Assert.That(snapshots[1].RootNodes.Single().AgentSessionId).IsEmpty();
         _ = await Assert.That(snapshots[2].RootNodes.Single().Status)
+            .IsEqualTo(AgentTaskProgressStatus.Running);
+        _ = await Assert.That(snapshots[2].RootNodes.Single().AgentSessionId).IsEqualTo(retainedChild.Session.SessionId);
+        _ = await Assert.That(snapshots[3].RootNodes.Single().Status)
             .IsEqualTo(AgentTaskProgressStatus.Succeeded);
     }
 
@@ -722,7 +726,7 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
             && snapshot.RootNodes[0].Children[0].Name == "new-child"
             && snapshot.RootNodes[0].Children[0].Status == AgentTaskProgressStatus.Pending);
         _ = await Assert.That(replacement.RootNodes[0].Description).IsEqualTo("Updated parent");
-        _ = await Assert.That(replacement.Revision).IsEqualTo(3UL);
+        _ = await Assert.That(replacement.Revision).IsEqualTo(4UL);
         _ = await Assert.That(replacement.RootNodes[0].Children.Select(node => node.Name))
             .DoesNotContain("old-child");
         _ = await Assert.That(snapshots.Any(snapshot =>

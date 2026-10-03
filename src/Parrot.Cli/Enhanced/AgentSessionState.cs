@@ -44,6 +44,17 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public string AgentLabel => CreateAgentLabel();
 
+    public string AgentSpinnerText => _waitingForFirstToken
+        ? $"{AgentLabel} Waiting for first token…"
+        : _requestAttempt switch
+        {
+            0 => AgentLabel,
+            1 => $"{AgentLabel} Requesting…",
+            _ => $"{AgentLabel} Requesting (attempt {_requestAttempt})…",
+        };
+
+    public bool IsStreamingResponse => !_waitingForFirstToken && _requestAttempt == 0 && _response.Length > 0;
+
     public string ModelineLabel => $"agent {Name}";
 
     public bool IsAgentActive => _activities.Contains(AgentActivityId);
@@ -366,7 +377,7 @@ internal sealed class AgentSessionState(string agentSessionId)
         }
 
         _toolProgressRevisions[toolCallId] = snapshot.Revision;
-        _toolLive[toolCallId] = new AgentTaskProgressLiveValue(snapshot.Clone());
+        _toolLive[toolCallId] = new AgentTaskProgressLiveValue(snapshot.Clone(), null);
         if (IsTerminal(snapshot))
         {
             _ = _terminalAgentTaskProgress.Add(toolCallId);
@@ -491,17 +502,9 @@ internal sealed class AgentSessionState(string agentSessionId)
     {
         if (IsAgentActivity(activityId))
         {
-            return _waitingForFirstToken
-                ? new SpinnerValue($"{AgentLabel} Waiting for first token…", frame)
-                : _requestAttempt > 0
-                    ? new SpinnerValue(
-                        _requestAttempt == 1
-                            ? $"{AgentLabel} Requesting…"
-                            : $"{AgentLabel} Requesting (attempt {_requestAttempt})…",
-                        frame)
-                    : _response.Length == 0
-                        ? new SpinnerValue(AgentLabel, frame)
-                        : new StreamedResponseValue(TerminalIcons.AssistantMessage, _response.ToString());
+            return IsStreamingResponse
+                ? new StreamedResponseValue(TerminalIcons.AssistantMessage, _response.ToString())
+                : new SpinnerValue(AgentSpinnerText, frame);
         }
 
         if (string.Equals(activityId, CompactionActivity, StringComparison.Ordinal))

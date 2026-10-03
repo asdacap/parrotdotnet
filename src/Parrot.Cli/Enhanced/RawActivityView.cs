@@ -548,6 +548,21 @@ internal sealed class RawActivityView(
         }
     }
 
+    private static ILiveBufferItem EmbedTaskAgentLines(
+        ILiveBufferItem value,
+        IReadOnlyDictionary<string, string> taskAgentLines,
+        HashSet<string> embeddedAgentSessionIds)
+    {
+        if (value is not AgentTaskProgressLiveValue tree)
+        {
+            return value;
+        }
+
+        embeddedAgentSessionIds.UnionWith(
+            AgentTaskProgressFormatter.RunningAgentSessionIds(tree.Snapshot).Where(taskAgentLines.ContainsKey));
+        return new AgentTaskProgressLiveValue(tree.Snapshot, taskAgentLines);
+    }
+
     private static string GetTerminalToolCallId(Event published) => published.PayloadCase switch
     {
         Event.PayloadOneofCase.ToolFinished => published.ToolFinished.ToolCallId,
@@ -954,6 +969,14 @@ internal sealed class RawActivityView(
         }
 
         var order = _hierarchy.GetPostOrder(ownerIds);
+        var taskAgentLines = activities
+            .Where(activity => _hierarchy.IsChild(activity.State.AgentSessionId)
+                && activity.State.IsAgentActivity(activity.ActivityId))
+            .ToDictionary(
+                static activity => activity.State.AgentSessionId,
+                activity => CreateTaskAgentLine(activity.State),
+                StringComparer.Ordinal);
+        var embeddedAgentSessionIds = new HashSet<string>(StringComparer.Ordinal);
         var rows = new List<(string OwnerId, int Kind, string Id, ILiveBufferItem Item)>();
         rows.AddRange(
             _agentSessions.Values.SelectMany(state => state.DetachedAgentTaskProgressIds().Select(toolCallId =>
@@ -962,7 +985,10 @@ internal sealed class RawActivityView(
                 0,
                 "task:" + toolCallId,
                 (ILiveBufferItem)new HierarchicalLiveValue(
-                    state.CreateDetachedAgentTaskProgressItem(toolCallId),
+                    EmbedTaskAgentLines(
+                        state.CreateDetachedAgentTaskProgressItem(toolCallId),
+                        taskAgentLines,
+                        embeddedAgentSessionIds),
                     _hierarchy.GetDepth(state.AgentSessionId),
                     _hierarchy.GetLabel(state.AgentSessionId),
                     null)))));
@@ -977,11 +1003,19 @@ internal sealed class RawActivityView(
                     _hierarchy.GetDepth(state.AgentSessionId),
                     _hierarchy.GetLabel(state.AgentSessionId),
                     null))));
-        rows.AddRange(activities.Select(activity => (
-            activity.State.AgentSessionId,
-            activity.State.IsAgentActivity(activity.ActivityId) ? 3 : 0,
-            activity.ActivityId,
-            (ILiveBufferItem)CreateActivityItem(activity))));
+
+        // Task trees are built first so an agent shown inside one keeps only its streamed response in its own branch.
+        rows.AddRange(activities
+            .Select(activity => (Activity: activity, Item: CreateActivityItem(activity, taskAgentLines, embeddedAgentSessionIds)))
+            .ToList()
+            .Where(row => !row.Activity.State.IsAgentActivity(row.Activity.ActivityId)
+                || row.Activity.State.IsStreamingResponse
+                || !embeddedAgentSessionIds.Contains(row.Activity.State.AgentSessionId))
+            .Select(static row => (
+                row.Activity.State.AgentSessionId,
+                row.Activity.State.IsAgentActivity(row.Activity.ActivityId) ? 3 : 0,
+                row.Activity.ActivityId,
+                (ILiveBufferItem)row.Item)));
         rows.AddRange(processes.Select(process => (
             process.Process.OwnerAgentSessionId,
             1,
@@ -1285,13 +1319,27 @@ internal sealed class RawActivityView(
         }
     }
 
-    private HierarchicalLiveValue CreateActivityItem((AgentSessionState State, string ActivityId) activity)
+    private string CreateTaskAgentLine(AgentSessionState state)
     {
-        var value = activity.State.CreateLiveBufferItem(
-            activity.ActivityId,
-            _frame,
-            presenters,
-            reference => _hierarchy.ResolveAgentReference(activity.State.AgentSessionId, reference));
+        var spinner = TerminalIcons.SpinnerFrames[_frame % TerminalIcons.SpinnerFrames.Length];
+        var glyph = state.ModelAliasIcon is { } icon ? $"{icon.Glyph} " : string.Empty;
+        return TerminalText.Sanitize($"{spinner} [{_hierarchy.GetLabel(state.AgentSessionId)}] {glyph}{state.AgentSpinnerText}")
+            .Replace("\n", string.Empty, StringComparison.Ordinal);
+    }
+
+    private HierarchicalLiveValue CreateActivityItem(
+        (AgentSessionState State, string ActivityId) activity,
+        IReadOnlyDictionary<string, string> taskAgentLines,
+        HashSet<string> embeddedAgentSessionIds)
+    {
+        var value = EmbedTaskAgentLines(
+            activity.State.CreateLiveBufferItem(
+                activity.ActivityId,
+                _frame,
+                presenters,
+                reference => _hierarchy.ResolveAgentReference(activity.State.AgentSessionId, reference)),
+            taskAgentLines,
+            embeddedAgentSessionIds);
         var isAgentActivity = activity.State.IsAgentActivity(activity.ActivityId);
         var depth = _hierarchy.GetDepth(activity.State.AgentSessionId);
         var modelAliasIcon = _hierarchy.IsChild(activity.State.AgentSessionId) && isAgentActivity
