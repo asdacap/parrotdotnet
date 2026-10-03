@@ -14,15 +14,16 @@ internal sealed class SetExitReminderToolPresenter : IToolPresenter
         return new ToolLiveValue(Label(input), ToolBlock.Empty, Metadata, frame);
     }
 
-    public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
+    public IScrollbackItem? PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
-        var input = SetExitReminderInput.Parse(call.ArgumentsJson);
         var status = terminal.ResolveStatus();
-        return new ToolScrollbackValue(
-            Label(input),
-            status == ToolTerminalStatus.Succeeded ? ToolBlock.Empty : terminal.DescribeBlock(ToolBlockKind.None),
-            status,
-            Metadata);
+        return status == ToolTerminalStatus.Succeeded
+            ? null
+            : new ToolScrollbackValue(
+                Label(SetExitReminderInput.Parse(call.ArgumentsJson)),
+                terminal.DescribeBlock(ToolBlockKind.None),
+                status,
+                Metadata);
     }
 
     private static string Label(SetExitReminderInput input) => $"Set exit reminder · {input.Title} · {input.Description}";

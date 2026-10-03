@@ -11,14 +11,16 @@ internal sealed class ClearExitReminderToolPresenter : IToolPresenter
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) =>
         new ToolLiveValue(Label(Title(call.ArgumentsJson)), ToolBlock.Empty, Metadata, frame);
 
-    public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
+    public IScrollbackItem? PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
         var status = terminal.ResolveStatus();
-        return new ToolScrollbackValue(
-            Label(Title(call.ArgumentsJson)),
-            status == ToolTerminalStatus.Succeeded ? ToolBlock.Empty : terminal.DescribeBlock(ToolBlockKind.None),
-            status,
-            Metadata);
+        return status == ToolTerminalStatus.Succeeded
+            ? null
+            : new ToolScrollbackValue(
+                Label(Title(call.ArgumentsJson)),
+                terminal.DescribeBlock(ToolBlockKind.None),
+                status,
+                Metadata);
     }
 
     private static string Label(string title) => $"Clear exit reminder · {title}";
