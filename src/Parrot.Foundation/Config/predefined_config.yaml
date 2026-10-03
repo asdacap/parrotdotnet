@@ -1216,11 +1216,11 @@ tools:
         name:
           type: string
           description: Name unique among running processes; completed names can be reused and omitted names are generated.
-            Required for multiline commands such as inline scripts.
+            Required for multiline commands or commands longer than 300 characters, such as inline scripts.
         description:
           type: string
-          description: Short description of what the command does. Required for multiline commands such as inline scripts;
-            do not specify it for short commands, to save tokens.
+          description: Short description of what the command does. Required for multiline commands or commands longer than 300 characters,
+            such as inline scripts; do not specify it for short commands, to save tokens.
         yield_after_ms:
           type: integer
           minimum: 500

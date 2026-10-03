@@ -164,7 +164,7 @@ internal sealed class ExecCommandToolTests : IDisposable
         var rejectedSleepWithLeadingWhitespace = await Execute(tool, "{\"command\":\"   \\tsleep 1\"}", selection, cancellationToken);
         var rejectedSleepSemicolon = await Execute(tool, """{"command":"sleep;echo done"}""", selection, cancellationToken);
         var rejectedSleepConjunction = await Execute(tool, """{"command":"sleep 1 && echo done"}""", selection, cancellationToken);
-        var rejectedSleepMultiline = await Execute(tool, "{\"command\":\"sleep 1\\nprintf done\"}", selection, cancellationToken);
+        var rejectedSleepMultiline = await Execute(tool, "{\"command\":\"sleep 1\\nprintf done\",\"name\":\"nap\",\"description\":\"nap then print\"}", selection, cancellationToken);
         var sleepyFirstWord = await Execute(tool, """{"command":"sleepy 2"}""", selection, cancellationToken);
         var embeddedSleep = await Execute(tool, """{"command":"printf x; sleep 0.05; printf y"}""", selection, cancellationToken);
         var qualifiedSleep = await Execute(tool, """{"command":"command sleep 0"}""", selection, cancellationToken);
@@ -190,8 +190,8 @@ internal sealed class ExecCommandToolTests : IDisposable
         _ = await Assert.That(reusedSleepName.Text).StartsWith("Process exited with code 0 after ");
         _ = await Assert.That(reusedSleepName.Text).EndsWith("s\n[stdout]\nfree");
 
-        var longScript = JsonEncodedText.Encode("printf ok #" + new string('x', ExecCommandTool.LongCommandLength));
-        const string longCommandRejection = "error: commands longer than 200 characters require 'name' and 'description'";
+        var longScript = JsonEncodedText.Encode("printf ok #" + new string('x', ExecCommandTool.NamedCommandLength));
+        const string longCommandRejection = "error: multiline commands or commands longer than 300 characters require 'name' and 'description'";
         var longWithoutName = await Execute(tool, $$"""{"command":"{{longScript}}","description":"print ok"}""", selection, cancellationToken);
         var longWithoutDescription = await Execute(tool, $$"""{"command":"{{longScript}}","name":"long"}""", selection, cancellationToken);
         var longWithBlankDescription = await Execute(tool, $$"""{"command":"{{longScript}}","name":"long","description":" "}""", selection, cancellationToken);

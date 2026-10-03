@@ -15,6 +15,7 @@ internal sealed class ExecCommandTool(
     ReadOnlyExecCommandClassifier readOnlyCommandClassifier) : ITool
 {
     internal const int LongCommandLength = 200;
+    internal const int NamedCommandLength = 300;
 
     private readonly ReadOnlyExecCommandClassifier _readOnlyCommandClassifier = readOnlyCommandClassifier;
 
@@ -96,10 +97,12 @@ internal sealed class ExecCommandTool(
             }
         }
 
-        if (command.Trim().Contains('\n', StringComparison.Ordinal)
+        if ((command.Trim().Contains('\n', StringComparison.Ordinal) || command.Length > NamedCommandLength)
             && (name is null || string.IsNullOrWhiteSpace(description)))
         {
-            return ToolResultFormatter.Error(invocation, "multiline commands require 'name' and 'description'");
+            return ToolResultFormatter.Error(
+                invocation,
+                $"multiline commands or commands longer than {NamedCommandLength} characters require 'name' and 'description'");
         }
 
         if (TryRedundantChangeDirectory(command, out var target))
