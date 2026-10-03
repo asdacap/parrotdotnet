@@ -88,7 +88,11 @@ internal sealed class EnhancedTurnView(
                 break;
 
             case Event.PayloadOneofCase.RetryNotice:
-                await RenderActivity(published, cancellationToken).ConfigureAwait(false);
+                if (!foreground.IsChild(published.AgentSessionId))
+                {
+                    await RenderActivity(published, cancellationToken).ConfigureAwait(false);
+                }
+
                 break;
 
             case Event.PayloadOneofCase.AgentStatisticsUpdated:
@@ -106,21 +110,33 @@ internal sealed class EnhancedTurnView(
                 break;
 
             case Event.PayloadOneofCase.PlanValidationRepairInjected:
-                await Commit(
-                    ImmediateScrollbackValue.Trusted([$"{Dim}↻ Retrying after plan validation failure: {TerminalText.Sanitize(published.PlanValidationRepairInjected.Diagnostic)}{Reset}"]),
-                    cancellationToken).ConfigureAwait(false);
+                if (!foreground.IsChild(published.AgentSessionId))
+                {
+                    await Commit(
+                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ Retrying after plan validation failure: {TerminalText.Sanitize(published.PlanValidationRepairInjected.Diagnostic)}{Reset}"]),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
                 break;
 
             case Event.PayloadOneofCase.PendingChildQuestionReminderInjected:
-                await Commit(
-                    ImmediateScrollbackValue.Trusted([$"{Dim}↻ Retrying with pending child question reminder{Reset}"]),
-                    cancellationToken).ConfigureAwait(false);
+                if (!foreground.IsChild(published.AgentSessionId))
+                {
+                    await Commit(
+                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ Retrying with pending child question reminder{Reset}"]),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
                 break;
 
             case Event.PayloadOneofCase.StatusInjected:
-                await Commit(
-                    ImmediateScrollbackValue.Trusted([$"{Dim}↻ Status prompt injected{Reset}"]),
-                    cancellationToken).ConfigureAwait(false);
+                if (!foreground.IsChild(published.AgentSessionId))
+                {
+                    await Commit(
+                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ Status prompt injected{Reset}"]),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
                 break;
 
             case Event.PayloadOneofCase.ActiveWorkReminderInjected:
@@ -164,15 +180,23 @@ internal sealed class EnhancedTurnView(
                 break;
 
             case Event.PayloadOneofCase.FinalProviderRequestPromptInjected:
-                await Commit(
-                    ImmediateScrollbackValue.Trusted([$"{Dim}↻ Final provider request prompt injected{Reset}"]),
-                    cancellationToken).ConfigureAwait(false);
+                if (!foreground.IsChild(published.AgentSessionId))
+                {
+                    await Commit(
+                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ Final provider request prompt injected{Reset}"]),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
                 break;
 
             case Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected:
-                await Commit(
-                    ImmediateScrollbackValue.Trusted([$"{Dim}↻ Tool availability restored prompt injected{Reset}"]),
-                    cancellationToken).ConfigureAwait(false);
+                if (!foreground.IsChild(published.AgentSessionId))
+                {
+                    await Commit(
+                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ Tool availability restored prompt injected{Reset}"]),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
                 break;
 
             case Event.PayloadOneofCase.SkillLoaded:

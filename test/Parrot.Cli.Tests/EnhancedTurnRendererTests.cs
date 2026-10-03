@@ -239,24 +239,14 @@ internal sealed class EnhancedTurnRendererTests
     }
 
     [Test]
-    [Arguments("main")]
-    [Arguments("child")]
-    public async Task Session_turn_renders_retry_notices_when_activity_events_are_disabled(
-        string retryAgentSessionId,
+    public async Task Session_turn_renders_main_notices_and_leaves_child_notices_to_the_activity_view(
         CancellationToken cancellationToken)
     {
-        var stream = new ChannelStreamWriter<Event>();
-        foreach (var published in new Event[]
-        {
-            new() { AgentSessionId = "main", TurnStarted = new TurnStarted { Model = "model" } },
+        static Event[] Notices(string agentSessionId) =>
+        [
             new()
             {
-                AgentSessionId = "child",
-                AgentStarted = new AgentStarted { ParentAgentSessionId = "main", Name = "worker" },
-            },
-            new()
-            {
-                AgentSessionId = retryAgentSessionId,
+                AgentSessionId = agentSessionId,
                 RetryNotice = new RetryNotice
                 {
                     Attempt = 2,
@@ -266,16 +256,41 @@ internal sealed class EnhancedTurnRendererTests
             },
             new()
             {
-                AgentSessionId = retryAgentSessionId,
+                AgentSessionId = agentSessionId,
                 PlanValidationRepairInjected = new PlanValidationRepairInjected { Diagnostic = "Invalid plan\u001b[2J" },
             },
             new()
             {
-                AgentSessionId = retryAgentSessionId,
+                AgentSessionId = agentSessionId,
                 PendingChildQuestionReminderInjected = new PendingChildQuestionReminderInjected(),
             },
+            new() { AgentSessionId = agentSessionId, StatusInjected = new StatusInjected() },
+            new()
+            {
+                AgentSessionId = agentSessionId,
+                FinalProviderRequestPromptInjected = new FinalProviderRequestPromptInjected(),
+            },
+            new()
+            {
+                AgentSessionId = agentSessionId,
+                ToolAvailabilityRestoredPromptInjected = new ToolAvailabilityRestoredPromptInjected(),
+            },
+        ];
+
+        var stream = new ChannelStreamWriter<Event>();
+        Event[] events =
+        [
+            new() { AgentSessionId = "main", TurnStarted = new TurnStarted { Model = "model" } },
+            new()
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "main", Name = "worker" },
+            },
+            .. Notices("child"),
+            .. Notices("main"),
             new() { AgentSessionId = "main", TurnEnded = new TurnEnded { FinishReason = "stop" } },
-        })
+        ];
+        foreach (var published in events)
         {
             await stream.WriteAsync(published, cancellationToken);
         }
@@ -303,12 +318,15 @@ internal sealed class EnhancedTurnRendererTests
                 cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
-        _ = await Assert.That(committed.Count).IsEqualTo(3);
+        _ = await Assert.That(committed.Count).IsEqualTo(6);
         _ = await Assert.That(committed[0]).Contains("retry 2 in 2000 ms: Provider timeout[2J");
         _ = await Assert.That(committed[0]).DoesNotContain("\u001b[2J");
         _ = await Assert.That(committed[1]).Contains("Retrying after plan validation failure: Invalid plan[2J");
         _ = await Assert.That(committed[1]).DoesNotContain("\u001b[2J");
         _ = await Assert.That(committed[2]).Contains("Retrying with pending child question reminder");
+        _ = await Assert.That(committed[3]).Contains("Status prompt injected");
+        _ = await Assert.That(committed[4]).Contains("Final provider request prompt injected");
+        _ = await Assert.That(committed[5]).Contains("Tool availability restored prompt injected");
     }
 
     [Test]

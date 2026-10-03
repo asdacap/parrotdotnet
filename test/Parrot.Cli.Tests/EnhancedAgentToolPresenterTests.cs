@@ -72,21 +72,21 @@ internal sealed class EnhancedAgentToolPresenterTests
             "Set checkpoint before refactor",
             "✓ Set checkpoint before refactor",
         ];
+    }
+
+    public static IEnumerable<Func<object?[]>> ExitReminderPresentations()
+    {
         yield return () =>
         [
             new SetExitReminderToolPresenter(),
             new ToolCallPresentation("set_exit_reminder", "{\"title\":\"tests\",\"description\":\"run the suite\"}"),
-            "exit reminder set",
             "Set exit reminder · tests · run the suite",
-            "✓ Set exit reminder · tests · run the suite",
         ];
         yield return () =>
         [
             new ClearExitReminderToolPresenter(),
             new ToolCallPresentation("clear_exit_reminder", "{\"title\":\"tests\"}"),
-            "exit reminder cleared",
             "Clear exit reminder · tests",
-            "✓ Clear exit reminder · tests",
         ];
     }
 
@@ -97,6 +97,28 @@ internal sealed class EnhancedAgentToolPresenterTests
             var values = presentation();
             yield return () => [values[0], values[1], (values[3]?.ToString() ?? throw new InvalidOperationException("Missing label")).Split('|')[0]];
         }
+    }
+
+    [Test]
+    [MethodDataSource(nameof(ExitReminderPresentations))]
+    public async Task Exit_reminder_presenters_leave_success_to_the_change_notice(
+        IToolPresenter presenter,
+        ToolCallPresentation call,
+        string expectedLabel)
+    {
+        var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines.Select(line => line.Text);
+        var succeeded = presenter.PresentTerminal(
+            call,
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "exit reminder changed", string.Empty));
+        var failed = (presenter.PresentTerminal(
+                call,
+                new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "error: unavailable", string.Empty))
+            ?? throw new InvalidOperationException("Presenter did not render the failure")).Render(ScrollbackContext);
+
+        _ = await Assert.That(string.Join('|', live)).Contains(expectedLabel);
+        _ = await Assert.That(succeeded).IsNull();
+        _ = await Assert.That(failed[0]).IsEqualTo($"✗ {expectedLabel}");
+        _ = await Assert.That(string.Join('|', failed)).Contains("error: unavailable");
     }
 
     [Test]
