@@ -166,13 +166,46 @@ internal sealed class EnhancedHierarchyTests
                 SkillLoaded = new SkillLoadedEvent { Path = "/skills/example\u001b[2J/SKILL.md" },
             },
             cancellationToken);
+        foreach (var published in new Event[]
+        {
+            new()
+            {
+                AgentSessionId = "child",
+                RetryNotice = new RetryNotice { Attempt = 2, RetryAfterMs = 2000, Reason = "Provider timeout\u001b[2J" },
+            },
+            new() { AgentSessionId = "child", StatusInjected = new StatusInjected() },
+            new() { AgentSessionId = "child", ContextReminderInjected = new ContextReminderInjected { UsagePercent = 27 } },
+            new() { AgentSessionId = "child", FinalProviderRequestPromptInjected = new FinalProviderRequestPromptInjected() },
+            new()
+            {
+                AgentSessionId = "child",
+                ToolAvailabilityRestoredPromptInjected = new ToolAvailabilityRestoredPromptInjected(),
+            },
+            new()
+            {
+                AgentSessionId = "child",
+                PlanValidationRepairInjected = new PlanValidationRepairInjected { Diagnostic = "Invalid plan\u001b[2J" },
+            },
+            new() { AgentSessionId = "child", PendingChildQuestionReminderInjected = new PendingChildQuestionReminderInjected() },
+            new() { AgentSessionId = "root", StatusInjected = new StatusInjected() },
+        })
+        {
+            await view.Render(published, cancellationToken);
+        }
 
         _ = await Assert.That(string.Join('|', committed)).IsEqualTo(
             "  ↻ [worker] Active work reminder injected" +
             "|  ↻ [worker] Exit reminder injected" +
             "|  ↻ [worker] Exit reminder set: port: finish the port" +
             "|  ↻ [worker] Exit reminder cleared: port" +
-            "|  ↻ [worker] Skill loaded: /skills/example[2J/SKILL.md");
+            "|  ↻ [worker] Skill loaded: /skills/example[2J/SKILL.md" +
+            "|  ↻ [worker] retry 2 in 2000 ms: Provider timeout[2J" +
+            "|  ↻ [worker] Status prompt injected" +
+            "|  ↻ [worker] Context reminder injected (27% context used)" +
+            "|  ↻ [worker] Final provider request prompt injected" +
+            "|  ↻ [worker] Tool availability restored prompt injected" +
+            "|  ↻ [worker] Retrying after plan validation failure: Invalid plan[2J" +
+            "|  ↻ [worker] Retrying with pending child question reminder");
     }
 
     [Test]

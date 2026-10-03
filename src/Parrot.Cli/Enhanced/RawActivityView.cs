@@ -470,6 +470,22 @@ internal sealed class RawActivityView(
                         cancellationToken).ConfigureAwait(false);
                     break;
 
+                case Event.PayloadOneofCase.RetryNotice
+                    or Event.PayloadOneofCase.StatusInjected
+                    or Event.PayloadOneofCase.ContextReminderInjected
+                    or Event.PayloadOneofCase.FinalProviderRequestPromptInjected
+                    or Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected
+                    or Event.PayloadOneofCase.PlanValidationRepairInjected
+                    or Event.PayloadOneofCase.PendingChildQuestionReminderInjected
+                    when _hierarchy.IsChild(published.AgentSessionId):
+                    await commit(
+                        Wrap(
+                            GetNamedAgentSession(published.AgentSessionId),
+                            new ActivityNoticeScrollbackValue(TerminalIcons.StatusNotice, DescribeNotice(published))),
+                        Snapshot(),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+
                 case Event.PayloadOneofCase.ToolRequestReceived when published.ToolRequestReceived.ToolCallCount > 1:
                     await commit(
                         Wrap(
@@ -555,6 +571,21 @@ internal sealed class RawActivityView(
         changed.StateCase == ExitReminderChanged.StateOneofCase.Description
             ? $"Exit reminder set: {TerminalText.Sanitize(changed.Title)}: {TerminalText.Sanitize(changed.Description)}"
             : $"Exit reminder cleared: {TerminalText.Sanitize(changed.Title)}";
+
+    private static string DescribeNotice(Event published) => published.PayloadCase switch
+    {
+        Event.PayloadOneofCase.RetryNotice =>
+            $"retry {published.RetryNotice.Attempt} in {published.RetryNotice.RetryAfterMs} ms: {published.RetryNotice.Reason}",
+        Event.PayloadOneofCase.StatusInjected => "Status prompt injected",
+        Event.PayloadOneofCase.ContextReminderInjected =>
+            $"Context reminder injected ({published.ContextReminderInjected.UsagePercent}% context used)",
+        Event.PayloadOneofCase.FinalProviderRequestPromptInjected => "Final provider request prompt injected",
+        Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected => "Tool availability restored prompt injected",
+        Event.PayloadOneofCase.PlanValidationRepairInjected =>
+            $"Retrying after plan validation failure: {published.PlanValidationRepairInjected.Diagnostic}",
+        Event.PayloadOneofCase.PendingChildQuestionReminderInjected => "Retrying with pending child question reminder",
+        _ => throw new InvalidOperationException($"The {published.PayloadCase} event is not an agent notice."),
+    };
 
     private static string ProcessKey(string inventoryInstanceId, string processId) =>
         string.Concat(inventoryInstanceId, "\n", processId);
