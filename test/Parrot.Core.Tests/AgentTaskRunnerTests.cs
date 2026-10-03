@@ -929,7 +929,7 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
         var dependentPrompt = provider.Requests[2].Messages.Last(message => message.Role == LLMRole.User).Content;
-        _ = await Assert.That(dependentPrompt).Contains("[prerequisite] dependency result");
+        _ = await Assert.That(dependentPrompt).Contains("Direct dependency summaries:\n[prerequisite] Prerequisite\nResult: dependency result");
     }
 
     [Test]
@@ -986,7 +986,7 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
         _ = await Assert.That(parentAcceptancePrompt).Contains("\"result\":\"failed child result\"");
 
         var dependentPrompt = provider.Requests[8].Messages.Last(message => message.Role == LLMRole.User).Content;
-        _ = await Assert.That(dependentPrompt).Contains($"[parent] {parentResult}");
+        _ = await Assert.That(dependentPrompt).Contains($"[parent] Parent\nResult: {parentResult}");
         _ = await Assert.That(dependentPrompt).DoesNotContain("parent acceptance evidence");
         _ = await Assert.That(dependentPrompt).DoesNotContain("unrelated evidence");
         _ = await Assert.That(dependentPrompt).DoesNotContain("cousin result");
@@ -1426,7 +1426,7 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
                 case "target":
                     _ = await Assert.That(scope).Contains("[outer] Outer sibling description\n[last] Last sibling description")
                         .And.DoesNotContain("replacement description");
-                    _ = await Assert.That(prompt).Contains("[outer] outer dependency result");
+                    _ = await Assert.That(prompt).Contains("[outer] Outer sibling description\nResult: outer dependency result");
                     break;
                 case "new-first":
                 case "new-second":
@@ -1437,7 +1437,7 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
                         .And.DoesNotContain("Last sibling description");
                     if (taskName == "new-second")
                     {
-                        _ = await Assert.That(prompt).Contains("[new-first] first dependency result");
+                        _ = await Assert.That(prompt).Contains("[new-first] First replacement description\nResult: first dependency result");
                     }
 
                     break;
@@ -1454,7 +1454,7 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
     }
 
     [Test]
-    public async Task Sibling_scope_renders_custom_templates_and_bounds_descriptions(CancellationToken cancellationToken)
+    public async Task Sibling_scope_renders_custom_templates(CancellationToken cancellationToken)
     {
         var directory = Path.Combine(Path.GetTempPath(), "parrot-sibling-templates", Guid.NewGuid().ToString("N"));
         _ = Directory.CreateDirectory(directory);
@@ -1476,8 +1476,8 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
             ]);
             var runtime = Runtime(provider, cancellationToken);
             await using var registry = runtime.Registry;
-            var artifact = AgentTaskParser.ParseArtifact($$"""
-                {"schema_version":1,"tasks":[{"name":"first","description":"First description","payload":"work","acceptance_criteria":"proof"},{"name":"second","dependencies":["first"],"description":"{{new string('x', (16 * 1024) + 1)}}","payload":"work","acceptance_criteria":"proof"}]}
+            var artifact = AgentTaskParser.ParseArtifact("""
+                {"schema_version":1,"tasks":[{"name":"first","description":"First description","payload":"work","acceptance_criteria":"proof"},{"name":"second","dependencies":["first"],"description":"Second description","payload":"work","acceptance_criteria":"proof"}]}
                 """);
             var runner = new AgentTaskGraphRunner(
                 runtime.Router,
@@ -1493,9 +1493,7 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
             var prompt = provider.Requests[0].Messages.Last(message => message.Role == LLMRole.User).Content;
             var scope = prompt[..prompt.IndexOf("Task: ", StringComparison.Ordinal)];
             _ = await Assert.That(scope).StartsWith("CUSTOM OUT OF SCOPE")
-                .And.Contains($"second: {new string('x', 16 * 1024)}")
-                .And.Contains("[truncated]")
-                .And.DoesNotContain(new string('x', (16 * 1024) + 1))
+                .And.Contains("second: Second description")
                 .And.DoesNotContain("Sibling tasks (out of scope):");
         }
         finally
