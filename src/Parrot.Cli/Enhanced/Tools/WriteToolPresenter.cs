@@ -16,11 +16,11 @@ internal sealed class WriteToolPresenter : IToolPresenter
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
         var status = terminal.ResolveStatus();
-        return new ToolScrollbackValue(
-            Label(Path(call.ArgumentsJson)),
-            DescribeBlock(terminal, status),
-            status,
-            Metadata);
+        var path = Path(call.ArgumentsJson);
+        var block = DescribeBlock(terminal, status);
+        return block.Kind == ToolBlockKind.Diff
+            ? new DiffToolScrollbackValue(ToolName, path, block.Text)
+            : new ToolScrollbackValue(Label(path), block, status, Metadata);
     }
 
     private static ToolBlock DescribeBlock(ToolTerminalPresentation terminal, ToolTerminalStatus status)

@@ -10,6 +10,10 @@ internal sealed class HierarchicalScrollbackValue(IScrollbackItem value, int dep
 
     public bool EndsLayout => value.EndsLayout;
 
+    public object? PackingIdentity => value.PackingIdentity;
+
+    public bool Packs(object? previousPacking) => value.Packs(previousPacking);
+
     public bool Continues(IScrollbackItem previous) => false;
 
     public IReadOnlyList<string> Render(ScrollbackRenderContext context) => value.Render(context with

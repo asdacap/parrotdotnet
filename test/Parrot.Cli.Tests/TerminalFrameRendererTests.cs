@@ -1,5 +1,6 @@
 using System.Text;
 using Parrot.Cli.Enhanced;
+using Parrot.Cli.Enhanced.Tools;
 using Parrot.Llm;
 using Parrot.Protocol;
 
@@ -224,6 +225,50 @@ internal sealed class TerminalFrameRendererTests
         _ = await Assert.That(committed).Contains(expectedMessage + "\r\n\r\n");
         _ = await Assert.That(following).Contains("after output\r\n");
         _ = await Assert.That(following).DoesNotContain("\r\n\r\nafter output\r\n");
+    }
+
+    [Test]
+    public async Task Consecutive_diff_tool_results_pack_without_gaps(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 30, static () => 100, new TerminalPalette(false), 10, 12, true);
+        IReadOnlyList<ILiveBufferItem> frame =
+        [
+            new ModelineValue("chat", string.Empty, "model"),
+            new PromptValue("> ", string.Empty, 0),
+        ];
+
+        await renderer.Draw(frame, cancellationToken);
+        var segments = new List<string>();
+        IScrollbackItem[] items =
+        [
+            Diff("edit", "a.txt"),
+            Diff("edit", "a.txt"),
+            Diff("edit", "b.txt"),
+            Diff("write", "b.txt"),
+            ImmediateScrollbackValue.Muted(["after diffs"]),
+        ];
+        foreach (var item in items)
+        {
+            var boundary = output.GetStringBuilder().Length;
+            await renderer.Commit(item, frame, cancellationToken);
+            segments.Add(output.ToString()[boundary..]);
+        }
+
+        const string hunk = "  @@ -1,1 +1,1 @@\r\n  1 -old\r\n  1 +new\r\n";
+        _ = await Assert.That(segments[0]).Contains("✓ edit a.txt\r\n" + hunk);
+        _ = await Assert.That(segments[0]).DoesNotContain("1 +new\r\n\r\n");
+        _ = await Assert.That(segments[1]).Contains(hunk);
+        _ = await Assert.That(segments[1]).DoesNotContain("a.txt");
+        _ = await Assert.That(segments[1]).DoesNotContain("\r\n  @@");
+        _ = await Assert.That(segments[2]).Contains("  b.txt\r\n" + hunk);
+        _ = await Assert.That(segments[2]).DoesNotContain("✓");
+        _ = await Assert.That(segments[2]).DoesNotContain("\r\n  b.txt");
+        _ = await Assert.That(segments[3]).Contains("\r\n✓ write b.txt\r\n" + hunk);
+        _ = await Assert.That(segments[4]).Contains("\r\nafter diffs\r\n");
+
+        static DiffToolScrollbackValue Diff(string toolName, string path) =>
+            new(toolName, path, $"--- a/{path}\n+++ b/{path}\n@@ -1,1 +1,1 @@\n-old\n+new\n");
     }
 
     [Test]
