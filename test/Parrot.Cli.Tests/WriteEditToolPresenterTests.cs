@@ -78,8 +78,7 @@ internal sealed class WriteEditToolPresenterTests
         var rendered = item.Render(ScrollbackContext);
 
         _ = await Assert.That(rendered[0]).Contains(expectedLabel);
-        _ = await Assert.That(string.Join('\n', rendered)).Contains("src/file.txt");
-        _ = await Assert.That(string.Join('\n', rendered)).Contains("@@ -1,1 +1,1 @@");
+        _ = await Assert.That(rendered[1]).Contains("@@ -1,1 +1,1 @@");
         _ = await Assert.That(string.Join('\n', rendered)).Contains("1 -old");
         _ = await Assert.That(string.Join('\n', rendered)).Contains("1 +new");
         _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain(hiddenValue);

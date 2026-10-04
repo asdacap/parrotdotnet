@@ -183,7 +183,7 @@ internal sealed class DiffScrollbackValue(string status, string diff) : IScrollb
         var output = new List<string>();
         foreach (var file in files)
         {
-            output.Add(FileHeading(file));
+            AddFileHeading(output, files, file);
             foreach (var hunk in file.Hunks)
             {
                 output.Add(HunkHeading(hunk));
@@ -232,7 +232,7 @@ internal sealed class DiffScrollbackValue(string status, string diff) : IScrollb
 
         foreach (var file in files)
         {
-            output.Add(FileHeading(file));
+            AddFileHeading(output, files, file);
             foreach (var hunk in file.Hunks)
             {
                 output.Add(HunkHeading(hunk));
@@ -280,6 +280,14 @@ internal sealed class DiffScrollbackValue(string status, string diff) : IScrollb
         }
 
         return output;
+    }
+
+    private static void AddFileHeading(List<string> output, IReadOnlyList<DiffFile> files, DiffFile file)
+    {
+        if (files.Count > 1)
+        {
+            output.Add(FileHeading(file));
+        }
     }
 
     private static string FileHeading(DiffFile file)

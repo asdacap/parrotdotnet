@@ -24,6 +24,7 @@ internal sealed class TerminalFrameRenderer(
     private bool _committedGap;
     private TerminalFrame? _frame;
     private ScrollbackLayout _lastLayout;
+    private object? _lastPacking;
     private List<IScrollbackItem> _pendingScrollback = [];
     private int _renderedHeight;
     private int _renderedWidth;
@@ -189,8 +190,8 @@ internal sealed class TerminalFrameRenderer(
         var output = new List<string>();
         foreach (var item in items)
         {
-            var rendered = item.Render(context);
-            if (item.StartsLayout && rendered.Count > 0 && NeedsLeadingGap(item.Layout))
+            var rendered = item.Render(context with { PreviousPacking = _lastPacking });
+            if (item.StartsLayout && rendered.Count > 0 && !item.Packs(_lastPacking) && NeedsLeadingGap(item.Layout))
             {
                 output.Add(string.Empty);
                 _committedGap = true;
@@ -202,6 +203,7 @@ internal sealed class TerminalFrameRenderer(
                 _committed = true;
                 _committedGap = false;
                 _lastLayout = item.Layout;
+                _lastPacking = item.PackingIdentity;
             }
 
             if (item.EndsLayout

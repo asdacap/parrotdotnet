@@ -148,7 +148,7 @@ internal sealed class EnhancedTerminalFoundationTests
 
         _ = await Assert.That(plain.Count).IsEqualTo(DiffScrollbackValue.MaximumRows + 2);
         _ = await Assert.That(string.Join('\n', plain)).Contains("1 -old[2J    value");
-        _ = await Assert.That(string.Join('\n', plain)).Contains("… 4 diff rows omitted");
+        _ = await Assert.That(string.Join('\n', plain)).Contains("… 3 diff rows omitted");
         _ = await Assert.That(string.Join('\n', plain)).DoesNotContain("\u001b");
         _ = await Assert.That(string.Join('\n', colored)).Contains("\u001b[31m1 -old[2J    value\u001b[0m");
         _ = await Assert.That(string.Join('\n', colored)).Contains("\u001b[32m1 +new    value\u001b[0m");

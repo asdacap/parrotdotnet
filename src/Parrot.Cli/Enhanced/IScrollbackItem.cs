@@ -14,6 +14,12 @@ internal interface IScrollbackItem
     /// <summary>Gets the opaque streaming-group identity, or null when the item has no sequence.</summary>
     object? SequenceIdentity => null;
 
+    /// <summary>Gets the value the next adjacent item inspects to decide whether it packs onto this item, or null when nothing packs onto it.</summary>
+    object? PackingIdentity => null;
+
+    /// <summary>Whether this item packs onto the previous adjacent item with the given packing identity, leaving no gap between them.</summary>
+    bool Packs(object? previousPacking) => false;
+
     /// <summary>Whether this item continues the previous adjacent item without starting a new layout group.</summary>
     bool Continues(IScrollbackItem previous);
 
