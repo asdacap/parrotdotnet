@@ -122,6 +122,7 @@ internal sealed class ExecCommandTool(
             var process = processes.Start(
                 name,
                 command,
+                description ?? string.Empty,
                 invocation.CallId,
                 environment,
                 session,

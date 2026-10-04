@@ -275,7 +275,10 @@ internal sealed class RawActivityView(
                     await commit(
                         WrapProcess(
                             completion.Process,
-                            ProcessCompletion(completion.Command, completion.Process.OwnerAgentSessionId, completion.Process.ProcessId)),
+                            ProcessCompletion(
+                                ExecCommandToolPresenter.Summarize(completion.Process.Name, completion.Process.Description, completion.Command),
+                                completion.Process.OwnerAgentSessionId,
+                                completion.Process.ProcessId)),
                         Snapshot(),
                         cancellationToken).ConfigureAwait(false);
                 }
@@ -622,6 +625,22 @@ internal sealed class RawActivityView(
                         && aliased.ValueKind == JsonValueKind.String
                             ? aliased.GetString() ?? string.Empty
                             : string.Empty;
+        }
+        catch (JsonException)
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string ReadDescription(string argumentsJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(argumentsJson);
+            return document.RootElement.TryGetProperty("description", out var description)
+                && description.ValueKind == JsonValueKind.String
+                    ? description.GetString() ?? string.Empty
+                    : string.Empty;
         }
         catch (JsonException)
         {
@@ -1302,10 +1321,14 @@ internal sealed class RawActivityView(
         if (deferred is not null)
         {
             var command = ReadCommand(call.ArgumentsJson);
-            scrollback = ObserveDeferredProcess(deferred, published, state.Name, command)
+            var description = ReadDescription(call.ArgumentsJson);
+            scrollback = ObserveDeferredProcess(deferred, published, state.Name, command, description)
                 && !string.IsNullOrWhiteSpace(command)
                 && _completedProcesses.Add((published.AgentSessionId, ProcessKey(deferred.InventoryInstanceId, deferred.ProcessId)))
-                    ? ProcessCompletion(command, published.AgentSessionId, deferred.ProcessId)
+                    ? ProcessCompletion(
+                        ExecCommandToolPresenter.Summarize(deferred.Name, description, command),
+                        published.AgentSessionId,
+                        deferred.ProcessId)
                     : null;
         }
 
@@ -1438,7 +1461,8 @@ internal sealed class RawActivityView(
         YieldedShellProcess yielded,
         Event published,
         string ownerAgentName,
-        string command)
+        string command,
+        string description)
     {
         var inventory = ObserveInventory(_processInventories, published.AgentSessionId);
         if (inventory.RetiredInstances.Contains(yielded.InventoryInstanceId))
@@ -1480,6 +1504,7 @@ internal sealed class RawActivityView(
             ProcessId = yielded.ProcessId,
             Name = yielded.Name,
             Command = command,
+            Description = description,
             OriginToolCallId = published.ToolFinished.ToolCallId,
             OwnerAgentSessionId = published.AgentSessionId,
             OwnerAgentName = ownerAgentName,

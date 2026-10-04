@@ -6,6 +6,7 @@ internal sealed record ActiveShellProcessState(
     string ProcessId,
     string Name,
     string Command,
+    string Description,
     string OriginToolCallId,
     string OwnerAgentSessionId,
     string OwnerAgentName,

@@ -438,6 +438,7 @@ internal sealed class EventPayloadTests
                         ProcessId = "process-1",
                         Name = "compile",
                         Command = "dotnet build",
+                        Description = "Build the solution",
                         OriginToolCallId = "call-1",
                         OwnerAgentSessionId = "agent-1",
                         OwnerAgentName = "main",
@@ -464,6 +465,7 @@ internal sealed class EventPayloadTests
         _ = await Assert.That(roundtripped.ShellProcessSnapshot.ChunkCount).IsEqualTo(1U);
         _ = await Assert.That(roundtripped.ShellProcessSnapshot.Processes[0].ProcessId).IsEqualTo("process-1");
         _ = await Assert.That(roundtripped.ShellProcessSnapshot.Processes[0].Command).IsEqualTo("dotnet build");
+        _ = await Assert.That(roundtripped.ShellProcessSnapshot.Processes[0].Description).IsEqualTo("Build the solution");
         _ = await Assert.That(roundtripped.ShellProcessSnapshot.CompletedProcesses[0].ProcessId)
             .IsEqualTo("process-2");
         _ = await Assert.That(roundtripped.ShellProcessSnapshot.CompletedProcesses[0].HasElapsedMs).IsTrue();

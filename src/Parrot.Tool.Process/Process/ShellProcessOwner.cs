@@ -42,6 +42,7 @@ internal sealed class ShellProcessOwner(
             requestedName,
             command,
             string.Empty,
+            string.Empty,
             environment,
             agent,
             securityProfile,
@@ -57,6 +58,7 @@ internal sealed class ShellProcessOwner(
         Start(
             requestedName,
             command,
+            string.Empty,
             originToolCallId,
             environment,
             agent,
@@ -66,6 +68,7 @@ internal sealed class ShellProcessOwner(
     public IManagedShellProcess Start(
         string? requestedName,
         string command,
+        string description,
         string originToolCallId,
         ProcessEnvironmentOverrides environment,
         IAgentSession agent,
@@ -122,6 +125,7 @@ internal sealed class ShellProcessOwner(
                 processId,
                 name,
                 command,
+                description,
                 originToolCallId,
                 agent.SessionId,
                 agent.Name,

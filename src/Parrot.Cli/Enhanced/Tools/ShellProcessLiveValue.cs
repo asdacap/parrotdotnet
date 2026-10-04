@@ -14,7 +14,8 @@ internal sealed class ShellProcessLiveValue(
         var elapsedSinceSnapshot = timeProvider.GetElapsedTime(observedTimestamp);
         var elapsedMilliseconds = Math.Max(0L, process.ElapsedMs + (long)elapsedSinceSnapshot.TotalMilliseconds);
         var name = process.Name.Length == 0 ? process.ProcessId : process.Name;
-        var label = $"$ {process.Command} (process {name} running {Format(elapsedMilliseconds)})";
+        var summary = ExecCommandToolPresenter.Summarize(name, process.Description, process.Command);
+        var label = $"$ {summary} (process {name} running {Format(elapsedMilliseconds)})";
         var marker = TerminalIcons.SpinnerFrames[frame % TerminalIcons.SpinnerFrames.Length].ToString();
         var lines = context.Decoration.Apply(
                 marker,

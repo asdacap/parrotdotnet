@@ -94,6 +94,31 @@ internal sealed class ShellProcessActivityTests
     }
 
     [Test]
+    public async Task Named_long_process_shows_name_and_description(CancellationToken cancellationToken)
+    {
+        await using var activity = new ProcessActivity();
+        var command = $"echo {new string('x', 200)}";
+        await activity.StartWithArguments(
+            "call",
+            $"{{\"command\":\"{command}\",\"name\":\"build\",\"description\":\"Build it\"}}",
+            cancellationToken);
+        await activity.Finish("call", "build", "process-1", "inventory", 1, cancellationToken);
+
+        _ = await Assert.That(activity.Draws[^1]).Contains("$ build · Build it (process build running");
+
+        await activity.Replace(
+            new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 2, ChunkCount = 1, CompletedProcesses = { new CompletionFixture("process-1", 7_123).Completion } },
+            cancellationToken);
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 3, ChunkCount = 1, Processes = { new ActiveShellProcess { ProcessId = "process-2", Name = "test", Command = command, Description = "Test it", OwnerAgentSessionId = "main", OwnerAgentName = "main" } } }, cancellationToken);
+
+        _ = await Assert.That(activity.Draws[^1]).Contains("$ test · Test it (process test running");
+
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 4, ChunkCount = 1 }, cancellationToken);
+
+        _ = await Assert.That(activity.Commits.Skip(1)).IsEquivalentTo(["$ build · Build it (7s)", "$ test · Test it"]);
+    }
+
+    [Test]
     public async Task Origin_tool_completion_waits_for_terminal_output(CancellationToken cancellationToken)
     {
         await using var activity = new ProcessActivity();
@@ -393,7 +418,10 @@ internal sealed class ShellProcessActivityTests
             await Finish(callId, name, processId, inventoryId, revision, cancellationToken);
         }
 
-        public async Task Start(string callId, string command, CancellationToken cancellationToken)
+        public Task Start(string callId, string command, CancellationToken cancellationToken) =>
+            StartWithArguments(callId, $"{{\"command\":\"{command}\"}}", cancellationToken);
+
+        public async Task StartWithArguments(string callId, string argumentsJson, CancellationToken cancellationToken)
         {
             if (!_turnStarted)
             {
@@ -415,7 +443,7 @@ internal sealed class ShellProcessActivityTests
                     {
                         ToolCallId = callId,
                         ToolName = "exec_command",
-                        ArgumentsFragment = $"{{\"command\":\"{command}\"}}",
+                        ArgumentsFragment = argumentsJson,
                     },
                 },
                 cancellationToken);

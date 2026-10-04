@@ -179,6 +179,7 @@ internal sealed class ActiveWorkBlockerTests
         public IManagedShellProcess Start(
             string? requestedName,
             string command,
+            string description,
             string originToolCallId,
             ProcessEnvironmentOverrides environment,
             IAgentSession agent,

@@ -666,6 +666,7 @@ message ActiveShellProcess {
   string parent_agent_name       = 8;
   int32 depth                    = 9;
   int64 elapsed_ms               = 10;
+  string description             = 11;
 }
 
 // A complete in-memory inventory. Chunks sharing an instance and revision are

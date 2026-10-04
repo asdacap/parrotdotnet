@@ -31,7 +31,7 @@ internal sealed class ExecCommandToolPresenter(
     public IScrollbackItem? PresentStarted(ToolCallPresentation call)
     {
         var command = Command(call.ArgumentsJson);
-        return IsNamedLongCommand(call.ArgumentsJson, command)
+        return IsNamedLongCall(call.ArgumentsJson, command)
             ? new ToolScrollbackValue(
                 LabelWithCommand(call.ArgumentsJson, command),
                 ToolBlock.Empty,
@@ -59,6 +59,11 @@ internal sealed class ExecCommandToolPresenter(
         return new ToolScrollbackValue(label, block, status, MetadataFor(isReadOnly));
     }
 
+    // A long command with a name and description, usually an inline script, is committed in full when it
+    // starts, so later presentations, including its yielded process, show only its name and description.
+    internal static string Summarize(string? name, string? description, string command) =>
+        IsNamedLongCommand(name, description, command) ? $"{name} · {description}" : command;
+
     private static Func<string> RunningTimer(RunningDuration runningDuration) =>
         () => $"running {runningDuration.Format()}";
 
@@ -76,32 +81,24 @@ internal sealed class ExecCommandToolPresenter(
                         : throw new FormatException("exec_command requires a string command.");
     }
 
-    // A long command with a name and description, usually an inline script, is committed in full when it
-    // starts, so later presentations show only its name and description.
     private static string Label(string argumentsJson, string command)
     {
-        if (!IsNamedLongCommand(argumentsJson, command))
-        {
-            return $"$ {command}";
-        }
-
         using var document = JsonDocument.Parse(argumentsJson);
         var root = document.RootElement;
-        return $"$ {OptionalString(root, "name")} · {OptionalString(root, "description")}";
+        return $"$ {Summarize(OptionalString(root, "name"), OptionalString(root, "description"), command)}";
     }
 
-    private static bool IsNamedLongCommand(string argumentsJson, string command)
+    private static bool IsNamedLongCall(string argumentsJson, string command)
     {
-        if (command.Length <= ExecCommandTool.LongCommandLength)
-        {
-            return false;
-        }
-
         using var document = JsonDocument.Parse(argumentsJson);
         var root = document.RootElement;
-        return OptionalString(root, "name") is not null
-            && !string.IsNullOrWhiteSpace(OptionalString(root, "description"));
+        return IsNamedLongCommand(OptionalString(root, "name"), OptionalString(root, "description"), command);
     }
+
+    private static bool IsNamedLongCommand(string? name, string? description, string command) =>
+        command.Length > ExecCommandTool.LongCommandLength
+        && name is not null
+        && !string.IsNullOrWhiteSpace(description);
 
     private static string LabelWithCommand(string argumentsJson, string command) =>
         $"{Label(argumentsJson, command)}\n{command}";

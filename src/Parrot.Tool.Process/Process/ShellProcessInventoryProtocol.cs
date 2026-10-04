@@ -64,6 +64,7 @@ internal static class ShellProcessInventoryProtocol
             ProcessId = state.ProcessId,
             Name = state.Name,
             Command = state.Command,
+            Description = state.Description,
             OriginToolCallId = state.OriginToolCallId,
             OwnerAgentSessionId = state.OwnerAgentSessionId,
             OwnerAgentName = state.OwnerAgentName,

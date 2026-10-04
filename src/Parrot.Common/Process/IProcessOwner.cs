@@ -36,6 +36,7 @@ internal interface IProcessOwner : IAsyncDisposable, IAgentWorkOwner
     IManagedShellProcess Start(
         string? requestedName,
         string command,
+        string description,
         string originToolCallId,
         ProcessEnvironmentOverrides environment,
         IAgentSession agent,

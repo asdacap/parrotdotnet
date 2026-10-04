@@ -67,6 +67,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         var firstProcess = first.Start(
             "shared",
             "sleep 30",
+            string.Empty,
             "call-id",
             ProcessEnvironmentOverrides.Empty,
             firstAgent,
@@ -75,6 +76,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         var secondProcess = second.Start(
             "shared",
             "sleep 30",
+            string.Empty,
             "call-id",
             ProcessEnvironmentOverrides.Empty,
             secondAgent,
@@ -83,6 +85,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         var firstOnlyProcess = first.Start(
             "first-only",
             "sleep 30",
+            string.Empty,
             "call-id",
             ProcessEnvironmentOverrides.Empty,
             firstAgent,
@@ -151,6 +154,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         var process = owner.Start(
             "completed-but-uncommitted",
             "true",
+            string.Empty,
             "call-id",
             ProcessEnvironmentOverrides.Empty,
             agent,
@@ -387,6 +391,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             "active-b",
             "build",
             "dotnet build",
+            string.Empty,
             "call-id",
             "agent-id",
             "main",
