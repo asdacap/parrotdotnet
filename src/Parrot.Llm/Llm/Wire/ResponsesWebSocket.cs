@@ -9,7 +9,8 @@ internal sealed class ResponsesWebSocket(
     WebSocket socket,
     IReadOnlyDictionary<string, string> responseHeaders,
     TimeSpan idleTimeout,
-    int maximumRequestBytes) : IAsyncDisposable
+    int maximumRequestBytes,
+    TimeProvider timeProvider) : IAsyncDisposable
 {
     public const int FrameBytes = 1 << 20;
 
@@ -18,9 +19,16 @@ internal sealed class ResponsesWebSocket(
 
     public static readonly TimeSpan DefaultIdleTimeout = TimeSpan.FromMinutes(5);
 
+    // The ChatGPT endpoint closes sockets idle for about 70s with 1011, which is only seen on the next send.
+    public static readonly TimeSpan ReuseLimit = TimeSpan.FromSeconds(60);
+
+    private long _lastExchange = timeProvider.GetTimestamp();
+
     public IReadOnlyDictionary<string, string> ResponseHeaders { get; } = responseHeaders;
 
     public WebSocketState State => socket.State;
+
+    public bool Stale => timeProvider.GetElapsedTime(_lastExchange) >= ReuseLimit;
 
     public async IAsyncEnumerable<LLMEvent> Send(
         byte[] request,
@@ -69,6 +77,7 @@ internal sealed class ResponsesWebSocket(
                 }
             }
 
+            _lastExchange = timeProvider.GetTimestamp();
             foreach (var published in response.CompleteEvents())
             {
                 yield return published;

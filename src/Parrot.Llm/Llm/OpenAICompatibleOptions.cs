@@ -45,6 +45,8 @@ internal sealed record OpenAICompatibleOptions
 
     public TimeSpan HeaderTimeout { get; init; } = TimeSpan.FromSeconds(60);
 
+    public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
+
     // Forwarded as the top-level "provider" object of each request body. Empty
     // unless the provider supports routing preferences (OpenRouter).
     public string ProviderPreferences { get; init; } = string.Empty;

@@ -58,6 +58,8 @@ internal sealed class ChatGptProvider : ILLMProvider
 
     public TimeSpan HeaderTimeout { get; init; } = TimeSpan.FromSeconds(60);
 
+    public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
+
     public int MaximumRequestBytes { get; init; } = new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes;
 
     public IUsageReporter? UsageReporter { get; }
@@ -87,7 +89,8 @@ internal sealed class ChatGptProvider : ILLMProvider
                 _endpoint,
                 HeaderTimeout,
                 ResponsesWebSocket.DefaultIdleTimeout,
-                MaximumRequestBytes));
+                MaximumRequestBytes,
+                TimeProvider));
     }
 
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) =>

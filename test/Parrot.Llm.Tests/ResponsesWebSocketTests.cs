@@ -34,7 +34,8 @@ internal sealed class ResponsesWebSocketTests
             socket,
             new Dictionary<string, string>(StringComparer.Ordinal),
             TimeSpan.FromSeconds(1),
-            1024);
+            1024,
+            TimeProvider.System);
         var attempt = new ProviderAttemptDiagnostics(
             TestDiagnosticLog.Instance,
             new Parrot.Diagnostics.DiagnosticEvent("provider", "request_started", Parrot.Diagnostics.DiagnosticSeverity.Information));
@@ -80,7 +81,8 @@ internal sealed class ResponsesWebSocketTests
             socket,
             new Dictionary<string, string>(StringComparer.Ordinal),
             TimeSpan.FromSeconds(1),
-            new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes);
+            new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes,
+            TimeProvider.System);
 
         await foreach (var published in connection.Send(request, new ResponsesAdapter.ParseState(), null, cancellationToken))
         {
@@ -103,7 +105,8 @@ internal sealed class ResponsesWebSocketTests
             new Uri("https://api.example.test/v1/responses"),
             TimeSpan.FromSeconds(10),
             ResponsesWebSocket.DefaultIdleTimeout,
-            new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes);
+            new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes,
+            TimeProvider.System);
 
         await using var connection = await client.Connect(
             new Dictionary<string, string>(StringComparer.Ordinal) { ["Authorization"] = "Bearer key" },
@@ -146,7 +149,8 @@ internal sealed class ResponsesWebSocketTests
             socket,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
             TimeSpan.FromSeconds(1),
-            new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes);
+            new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes,
+            TimeProvider.System);
         var request = ResponsesAdapter.Prepare(new LLMRequest
         {
             Model = "model",
@@ -185,7 +189,8 @@ internal sealed class ResponsesWebSocketTests
             socket,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
             TimeSpan.FromSeconds(1),
-            new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes);
+            new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes,
+            TimeProvider.System);
         var state = new ResponsesAdapter.ParseState();
 
         async Task Consume()
@@ -208,7 +213,8 @@ internal sealed class ResponsesWebSocketTests
             socket,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
             TimeSpan.FromMinutes(1),
-            new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes);
+            new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes,
+            TimeProvider.System);
         var state = new ResponsesAdapter.ParseState();
         using var cancelled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cancelled.CancelAfter(TimeSpan.FromMilliseconds(10));
@@ -242,7 +248,8 @@ internal sealed class ResponsesWebSocketTests
             socket,
             new Dictionary<string, string>(StringComparer.Ordinal),
             TimeSpan.FromSeconds(1),
-            maximumRequestBytes);
+            maximumRequestBytes,
+            TimeProvider.System);
 
         async Task Consume()
         {

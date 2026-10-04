@@ -24,6 +24,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     private readonly HttpClient _client;
     private readonly TimeSpan _headerTimeout;
     private readonly TimeSpan _streamIdleTimeout;
+    private readonly TimeProvider _timeProvider;
     private readonly string _providerPreferences;
     private readonly string _sessionHeader;
     private readonly string _sessionId = NewSessionId();
@@ -97,6 +98,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
             AuthHeadersForSession);
         _headerTimeout = options.HeaderTimeout;
         _streamIdleTimeout = options.StreamIdleTimeout;
+        _timeProvider = options.TimeProvider;
         _providerPreferences = options.ProviderPreferences;
         _websocketConnector = websocketConnector;
         _disableWebSocket = options.DisableWebSocket;
@@ -129,7 +131,8 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
                     _endpoint,
                     _headerTimeout,
                     ResponsesWebSocket.DefaultIdleTimeout,
-                    _maximumRequestBytes))
+                    _maximumRequestBytes,
+                    _timeProvider))
             : new StatelessProviderSession((request, cancellationToken) =>
                 CallHttp(sessionId, request, string.Empty, static _ => { }, cancellationToken));
     }

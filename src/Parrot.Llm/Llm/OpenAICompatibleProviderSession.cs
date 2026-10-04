@@ -53,7 +53,7 @@ internal sealed class OpenAICompatibleProviderSession(
             }
 
             // Idle remote closure may leave the socket locally Open; lineage belongs to that connection.
-            if (_resetConnection)
+            if (_resetConnection || _connection is { Stale: true })
             {
                 _completedResponse = null;
                 await Poison().ConfigureAwait(false);

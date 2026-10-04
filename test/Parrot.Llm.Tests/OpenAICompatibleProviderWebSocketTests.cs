@@ -435,6 +435,51 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
     }
 
     [Test]
+    [Arguments(59, false)]
+    [Arguments(60, true)]
+    public async Task Socket_idle_past_reuse_limit_is_replaced_with_a_full_request_without_retry(
+        int idleSeconds,
+        bool replaced,
+        CancellationToken cancellationToken)
+    {
+        using var socket = new ScriptedWebSocket([Completed, Completed.Replace("resp-1", "resp-2", StringComparison.Ordinal)]);
+        using var nextSocket = new ScriptedWebSocket([Completed.Replace("resp-1", "resp-2", StringComparison.Ordinal)]);
+        var connector = new ScriptedConnector([socket, nextSocket]);
+        var time = new ControlledTimeProvider();
+        using var handler = new EmptyHandler();
+        using var client = new HttpClient(handler, disposeHandler: false);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+                TimeProvider = time,
+            },
+            client,
+            connector);
+        await using var session = provider.OpenSession();
+
+        _ = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("hello")] }, cancellationToken));
+        time.AdvanceClock(TimeSpan.FromSeconds(idleSeconds));
+        var continuedRequest = new LLMRequest
+        {
+            Model = "model",
+            Messages = [LLMMessage.User("hello"), LLMMessage.Assistant("answer", []), LLMMessage.User("next")],
+        };
+        var continuedEvents = await Drain(session.Call(continuedRequest, cancellationToken));
+
+        using var continued = JsonDocument.Parse(replaced ? nextSocket.Sent[0] : socket.Sent[1]);
+        _ = await Assert.That(connector.Calls).IsEqualTo(replaced ? 2 : 1);
+        _ = await Assert.That(socket.Aborted).IsEqualTo(replaced);
+        _ = await Assert.That(continuedEvents.Any(item => item.Kind == LLMEventKind.Retry)).IsFalse();
+        _ = await Assert.That(continued.RootElement.TryGetProperty("previous_response_id", out _)).IsEqualTo(!replaced);
+        _ = await Assert.That(continued.RootElement.GetProperty("input").GetArrayLength()).IsEqualTo(replaced ? 3 : 1);
+    }
+
+    [Test]
     public async Task Turn_state_from_metadata_is_case_insensitive_and_write_once(CancellationToken cancellationToken)
     {
         const string firstState = "{\"type\":\"response.metadata\",\"headers\":{\"X-Codex-Turn-State\":\"metadata-state\"}}";
