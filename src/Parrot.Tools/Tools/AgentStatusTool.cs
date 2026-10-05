@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
+using Parrot.Context;
 using Parrot.Process;
 using Parrot.Statuses;
 
@@ -10,6 +11,8 @@ namespace Parrot.Tools;
 
 internal sealed class AgentStatusTool(IAgentResolver resolver) : ITool
 {
+    private const long RecentEntriesTokenBudget = 1000;
+
     public string Name => "agent_status";
 
     public bool IsEnabledAfterInterruption => true;
@@ -103,16 +106,39 @@ internal sealed class AgentStatusTool(IAgentResolver resolver) : ITool
             return;
         }
 
-        foreach (var entry in activity.Recent)
+        var entries = activity.Recent.Select(FormatRecentEntry).ToArray();
+        var includedCount = 0;
+        long tokens = 0;
+        while (includedCount < entries.Length)
         {
-            var content = entry.Content.Replace("\n", "\n  ", StringComparison.Ordinal);
-            _ = report.Append("\n- ")
-                .Append(entry.Kind == AgentSessionActivityEntryKind.ReasoningSummary
-                    ? "reasoning summary"
-                    : "assistant message")
-                .Append(" (").Append(FormatDuration(entry.Age)).Append(" ago): ")
-                .Append(content);
+            tokens += TokenEstimator.EstimateTokens(entries[^(includedCount + 1)]);
+            if (tokens > RecentEntriesTokenBudget)
+            {
+                break;
+            }
+
+            includedCount++;
         }
+
+        if (includedCount < entries.Length)
+        {
+            _ = report.Append("\n- ").Append(entries.Length - includedCount)
+                .Append(" older entries omitted to stay within 1K tokens; read the live output file for the full output");
+        }
+
+        foreach (var entry in entries[^includedCount..])
+        {
+            _ = report.Append(entry);
+        }
+    }
+
+    private static string FormatRecentEntry(AgentSessionActivityEntrySnapshot entry)
+    {
+        var kind = entry.Kind == AgentSessionActivityEntryKind.ReasoningSummary
+            ? "reasoning summary"
+            : "assistant message";
+        var content = entry.Content.Replace("\n", "\n  ", StringComparison.Ordinal);
+        return $"\n- {kind} ({FormatDuration(entry.Age)} ago): {content}";
     }
 
     private static string FormatDuration(TimeSpan duration)

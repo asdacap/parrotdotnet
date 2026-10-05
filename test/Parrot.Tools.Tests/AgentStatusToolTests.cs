@@ -113,6 +113,18 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         _ = await Assert.That(report).Contains("assistant message (2.0s ago): line one\n  line two");
         _ = await Assert.That(rejected).StartsWith("error: child agent not found:");
 
+        child.Activity.RecordAssistantMessage(new string('a', 2000));
+        child.Activity.RecordAssistantMessage(new string('b', 2000));
+        var truncated = (await tool.Execute(
+            new ToolInvocation("call", "{\"name\":\"child\"}"),
+            new TurnFixture(parent, router).Selection,
+            cancellationToken)).Text;
+
+        _ = await Assert.That(truncated).Contains("\n- 2 older entries omitted to stay within 1K tokens;");
+        _ = await Assert.That(truncated).Contains(new string('b', 2000));
+        _ = await Assert.That(truncated).DoesNotContain(new string('a', 2000));
+        _ = await Assert.That(truncated).DoesNotContain("line one");
+
         child.Activity.FinishTool(toolExecution);
         provider.Release();
         await registry.DisposeAsync();
