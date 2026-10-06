@@ -103,7 +103,9 @@ internal sealed class EnhancedTurnView(
                 if (renderActivityEvents)
                 {
                     await replace(
-                        [new AgentTaskProgressLiveValue(published.AgentTaskProgressSnapshot.Clone(), null)],
+                        AgentTaskProgressFormatter.Format(published.AgentTaskProgressSnapshot).Count > 0
+                            ? [new AgentTaskProgressLiveValue(published.AgentTaskProgressSnapshot.Clone(), null, null)]
+                            : [],
                         cancellationToken).ConfigureAwait(false);
                 }
 

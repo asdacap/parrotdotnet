@@ -91,7 +91,7 @@ internal sealed class ActiveWorkBlockerTests
         _ = await Assert.That(new AgentTaskActiveWorkBlocker(settled, TestModels.PromptTemplates).Observe()).IsNull();
 
         static AgentTask Declared(string name, AgentTaskExecutionStatus state) =>
-            new(name, [], $"Do {name}", AgentTaskPayload.FromInstruction("work"), "Done", null, state, null, null);
+            new(name, [], $"Do {name}", AgentTaskPayload.FromInstruction("work"), "Done", null, false, state, null, null);
     }
 
     [Test]
@@ -152,6 +152,11 @@ internal sealed class ActiveWorkBlockerTests
             throw new NotSupportedException();
 
         public IReadOnlyList<AgentTask> Snapshot() => tasks;
+
+        public AgentTaskDetail? CaptureDetail(string name) => throw new NotSupportedException();
+
+        public void ApplyVisibilityChanges(IReadOnlyList<AgentTask> previous, IReadOnlyList<AgentTask> incoming) =>
+            throw new NotSupportedException();
 
         public Task Settle() => Task.CompletedTask;
 

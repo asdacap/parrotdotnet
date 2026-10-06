@@ -455,12 +455,16 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
 
                     if (plan.TaskDeclarations.Count > 0)
                     {
-                        await activity.CommitContent(
-                            new AgentTaskDeclarationScrollbackValue(plan.TaskDeclarations),
-                            [],
-                            cancellationToken).ConfigureAwait(false);
+                        if (AgentTaskDeclarationFormatter.Format(plan.TaskDeclarations).Count > 0)
+                        {
+                            await activity.CommitContent(
+                                new AgentTaskDeclarationScrollbackValue(plan.TaskDeclarations),
+                                [],
+                                cancellationToken).ConfigureAwait(false);
+                        }
                     }
-                    else if (plan.TaskTree is { RootNodes.Count: > 0 })
+                    else if (plan.TaskTree is { RootNodes.Count: > 0 }
+                        && AgentTaskProgressFormatter.Format(plan.TaskTree).Count > 0)
                     {
                         await activity.CommitContent(
                             new AgentTaskProgressScrollbackValue(plan.TaskTree),

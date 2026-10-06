@@ -20,6 +20,7 @@ public sealed partial class AgentTaskProgressSnapshot
             Name = task.Name,
             Description = task.Description,
             Status = AgentTaskProgressStatus.Pending,
+            Hidden = task.Hidden,
         };
 
         if (task.Payload.Tasks is { } children)

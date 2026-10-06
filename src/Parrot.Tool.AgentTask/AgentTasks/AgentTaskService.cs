@@ -28,6 +28,7 @@ internal sealed class AgentTaskService(
     private readonly Lock _gate = new();
     private ulong _revision;
     private bool _complete;
+    private bool _allSucceeded;
     private Task? _settlement;
 
     public void SetTasks(IReadOnlyList<AgentTask> tasks, AgentTurnSelection selection, HistoryForkBoundary historyBoundary)
@@ -87,6 +88,50 @@ internal sealed class AgentTaskService(
         }
     }
 
+    public AgentTaskDetail? CaptureDetail(string name)
+    {
+        lock (_gate)
+        {
+            return Find(name) is { } entry
+                ? new AgentTaskDetail(entry.Task with { State = Effective(entry) }, entry.Scope?.Session.Name)
+                : null;
+        }
+    }
+
+    public void ApplyVisibilityChanges(IReadOnlyList<AgentTask> previous, IReadOnlyList<AgentTask> incoming)
+    {
+        lock (_gate)
+        {
+            if (_settlement is not null)
+            {
+                return;
+            }
+
+            var changed = false;
+            foreach (var before in previous)
+            {
+                if (incoming.FirstOrDefault(task => task.Name == before.Name) is not { } after
+                    || !before.HasSameDefinition(after)
+                    || before.HasSameVisibility(after)
+                    || Find(after.Name) is not { } entry
+                    || !entry.Task.HasSameDefinition(after))
+                {
+                    continue;
+                }
+
+                var updated = entry.Task.ApplyVisibilityChanges(before, after);
+                ApplyChildVisibility(entry, entry.Task, updated);
+                entry.Task = updated;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                Publish();
+            }
+        }
+    }
+
     public Task Settle()
     {
         lock (_gate)
@@ -96,6 +141,19 @@ internal sealed class AgentTaskService(
     }
 
     public ValueTask DisposeAsync() => new(Settle());
+
+    private static void ApplyChildVisibility(Entry entry, AgentTask stored, AgentTask incoming)
+    {
+        if (entry.Scope is not { } scope
+            || stored.Payload.HasSameVisibility(incoming.Payload)
+            || stored.Payload.Tasks is not { } previous
+            || incoming.Payload.Tasks is not { } updated)
+        {
+            return;
+        }
+
+        scope.GetService<IAgentTaskService>().ApplyVisibilityChanges(previous, updated);
+    }
 
     private async Task SettleCore()
     {
@@ -136,6 +194,8 @@ internal sealed class AgentTaskService(
         var stored = entry.Task;
         if (entry.Run is not null && incoming.State == AgentTaskExecutionStatus.Running && stored.HasSameDefinition(incoming))
         {
+            ApplyChildVisibility(entry, stored, incoming);
+            entry.Task = stored with { Hidden = incoming.Hidden, Payload = incoming.Payload };
             return;
         }
 
@@ -263,10 +323,15 @@ internal sealed class AgentTaskService(
         AgentTask? outcome = null;
         try
         {
-            run.Cancellation.Token.ThrowIfCancellationRequested();
-            var scope = entry.Scope ?? throw new InvalidOperationException("A running AgentTask requires an agent scope.");
-            outcome = await _runner.Run(task, siblings, dependencies, scope, entry.Selection, run.Cancellation.Token)
-                .ConfigureAwait(false);
+            Task<AgentTask> execution;
+            lock (_gate)
+            {
+                run.Cancellation.Token.ThrowIfCancellationRequested();
+                var scope = entry.Scope ?? throw new InvalidOperationException("A running AgentTask requires an agent scope.");
+                execution = _runner.Run(entry.Task, siblings, dependencies, scope, entry.Selection, run.Cancellation.Token);
+            }
+
+            outcome = await execution.ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (run.Cancellation.IsCancellationRequested)
         {
@@ -423,11 +488,23 @@ internal sealed class AgentTaskService(
 
     private void Publish()
     {
+        var allSucceeded = _entries.Count > 0
+            && _entries.All(entry => Effective(entry) == AgentTaskExecutionStatus.Succeeded);
+        if (allSucceeded && !_allSucceeded)
+        {
+            foreach (var entry in _entries)
+            {
+                entry.Task = entry.Task with { Hidden = true };
+            }
+        }
+
+        _allSucceeded = allSucceeded;
         var snapshot = new AgentTaskProgressSnapshot { Revision = checked(++_revision) };
         snapshot.RootNodes.Add(_entries.Select(entry => new AgentTaskProgressNode
         {
             Name = entry.Task.Name,
             Description = entry.Task.Description,
+            Hidden = entry.Task.Hidden,
             Status = Effective(entry) switch
             {
                 AgentTaskExecutionStatus.Pending => AgentTaskProgressStatus.Pending,

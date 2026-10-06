@@ -32,10 +32,9 @@ internal sealed class GetAgentTasksTool(IAgentTaskService agentTasks) : ITool
             return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.Error(invocation, failure.Message));
         }
 
-        var tasks = agentTasks.Snapshot();
         if (input.Name is not { } name)
         {
-            return Task.FromResult<ToolExecutionResult>(Write(writer => WriteSummaries(writer, tasks)));
+            return Task.FromResult<ToolExecutionResult>(Write(writer => WriteSummaries(writer, agentTasks.Snapshot())));
         }
 
         if (string.IsNullOrWhiteSpace(name))
@@ -44,8 +43,8 @@ internal sealed class GetAgentTasksTool(IAgentTaskService agentTasks) : ITool
         }
 
         return Task.FromResult<ToolExecutionResult>(
-            tasks.FirstOrDefault(task => string.Equals(task.Name, name, StringComparison.Ordinal)) is { } found
-                ? Write(writer => WriteTask(writer, found, true))
+            agentTasks.CaptureDetail(name) is { } found
+                ? Write(writer => WriteTask(writer, found.Task, found.AgentName, true))
                 : ToolResultFormatter.Error(invocation, $"AgentTask '{name}' does not exist."));
     }
 
@@ -69,13 +68,14 @@ internal sealed class GetAgentTasksTool(IAgentTaskService agentTasks) : ITool
             writer.WriteString("name", task.Name);
             writer.WriteString("state", State(task.State));
             writer.WriteString("description", task.Description);
+            writer.WriteBoolean("hidden", task.Hidden);
             writer.WriteEndObject();
         }
 
         writer.WriteEndArray();
     }
 
-    private static void WriteTask(Utf8JsonWriter writer, AgentTask task, bool withState)
+    private static void WriteTask(Utf8JsonWriter writer, AgentTask task, string? agentName, bool withExecution)
     {
         writer.WriteStartObject();
         writer.WriteString("name", task.Name);
@@ -96,7 +96,7 @@ internal sealed class GetAgentTasksTool(IAgentTaskService agentTasks) : ITool
             writer.WriteStartArray("payload");
             foreach (var child in task.Payload.Tasks ?? [])
             {
-                WriteTask(writer, child, false);
+                WriteTask(writer, child, null, false);
             }
 
             writer.WriteEndArray();
@@ -108,7 +108,13 @@ internal sealed class GetAgentTasksTool(IAgentTaskService agentTasks) : ITool
             writer.WriteString("model", model);
         }
 
-        if (withState)
+        writer.WriteBoolean("hidden", task.Hidden);
+        if (agentName is not null)
+        {
+            writer.WriteString("agent_name", agentName);
+        }
+
+        if (withExecution)
         {
             writer.WriteString("state", State(task.State));
             if (task.Result is { } result)

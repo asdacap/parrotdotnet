@@ -24,21 +24,36 @@ internal sealed class GetAgentTasksToolPresenter(IToolPresenter generic) : ITool
         var rows = new List<string>();
         if (ReadName(call) is null)
         {
-            var tasks = document.RootElement.EnumerateArray();
+            var tasks = document.RootElement.EnumerateArray().ToArray();
             foreach (var task in tasks)
             {
+                if (IsHidden(task))
+                {
+                    continue;
+                }
+
                 var state = ReadState(task);
                 rows.Add($"{Icon(state)} {state} · {ReadString(task, "name")} · {ReadString(task, "description")}");
             }
 
             if (rows.Count == 0)
             {
+                if (tasks.Length > 0)
+                {
+                    return null;
+                }
+
                 rows.Add("No agent tasks.");
             }
         }
         else
         {
             var task = document.RootElement;
+            if (IsHidden(task))
+            {
+                return null;
+            }
+
             rows.Add($"{ReadString(task, "name")} · {ReadState(task)}");
             AppendDefinition(task, string.Empty, rows, true);
         }
@@ -76,6 +91,7 @@ internal sealed class GetAgentTasksToolPresenter(IToolPresenter generic) : ITool
         if (withExecution)
         {
             rows.Add($"Description: {ReadString(task, "description")}");
+            AppendOptional(task, "agent_name", "Agent", indent, rows);
         }
 
         var dependencies = task.GetProperty("dependencies").EnumerateArray()
@@ -105,13 +121,21 @@ internal sealed class GetAgentTasksToolPresenter(IToolPresenter generic) : ITool
             return;
         }
 
-        rows.Add($"{indent}Declared child definitions:");
-        foreach (var child in payload.EnumerateArray())
+        var children = payload.EnumerateArray().Where(static child => !IsHidden(child)).ToArray();
+        if (children.Length > 0)
+        {
+            rows.Add($"{indent}Declared child definitions:");
+        }
+
+        foreach (var child in children)
         {
             rows.Add($"{indent}  {ReadString(child, "name")} · {ReadString(child, "description")}");
             AppendDefinition(child, indent + "    ", rows, false);
         }
     }
+
+    private static bool IsHidden(JsonElement task) =>
+        task.TryGetProperty("hidden", out var hidden) && hidden.GetBoolean();
 
     private static void AppendOptional(JsonElement task, string property, string label, string indent, List<string> rows)
     {

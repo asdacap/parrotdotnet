@@ -10,7 +10,7 @@ namespace Parrot.Core.Tests;
 internal sealed class SetAgentTasksToolTests : IDisposable
 {
     private const string Declarations =
-        """[{"name":"build","description":"Build it","payload":"Run the build","acceptance_criteria":"It builds"},{"name":"test","dependencies":["build"],"description":"Test it","payload":"Run the tests","acceptance_criteria":"Tests pass","state":"succeeded","result":"green"}]""";
+        """[{"name":"build","description":"Build it","payload":"Run the build","acceptance_criteria":"It builds","hidden":true},{"name":"test","dependencies":["build"],"description":"Test it","payload":"Run the tests","acceptance_criteria":"Tests pass","state":"succeeded","result":"green"}]""";
 
     private readonly string _root = Directory.CreateDirectory(
         Path.Combine(Path.GetTempPath(), "parrot-set-agent-tasks-tool-tests", Guid.NewGuid().ToString("N"))).FullName;
@@ -77,6 +77,8 @@ internal sealed class SetAgentTasksToolTests : IDisposable
         var call = agentTasks.Calls.Single();
         _ = await Assert.That(string.Join(",", call.Tasks.Select(task => $"{task.Name}:{task.State}:{task.Result}:{string.Join('+', task.Dependencies)}")))
             .IsEqualTo("build:Pending::,test:Succeeded:green:build");
+        _ = await Assert.That(call.Tasks[0].Hidden).IsTrue();
+        _ = await Assert.That(call.Tasks[1].Hidden).IsFalse();
         _ = await Assert.That(call.Selection).IsSameReferenceAs(selection);
         _ = await Assert.That(call.HistoryBoundary).IsEqualTo(new HistoryForkBoundary.BeforeToolBatch(7, "call-7"));
     }
@@ -125,6 +127,11 @@ internal sealed class SetAgentTasksToolTests : IDisposable
         }
 
         public IReadOnlyList<AgentTask> Snapshot() => [];
+
+        public AgentTaskDetail? CaptureDetail(string name) => throw new NotSupportedException();
+
+        public void ApplyVisibilityChanges(IReadOnlyList<AgentTask> previous, IReadOnlyList<AgentTask> incoming) =>
+            throw new NotSupportedException();
 
         public Task Settle() => Task.CompletedTask;
 

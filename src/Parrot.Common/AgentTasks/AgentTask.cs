@@ -7,6 +7,7 @@ internal sealed record AgentTask(
     AgentTaskPayload Payload,
     string AcceptanceCriteria,
     string? Model,
+    bool Hidden,
     AgentTaskExecutionStatus State,
     string? Result,
     string? Failure)
@@ -18,4 +19,14 @@ internal sealed record AgentTask(
         && Payload.HasSameDefinition(other.Payload)
         && AcceptanceCriteria == other.AcceptanceCriteria
         && Model == other.Model;
+
+    internal bool HasSameVisibility(AgentTask other) =>
+        Hidden == other.Hidden && Payload.HasSameVisibility(other.Payload);
+
+    internal AgentTask ApplyVisibilityChanges(AgentTask previous, AgentTask incoming) =>
+        this with
+        {
+            Hidden = previous.Hidden == incoming.Hidden ? Hidden : incoming.Hidden,
+            Payload = Payload.ApplyVisibilityChanges(previous.Payload, incoming.Payload),
+        };
 }

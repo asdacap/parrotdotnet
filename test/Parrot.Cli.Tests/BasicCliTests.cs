@@ -776,6 +776,35 @@ internal sealed class BasicCliTests
     }
 
     [Test]
+    public async Task Hidden_task_snapshots_and_plan_declarations_produce_no_empty_task_heading(
+        CancellationToken cancellationToken)
+    {
+        var tree = new AgentTaskProgressSnapshot
+        {
+            RootNodes = { new AgentTaskProgressNode { Name = "hidden", Hidden = true } },
+        };
+        var stream = new ChannelStreamWriter<Event>();
+        await stream.WriteAsync(new Event { AgentTaskProgressSnapshot = tree }, cancellationToken);
+        stream.Complete();
+        using var progress = new StringWriter();
+        using var error = new StringWriter();
+        _ = await BasicCli.RenderTurn(stream.Reader, progress, error, cancellationToken);
+        _ = await Assert.That(progress.ToString()).IsEmpty();
+
+        using var plan = new StringWriter();
+        await BasicCli.WritePlanReport(
+            new PlanCompleted
+            {
+                Markdown = "Approved plan",
+                TaskTree = tree,
+                TaskDeclarations = { new PlanTaskDeclaration { Name = "hidden declaration", Hidden = true } },
+            },
+            plan,
+            cancellationToken);
+        _ = await Assert.That(plan.ToString()).IsEqualTo("Approved plan" + Environment.NewLine);
+    }
+
+    [Test]
     public async Task Plan_report_writes_markdown_then_the_sanitized_pending_task_tree(
         CancellationToken cancellationToken)
     {

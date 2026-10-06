@@ -737,6 +737,7 @@ internal sealed class TerminalFrameRendererTests
                             new AgentTaskProgressNode { Name = "newest", Status = AgentTaskProgressStatus.Running },
                         },
                     },
+                    null,
                     null),
                 new ModelineValue("chat", string.Empty, "model"),
                 new PromptValue("> ", "draft", 5),

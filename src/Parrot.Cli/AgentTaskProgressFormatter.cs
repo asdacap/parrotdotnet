@@ -7,22 +7,28 @@ namespace Parrot.Cli;
 internal static class AgentTaskProgressFormatter
 {
     public static IReadOnlyList<string> Format(AgentTaskProgressSnapshot snapshot) =>
-        [.. FormatRows(snapshot, null).Select(static row => row.Text)];
+        [.. FormatRows(snapshot, null, null).Select(static row => row.Text)];
 
     /// <summary>
-    /// Formats the tree. A running node whose agent has a line in <paramref name="agentLines"/> shows that line in
-    /// place of its status icon, with the task description beneath it.
+    /// Formats visible branches, retaining paths to active workers beneath hidden nodes. An agent line replaces
+    /// the status icon, with the task description beneath it.
     /// </summary>
     internal static IReadOnlyList<AgentTaskRow> FormatRows(
         AgentTaskProgressSnapshot snapshot,
-        IReadOnlyDictionary<string, TaskAgentLine>? agentLines)
+        IReadOnlyDictionary<string, TaskAgentLine>? agentLines,
+        IReadOnlySet<string>? activeAgentSessionIds)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        var rows = new List<AgentTaskRow> { new("Agent tasks:", string.Empty) };
-        for (var index = 0; index < snapshot.RootNodes.Count; index++)
+        var nodes = SelectVisibleNodes(snapshot.RootNodes, false, activeAgentSessionIds);
+        if (nodes.Count == 0)
         {
-            var node = snapshot.RootNodes[index];
+            return [];
+        }
+
+        var rows = new List<AgentTaskRow> { new("Agent tasks:", string.Empty) };
+        foreach (var node in nodes)
+        {
             AppendNode(node, string.Empty, string.Empty, agentLines, rows);
             Append(node.Children, string.Empty, agentLines, rows);
         }
@@ -43,15 +49,49 @@ internal static class AgentTaskProgressFormatter
         return nested;
     }
 
-    internal static IEnumerable<string> RunningAgentSessionIds(AgentTaskProgressSnapshot snapshot) =>
-        snapshot.RootNodes.SelectMany(Flatten)
-            .Where(static node => node.Status == AgentTaskProgressStatus.Running && node.AgentSessionId.Length > 0)
+    internal static IEnumerable<string> GetEmbeddedAgentSessionIds(
+        AgentTaskProgressSnapshot snapshot,
+        IReadOnlyDictionary<string, TaskAgentLine> agentLines,
+        IReadOnlySet<string> activeAgentSessionIds) =>
+        SelectVisibleNodes(snapshot.RootNodes, false, activeAgentSessionIds).SelectMany(Flatten)
+            .Where(node => agentLines.ContainsKey(node.AgentSessionId))
+            .Select(static node => node.AgentSessionId);
+
+    internal static IEnumerable<string> GetVisibleChildGraphOwnerSessionIds(
+        AgentTaskProgressSnapshot snapshot,
+        IReadOnlySet<string> activeAgentSessionIds) =>
+        SelectVisibleNodes(snapshot.RootNodes, false, activeAgentSessionIds).SelectMany(Flatten)
+            .Where(static node => node.Children.Count > 0)
             .Select(static node => node.AgentSessionId);
 
     internal static string DisplayText(AgentTaskProgressNode node)
     {
         var text = string.IsNullOrEmpty(node.Description) ? node.Name : node.Description;
         return TerminalText.Sanitize(text).Replace('\n', ' ');
+    }
+
+    private static List<AgentTaskProgressNode> SelectVisibleNodes(
+        IEnumerable<AgentTaskProgressNode> nodes,
+        bool hiddenAncestor,
+        IReadOnlySet<string>? activeAgentSessionIds)
+    {
+        var visible = new List<AgentTaskProgressNode>();
+        foreach (var node in nodes)
+        {
+            var hidden = hiddenAncestor || node.Hidden;
+            var children = SelectVisibleNodes(node.Children, hidden, activeAgentSessionIds);
+            if (hidden && children.Count == 0 && activeAgentSessionIds?.Contains(node.AgentSessionId) != true)
+            {
+                continue;
+            }
+
+            var copy = node.Clone();
+            copy.Children.Clear();
+            copy.Children.Add(children);
+            visible.Add(copy);
+        }
+
+        return visible;
     }
 
     private static void Append(
@@ -77,8 +117,7 @@ internal static class AgentTaskProgressFormatter
         IReadOnlyDictionary<string, TaskAgentLine>? agentLines,
         List<AgentTaskRow> rows)
     {
-        if (node.Status == AgentTaskProgressStatus.Running
-            && agentLines is not null
+        if (agentLines is not null
             && agentLines.TryGetValue(node.AgentSessionId, out var agentLine))
         {
             rows.Add(AgentTaskRow.Create(lead, agentLine.Text) with

@@ -663,7 +663,7 @@ tools:
       type: object
       additionalProperties: false
   set_agent_tasks:
-    description: Upsert tasks by name into your own AgentTask graph. Each task whose dependencies all succeeded runs on a retained child agent named after the task, which implements and verifies it and retries internally on rejection; a restarted task continues in that same child session. You are notified when a task succeeds, when it fails after its retries, after each of your updates, and when every task is complete. A failed task holds its dependents until you resolve it by setting its state to pending to retry it, to succeeded with a result to accept it, or to canceled. Changing a running task's state or definition stops it. A canceled task also cancels every task that depends on it until it is set back to pending, and resetting a succeeded task to pending resets its dependents too. A task whose payload is a task array owns those child tasks in its child agent's own graph.
+    description: Upsert tasks by name into your own AgentTask graph. Each task whose dependencies all succeeded runs on a retained child agent named after the task, which implements and verifies it and retries internally on rejection; a restarted task continues in that same child session. You are notified when a task succeeds, when it fails after its retries, after each of your updates, and when every task is complete. A failed task holds its dependents until you resolve it by setting its state to pending to retry it, to succeeded with a result to accept it, or to canceled. Changing a running task's state or execution definition stops it. Updating only visibility with state running preserves its execution. A canceled task also cancels every task that depends on it until it is set back to pending, and resetting a succeeded task to pending resets its dependents too. Each agent sets hidden=true on all its tasks when its nonempty graph transitions to all-succeeded. A task whose payload is a task array owns those child tasks in its child agent's own graph.
     parameters:
       type: object
       properties:
@@ -705,6 +705,9 @@ tools:
               minLength: 1
               maxLength: 300
               description: Work the task must perform.
+            hidden:
+              type: boolean
+              description: Hide this task and its subtree from task-specific CLI views. Defaults to false. The CLI temporarily shows it while its worker is active. Each agent automatically sets this true when all tasks in its nonempty graph succeed.
             payload:
               oneOf:
               - type: string
@@ -748,7 +751,7 @@ tools:
           - acceptance_criteria
           additionalProperties: false
   get_agent_tasks:
-    description: Read your own AgentTask graph. Without a name, lists every task with its name, state, and description. With a name, returns that task in full, including its state, result, and failure, in the shape set_agent_tasks accepts.
+    description: Read your own AgentTask graph. Without a name, lists every task with its name, state, description, and hidden flag. With a name, returns that task in full, including its state, result, failure, and read-only agent_name for its retained worker, in the shape set_agent_tasks accepts plus execution metadata. Hidden tasks remain in the returned JSON. The CLI hides them from task-specific displays; live progress temporarily shows active workers and the paths to active descendants.
     parameters:
       type: object
       properties:

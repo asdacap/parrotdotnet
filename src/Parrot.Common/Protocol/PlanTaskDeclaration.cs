@@ -18,6 +18,7 @@ public sealed partial class PlanTaskDeclaration
             Status = AgentTaskProgressStatus.Pending,
             Description = task.Description,
             AcceptanceCriteria = task.AcceptanceCriteria,
+            Hidden = task.Hidden,
         };
         declaration.Dependencies.Add(task.Dependencies);
 

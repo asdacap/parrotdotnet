@@ -10,20 +10,20 @@ namespace Parrot.Core.Tests;
 internal sealed class GetAgentTasksToolTests
 {
     [Test]
-    [Arguments("{}", """[{"name":"build","state":"succeeded","description":"Build it"},{"name":"test","state":"failed","description":"Test it"},{"name":"ship","state":"pending","description":"Ship it"}]""")]
-    [Arguments("{\"name\":null}", """[{"name":"build","state":"succeeded","description":"Build it"},{"name":"test","state":"failed","description":"Test it"},{"name":"ship","state":"pending","description":"Ship it"}]""")]
-    [Arguments("{\"name\":\"build\"}", """{"name":"build","dependencies":[],"description":"Build it","payload":"Run the build","acceptance_criteria":"It builds","model":"fast","state":"succeeded","result":"built ✓ \"quoted\""}""")]
-    [Arguments("{\"name\":\"test\"}", """{"name":"test","dependencies":["build"],"description":"Test it","payload":"Run the tests","acceptance_criteria":"Tests pass","state":"failed","failure":"red"}""")]
-    [Arguments("{\"name\":\"ship\"}", """{"name":"ship","dependencies":["build","test"],"description":"Ship it","payload":[{"name":"tag","dependencies":[],"description":"Tag it","payload":"Tag the release","acceptance_criteria":"Tagged"}],"acceptance_criteria":"Shipped","state":"pending"}""")]
+    [Arguments("{}", """[{"name":"build","state":"succeeded","description":"Build it","hidden":true},{"name":"test","state":"failed","description":"Test it","hidden":false},{"name":"ship","state":"pending","description":"Ship it","hidden":false}]""")]
+    [Arguments("{\"name\":null}", """[{"name":"build","state":"succeeded","description":"Build it","hidden":true},{"name":"test","state":"failed","description":"Test it","hidden":false},{"name":"ship","state":"pending","description":"Ship it","hidden":false}]""")]
+    [Arguments("{\"name\":\"build\"}", """{"name":"build","dependencies":[],"description":"Build it","payload":"Run the build","acceptance_criteria":"It builds","model":"fast","hidden":true,"agent_name":"worker-build","state":"succeeded","result":"built ✓ \"quoted\""}""")]
+    [Arguments("{\"name\":\"test\"}", """{"name":"test","dependencies":["build"],"description":"Test it","payload":"Run the tests","acceptance_criteria":"Tests pass","hidden":false,"agent_name":"worker-test","state":"failed","failure":"red"}""")]
+    [Arguments("{\"name\":\"ship\"}", """{"name":"ship","dependencies":["build","test"],"description":"Ship it","payload":[{"name":"tag","dependencies":[],"description":"Tag it","payload":"Tag the release","acceptance_criteria":"Tagged","hidden":true}],"acceptance_criteria":"Shipped","hidden":false,"state":"pending"}""")]
     [Arguments("{\"name\":\"missing\"}", "error: AgentTask 'missing' does not exist.")]
     [Arguments("{\"name\":\" \"}", "error: Tool arguments require a nonblank string 'name'.")]
     public async Task Lists_every_task_or_returns_the_named_task_in_full(string arguments, string expected, CancellationToken cancellationToken)
     {
         var tasks = AgentTaskParser.ParseTaskSet("""
             [
-              {"name":"build","description":"Build it","payload":"Run the build","acceptance_criteria":"It builds","model":"fast","state":"succeeded","result":"built ✓ \"quoted\""},
+              {"name":"build","description":"Build it","payload":"Run the build","acceptance_criteria":"It builds","model":"fast","hidden":true,"state":"succeeded","result":"built ✓ \"quoted\""},
               {"name":"test","dependencies":["build"],"description":"Test it","payload":"Run the tests","acceptance_criteria":"Tests pass","state":"failed","failure":"red"},
-              {"name":"ship","dependencies":["build","test"],"description":"Ship it","payload":[{"name":"tag","description":"Tag it","payload":"Tag the release","acceptance_criteria":"Tagged"}],"acceptance_criteria":"Shipped"}
+              {"name":"ship","dependencies":["build","test"],"description":"Ship it","payload":[{"name":"tag","description":"Tag it","payload":"Tag the release","acceptance_criteria":"Tagged","hidden":true}],"acceptance_criteria":"Shipped"}
             ]
             """);
         await using var agentTasks = new SnapshotTaskService(tasks);
@@ -53,6 +53,14 @@ internal sealed class GetAgentTasksToolTests
             throw new NotSupportedException();
 
         public IReadOnlyList<AgentTask> Snapshot() => tasks;
+
+        public AgentTaskDetail? CaptureDetail(string name) =>
+            tasks.FirstOrDefault(task => task.Name == name) is { } task
+                ? new AgentTaskDetail(task, task.State == AgentTaskExecutionStatus.Pending ? null : "worker-" + name)
+                : null;
+
+        public void ApplyVisibilityChanges(IReadOnlyList<AgentTask> previous, IReadOnlyList<AgentTask> incoming) =>
+            throw new NotSupportedException();
 
         public Task Settle() => Task.CompletedTask;
 

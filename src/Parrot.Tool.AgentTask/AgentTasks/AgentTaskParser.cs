@@ -166,7 +166,7 @@ internal static class AgentTaskParser
     private static AgentTask ParseTask(JsonElement element, string path)
     {
         RequireObject(element, path);
-        RejectUnknown(element, path, "name", "dependencies", "description", "payload", "acceptance_criteria", "model", "state", "result", "failure");
+        RejectUnknown(element, path, "name", "dependencies", "description", "payload", "acceptance_criteria", "model", "hidden", "state", "result", "failure");
         var name = RequiredString(element, "name", path);
         var description = RequiredString(element, "description", path);
         if (description.Length > MaxDescriptionLength)
@@ -183,6 +183,7 @@ internal static class AgentTaskParser
             payload,
             criteria,
             OptionalString(element, "model", path),
+            OptionalBoolean(element, "hidden", path),
             ParseState(element, path),
             OptionalString(element, "result", path),
             OptionalString(element, "failure", path));
@@ -246,6 +247,21 @@ internal static class AgentTaskParser
         objectElement.TryGetProperty(name, out var value)
             ? Nonblank(RequireString(value, $"{path} {name}"), $"{path} {name}")
             : null;
+
+    private static bool OptionalBoolean(JsonElement objectElement, string name, string path)
+    {
+        if (!objectElement.TryGetProperty(name, out var value))
+        {
+            return false;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => throw new ArgumentException($"{path} {name} must be a boolean."),
+        };
+    }
 
     private static T Deserialize<T>(string json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)
     {

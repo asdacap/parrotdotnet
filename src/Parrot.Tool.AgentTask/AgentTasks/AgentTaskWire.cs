@@ -10,6 +10,7 @@ internal sealed record AgentTaskWire(
     [property: JsonPropertyName("payload")] JsonElement Payload,
     [property: JsonPropertyName("acceptance_criteria")] string? AcceptanceCriteria,
     [property: JsonPropertyName("model")] string? Model,
+    [property: JsonPropertyName("hidden")] bool? Hidden,
     [property: JsonPropertyName("state")] string? State,
     [property: JsonPropertyName("result")] string? Result,
     [property: JsonPropertyName("failure")] string? Failure);

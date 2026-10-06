@@ -551,9 +551,13 @@ internal sealed class RawActivityView(
         }
     }
 
+    private static bool ContainsHiddenTask(IEnumerable<AgentTaskProgressNode> nodes) =>
+        nodes.Any(static node => node.Hidden || ContainsHiddenTask(node.Children));
+
     private static ILiveBufferItem EmbedTaskAgentLines(
         ILiveBufferItem value,
         IReadOnlyDictionary<string, TaskAgentLine> taskAgentLines,
+        IReadOnlySet<string> activeAgentSessionIds,
         HashSet<string> embeddedAgentSessionIds)
     {
         if (value is not AgentTaskProgressLiveValue tree)
@@ -562,8 +566,8 @@ internal sealed class RawActivityView(
         }
 
         embeddedAgentSessionIds.UnionWith(
-            AgentTaskProgressFormatter.RunningAgentSessionIds(tree.Snapshot).Where(taskAgentLines.ContainsKey));
-        return new AgentTaskProgressLiveValue(tree.Snapshot, taskAgentLines);
+            AgentTaskProgressFormatter.GetEmbeddedAgentSessionIds(tree.Snapshot, taskAgentLines, activeAgentSessionIds));
+        return new AgentTaskProgressLiveValue(tree.Snapshot, taskAgentLines, activeAgentSessionIds);
     }
 
     private static string GetTerminalToolCallId(Event published) => published.PayloadCase switch
@@ -812,16 +816,16 @@ internal sealed class RawActivityView(
             return;
         }
 
-        await commit(
-            Wrap(state, new AgentTaskProgressScrollbackValue(pending.Snapshot)),
-            Snapshot(),
-            cancellationToken).ConfigureAwait(false);
-        pending.FlushedRevision = pending.Snapshot.Revision;
-        if (state.RetireAgentTaskProgress(pending.Snapshot.Revision))
+        if (AgentTaskProgressFormatter.Format(pending.Snapshot).Count > 0)
         {
-            _ = _pendingProgress.Remove(key);
-            await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+            await commit(
+                Wrap(state, new AgentTaskProgressScrollbackValue(pending.Snapshot)),
+                Snapshot(),
+                cancellationToken).ConfigureAwait(false);
         }
+
+        pending.FlushedRevision = pending.Snapshot.Revision;
+        await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
     }
 
     private async Task DelayAndCommitStart(
@@ -965,13 +969,47 @@ internal sealed class RawActivityView(
         var processes = _processes.Values
             .Where(process => !IsOriginToolActive(process.Process))
             .ToList();
+        var activeAgentSessionIds = _agentSessions.Values
+            .Where(static state => state.IsAgentActive)
+            .Select(static state => state.AgentSessionId)
+            .ToHashSet(StringComparer.Ordinal);
+        var taskTrees = _agentSessions.Values
+            .SelectMany(static state => state.AgentTaskProgress is { } tree ? [(state.AgentSessionId, Tree: tree)] : Array.Empty<(string AgentSessionId, AgentTaskProgressSnapshot Tree)>())
+            .ToDictionary(static entry => entry.AgentSessionId, static entry => entry.Tree, StringComparer.Ordinal);
+        foreach (var key in taskTrees.Keys.ToArray())
+        {
+            if (!_pendingProgress.TryGetValue(key, out var pending)
+                || pending.FlushedRevision < pending.Snapshot.Revision
+                || ContainsHiddenTask(AgentTaskProgressFormatter.Nest(taskTrees[key], taskTrees).RootNodes)
+                || _agentSessions.Values.Any(agent => agent.IsAgentActive && _hierarchy.IsDescendant(agent.AgentSessionId, key))
+                || !_agentSessions[key].RetireAgentTaskProgress(pending.Snapshot.Revision))
+            {
+                continue;
+            }
+
+            _ = _pendingProgress.Remove(key);
+            _ = taskTrees.Remove(key);
+        }
+
+        var nestedTaskTrees = taskTrees.Values
+            .SelectMany(static tree => tree.RootNodes)
+            .Select(static node => node.AgentSessionId)
+            .Where(taskTrees.ContainsKey)
+            .ToHashSet(StringComparer.Ordinal);
+        var visibleTaskTrees = taskTrees
+            .Where(tree => !nestedTaskTrees.Contains(tree.Key))
+            .Select(tree => (tree.Key, Tree: AgentTaskProgressFormatter.Nest(tree.Value, taskTrees)))
+            .Where(tree => AgentTaskProgressFormatter.FormatRows(tree.Tree, null, activeAgentSessionIds).Count > 0)
+            .ToArray();
         var ownerIds = activities.Select(static activity => activity.State.AgentSessionId)
             .Concat(processes.Select(static process => process.Process.OwnerAgentSessionId))
             .Concat(_queues.Keys.Select(static key => key.OwnerAgentSessionId))
             .Concat(_agentSessions.Values.Where(state => state.HasReasoning && _hierarchy.IsChild(state.AgentSessionId))
                 .Select(static state => state.AgentSessionId))
-            .Concat(_agentSessions.Values.Where(static state => state.AgentTaskProgress is not null)
-                .Select(static state => state.AgentSessionId))
+            .Concat(visibleTaskTrees.Select(static tree => tree.Key))
+            .Concat(visibleTaskTrees
+                .SelectMany(tree => AgentTaskProgressFormatter.GetVisibleChildGraphOwnerSessionIds(tree.Tree, activeAgentSessionIds))
+                .Where(taskTrees.ContainsKey))
             .Where(static ownerId => ownerId.Length > 0)
             .ToHashSet(StringComparer.Ordinal);
         foreach (var state in _agentSessions.Values)
@@ -995,16 +1033,7 @@ internal sealed class RawActivityView(
                 StringComparer.Ordinal);
         var embeddedAgentSessionIds = new HashSet<string>(StringComparer.Ordinal);
         var rows = new List<(string OwnerId, int Kind, string Id, ILiveBufferItem Item)>();
-        var taskTrees = _agentSessions.Values
-            .SelectMany(static state => state.AgentTaskProgress is { } tree ? [(state.AgentSessionId, Tree: tree)] : Array.Empty<(string AgentSessionId, AgentTaskProgressSnapshot Tree)>())
-            .ToDictionary(static entry => entry.AgentSessionId, static entry => entry.Tree, StringComparer.Ordinal);
-        var nestedTaskTrees = taskTrees.Values
-            .SelectMany(static tree => tree.RootNodes)
-            .Select(static node => node.AgentSessionId)
-            .Where(taskTrees.ContainsKey)
-            .ToHashSet(StringComparer.Ordinal);
-        rows.AddRange(taskTrees
-            .Where(tree => !nestedTaskTrees.Contains(tree.Key))
+        rows.AddRange(visibleTaskTrees
             .Select(tree =>
             (
                 tree.Key,
@@ -1012,8 +1041,9 @@ internal sealed class RawActivityView(
                 "task",
                 (ILiveBufferItem)new HierarchicalLiveValue(
                     EmbedTaskAgentLines(
-                        new AgentTaskProgressLiveValue(AgentTaskProgressFormatter.Nest(tree.Value, taskTrees), null),
+                        new AgentTaskProgressLiveValue(tree.Tree, null, activeAgentSessionIds),
                         taskAgentLines,
+                        activeAgentSessionIds,
                         embeddedAgentSessionIds),
                     _hierarchy.GetDepth(tree.Key),
                     _hierarchy.GetLabel(tree.Key),
@@ -1032,7 +1062,7 @@ internal sealed class RawActivityView(
 
         // Task trees are built first so an agent shown inside one keeps only its streamed response in its own branch.
         rows.AddRange(activities
-            .Select(activity => (Activity: activity, Item: CreateActivityItem(activity, taskAgentLines, embeddedAgentSessionIds)))
+            .Select(activity => (Activity: activity, Item: CreateActivityItem(activity, taskAgentLines, activeAgentSessionIds, embeddedAgentSessionIds)))
             .ToList()
             .Where(row => !row.Activity.State.IsAgentActivity(row.Activity.ActivityId)
                 || row.Activity.State.IsStreamingResponse
@@ -1356,6 +1386,7 @@ internal sealed class RawActivityView(
     private HierarchicalLiveValue CreateActivityItem(
         (AgentSessionState State, string ActivityId) activity,
         IReadOnlyDictionary<string, TaskAgentLine> taskAgentLines,
+        IReadOnlySet<string> activeAgentSessionIds,
         HashSet<string> embeddedAgentSessionIds)
     {
         var value = EmbedTaskAgentLines(
@@ -1365,6 +1396,7 @@ internal sealed class RawActivityView(
                 presenters,
                 reference => _hierarchy.ResolveAgentReference(activity.State.AgentSessionId, reference)),
             taskAgentLines,
+            activeAgentSessionIds,
             embeddedAgentSessionIds);
         var isAgentActivity = activity.State.IsAgentActivity(activity.ActivityId);
         var depth = _hierarchy.GetDepth(activity.State.AgentSessionId);

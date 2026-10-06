@@ -162,6 +162,39 @@ internal sealed class GetAgentTasksToolPresenterTests
         _ = await Assert.That(item.Render(Context)[0]).IsEqualTo("✓ tool call unknown");
     }
 
+    [Test]
+    [Arguments("{}", "[{\"name\":\"task\",\"state\":\"running\",\"description\":\"Work\",\"hidden\":true}]")]
+    [Arguments("{\"name\":\"task\"}", "{\"name\":\"task\",\"state\":\"succeeded\",\"hidden\":true}")]
+    public async Task All_hidden_tasks_produce_no_terminal_task_block(string arguments, string result)
+    {
+        var item = Registry().PresentTerminal(
+            new ToolCallPresentation("get_agent_tasks", arguments),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, result, string.Empty));
+
+        _ = await Assert.That(item).IsNull();
+    }
+
+    [Test]
+    public async Task Summary_filters_hidden_tasks_but_keeps_legacy_and_explicit_visible_tasks()
+    {
+        const string result = "[{\"name\":\"hidden\",\"state\":\"running\",\"description\":\"Hidden work\",\"hidden\":true},{\"name\":\"legacy\",\"state\":\"pending\",\"description\":\"Legacy work\"},{\"name\":\"shown\",\"state\":\"failed\",\"description\":\"Shown work\",\"hidden\":false}]";
+
+        _ = await Assert.That(string.Join('\n', Render("{}", result)))
+            .IsEqualTo("✓ Agent tasks\n  ○ pending · legacy · Legacy work\n  ✗ failed · shown · Shown work");
+    }
+
+    [Test]
+    public async Task Named_detail_shows_agent_name_and_omits_hidden_declared_subtrees()
+    {
+        const string result = "{\"name\":\"task\",\"description\":\"Root\",\"dependencies\":[],\"acceptance_criteria\":\"Done\",\"state\":\"running\",\"agent_name\":\"communicate-with-me\",\"payload\":[{\"name\":\"hidden child\",\"hidden\":true,\"payload\":[{\"name\":\"hidden grandchild\"}]}]}";
+        var text = string.Join('\n', Render("{\"name\":\"task\"}", result));
+
+        _ = await Assert.That(text).Contains("Agent: communicate-with-me");
+        _ = await Assert.That(text).DoesNotContain("hidden child");
+        _ = await Assert.That(text).DoesNotContain("hidden grandchild");
+        _ = await Assert.That(text).DoesNotContain("Declared child definitions:");
+    }
+
     private static ToolPresenterRegistry Registry()
     {
         IToolPresenter generic = new GenericToolPresenter();

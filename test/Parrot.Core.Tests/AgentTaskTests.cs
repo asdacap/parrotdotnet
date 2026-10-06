@@ -1,4 +1,5 @@
 using Parrot.AgentTasks;
+using Parrot.Protocol;
 
 namespace Parrot.Core.Tests;
 
@@ -23,6 +24,69 @@ internal sealed class AgentTaskTests
         _ = await Assert.That(artifact.DisplayName).IsEqualTo("2 top-level tasks");
         _ = await Assert.That(AgentTaskParser.ParseArtifact("""{"schema_version":1,"tasks":[{"name":"single","description":"d","payload":"p","acceptance_criteria":"a"}]}""").DisplayName)
             .IsEqualTo("single");
+    }
+
+    [Test]
+    public async Task Hidden_defaults_to_false_and_parses_recursively_from_artifacts_and_task_sets()
+    {
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"visible","description":"d","payload":[{"name":"hidden-child","description":"d","payload":"p","acceptance_criteria":"a","hidden":true}],"acceptance_criteria":"a"},{"name":"hidden","description":"d","payload":"p","acceptance_criteria":"a","hidden":true}]}
+            """);
+        var tasks = AgentTaskParser.ParseTaskSet("""
+            [{"name":"visible","description":"d","payload":"p","acceptance_criteria":"a"},{"name":"shown","description":"d","payload":"p","acceptance_criteria":"a","hidden":false}]
+            """);
+
+        _ = await Assert.That(artifact.Tasks[0].Hidden).IsFalse();
+        var children = artifact.Tasks[0].Payload.Tasks ?? throw new InvalidOperationException("The child declarations are missing.");
+        _ = await Assert.That(children[0].Hidden).IsTrue();
+        _ = await Assert.That(artifact.Tasks[1].Hidden).IsTrue();
+        _ = await Assert.That(tasks[0].Hidden).IsFalse();
+        _ = await Assert.That(tasks[1].Hidden).IsFalse();
+    }
+
+    [Test]
+    [Arguments("null")]
+    [Arguments("\"true\"")]
+    [Arguments("1")]
+    [Arguments("[]")]
+    [Arguments("{}")]
+    public async Task Hidden_rejects_non_boolean_values_recursively(string value)
+    {
+        var json = $$"""{"schema_version":1,"tasks":[{"name":"root","description":"d","payload":[{"name":"child","description":"d","payload":"p","acceptance_criteria":"a","hidden":{{value}}}],"acceptance_criteria":"a"}]}""";
+
+        _ = await Assert.That(() => AgentTaskParser.ParseArtifact(json)).Throws<ArgumentException>()
+            .WithMessage("tasks[0] payload[0] hidden must be a boolean.");
+        var taskSet = $$"""[{"name":"root","description":"d","payload":"p","acceptance_criteria":"a","hidden":{{value}}}]""";
+        _ = await Assert.That(() => AgentTaskParser.ParseTaskSet(taskSet)).Throws<ArgumentException>();
+    }
+
+    [Test]
+    public async Task Planned_task_conversions_preserve_hidden_recursively()
+    {
+        var tasks = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"root","description":"d","payload":[{"name":"child","description":"d","payload":"p","acceptance_criteria":"a","hidden":true}],"acceptance_criteria":"a","hidden":true}]}
+            """).Tasks;
+
+        var progress = AgentTaskProgressSnapshot.FromPlannedTasks(tasks);
+        var declarations = PlanTaskDeclaration.FromPlannedTasks(tasks);
+
+        _ = await Assert.That(progress.RootNodes[0].Hidden).IsTrue();
+        _ = await Assert.That(progress.RootNodes[0].Children[0].Hidden).IsTrue();
+        _ = await Assert.That(declarations[0].Hidden).IsTrue();
+        _ = await Assert.That(declarations[0].Children.Tasks[0].Hidden).IsTrue();
+    }
+
+    [Test]
+    public async Task Legacy_protobuf_task_messages_default_to_visible()
+    {
+        byte[] legacy = [10, 4, 116, 97, 115, 107];
+        var progress = AgentTaskProgressNode.Parser.ParseFrom(legacy);
+        var declaration = PlanTaskDeclaration.Parser.ParseFrom(legacy);
+
+        _ = await Assert.That(progress.Name).IsEqualTo("task");
+        _ = await Assert.That(progress.Hidden).IsFalse();
+        _ = await Assert.That(declaration.Name).IsEqualTo("task");
+        _ = await Assert.That(declaration.Hidden).IsFalse();
     }
 
     [Test]
@@ -160,6 +224,7 @@ internal sealed class AgentTaskTests
     [Test]
     [Arguments("{}")]
     [Arguments("[]")]
+    [Arguments("[{\"name\":\"x\",\"description\":\"d\",\"payload\":\"p\",\"acceptance_criteria\":\"a\",\"agent_name\":\"worker\"}]")]
     [Arguments("[{\"name\":\"x\",\"description\":\"d\",\"payload\":\"p\",\"acceptance_criteria\":\"a\",\"state\":\"blocked\"}]")]
     [Arguments("[{\"name\":\"x\",\"description\":\"d\",\"payload\":\"p\",\"acceptance_criteria\":\"a\",\"result\":\"  \"}]")]
     [Arguments("[{\"name\":\"x\",\"description\":\"d\",\"payload\":\"p\",\"acceptance_criteria\":\"a\"},{\"name\":\"x\",\"description\":\"d\",\"payload\":\"p\",\"acceptance_criteria\":\"a\"}]")]

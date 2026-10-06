@@ -191,7 +191,7 @@ internal sealed class AgentTaskProgressLiveValueTests
             Status = status,
         });
         var palette = new TerminalPalette(true);
-        var live = new AgentTaskProgressLiveValue(snapshot, null)
+        var live = new AgentTaskProgressLiveValue(snapshot, null, null)
             .Render(new LiveBufferRenderContext(30, palette));
         var scrollback = new AgentTaskProgressScrollbackValue(snapshot)
             .Render(new ScrollbackRenderContext(30, palette));
@@ -227,7 +227,7 @@ internal sealed class AgentTaskProgressLiveValueTests
             ["child"] = new("⠋ [child] ◆ working", icon) { GlyphStartIndex = "⠋ [child] ".Length },
         };
         var palette = new TerminalPalette(color);
-        var live = new AgentTaskProgressLiveValue(snapshot, agentLines)
+        var live = new AgentTaskProgressLiveValue(snapshot, agentLines, agentLines.Keys.ToHashSet(StringComparer.Ordinal))
             .Render(new LiveBufferRenderContext(80, palette));
 
         _ = await Assert.That(live.Lines[1].Text).IsEqualTo("  ⠋ [child] ◆ working");
@@ -265,7 +265,7 @@ internal sealed class AgentTaskProgressLiveValueTests
         };
         var palette = new TerminalPalette(true);
         var decoration = ActivityDecoration.Describe(columns, 1, null, string.Empty);
-        var live = new AgentTaskProgressLiveValue(snapshot, agentLines)
+        var live = new AgentTaskProgressLiveValue(snapshot, agentLines, agentLines.Keys.ToHashSet(StringComparer.Ordinal))
             .Render(new LiveBufferRenderContext(columns, palette) { Decoration = decoration });
         var styled = live.Lines.Where(static line => line.StyleSpans.Count > 0).ToArray();
 
@@ -286,9 +286,28 @@ internal sealed class AgentTaskProgressLiveValueTests
         }
     }
 
+    [Test]
+    public async Task Hidden_graphs_render_no_live_or_scrollback_decoration_but_active_workers_are_revealed()
+    {
+        var snapshot = new AgentTaskProgressSnapshot
+        {
+            RootNodes = { new AgentTaskProgressNode { Name = "finished", Hidden = true, Status = AgentTaskProgressStatus.Succeeded, AgentSessionId = "worker" } },
+        };
+        var context = new LiveBufferRenderContext(80, Palette);
+        var active = new HashSet<string>(StringComparer.Ordinal) { "worker" };
+        var lines = new Dictionary<string, TaskAgentLine>(StringComparer.Ordinal) { ["worker"] = new("worker is active", null) };
+        var live = new AgentTaskProgressLiveValue(snapshot, lines, active).Render(context);
+
+        _ = await Assert.That(Render(snapshot, 80)).IsEmpty();
+        _ = await Assert.That(Scrollback(snapshot, 80)).IsEmpty();
+        _ = await Assert.That(string.Join('|', live.Lines.Select(static line => line.Text)))
+            .IsEqualTo("• Agent tasks:|  worker is active|    finished");
+        _ = await Assert.That(snapshot.RootNodes[0].Hidden).IsTrue();
+    }
+
     private static string[] Render(AgentTaskProgressSnapshot snapshot, int columns)
     {
-        ILiveBufferItem value = new AgentTaskProgressLiveValue(snapshot, null);
+        ILiveBufferItem value = new AgentTaskProgressLiveValue(snapshot, null, null);
         return [.. value.Render(new LiveBufferRenderContext(columns, Palette)).Lines.Select(static line => line.Text)];
     }
 

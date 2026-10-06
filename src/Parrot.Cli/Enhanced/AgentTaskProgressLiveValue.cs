@@ -4,7 +4,8 @@ namespace Parrot.Cli.Enhanced;
 
 internal sealed class AgentTaskProgressLiveValue(
     AgentTaskProgressSnapshot snapshot,
-    IReadOnlyDictionary<string, TaskAgentLine>? agentLines) : ILiveBufferItem
+    IReadOnlyDictionary<string, TaskAgentLine>? agentLines,
+    IReadOnlySet<string>? activeAgentSessionIds) : ILiveBufferItem
 {
     public AgentTaskProgressSnapshot Snapshot => snapshot;
 
@@ -12,7 +13,7 @@ internal sealed class AgentTaskProgressLiveValue(
     {
         var columns = context.Decoration.ContentColumns(context.Columns);
         var rows = new List<TerminalLine>();
-        foreach (var row in AgentTaskProgressFormatter.FormatRows(snapshot, agentLines))
+        foreach (var row in AgentTaskProgressFormatter.FormatRows(snapshot, agentLines, activeAgentSessionIds))
         {
             var wrapped = TerminalText.LayoutWordsHanging(row.Text, columns, row.HangingIndent);
             var style = context.Palette.GetTaskStyle(row.Status, true);

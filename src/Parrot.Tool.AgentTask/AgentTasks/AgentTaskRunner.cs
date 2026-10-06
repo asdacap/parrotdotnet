@@ -40,6 +40,8 @@ internal sealed class AgentTaskRunner(AgentTaskConfig configuration)
                     return task with { State = AgentTaskExecutionStatus.Failed, Result = null, Failure = failure.Message };
                 }
             }
+
+            childTasks.ApplyVisibilityChanges(declared, children);
         }
 
         var feedback = new List<string>();

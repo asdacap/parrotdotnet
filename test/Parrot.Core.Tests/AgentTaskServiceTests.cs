@@ -133,6 +133,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
         Set(fixture, Declare("a", ",\"state\":\"pending\""));
         completed = await WaitFor(service, tasks => tasks.All(task => task.State == AgentTaskExecutionStatus.Succeeded && task.Result?.EndsWith(" 2", StringComparison.Ordinal) == true), cancellationToken);
         _ = await Assert.That(string.Join(",", completed.Select(task => task.Result))).IsEqualTo("a done 2,b done 2,c done 2");
+        _ = await Assert.That(completed.All(task => task.Hidden)).IsTrue();
         _ = await Assert.That(string.Join(",", fixture.Runtime.Sessions.Identities.Select(identity => identity.Name))).IsEqualTo("a,b,c");
         _ = await Assert.That(string.Join(",", fixture.Runtime.Sessions.ProfileIds.Distinct())).IsEqualTo("agent-task-payload");
         var progress = LastProgress(fixture.Runtime.Parent.SessionId);
@@ -326,6 +327,234 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
         _ = await Assert.That(compositeConversation).Contains("AgentTask role: composite owner")
             .And.Contains("\n[x] Do x\n[y] Do y");
         _ = await Assert.That(LastProgress(fixture.Runtime.Parent.SessionId).RootNodes.Single().AgentSessionId).IsEqualTo(composite.Session.SessionId);
+    }
+
+    [Test]
+    public async Task Unspawned_tasks_capture_detail_and_apply_visibility_without_creating_workers(CancellationToken cancellationToken)
+    {
+        var fixture = Fixture(new AgentTaskReplyProvider((_, _) => Task.FromResult("noted")), 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
+        await using var registry = fixture.Runtime.Registry;
+        await using var service = fixture.Service;
+        var child = Declare("child", string.Empty);
+        var blocked = Declare("blocked", ",\"dependencies\":[\"dependency\"]")
+            .Replace("\"Work on blocked\"", "[" + child + "]", StringComparison.Ordinal);
+        Set(fixture, Declare("dependency", ",\"state\":\"failed\""), blocked);
+        var detail = service.CaptureDetail("blocked") ?? throw new InvalidOperationException("The task is missing.");
+        _ = await Assert.That(detail.AgentName).IsNull();
+        _ = await Assert.That(detail.Task.State).IsEqualTo(AgentTaskExecutionStatus.Pending);
+        _ = await Assert.That(LastProgress(fixture.Runtime.Parent.SessionId).RootNodes.All(node => node.AgentSessionId.Length == 0)).IsTrue();
+
+        var before = service.Snapshot();
+        var incoming = AgentTaskParser.ParseTaskSet("[" + blocked.Replace(child, Declare("child", ",\"hidden\":true"), StringComparison.Ordinal) + "]");
+        service.ApplyVisibilityChanges(before, incoming);
+        var children = service.Snapshot()[1].Payload.Tasks ?? throw new InvalidOperationException("The child declarations are missing.");
+        _ = await Assert.That(children[0].Hidden).IsTrue();
+        _ = await Assert.That(service.CaptureDetail("blocked")?.AgentName).IsNull();
+        _ = await Assert.That(LastProgress(fixture.Runtime.Parent.SessionId).RootNodes.All(node => node.AgentSessionId.Length == 0)).IsTrue();
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Visibility_updates_preserve_running_execution_and_completion(bool hiddenAtCompletion, CancellationToken cancellationToken)
+    {
+        var arrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = new AgentTaskReplyProvider(async (request, token) =>
+        {
+            if (!AgentTaskReplyProvider.IsTaskAgent(request))
+            {
+                return "noted";
+            }
+
+            _ = arrived.TrySetResult();
+            await release.Task.WaitAsync(token);
+            return Accept("a done");
+        });
+        var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
+        await using var registry = fixture.Runtime.Registry;
+        await using var service = fixture.Service;
+        Set(fixture, Declare("a", string.Empty), Declare("blocker", ",\"state\":\"canceled\""));
+        await arrived.Task.WaitAsync(cancellationToken);
+        var scope = fixture.Runtime.Sessions.ResolveScope("a");
+
+        Set(fixture, Declare("a", ",\"state\":\"running\",\"hidden\":true"));
+        _ = await Assert.That(service.Snapshot()[0].Hidden).IsTrue();
+        _ = await Assert.That(LastProgress(fixture.Runtime.Parent.SessionId).RootNodes[0].Hidden).IsTrue();
+        _ = await Assert.That(service.CaptureDetail("a")?.AgentName).IsEqualTo(scope.Session.Name);
+        _ = await Assert.That(service.CaptureDetail("missing")).IsNull();
+        _ = await Assert.That(new AgentTaskActiveWorkBlocker(service, TestModels.PromptTemplates).Observe()?.WorkSection).Contains("- a [running]");
+
+        Set(fixture, Declare("a", ",\"state\":\"running\",\"hidden\":false"));
+        _ = await Assert.That(service.Snapshot()[0].Hidden).IsFalse();
+        Set(fixture, Declare("a", $",\"state\":\"running\",\"hidden\":{(hiddenAtCompletion ? "true" : "false")}"));
+        var beforeCompletion = service.Snapshot();
+        release.SetResult();
+        var settled = await WaitFor(service, tasks => tasks[0].State == AgentTaskExecutionStatus.Succeeded, cancellationToken);
+        _ = await Assert.That(settled[0].Hidden).IsEqualTo(hiddenAtCompletion);
+        _ = await Assert.That(settled[1].Hidden).IsFalse();
+        service.ApplyVisibilityChanges(beforeCompletion, [beforeCompletion[0] with { Hidden = !hiddenAtCompletion }]);
+        _ = await Assert.That(service.Snapshot()[0].Hidden).IsEqualTo(!hiddenAtCompletion);
+        _ = await Assert.That(service.Snapshot()[0].State).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
+        _ = await Assert.That(service.Snapshot()[0].Result).IsEqualTo("a done");
+        _ = await Assert.That(ReferenceEquals(scope, fixture.Runtime.Sessions.ResolveScope("a"))).IsTrue();
+        _ = await Assert.That(provider.Requests.Count(AgentTaskReplyProvider.IsTaskAgent)).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments("canceled")]
+    [Arguments("failed")]
+    [Arguments("pending")]
+    [Arguments("running")]
+    public async Task Automatic_hiding_requires_every_task_to_succeed(string state, CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskReplyProvider(async (request, token) =>
+        {
+            if (!AgentTaskReplyProvider.IsTaskAgent(request))
+            {
+                return "noted";
+            }
+
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            return Accept("unreachable");
+        });
+        var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
+        await using var registry = fixture.Runtime.Registry;
+        await using var service = fixture.Service;
+        _ = await Assert.That(service.Snapshot()).Count().IsEqualTo(0);
+        Set(fixture, Declare("a", ",\"state\":\"succeeded\""), Declare("b", $",\"state\":\"{state}\""));
+        _ = await Assert.That(service.Snapshot().Any(task => task.Hidden)).IsFalse();
+        _ = await Assert.That(LastProgress(fixture.Runtime.Parent.SessionId).RootNodes.Any(node => node.Hidden)).IsFalse();
+    }
+
+    [Test]
+    public async Task All_success_hides_once_per_transition_and_allows_explicit_unhide(CancellationToken cancellationToken)
+    {
+        var fixture = Fixture(new AgentTaskReplyProvider((_, _) => Task.FromResult("noted")), 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
+        await using var registry = fixture.Runtime.Registry;
+        await using var service = fixture.Service;
+        Set(fixture, Declare("a", ",\"state\":\"succeeded\""), Declare("b", ",\"state\":\"succeeded\""));
+        _ = await Assert.That(service.Snapshot().All(task => task.Hidden)).IsTrue();
+        _ = await Assert.That(LastProgress(fixture.Runtime.Parent.SessionId).RootNodes.All(node => node.Hidden)).IsTrue();
+        Set(fixture, Declare("a", ",\"state\":\"succeeded\",\"hidden\":false"));
+        _ = await Assert.That(service.Snapshot()[0].Hidden).IsFalse();
+        _ = await Assert.That(service.Snapshot()[1].Hidden).IsTrue();
+        Set(fixture, Declare("b", ",\"state\":\"succeeded\",\"hidden\":false"));
+        _ = await Assert.That(service.Snapshot().Any(task => task.Hidden)).IsFalse();
+        Set(fixture, Declare("b", ",\"state\":\"failed\""));
+        _ = await Assert.That(service.Snapshot().Any(task => task.Hidden)).IsFalse();
+        Set(fixture, Declare("b", ",\"state\":\"succeeded\""));
+        _ = await Assert.That(service.Snapshot().All(task => task.Hidden)).IsTrue();
+    }
+
+    [Test]
+    public async Task Restarted_hidden_task_runs_on_retained_agent_and_hides_again_on_success(CancellationToken cancellationToken)
+    {
+        var attempts = 0;
+        var arrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = new AgentTaskReplyProvider(async (request, token) =>
+        {
+            if (!AgentTaskReplyProvider.IsTaskAgent(request))
+            {
+                return "noted";
+            }
+
+            if (Interlocked.Increment(ref attempts) == 1)
+            {
+                return Accept("initial done");
+            }
+
+            _ = arrived.TrySetResult();
+            await release.Task.WaitAsync(token);
+            return Accept("restarted done");
+        });
+        var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
+        await using var registry = fixture.Runtime.Registry;
+        await using var service = fixture.Service;
+        Set(fixture, Declare("a", string.Empty));
+        _ = await WaitFor(service, tasks => tasks[0].State == AgentTaskExecutionStatus.Succeeded, cancellationToken);
+        var retained = fixture.Runtime.Sessions.ResolveScope("a");
+        _ = await Assert.That(service.Snapshot()[0].Hidden).IsTrue();
+        Set(fixture, Declare("a", ",\"state\":\"succeeded\",\"hidden\":false"));
+        _ = await Assert.That(service.Snapshot()[0].Hidden).IsFalse();
+
+        Set(fixture, Declare("a", ",\"state\":\"pending\",\"hidden\":true"));
+        await arrived.Task.WaitAsync(cancellationToken);
+        _ = await Assert.That(service.Snapshot()[0].State).IsEqualTo(AgentTaskExecutionStatus.Running);
+        _ = await Assert.That(service.Snapshot()[0].Hidden).IsTrue();
+        Set(fixture, Declare("a", ",\"state\":\"running\""));
+        _ = await Assert.That(service.Snapshot()[0].Hidden).IsFalse();
+        release.SetResult();
+        var completed = await WaitFor(service, tasks => tasks[0].State == AgentTaskExecutionStatus.Succeeded, cancellationToken);
+        _ = await Assert.That(completed[0].Hidden).IsTrue();
+        _ = await Assert.That(completed[0].Result).IsEqualTo("restarted done");
+        _ = await Assert.That(ReferenceEquals(retained, fixture.Runtime.Sessions.ResolveScope("a"))).IsTrue();
+        _ = await Assert.That(provider.Requests.Count(AgentTaskReplyProvider.IsTaskAgent)).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task Recursive_visibility_updates_preserve_child_execution_and_independent_success_hiding(CancellationToken cancellationToken)
+    {
+        var arrivals = new ConcurrentDictionary<string, TaskCompletionSource>(StringComparer.Ordinal);
+        var releases = new ConcurrentDictionary<string, TaskCompletionSource>(StringComparer.Ordinal);
+        foreach (var name in new[] { "root", "branch", "leaf", "peer" })
+        {
+            arrivals[name] = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            releases[name] = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        var provider = new AgentTaskReplyProvider(async (request, token) =>
+        {
+            if (!AgentTaskReplyProvider.IsTaskAgent(request))
+            {
+                return "noted";
+            }
+
+            var name = TaskName(request);
+            _ = arrivals[name].TrySetResult();
+            await releases[name].Task.WaitAsync(token);
+            return Accept(name + " done");
+        });
+        var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
+        await using var registry = fixture.Runtime.Registry;
+        await using var service = fixture.Service;
+        var leaf = Declare("leaf", string.Empty);
+        var branch = Declare("branch", string.Empty).Replace("\"Work on branch\"", "[" + leaf + "]", StringComparison.Ordinal);
+        var root = Declare("root", string.Empty).Replace("\"Work on root\"", "[" + branch + "," + Declare("peer", string.Empty) + "]", StringComparison.Ordinal);
+        Set(fixture, root);
+        await Task.WhenAll(arrivals.Values.Select(arrival => arrival.Task)).WaitAsync(cancellationToken);
+        var rootScope = fixture.Runtime.Sessions.ResolveScope("root");
+        var branchScope = fixture.Runtime.Sessions.ResolveScope("branch");
+        var children = rootScope.GetService<IAgentTaskService>();
+        var grandchildren = branchScope.GetService<IAgentTaskService>();
+        var hiddenLeaf = Declare("leaf", ",\"hidden\":true");
+        var hiddenBranch = Declare("branch", ",\"hidden\":true").Replace("\"Work on branch\"", "[" + hiddenLeaf + "]", StringComparison.Ordinal);
+        var update = Declare("root", ",\"state\":\"running\",\"hidden\":true").Replace("\"Work on root\"", "[" + hiddenBranch + "," + Declare("peer", string.Empty) + "]", StringComparison.Ordinal);
+        Set(fixture, update);
+        _ = await Assert.That(children.Snapshot()[0].Hidden).IsTrue();
+        _ = await Assert.That(children.Snapshot()[1].Hidden).IsFalse();
+        _ = await Assert.That(grandchildren.Snapshot()[0].Hidden).IsTrue();
+        _ = await Assert.That(children.Snapshot().All(task => task.State == AgentTaskExecutionStatus.Running)).IsTrue();
+        _ = await Assert.That(grandchildren.Snapshot()[0].State).IsEqualTo(AgentTaskExecutionStatus.Running);
+
+        Set(fixture, root.Replace("\"acceptance_criteria\":\"root works\"", "\"acceptance_criteria\":\"root works\",\"state\":\"running\"", StringComparison.Ordinal));
+        _ = await Assert.That(children.Snapshot().Any(task => task.Hidden)).IsFalse();
+        _ = await Assert.That(grandchildren.Snapshot()[0].Hidden).IsFalse();
+        _ = await Assert.That(provider.Requests.Count(AgentTaskReplyProvider.IsTaskAgent)).IsEqualTo(4);
+        releases["leaf"].SetResult();
+        _ = await WaitFor(grandchildren, tasks => tasks[0].State == AgentTaskExecutionStatus.Succeeded, cancellationToken);
+        _ = await Assert.That(grandchildren.Snapshot()[0].Hidden).IsTrue();
+        _ = await Assert.That(children.Snapshot().Any(task => task.Hidden)).IsFalse();
+        releases["branch"].SetResult();
+        releases["peer"].SetResult();
+        _ = await WaitFor(children, tasks => tasks.All(task => task.State == AgentTaskExecutionStatus.Succeeded), cancellationToken);
+        _ = await Assert.That(children.Snapshot().All(task => task.Hidden)).IsTrue();
+        _ = await Assert.That(service.Snapshot()[0].Hidden).IsFalse();
+        releases["root"].SetResult();
+        _ = await WaitFor(service, tasks => tasks[0].State == AgentTaskExecutionStatus.Succeeded, cancellationToken);
+        _ = await Assert.That(service.Snapshot()[0].Hidden).IsTrue();
+        _ = await Assert.That(fixture.Runtime.Sessions.Identities).Count().IsEqualTo(4);
     }
 
     [Test]

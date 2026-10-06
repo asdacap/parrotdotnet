@@ -33,8 +33,13 @@ internal static class AgentTaskDeclarationFormatter
 
     private static List<RenderedLine> Render(IReadOnlyList<PlanTaskDeclaration> declarations)
     {
-        var lines = new List<RenderedLine> { new("Agent tasks:", string.Empty) };
+        var lines = new List<RenderedLine>();
         Append(declarations, string.Empty, lines);
+        if (lines.Count > 0)
+        {
+            lines.Insert(0, new RenderedLine("Agent tasks:", string.Empty));
+        }
+
         return lines;
     }
 
@@ -45,6 +50,11 @@ internal static class AgentTaskDeclarationFormatter
     {
         foreach (var declaration in declarations)
         {
+            if (declaration.Hidden)
+            {
+                continue;
+            }
+
             var name = InlineValue(declaration.Name);
             lines.Add(new RenderedLine($"{itemIndent}- name: {name}", itemIndent + "  "));
             AppendScalar(lines, itemIndent + "  ", "description", declaration.Description);

@@ -91,6 +91,28 @@ internal sealed class AgentTaskDeclarationFormatterTests
     }
 
     [Test]
+    public async Task Hidden_declarations_hide_their_whole_subtree_and_empty_headings()
+    {
+        var hidden = new PlanTaskDeclaration
+        {
+            Name = "hidden",
+            Hidden = true,
+            Children = new PlanTaskDeclarationChildren
+            {
+                Tasks = { new PlanTaskDeclaration { Name = "visible child", Description = "Must stay hidden" } },
+            },
+        };
+        var shown = new PlanTaskDeclaration { Name = "shown", Description = "Shown work" };
+
+        _ = await Assert.That(AgentTaskDeclarationFormatter.Format([hidden])).IsEmpty();
+        _ = await Assert.That(AgentTaskDeclarationFormatter.FormatForWidth([hidden], 10)).IsEmpty();
+        _ = await Assert.That(string.Join('\n', AgentTaskDeclarationFormatter.Format([hidden, shown])))
+            .IsEqualTo("Agent tasks:\n- name: shown\n  description: Shown work");
+        _ = await Assert.That(hidden.Children.Tasks.Count).IsEqualTo(1);
+        _ = await Assert.That(hidden.Hidden).IsTrue();
+    }
+
+    [Test]
     public async Task Format_sanitizes_names_and_multiline_descriptions_without_block_markers()
     {
         var declarations = new[]

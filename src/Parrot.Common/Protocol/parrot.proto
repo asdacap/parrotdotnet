@@ -592,6 +592,7 @@ message AgentTaskProgressNode {
   string description = 4;
   // Session of the task's retained child agent; that agent's own task graph nests under this node.
   string agent_session_id = 5;
+  bool hidden = 6;
 }
 
 // The owning agent's whole task graph, keyed by the event's agent session.
@@ -946,6 +947,7 @@ message PlanTaskDeclaration {
     string instruction = 7;
     PlanTaskDeclarationChildren children = 8;
   }
+  bool hidden = 9;
 }
 
 message PlanTaskDeclarationChildren {
