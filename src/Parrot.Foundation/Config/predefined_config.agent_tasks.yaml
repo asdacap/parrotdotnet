@@ -1,18 +1,4 @@
 prompt_templates:
-  agent-task.role-prompts:
-    template: |-
-      AgentTask role: {role}
-      {header}{feedback}{execution}{nested}{instruction}{declaration}{path}{response}
-    allowed_arguments: [role, header, feedback, execution, nested, instruction, declaration, path, response]
-    required_arguments: [role, header, feedback, execution, nested, instruction, declaration, path, response]
-  agent-task.ancestor-header:
-    template: "\nAncestor tasks (root to parent):"
-    allowed_arguments: []
-    required_arguments: []
-  agent-task.context-header:
-    template: "\nPreparation context (root to current):"
-    allowed_arguments: []
-    required_arguments: []
   agent-task.dependency-header:
     template: "\nDirect dependency summaries:"
     allowed_arguments: []
@@ -49,20 +35,6 @@ prompt_templates:
       Retry feedback:{items}
     allowed_arguments: [items]
     required_arguments: [items]
-  agent-task.nested-results:
-    template: |-
-      Nested task results (structured JSON):
-      {results}
-    allowed_arguments: [results]
-    required_arguments: [results]
-  agent-task.nested-summary:
-    template: 'nested task graph: {succeeded}/{total} tasks succeeded'
-    allowed_arguments: [succeeded, total]
-    required_arguments: [succeeded, total]
-  agent-task.blocked-dependency:
-    template: 'dependency did not succeed'
-    allowed_arguments: []
-    required_arguments: []
   agent-task.child-scope:
     template: 'AgentTask {role} for {task_name}'
     allowed_arguments: [role, task_name]
