@@ -640,10 +640,10 @@ a human-readable Markdown plan and an AgentTask JSON artifact. It completes only
 when both files are nonblank and the JSON validates. The `PlanCompleted` dialog
 presents the Markdown followed by the validated approved pending task hierarchy
 for approval. This is the approved declaration before execution, not one of the
-later `AgentTaskProgressSnapshot` execution trees: preparation patches and retry
-payloads can replace a run's effective subtree without changing that approved
-hierarchy. Choosing implementation changes to build mode with both approved
-paths and directs it to call `run_agent_tasks` with the JSON path. The tool
+later `AgentTaskProgressSnapshot` execution trees. Composite prompts supply the
+approved inner definitions, while their children explicitly declare and manage
+the graphs that produce actual worker progress. Choosing implementation changes
+to build mode with both approved paths and directs it to call `run_agent_tasks` with the JSON path. The tool
 reopens and validates that regular, non-symbolic-link file at invocation time;
 approval does not make a later changed artifact trusted. This approved workflow
 remains path-based even though callers may also submit an embedded artifact
@@ -727,9 +727,10 @@ link until an agent exists. Dependency history is copied atomically through the
 latest safe prefix, stopping before the first incomplete tool batch and excluding
 later conversation groups. This does not require the dependency agent to be idle.
 Owner inheritance uses the history before the invoking tool-call batch, excluding
-that live batch and its sibling calls. Internally created nested tasks use their
-owner's completed history, limited to a safe prefix if needed. A nested task remains
-owned by its retained composite parent even when it inherits a sibling's history.
+that live batch and its sibling calls. A composite agent declares nested tasks
+through its own `set_agent_tasks` calls, using the same tool-batch history boundary.
+A nested task remains owned by the agent that declared it, even when it inherits
+a sibling's history.
 If the source has been compacted, the child receives its effective compacted
 history: the current summary, associated status when present, and safe retained
 tail, not the pre-compaction transcript.
@@ -757,10 +758,17 @@ child fails the call with an error naming it. No suffix naming occurs on the
 tool path. AgentTask retained reuse via `GetOrSpawnScope` still reuses existing
 same-name children and never suffixes.
 
-Composite tasks use one retained composite agent for distinct preparation and
-validation turns, and that agent owns the recursively executed nested child
-agents. An instruction leaf creates an `agent-task-payload` child only when no
-same-name child exists; that child implements and verifies the instruction.
+Composite and instruction tasks use the same retained-agent execution lifecycle.
+An instruction task sends its instruction to the child prompt. A composite task
+sends its complete inner task list as JSON and tells the child to declare and
+manage that work with `set_agent_tasks`. The runtime does not register the list
+or synchronize it with the child's graph. Retried and restarted children inspect
+and reconcile supplied definitions themselves. Parent declaration output still
+shows the supplied inner list; actual worker progress follows the graph the child
+declares. Existing user prompt overrides that assume automatic registration must
+be updated to this contract; Parrot does not rewrite user configuration.
+A task creates an `agent-task-payload` child only when no same-name child exists;
+that child implements and verifies the assigned work.
 Reused agents keep their identity, history, model, profile, and completion-delivery
 policy; they do not receive another history fork or consume another retained-agent
 reservation. On each retry the same retained session receives a new user prompt
@@ -774,15 +782,15 @@ times before the task fails. Every AgentTask role prompt uses the session's
 `SendAndWaitForResult` path. Calls on one session reserve full executions in FIFO
 order: a later prompt is not admitted until its predecessor has completed its
 turn-completion callbacks and retries, terminal bookkeeping, and parent-completion
-delivery, and each call receives its own execution result. Thus validation on a
-retained composite agent starts as a distinct turn after any unrelated execution
-already running on that agent. Newly created task agents use retained-only
+delivery, and each call receives its own execution result. A task's prompt waits
+behind any unrelated execution already running on its retained agent.
+Newly created task agents use retained-only
 completion delivery, so their role completions do not steer the invoking agent;
 the owning graph's terminal completion does. Reused manually spawned agents retain
 their existing completion-delivery policy and may also send ordinary completion
 notifications. A task's `model` is resolved only when creating a new agent;
 otherwise the existing agent's model and profile are preserved, including when a
-preparation patch changes the requested model. A new child without a task model
+task definition changes the requested model. A new child without a task model
 inherits the invoking turn's requested model.
 
 Canceling a task waiting behind unrelated work cancels only its queued prompt,
@@ -793,60 +801,44 @@ input from pending work and records an `InputCanceled` audit event; unrelated
 pending messages and already-promoted conversation history remain intact.
 Ordinary agent interruption retains its existing pending-input behavior.
 
-Composite tasks begin with a mandatory preparation phase. It returns strict JSON
-with nonblank `context` and may omit `task_patch`; when supplied, the patch is
-sparse and may replace only `description`, `payload`, `acceptance_criteria`, or
-`model`. Omitted fields remain unchanged. The patch is validated for that run
-only and never writes back to the approved artifact. Descendants receive the
-ordered root-to-parent ancestor declarations and root-to-current preparation
-contexts, each labelled with its task path. They never receive sibling or cousin
-preparation context. Direct dependency summaries are also supplied to a ready task.
+Composite tasks have no separate runtime preparation or validation phase.
+Their prompt tells the child to register and manage its graph, resolve child
+failures, and return its result. Ready tasks receive direct dependency summaries
+and sibling scope information. The full supplied inner list includes recursive
+payloads, dependencies, acceptance criteria, model, visibility, state, and any
+results or failures. The runtime preserves the list rather than truncating it;
+large nested definitions therefore consume more prompt space than summaries.
+Parent nested visibility updates change only the parent's stored declaration,
+not tasks the child has declared.
 
-The retained composite agent then reviews its nested result in a distinct
-validation turn; nested task agents remain children owned by that composite
-agent. The strict composite validation forms are:
-
-```json
-{"verdict":"accept","evidence":"nonblank"}
-{"verdict":"reject_and_halt","feedback":"nonblank"}
-{"verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","context":"optional replacement preparation context"}
-```
-
-An instruction leaf response must return JSON with nonblank `result` and exactly one
-strict verdict: `accept` with nonblank evidence, `reject_and_halt` with nonblank
-feedback, or `reject_and_retry` with nonblank feedback and a replacement
-instruction string or task array. The strict leaf response forms are:
+Both task types return a nonblank `result` and exactly one strict verdict.
+The composite prompt asks for these forms:
 
 ```json
-{"result":"nonblank","verdict":"accept","evidence":"nonblank"}
+{"result":"nonblank","verdict":"accept"}
 {"result":"nonblank","verdict":"reject_and_halt","feedback":"nonblank"}
-{"result":"nonblank","verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","replacement_result":"optional nonblank replacement result"}
+{"result":"nonblank","verdict":"reject_and_retry","feedback":"nonblank"}
 ```
 
-`result` is required and nonblank on every leaf response. The
-`replacement_result` member is optional and permitted only on the
-`reject_and_retry` form. The legacy `reject` and `retry` verdict strings and old
-leaf `context`/`replacement_context` members are intentionally incompatible. An
-`accept` verdict is authoritative: it succeeds even if a composite task's nested
-result contains failures, which remain visible in the result. `reject_and_halt`
-fails immediately. Only `reject_and_retry` initiates another attempt; optional
-`replacement_result` replaces the result carried into later attempts and direct
-dependents. When omitted, the response's result is carried forward. A retry may
-replace the payload with another instruction or task array. An instruction
-replacement continues in the same retained leaf session. A task-array
-replacement transitions to composite preparation, nested execution, and later
-validation; composite preparation context remains separate.
+The instruction prompt also permits optional retry replacements:
 
-For a leaf, response `result` becomes the serialized top-level `result`, accepted
-`evidence` remains validation evidence, and retry feedback is retained as failure
-feedback when applicable. Leaf `context` is null: preparation context belongs only
-to composite lifecycle. Leaf `task_patch` and `execution` are null or absent
-because there is no leaf execution transcript. Composite results retain their
-preparation context/patch, nested execution, validation fields, and nested child
-results. Direct dependents receive only each declared dependency's bounded
-`result` (with existing fallbacks when no result exists), preserving declaration
-order and blocking semantics. The AgentTask v1 artifact envelope and schema above
-are unchanged.
+```json
+{"result":"nonblank","verdict":"reject_and_retry","feedback":"nonblank","payload":"optional replacement instruction","replacement_result":"optional nonblank replacement result"}
+```
+
+Both responses use the same parser and acceptance lifecycle. `accept` succeeds
+without a runtime check that the supplied inner list was registered.
+`reject_and_halt` fails immediately. `reject_and_retry` starts another attempt
+in the same retained session with feedback and the prior result. The optional
+`replacement_result` replaces the result carried into later attempts; otherwise
+the response's result is carried forward. The parser accepts an optional
+replacement instruction string on a retry, but the runner applies it only to an
+instruction payload. A retry cannot replace a composite task array through its
+response. The child manages any graph changes with `set_agent_tasks` instead.
+
+Direct dependents receive each declared dependency's bounded `result`, preserving
+declaration order and blocking semantics. The AgentTask v1 artifact envelope and
+schema above are unchanged.
 
 `agent_tasks.fork_history_mode` is a global strict string with three values:
 
@@ -866,26 +858,24 @@ the new default.
 
 `agent_tasks.maximum_attempts` is global runtime configuration enforced
 independently for every task invocation. It accepts any positive `Int32`,
-defaults to 5, and includes the first payload execution. Composite preparation runs
-once per invocation, not once per retry. If the final attempt returns
-`reject_and_retry`, its feedback and replacement context remain on the latest
-composite result, but no replacement payload runs and the task fails. Composite
-payloads recursively rerun their sibling graph on each retry. Large limits and
-composite retries can repeat costly or side-effecting work; choose a small bound
-and declare dependencies for mutation ordering.
+defaults to 5, and includes the first payload execution. If the final attempt
+returns `reject_and_retry`, the task fails with its feedback and carried result;
+no further attempt runs. Composite retries send the supplied list again without
+rerunning or synchronizing the child's graph. The child decides how to reconcile
+its existing work. Large limits can repeat costly or side-effecting agent work;
+choose a small bound and declare dependencies for mutation ordering.
 
 `agent_tasks.maximum_response_repairs` bounds how many times one role turn is
 re-prompted after an invalid, empty, or schema-violating reply. It accepts any
 positive `Int32`, defaults to 3, and does not count toward `maximum_attempts`.
 
 Ready sibling tasks run concurrently. A failed, blocked, or canceled dependency
-blocks only its descendants; independent siblings continue. The returned JSON
-is a hierarchical result: graph and per-task statuses, attempt count, preparation
-context, any run-local patch, execution, verdict/evidence, failure or blocking
-dependencies, and nested task results. Cancellation stops runner-owned children
-and waits for them to finish before cancellation propagates. This workflow has
-no rollback and no resume facility. Parallel tasks share one workspace, so the
-planner must express dependencies for any mutation ordering; the scheduler
+blocks only its descendants; independent siblings continue. Task results and
+failures arrive as notifications and remain available through `get_agent_tasks`.
+Composite results are the child agent's returned summaries, not runtime-assembled
+nested execution records. Cancellation stops runner-owned work and waits for it
+to finish before cancellation propagates. This workflow has no rollback.
+Parallel tasks share one workspace, so the planner must express dependencies for any mutation ordering; the scheduler
 cannot make undeclared concurrent writes safe.
 
 While the graph runs, the server also emits additive `AgentTaskProgressSnapshot`
@@ -893,9 +883,9 @@ events. Each event is a complete, ordered tree for one `run_agent_tasks` call,
 not a delta: an initial snapshot contains every task as pending, and subsequent
 snapshots are emitted when tasks become running, reach a terminal state, become
 blocked, or their effective subtree changes. The status icons are `○` pending,
-`◐` running, `✓` succeeded, `✗` failed, `⊘` blocked, and `■` canceled. Preparation
-patches and retry payloads replace the displayed descendants with the current
-effective subtree, so stale attempt descendants are not retained. Cancellation
+`◐` running, `✓` succeeded, `✗` failed, `⊘` blocked, and `■` canceled. Descendants
+reflect the actual graphs declared by retained child agents, not merely the
+inner lists supplied in composite prompts. Cancellation
 publishes a final snapshot after runner-owned children have been joined, then
 propagates cancellation.
 

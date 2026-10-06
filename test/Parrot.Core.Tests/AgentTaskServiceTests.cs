@@ -289,7 +289,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
     }
 
     [Test]
-    public async Task Composite_task_runs_its_children_in_its_own_agent_task_service(CancellationToken cancellationToken)
+    public async Task Composite_task_registers_delivered_children_only_when_its_agent_declares_them(CancellationToken cancellationToken)
     {
         RuntimeContext? runtime = null;
         var provider = new AgentTaskReplyProvider(async (request, token) =>
@@ -299,14 +299,30 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
                 return "noted";
             }
 
+            if (!AgentTaskReplyProvider.Prompt(request).Contains("Task: ", StringComparison.Ordinal))
+            {
+                return Accept("parent done");
+            }
+
             var name = TaskName(request);
             if (name != "parent")
             {
+                if (name == "y")
+                {
+                    var owner = (runtime ?? throw new InvalidOperationException("The runtime is not ready.")).Sessions.ResolveScope("parent").GetService<IAgentTaskService>();
+                    _ = await Assert.That(owner.Snapshot().Single(task => task.Name == "x").State).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
+                    _ = await Assert.That(AgentTaskReplyProvider.Prompt(request)).Contains("Result: x done");
+                }
+
                 return Accept($"{name} done");
             }
 
-            var children = (runtime ?? throw new InvalidOperationException("The runtime is not ready.")).Sessions.ResolveScope("parent").GetService<IAgentTaskService>();
-            _ = await WaitFor(children, tasks => tasks.All(task => task.State == AgentTaskExecutionStatus.Succeeded), token);
+            var context = runtime ?? throw new InvalidOperationException("The runtime is not ready.");
+            var children = context.Sessions.ResolveScope("parent").GetService<IAgentTaskService>();
+            _ = await Assert.That(children.Snapshot()).IsEmpty();
+            _ = await Assert.That(context.Sessions.Identities.Select(identity => identity.Name)).IsEquivalentTo(["parent"]);
+            children.SetTasks(PromptTasks(request), context.Selection, new HistoryForkBoundary.AfterCompletedHistory());
+            _ = await WaitFor(children, tasks => tasks.Count == 2 && tasks.All(task => task.State == AgentTaskExecutionStatus.Succeeded), token);
             return Accept("parent done");
         });
         var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
@@ -325,8 +341,172 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             .IsEqualTo("parent:False,x:True,y:True");
         var compositeConversation = AgentTaskReplyProvider.Conversation(provider.Requests.First(request => AgentTaskReplyProvider.IsTaskAgent(request) && TaskName(request) == "parent"));
         _ = await Assert.That(compositeConversation).Contains("AgentTask role: composite owner")
-            .And.Contains("\n[x] Do x\n[y] Do y");
+            .And.Contains("Use set_agent_tasks to declare and manage this work");
+        var delivered = PromptTasks(provider.Requests.First(request => AgentTaskReplyProvider.IsTaskAgent(request) && TaskName(request) == "parent"));
+        _ = await Assert.That(delivered.Select(task => task.Name)).IsEquivalentTo(["x", "y"]);
+        _ = await Assert.That(delivered[1].Dependencies).IsEquivalentTo(["x"]);
+        _ = await Assert.That(provider.Requests.Where(request => AgentTaskReplyProvider.IsTaskAgent(request) && AgentTaskReplyProvider.Prompt(request).Contains("Task: ", StringComparison.Ordinal)).Select(TaskName)).IsEquivalentTo(["parent", "x", "y"]);
         _ = await Assert.That(LastProgress(fixture.Runtime.Parent.SessionId).RootNodes.Single().AgentSessionId).IsEqualTo(composite.Session.SessionId);
+    }
+
+    [Test]
+    public async Task Composite_prompt_preserves_complete_recursive_definitions_without_registering_them(CancellationToken cancellationToken)
+    {
+        const string definition = """
+            {"name":"parent","description":"Own work","payload":[
+              {"name":"source","description":"Quote \" and braces {}","payload":"Line one\nLine two \"{}\"","acceptance_criteria":"Source evidence","model":"chosen-model","hidden":true,"state":"succeeded","result":"Source result"},
+              {"name":"nested","description":"Nested work","dependencies":["source"],"payload":[
+                {"name":"failed","description":"Failed work","payload":"Fix it","acceptance_criteria":"Failure evidence","state":"failed","result":"Partial result","failure":"Failure reason"}
+              ],"acceptance_criteria":"Nested evidence","state":"canceled"}
+            ],"acceptance_criteria":"Done"}
+            """;
+        RuntimeContext? runtime = null;
+        var provider = new AgentTaskReplyProvider(async (request, token) =>
+        {
+            if (!AgentTaskReplyProvider.IsTaskAgent(request))
+            {
+                return "noted";
+            }
+
+            var context = runtime ?? throw new InvalidOperationException("The runtime is not ready.");
+            var scope = context.Sessions.ResolveScope("parent");
+            _ = await Assert.That(scope.GetService<IAgentTaskService>().Snapshot()).IsEmpty();
+            _ = await Assert.That(context.Sessions.Identities).Count().IsEqualTo(1);
+            var expected = Tasks(definition).Single().Payload.Tasks ?? throw new InvalidOperationException("Missing inner tasks.");
+            var delivered = PromptTasks(request);
+            _ = await Assert.That(delivered.Count).IsEqualTo(2);
+            _ = await Assert.That(delivered.Zip(expected).All(pair => pair.First.HasSameDefinition(pair.Second)
+                && pair.First.HasSameVisibility(pair.Second))).IsTrue();
+            _ = await Assert.That(delivered[0].Payload.Instruction).IsEqualTo("Line one\nLine two \"{}\"");
+            _ = await Assert.That(delivered[0].Model).IsEqualTo("chosen-model");
+            _ = await Assert.That(delivered[0].State).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
+            _ = await Assert.That(delivered[0].Result).IsEqualTo("Source result");
+            _ = await Assert.That(delivered[1].State).IsEqualTo(AgentTaskExecutionStatus.Canceled);
+            var nested = delivered[1].Payload.Tasks ?? throw new InvalidOperationException("Missing nested tasks.");
+            _ = await Assert.That(nested.Single().State).IsEqualTo(AgentTaskExecutionStatus.Failed);
+            _ = await Assert.That(nested.Single().Result).IsEqualTo("Partial result");
+            _ = await Assert.That(nested.Single().Failure).IsEqualTo("Failure reason");
+            _ = await Assert.That(AgentTaskReplyProvider.Prompt(request)).DoesNotContain("agent_name");
+            return Accept("No registration required");
+        });
+        var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
+        runtime = fixture.Runtime;
+        await using var registry = fixture.Runtime.Registry;
+        await using var service = fixture.Service;
+        Set(fixture, definition);
+        var completed = await WaitFor(service, tasks => tasks.Single().State == AgentTaskExecutionStatus.Succeeded, cancellationToken);
+        _ = await Assert.That(completed.Single().Result).IsEqualTo("No registration required");
+        _ = await Assert.That(fixture.Runtime.Sessions.Identities).Count().IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Composite_retries_and_definition_restarts_preserve_independently_declared_child_graph(CancellationToken cancellationToken)
+    {
+        RuntimeContext? runtime = null;
+        var attempts = 0;
+        var provider = new AgentTaskReplyProvider(async (request, token) =>
+        {
+            if (!AgentTaskReplyProvider.IsTaskAgent(request))
+            {
+                return "noted";
+            }
+
+            if (!AgentTaskReplyProvider.Prompt(request).Contains("AgentTask role: composite owner", StringComparison.Ordinal))
+            {
+                return Volatile.Read(ref attempts) == 1
+                    ? """{"result":"Try again","verdict":"reject_and_retry","feedback":"Retry without touching my graph"}"""
+                    : Accept("parent done");
+            }
+
+            var context = runtime ?? throw new InvalidOperationException("The runtime is not ready.");
+            var children = context.Sessions.ResolveScope("parent").GetService<IAgentTaskService>();
+            var attempt = Interlocked.Increment(ref attempts);
+            if (attempt == 1)
+            {
+                _ = await Assert.That(children.Snapshot()).IsEmpty();
+                children.SetTasks(Tasks(Declare("shared", ",\"state\":\"canceled\"").Replace("Work on shared", "Child-owned edit", StringComparison.Ordinal), Declare("extra", ",\"state\":\"canceled\"")), context.Selection, new HistoryForkBoundary.AfterCompletedHistory());
+                return """{"result":"Try again","verdict":"reject_and_retry","feedback":"Retry without touching my graph"}""";
+            }
+
+            if (attempt == 2)
+            {
+                _ = await Assert.That(AgentTaskReplyProvider.Prompt(request)).Contains("Retry without touching my graph");
+            }
+
+            _ = await Assert.That(States(children.Snapshot())).IsEqualTo("shared:Canceled,extra:Canceled");
+            _ = await Assert.That(children.Snapshot()[0].Payload.Instruction).IsEqualTo("Child-owned edit");
+            _ = await Assert.That(context.Sessions.Identities).Count().IsEqualTo(1);
+            _ = await Assert.That(PromptTasks(request).Select(task => task.Name)).IsEquivalentTo(["shared", "missing"]);
+            return Accept("parent done");
+        });
+        var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
+        runtime = fixture.Runtime;
+        await using var registry = fixture.Runtime.Registry;
+        await using var service = fixture.Service;
+        var declaration = Declare("parent", string.Empty).Replace("\"Work on parent\"", "[" + Declare("shared", string.Empty) + "," + Declare("missing", string.Empty) + "]", StringComparison.Ordinal);
+        Set(fixture, declaration);
+        _ = await WaitFor(service, tasks => tasks.Single().State == AgentTaskExecutionStatus.Succeeded, cancellationToken);
+        Set(fixture, declaration.Replace("parent works", "Updated acceptance", StringComparison.Ordinal));
+        _ = await WaitFor(service, tasks => tasks.Single().State == AgentTaskExecutionStatus.Succeeded, cancellationToken);
+        _ = await Assert.That(attempts).IsEqualTo(3);
+        _ = await Assert.That(fixture.Runtime.Sessions.Identities).Count().IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Composite_nested_visibility_changes_remain_local_without_restarting_execution(CancellationToken cancellationToken)
+    {
+        RuntimeContext? runtime = null;
+        var arrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requests = 0;
+        var provider = new AgentTaskReplyProvider(async (request, token) =>
+        {
+            if (!AgentTaskReplyProvider.IsTaskAgent(request))
+            {
+                return "noted";
+            }
+
+            if (!AgentTaskReplyProvider.Prompt(request).Contains("AgentTask role: composite owner", StringComparison.Ordinal))
+            {
+                return Accept("parent done");
+            }
+
+            _ = Interlocked.Increment(ref requests);
+            var context = runtime ?? throw new InvalidOperationException("The runtime is not ready.");
+            var children = context.Sessions.ResolveScope("parent").GetService<IAgentTaskService>();
+            _ = await Assert.That(children.Snapshot()).IsEmpty();
+            children.SetTasks(Tasks(Declare("shared", ",\"state\":\"canceled\"")), context.Selection, new HistoryForkBoundary.AfterCompletedHistory());
+            arrived.SetResult();
+            await release.Task.WaitAsync(token);
+            return Accept("parent done");
+        });
+        var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
+        runtime = fixture.Runtime;
+        await using var registry = fixture.Runtime.Registry;
+        await using var service = fixture.Service;
+        var declaration = Declare("parent", string.Empty).Replace("\"Work on parent\"", "[" + Declare("shared", ",\"state\":\"canceled\"") + "]", StringComparison.Ordinal);
+        Set(fixture, declaration);
+        await arrived.Task.WaitAsync(cancellationToken);
+        var scope = fixture.Runtime.Sessions.ResolveScope("parent");
+        var child = scope.GetService<IAgentTaskService>();
+        var original = service.Snapshot().Single();
+        var hiddenPayload = AgentTaskPayload.FromTasks([(original.Payload.Tasks ?? throw new InvalidOperationException("Missing tasks.")).Single() with { Hidden = true }]);
+        service.SetTasks([original with { State = AgentTaskExecutionStatus.Running, Payload = hiddenPayload }], fixture.Runtime.Selection, new HistoryForkBoundary.AfterCompletedHistory());
+        _ = await Assert.That((service.Snapshot().Single().Payload.Tasks ?? throw new InvalidOperationException("Missing tasks.")).Single().Hidden).IsTrue();
+        _ = await Assert.That(child.Snapshot().Single().Hidden).IsFalse();
+        var before = service.Snapshot();
+        service.ApplyVisibilityChanges(before, [before.Single() with { Payload = original.Payload }]);
+        _ = await Assert.That((service.Snapshot().Single().Payload.Tasks ?? throw new InvalidOperationException("Missing tasks.")).Single().Hidden).IsFalse();
+        before = service.Snapshot();
+        service.ApplyVisibilityChanges(before, [before.Single() with { Payload = hiddenPayload }]);
+        _ = await Assert.That((service.Snapshot().Single().Payload.Tasks ?? throw new InvalidOperationException("Missing tasks.")).Single().Hidden).IsTrue();
+        _ = await Assert.That(child.Snapshot().Single().Hidden).IsFalse();
+        _ = await Assert.That(service.Snapshot().Single().State).IsEqualTo(AgentTaskExecutionStatus.Running);
+        _ = await Assert.That(service.CaptureDetail("parent")?.AgentName).IsEqualTo(scope.Session.Name);
+        _ = await Assert.That(requests).IsEqualTo(1);
+        release.SetResult();
+        _ = await WaitFor(service, tasks => tasks.Single().State == AgentTaskExecutionStatus.Succeeded, cancellationToken);
+        _ = await Assert.That(requests).IsEqualTo(1);
     }
 
     [Test]
@@ -494,7 +674,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
     }
 
     [Test]
-    public async Task Recursive_visibility_updates_preserve_child_execution_and_independent_success_hiding(CancellationToken cancellationToken)
+    public async Task Recursive_declarations_do_not_control_child_visibility_or_independent_success_hiding(CancellationToken cancellationToken)
     {
         var arrivals = new ConcurrentDictionary<string, TaskCompletionSource>(StringComparer.Ordinal);
         var releases = new ConcurrentDictionary<string, TaskCompletionSource>(StringComparer.Ordinal);
@@ -504,6 +684,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             releases[name] = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
+        RuntimeContext? runtime = null;
         var provider = new AgentTaskReplyProvider(async (request, token) =>
         {
             if (!AgentTaskReplyProvider.IsTaskAgent(request))
@@ -512,11 +693,24 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             }
 
             var name = TaskName(request);
+            if (!AgentTaskReplyProvider.Prompt(request).Contains("Task: ", StringComparison.Ordinal))
+            {
+                return Accept(name + " done");
+            }
+
+            if (name is "root" or "branch" && AgentTaskReplyProvider.Prompt(request).Contains("AgentTask role: composite owner", StringComparison.Ordinal))
+            {
+                var context = runtime ?? throw new InvalidOperationException("The runtime is not ready.");
+                var childTasks = context.Sessions.ResolveScope(name).GetService<IAgentTaskService>();
+                childTasks.SetTasks(PromptTasks(request), context.Selection, new HistoryForkBoundary.AfterCompletedHistory());
+            }
+
             _ = arrivals[name].TrySetResult();
             await releases[name].Task.WaitAsync(token);
             return Accept(name + " done");
         });
         var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
+        runtime = fixture.Runtime;
         await using var registry = fixture.Runtime.Registry;
         await using var service = fixture.Service;
         var leaf = Declare("leaf", string.Empty);
@@ -532,16 +726,16 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
         var hiddenBranch = Declare("branch", ",\"hidden\":true").Replace("\"Work on branch\"", "[" + hiddenLeaf + "]", StringComparison.Ordinal);
         var update = Declare("root", ",\"state\":\"running\",\"hidden\":true").Replace("\"Work on root\"", "[" + hiddenBranch + "," + Declare("peer", string.Empty) + "]", StringComparison.Ordinal);
         Set(fixture, update);
-        _ = await Assert.That(children.Snapshot()[0].Hidden).IsTrue();
+        _ = await Assert.That(children.Snapshot()[0].Hidden).IsFalse();
         _ = await Assert.That(children.Snapshot()[1].Hidden).IsFalse();
-        _ = await Assert.That(grandchildren.Snapshot()[0].Hidden).IsTrue();
+        _ = await Assert.That(grandchildren.Snapshot()[0].Hidden).IsFalse();
         _ = await Assert.That(children.Snapshot().All(task => task.State == AgentTaskExecutionStatus.Running)).IsTrue();
         _ = await Assert.That(grandchildren.Snapshot()[0].State).IsEqualTo(AgentTaskExecutionStatus.Running);
 
         Set(fixture, root.Replace("\"acceptance_criteria\":\"root works\"", "\"acceptance_criteria\":\"root works\",\"state\":\"running\"", StringComparison.Ordinal));
         _ = await Assert.That(children.Snapshot().Any(task => task.Hidden)).IsFalse();
         _ = await Assert.That(grandchildren.Snapshot()[0].Hidden).IsFalse();
-        _ = await Assert.That(provider.Requests.Count(AgentTaskReplyProvider.IsTaskAgent)).IsEqualTo(4);
+        _ = await Assert.That(provider.Requests.Count(request => AgentTaskReplyProvider.IsTaskAgent(request) && AgentTaskReplyProvider.Prompt(request).Contains("Task: ", StringComparison.Ordinal))).IsEqualTo(4);
         releases["leaf"].SetResult();
         _ = await WaitFor(grandchildren, tasks => tasks[0].State == AgentTaskExecutionStatus.Succeeded, cancellationToken);
         _ = await Assert.That(grandchildren.Snapshot()[0].Hidden).IsTrue();
@@ -858,6 +1052,15 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             .And.DoesNotContain("after-incomplete-marker");
         _ = await Assert.That(next.Messages.Any(message => message.ToolCalls.Count > 0)).IsFalse();
         _ = await Assert.That(AgentTaskReplyProvider.Prompt(next)).Contains("accepted while active");
+    }
+
+    private static IReadOnlyList<AgentTask> PromptTasks(LLMRequest request)
+    {
+        const string marker = "The following inner task list is supplied as prompt data, not registered in your AgentTask graph:\n";
+        var prompt = AgentTaskReplyProvider.Prompt(request);
+        var start = prompt.IndexOf(marker, StringComparison.Ordinal) + marker.Length;
+        var end = prompt.IndexOf("\nUse set_agent_tasks", start, StringComparison.Ordinal);
+        return AgentTaskParser.ParseTaskSet(prompt[start..end]);
     }
 
     private static string Accept(string result) => $$"""{"result":"{{result}}","verdict":"accept"}""";

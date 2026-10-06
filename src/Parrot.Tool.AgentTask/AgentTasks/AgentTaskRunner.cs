@@ -1,7 +1,7 @@
 using System.Text;
+using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Config;
-using Parrot.Store;
 
 namespace Parrot.AgentTasks;
 
@@ -13,37 +13,16 @@ internal sealed class AgentTaskRunner(AgentTaskConfig configuration)
     private const int MaxPromptCharacters = 256 * 1024;
 
     /// <summary>
-    /// Returns the task in its Succeeded or Failed state. A composite task first upserts its changed children into the
-    /// sub-agent's own task service, which the sub-agent then owns. Cancellation stops the sub-agent's turn and throws.
+    /// Returns the task in its Succeeded or Failed state. The sub-agent receives the instruction or inner task list
+    /// in its prompt and manages its own task graph. Cancellation stops the sub-agent's turn and throws.
     /// </summary>
     internal async Task<AgentTask> Run(
         AgentTask task,
         IReadOnlyList<AgentTask> siblings,
         IReadOnlyList<AgentTask> dependencies,
         IAgentSessionScope scope,
-        AgentTurnSelection selection,
         CancellationToken cancellationToken)
     {
-        if (task.Payload.Tasks is { } children)
-        {
-            var childTasks = scope.GetService<IAgentTaskService>();
-            var declared = childTasks.Snapshot();
-            var changed = children.Where(child => !declared.Any(current => current.HasSameDefinition(child))).ToArray();
-            if (changed.Length > 0)
-            {
-                try
-                {
-                    childTasks.SetTasks(changed, selection, new HistoryForkBoundary.AfterCompletedHistory());
-                }
-                catch (ArgumentException failure)
-                {
-                    return task with { State = AgentTaskExecutionStatus.Failed, Result = null, Failure = failure.Message };
-                }
-            }
-
-            childTasks.ApplyVisibilityChanges(declared, children);
-        }
-
         var feedback = new List<string>();
         string? carriedResult = null;
         var current = task;
@@ -97,6 +76,66 @@ internal sealed class AgentTaskRunner(AgentTaskConfig configuration)
                 current = current with { Payload = AgentTaskPayload.FromInstruction(instruction) };
             }
         }
+    }
+
+    private static string SerializeTasks(IReadOnlyList<AgentTask> tasks)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            WriteTasks(writer, tasks);
+        }
+
+        return Encoding.UTF8.GetString(stream.GetBuffer(), 0, checked((int)stream.Length));
+    }
+
+    private static void WriteTasks(Utf8JsonWriter writer, IReadOnlyList<AgentTask> tasks)
+    {
+        writer.WriteStartArray();
+        foreach (var task in tasks)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("name", task.Name);
+            writer.WriteStartArray("dependencies");
+            foreach (var dependency in task.Dependencies)
+            {
+                writer.WriteStringValue(dependency);
+            }
+
+            writer.WriteEndArray();
+            writer.WriteString("description", task.Description);
+            if (task.Payload.Instruction is { } instruction)
+            {
+                writer.WriteString("payload", instruction);
+            }
+            else
+            {
+                writer.WritePropertyName("payload");
+                WriteTasks(writer, task.Payload.Tasks ?? []);
+            }
+
+            writer.WriteString("acceptance_criteria", task.AcceptanceCriteria);
+            if (task.Model is { } model)
+            {
+                writer.WriteString("model", model);
+            }
+
+            writer.WriteBoolean("hidden", task.Hidden);
+            writer.WriteString("state", task.State.ToString().ToLowerInvariant());
+            if (task.Result is { } result)
+            {
+                writer.WriteString("result", result);
+            }
+
+            if (task.Failure is { } failure)
+            {
+                writer.WriteString("failure", failure);
+            }
+
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
     }
 
     private async Task<(AgentTaskLeafResponse? Response, string? Failure)> RunAndParse(
@@ -161,13 +200,9 @@ internal sealed class AgentTaskRunner(AgentTaskConfig configuration)
             _ = prompt.Append(Render("agent-task.feedback", ("items", items.ToString())));
         }
 
-        var children = string.Concat((task.Payload.Tasks ?? []).Select(child => Render(
-            "agent-task.composite-child",
-            ("name", child.Name),
-            ("description", child.Description))));
         var suffix = task.Payload.Instruction is { } instruction
             ? Render("agent-task.leaf", ("header", string.Empty), ("feedback", string.Empty), ("instruction", instruction))
-            : Render("agent-task.composite", ("header", string.Empty), ("feedback", string.Empty), ("children", children));
+            : Render("agent-task.composite", ("header", string.Empty), ("feedback", string.Empty), ("children", SerializeTasks(task.Payload.Tasks ?? [])));
         var available = MaxPromptCharacters - suffix.Length;
         return available <= 0
             ? suffix

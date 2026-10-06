@@ -138,6 +138,8 @@ internal sealed class AgentTaskScopeTests
         _ = Directory.CreateDirectory(directory);
         try
         {
+            IAgentSessionScope? rootScope = null;
+            IModelRouter? taskRouter = null;
             var dependentArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var sourceReply = """{"result":"nested-source-marker","verdict":"accept"}""";
             var provider = new AgentTaskReplyProvider(async (request, token) =>
@@ -150,6 +152,13 @@ internal sealed class AgentTaskScopeTests
                 var prompt = AgentTaskReplyProvider.Prompt(request);
                 if (prompt.Contains("Task: composite\n", StringComparison.Ordinal))
                 {
+                    var composite = (rootScope ?? throw new InvalidOperationException("The root is not ready.")).ChildRegistry.SnapshotChildScopes().Single();
+                    _ = await Assert.That(composite.GetService<IAgentTaskService>().Snapshot()).IsEmpty();
+                    _ = await Assert.That(composite.ChildRegistry.SnapshotChildScopes()).IsEmpty();
+                    const string marker = "The following inner task list is supplied as prompt data, not registered in your AgentTask graph:\n";
+                    var start = prompt.IndexOf(marker, StringComparison.Ordinal) + marker.Length;
+                    var end = prompt.IndexOf("\nUse set_agent_tasks", start, StringComparison.Ordinal);
+                    Set(composite, taskRouter ?? throw new InvalidOperationException("The router is not ready."), AgentTaskParser.ParseTaskSet(prompt[start..end]));
                     await dependentArrived.Task.WaitAsync(token);
                 }
                 else if (prompt.Contains("Task: dependent\n", StringComparison.Ordinal))
@@ -195,6 +204,8 @@ internal sealed class AgentTaskScopeTests
             var store = new SessionStore(paths, directory, "host", factory, router, modes, diagnostics);
             await using var session = await store.Open(router.Resolve(model.Selector));
             var root = session.Registry.SnapshotScopes().Single();
+            rootScope = root;
+            taskRouter = router;
             Set(root, router, AgentTaskParser.ParseTaskSet("""
                 [{"name":"composite","description":"Own nested work","payload":[
                   {"name":"dependent","description":"Continue work","payload":"dependent work","dependencies":["source"],"acceptance_criteria":"Done"},

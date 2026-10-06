@@ -120,7 +120,6 @@ internal sealed class AgentTaskService(
                 }
 
                 var updated = entry.Task.ApplyVisibilityChanges(before, after);
-                ApplyChildVisibility(entry, entry.Task, updated);
                 entry.Task = updated;
                 changed = true;
             }
@@ -141,19 +140,6 @@ internal sealed class AgentTaskService(
     }
 
     public ValueTask DisposeAsync() => new(Settle());
-
-    private static void ApplyChildVisibility(Entry entry, AgentTask stored, AgentTask incoming)
-    {
-        if (entry.Scope is not { } scope
-            || stored.Payload.HasSameVisibility(incoming.Payload)
-            || stored.Payload.Tasks is not { } previous
-            || incoming.Payload.Tasks is not { } updated)
-        {
-            return;
-        }
-
-        scope.GetService<IAgentTaskService>().ApplyVisibilityChanges(previous, updated);
-    }
 
     private async Task SettleCore()
     {
@@ -194,7 +180,6 @@ internal sealed class AgentTaskService(
         var stored = entry.Task;
         if (entry.Run is not null && incoming.State == AgentTaskExecutionStatus.Running && stored.HasSameDefinition(incoming))
         {
-            ApplyChildVisibility(entry, stored, incoming);
             entry.Task = stored with { Hidden = incoming.Hidden, Payload = incoming.Payload };
             return;
         }
@@ -328,7 +313,7 @@ internal sealed class AgentTaskService(
             {
                 run.Cancellation.Token.ThrowIfCancellationRequested();
                 var scope = entry.Scope ?? throw new InvalidOperationException("A running AgentTask requires an agent scope.");
-                execution = _runner.Run(entry.Task, siblings, dependencies, scope, entry.Selection, run.Cancellation.Token);
+                execution = _runner.Run(entry.Task, siblings, dependencies, scope, run.Cancellation.Token);
             }
 
             outcome = await execution.ConfigureAwait(false);

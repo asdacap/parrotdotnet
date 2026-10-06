@@ -51,8 +51,10 @@ prompt_templates:
   agent-task.composite:
     template: |-
       AgentTask role: composite owner{header}{feedback}
-      This task is split into child tasks, which are registered in your own AgentTask service and run on your child agents:{children}
-      Wait for their notifications. When a child task fails, resolve it with set_agent_tasks: set its state to pending to retry it, to succeeded with a result to accept it, or to canceled to cancel it and its dependents. You cannot finish while a child task is unresolved.
+      The following inner task list is supplied as prompt data, not registered in your AgentTask graph:
+      {children}
+      Use set_agent_tasks to declare and manage this work in your own graph. On retries or restarts, inspect your existing tasks and reconcile the supplied definitions yourself; the runtime does not register or synchronize them. You own your declared graph.
+      Wait for its notifications. When a child task fails, resolve it with set_agent_tasks: set its state to pending to retry it, to succeeded with a result to accept it, or to canceled to cancel it and its dependents. You cannot finish while a child task is unresolved.
       When every child task is resolved, return only one strict JSON object with no prose or code fence: {{"result":"nonblank","verdict":"accept"}}, {{"result":"nonblank","verdict":"reject_and_halt","feedback":"nonblank"}}, or {{"result":"nonblank","verdict":"reject_and_retry","feedback":"nonblank"}}.
     allowed_arguments: [header, feedback, children]
     required_arguments: [header, feedback, children]

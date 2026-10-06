@@ -110,11 +110,11 @@ internal sealed class ExecCommandToolPresenter(
 
     private static string WithoutLoneStdoutLabel(string result)
     {
-        const string StdoutLabel = "\n[stdout]\n";
-        var labelIndex = result.IndexOf(StdoutLabel, StringComparison.Ordinal);
+        const string stdoutLabel = "\n[stdout]\n";
+        var labelIndex = result.IndexOf(stdoutLabel, StringComparison.Ordinal);
         return labelIndex < 0 || result.Contains("\n[stderr]\n", StringComparison.Ordinal)
             ? result
-            : result.Remove(labelIndex + 1, StdoutLabel.Length - 1);
+            : result.Remove(labelIndex + 1, stdoutLabel.Length - 1);
     }
 
     private ToolPresentationMetadata MetadataFor(bool isReadOnly) =>

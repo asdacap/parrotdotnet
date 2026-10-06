@@ -21,17 +21,17 @@ internal sealed class SetExitReminderToolTests
         var provider = new UnusedProvider();
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
         var selection = new AgentTurnSelection(new ModelSelector(model.Selector), TestModels.Resolve(model), new TestProfileFixture().Mode, SecurityProfile.Compose(readOnly: false, [], [], []));
-        const string First = "Exit reminders are set. You cannot finish until every one is cleared with clear_exit_reminder:\n";
+        const string first = "Exit reminders are set. You cannot finish until every one is cleared with clear_exit_reminder:\n";
         var steps = new (ITool? Tool, string? Json, string? Output, string? ExpectedBuild)[]
         {
             (null, null, null, null),
-            (set, "{\"title\":\"tests\",\"description\":\"run tests\"}", "Exit reminder set: tests: run tests", First + "- tests: run tests"),
+            (set, "{\"title\":\"tests\",\"description\":\"run tests\"}", "Exit reminder set: tests: run tests", first + "- tests: run tests"),
             (null, null, null, "This is the 2nd exit reminder. Remaining exit reminders:\n- tests: run tests"),
-            (set, "{\"title\":\"docs\",\"description\":\"  update {docs}  \"}", "Exit reminder set: docs:   update {docs}  ", First + "- tests: run tests\n- docs:   update {docs}  "),
-            (set, "{\"title\":\"tests\",\"description\":\"run all tests\"}", "Exit reminder set: tests: run all tests", First + "- tests: run all tests\n- docs:   update {docs}  "),
+            (set, "{\"title\":\"docs\",\"description\":\"  update {docs}  \"}", "Exit reminder set: docs:   update {docs}  ", first + "- tests: run tests\n- docs:   update {docs}  "),
+            (set, "{\"title\":\"tests\",\"description\":\"run all tests\"}", "Exit reminder set: tests: run all tests", first + "- tests: run all tests\n- docs:   update {docs}  "),
             (null, null, null, "This is the 2nd exit reminder. Remaining exit reminders:\n- tests: run all tests\n- docs:   update {docs}  "),
             (clear, "{\"title\":\"missing\"}", "error: No exit reminder titled missing. Active titles: tests, docs", "This is the 3rd exit reminder. Remaining exit reminders:\n- tests: run all tests\n- docs:   update {docs}  "),
-            (clear, "{\"title\":\"tests\"}", "Exit reminder cleared: tests", First + "- docs:   update {docs}  "),
+            (clear, "{\"title\":\"tests\"}", "Exit reminder cleared: tests", first + "- docs:   update {docs}  "),
             (clear, "{\"title\":\"docs\"}", "Exit reminder cleared: docs", null),
             (clear, "{\"title\":\"docs\"}", "error: No exit reminder titled docs. Active titles: ", null),
         };
