@@ -81,7 +81,12 @@ internal static class AgentTaskProgressFormatter
             && agentLines is not null
             && agentLines.TryGetValue(node.AgentSessionId, out var agentLine))
         {
-            rows.Add(AgentTaskRow.Create(lead, agentLine.Text) with { Status = node.Status, ModelAliasIcon = agentLine.ModelAliasIcon });
+            rows.Add(AgentTaskRow.Create(lead, agentLine.Text) with
+            {
+                Status = node.Status,
+                ModelAliasIcon = agentLine.ModelAliasIcon,
+                GlyphStartIndex = lead.Length + agentLine.GlyphStartIndex,
+            });
             rows.Add(AgentTaskRow.Create(continuation + "  ", DisplayText(node)) with { Status = node.Status });
             return;
         }

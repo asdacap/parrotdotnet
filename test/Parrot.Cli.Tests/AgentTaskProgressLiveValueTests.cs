@@ -212,7 +212,7 @@ internal sealed class AgentTaskProgressLiveValueTests
     [Test]
     [Arguments(true)]
     [Arguments(false)]
-    public async Task Render_preserves_embedded_agent_color_without_changing_task_status_color(bool color)
+    public async Task Render_colors_only_embedded_model_icon_without_changing_task_status_color(bool color)
     {
         var snapshot = new AgentTaskProgressSnapshot();
         snapshot.RootNodes.Add(new AgentTaskProgressNode
@@ -224,18 +224,65 @@ internal sealed class AgentTaskProgressLiveValueTests
         var icon = new LiveModelAliasIcon("◆", Parrot.Llm.ModelAliasIconColor.Magenta);
         var agentLines = new Dictionary<string, TaskAgentLine>(StringComparer.Ordinal)
         {
-            ["child"] = new("⠋ [child] ◆ working", icon),
+            ["child"] = new("⠋ [child] ◆ working", icon) { GlyphStartIndex = "⠋ [child] ".Length },
         };
         var palette = new TerminalPalette(color);
         var live = new AgentTaskProgressLiveValue(snapshot, agentLines)
             .Render(new LiveBufferRenderContext(80, palette));
 
         _ = await Assert.That(live.Lines[1].Text).IsEqualTo("  ⠋ [child] ◆ working");
-        _ = await Assert.That(live.Lines[1].Style).IsEqualTo(palette.GetLiveIconStyle(icon.Color));
+        _ = await Assert.That(live.Lines[1].Style).IsEqualTo(palette.GetTaskStyle(AgentTaskProgressStatus.Running, true));
+        _ = await Assert.That(live.Lines[1].StyleSpans.Count).IsEqualTo(1);
+        _ = await Assert.That(live.Lines[1].StyleSpans[0]).IsEqualTo(
+            new TerminalCellStyleSpan(12, 1, palette.GetLiveIconStyle(icon.Color)));
         _ = await Assert.That(live.Lines[2].Style).IsEqualTo(palette.GetTaskStyle(AgentTaskProgressStatus.Running, true));
         if (!color)
         {
             _ = await Assert.That(live.Lines.All(static line => string.IsNullOrEmpty(line.Style.Start))).IsTrue();
+        }
+    }
+
+    [Test]
+    [Arguments(80, 15)]
+    [Arguments(22, 15)]
+    [Arguments(14, 8)]
+    public async Task Render_tracks_wrapped_model_icon_with_tree_and_hierarchy_prefixes(int columns, int glyphStartCell)
+    {
+        var snapshot = new AgentTaskProgressSnapshot();
+        var parent = new AgentTaskProgressNode { Description = "Parent" };
+        parent.Children.Add(new AgentTaskProgressNode
+        {
+            Description = "Inspect dependencies",
+            Status = AgentTaskProgressStatus.Running,
+            AgentSessionId = "child",
+        });
+        snapshot.RootNodes.Add(parent);
+        var icon = new LiveModelAliasIcon("界", Parrot.Llm.ModelAliasIconColor.Magenta);
+        const string lead = "⠋ [界] ";
+        var agentLines = new Dictionary<string, TaskAgentLine>(StringComparer.Ordinal)
+        {
+            ["child"] = new(lead + "界 working 界 with a long status", icon) { GlyphStartIndex = lead.Length },
+        };
+        var palette = new TerminalPalette(true);
+        var decoration = ActivityDecoration.Describe(columns, 1, null, string.Empty);
+        var live = new AgentTaskProgressLiveValue(snapshot, agentLines)
+            .Render(new LiveBufferRenderContext(columns, palette) { Decoration = decoration });
+        var styled = live.Lines.Where(static line => line.StyleSpans.Count > 0).ToArray();
+
+        _ = await Assert.That(styled.Length).IsEqualTo(1);
+        var line = styled[0];
+        var span = line.StyleSpans[0];
+        _ = await Assert.That(span.StartCell).IsEqualTo(glyphStartCell);
+        _ = await Assert.That(span.Length).IsEqualTo(2);
+        _ = await Assert.That(span.Style).IsEqualTo(palette.GetLiveIconStyle(icon.Color));
+        var glyphText = TerminalText.Clip(line.Text, span.StartCell + span.Length);
+        _ = await Assert.That(glyphText.EndsWith(icon.Glyph, StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That(TerminalText.Width(glyphText)).IsEqualTo(span.StartCell + span.Length);
+        var taskLines = live.Lines.Skip(1).Where(static line => line.Text.Contains("working", StringComparison.Ordinal)
+            || line.StyleSpans.Count > 0);
+        foreach (var taskLine in taskLines)
+        {
+            _ = await Assert.That(taskLine.Style).IsEqualTo(palette.GetTaskStyle(AgentTaskProgressStatus.Running, true));
         }
     }
 

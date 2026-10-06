@@ -1346,9 +1346,11 @@ internal sealed class RawActivityView(
     {
         var spinner = TerminalIcons.SpinnerFrames[_frame % TerminalIcons.SpinnerFrames.Length];
         var glyph = state.ModelAliasIcon is { } icon ? $"{icon.Glyph} " : string.Empty;
-        var text = TerminalText.Sanitize($"{spinner} [{_hierarchy.GetLabel(state.AgentSessionId)}] {glyph}{state.AgentSpinnerText}")
+        var lead = TerminalText.Sanitize($"{spinner} [{_hierarchy.GetLabel(state.AgentSessionId)}] ")
             .Replace("\n", string.Empty, StringComparison.Ordinal);
-        return new TaskAgentLine(text, state.ModelAliasIcon);
+        var text = lead + TerminalText.Sanitize($"{glyph}{state.AgentSpinnerText}")
+            .Replace("\n", string.Empty, StringComparison.Ordinal);
+        return new TaskAgentLine(text, state.ModelAliasIcon) { GlyphStartIndex = lead.Length };
     }
 
     private HierarchicalLiveValue CreateActivityItem(
