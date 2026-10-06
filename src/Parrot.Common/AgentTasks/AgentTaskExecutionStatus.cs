@@ -6,6 +6,5 @@ internal enum AgentTaskExecutionStatus
     Running,
     Succeeded,
     Failed,
-    Blocked,
     Canceled,
 }

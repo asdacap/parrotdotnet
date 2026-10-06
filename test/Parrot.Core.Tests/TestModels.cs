@@ -80,31 +80,9 @@ internal static class TestModels
                 false,
                 true,
                 []),
-            ["agent-task-prepare"] = new ProfileConfig(
-                "You are an AgentTask preparation agent.",
-                "Prepare an AgentTask and return its preparation context.",
-                null,
-                128,
-                4,
-                false,
-                true,
-                false,
-                true,
-                []),
             ["agent-task-payload"] = new ProfileConfig(
                 "You are an AgentTask payload executor. Implement and verify the assigned task. For an instruction leaf, use this one retained session to emit the strict combined JSON result with nonblank context and exactly one verdict.",
                 "Implement and verify an AgentTask payload and report its observable result. For an instruction leaf, return only strict JSON: accept with nonblank evidence, reject_and_halt with nonblank feedback, or reject_and_retry with nonblank feedback and a replacement instruction or task array.",
-                null,
-                128,
-                4,
-                false,
-                true,
-                false,
-                true,
-                []),
-            ["agent-task-validation"] = new ProfileConfig(
-                "You are an AgentTask acceptance validator.",
-                "Validate an AgentTask result against its acceptance criteria.",
                 null,
                 128,
                 4,
@@ -211,7 +189,7 @@ internal static class TestModels
         new RuntimeStatus(
             PromptTemplates,
             TimeProvider.System,
-            [new RuntimeTreeStatusProvider(registry, PromptTemplates), new AgentTaskStatusProvider(scope.GetService<IAgentTaskRunCatalog>(), PromptTemplates)]);
+            [new RuntimeTreeStatusProvider(registry, PromptTemplates), new AgentTaskStatusProvider(scope.GetService<IAgentTaskService>(), PromptTemplates)]);
 
     public static AgentSessionDependencies Dependencies(
         AgentIdentity identity,

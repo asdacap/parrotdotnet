@@ -19,13 +19,11 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     private readonly Dictionary<string, (string ToolName, long Order)> _foldedTools = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ILiveBufferItem> _toolLive = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, ulong> _toolProgressRevisions = new(StringComparer.Ordinal);
     private readonly HashSet<string> _terminalTools = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _detachedAgentTasks = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _terminalAgentTaskProgress = new(StringComparer.Ordinal);
     private readonly StringBuilder _response = new();
     private readonly StringBuilder _reasoning = new();
 
+    private ulong _agentTaskRevision;
     private bool _terminalCommitted;
     private uint _requestAttempt;
     private bool _waitingForFirstToken;
@@ -60,6 +58,9 @@ internal sealed class AgentSessionState(string agentSessionId)
     public bool IsAgentActive => _activities.Contains(AgentActivityId);
 
     public LiveModelAliasIcon? ModelAliasIcon { get; private set; }
+
+    /// <summary>Gets the agent's current task graph, until a terminal revision of it is retired.</summary>
+    public AgentTaskProgressSnapshot? AgentTaskProgress { get; private set; }
 
     public bool HasReasoning => _reasoning.Length > 0;
 
@@ -295,10 +296,7 @@ internal sealed class AgentSessionState(string agentSessionId)
 
         _ = toolCall.Arguments.Append(chunk.ArgumentsFragment);
         _toolCalls[chunk.ToolCallId] = toolCall;
-        if (!_toolProgressRevisions.ContainsKey(chunk.ToolCallId))
-        {
-            _ = _toolLive.Remove(chunk.ToolCallId);
-        }
+        _ = _toolLive.Remove(chunk.ToolCallId);
     }
 
     public string? StartTool(ToolStarted tool, bool foldIntoAgentStatus)
@@ -321,7 +319,6 @@ internal sealed class AgentSessionState(string agentSessionId)
         }
 
         _ = _toolLive.Remove(tool.ToolCallId);
-        _ = _toolProgressRevisions.Remove(tool.ToolCallId);
         _ = _activities.Add(activityId);
 
         if (foldIntoAgentStatus)
@@ -349,64 +346,31 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public bool IsToolActive(string toolCallId) => _activities.Contains(ToolActivityPrefix + toolCallId);
 
-    public IReadOnlyList<string> DetachedAgentTaskProgressIds() =>
-        [.. _detachedAgentTasks.Where(_toolLive.ContainsKey).Order(StringComparer.Ordinal)];
-
-    public ILiveBufferItem CreateDetachedAgentTaskProgressItem(string toolCallId) =>
-        _toolLive.TryGetValue(toolCallId, out var live)
-            ? live
-            : throw new InvalidOperationException($"AgentTask progress '{toolCallId}' is not available.");
-
-    public void RefreshToolPresentations()
-    {
-        foreach (var toolCallId in _toolLive.Keys.Where(toolCallId => !_toolProgressRevisions.ContainsKey(toolCallId)).ToArray())
-        {
-            _ = _toolLive.Remove(toolCallId);
-        }
-    }
+    public void RefreshToolPresentations() => _toolLive.Clear();
 
     public bool OfferAgentTaskProgress(AgentTaskProgressSnapshot snapshot)
     {
-        var toolCallId = snapshot.OriginToolCallId;
-        if ((!IsToolActive(toolCallId) && !_detachedAgentTasks.Contains(toolCallId))
-            || !_toolCalls.TryGetValue(toolCallId, out var call)
-            || !string.Equals(call.Name, "run_agent_tasks", StringComparison.Ordinal)
-            || (_toolProgressRevisions.TryGetValue(toolCallId, out var revision) && snapshot.Revision <= revision))
+        if (snapshot.Revision <= _agentTaskRevision)
         {
             return false;
         }
 
-        _toolProgressRevisions[toolCallId] = snapshot.Revision;
-        _toolLive[toolCallId] = new AgentTaskProgressLiveValue(snapshot.Clone(), null);
-        if (IsTerminal(snapshot))
-        {
-            _ = _terminalAgentTaskProgress.Add(toolCallId);
-        }
-
+        _agentTaskRevision = snapshot.Revision;
+        AgentTaskProgress = snapshot.Clone();
         return true;
     }
 
-    public bool IsCurrentAgentTaskProgress(string toolCallId, ulong revision) =>
-        (IsToolActive(toolCallId) || _detachedAgentTasks.Contains(toolCallId))
-        && _toolCalls.TryGetValue(toolCallId, out var call)
-        && string.Equals(call.Name, "run_agent_tasks", StringComparison.Ordinal)
-        && _toolProgressRevisions.TryGetValue(toolCallId, out var currentRevision)
-        && currentRevision == revision;
+    public bool IsCurrentAgentTaskProgress(ulong revision) =>
+        AgentTaskProgress is not null && _agentTaskRevision == revision;
 
-    public bool RetireDetachedAgentTaskProgress(string toolCallId, ulong revision)
+    public bool RetireAgentTaskProgress(ulong revision)
     {
-        if (!_detachedAgentTasks.Contains(toolCallId)
-            || !_terminalAgentTaskProgress.Contains(toolCallId)
-            || !IsCurrentAgentTaskProgress(toolCallId, revision))
+        if (AgentTaskProgress is not { } tasks || _agentTaskRevision != revision || !IsTerminal(tasks))
         {
             return false;
         }
 
-        _ = _detachedAgentTasks.Remove(toolCallId);
-        _ = _terminalAgentTaskProgress.Remove(toolCallId);
-        _ = _toolProgressRevisions.Remove(toolCallId);
-        _ = _toolLive.Remove(toolCallId);
-        _ = _toolCalls.Remove(toolCallId);
+        AgentTaskProgress = null;
         return true;
     }
 
@@ -417,45 +381,11 @@ internal sealed class AgentSessionState(string agentSessionId)
         bool startOmitted)
     {
         var (toolCallId, toolName) = GetTerminalTool(published);
-        var isAgentTask = string.Equals(toolName, "run_agent_tasks", StringComparison.Ordinal)
-            || (_toolCalls.TryGetValue(toolCallId, out var knownCall)
-                && string.Equals(knownCall.Name, "run_agent_tasks", StringComparison.Ordinal));
-        var retainBackgroundTask = isAgentTask
-            && _toolCalls.ContainsKey(toolCallId)
-            && published.PayloadCase == Event.PayloadOneofCase.ToolFinished
-            && !_terminalAgentTaskProgress.Contains(toolCallId);
-        if (retainBackgroundTask)
-        {
-            _ = _detachedAgentTasks.Add(toolCallId);
-        }
-        else
-        {
-            _ = _toolLive.Remove(toolCallId);
-            _ = _toolProgressRevisions.Remove(toolCallId);
-            _ = _detachedAgentTasks.Remove(toolCallId);
-            _ = _terminalAgentTaskProgress.Remove(toolCallId);
-        }
-
+        _ = _toolLive.Remove(toolCallId);
         _ = _terminalTools.Add(toolCallId);
-        var retainDetachedProgress = isAgentTask
-            && _detachedAgentTasks.Contains(toolCallId)
-            && !_terminalAgentTaskProgress.Contains(toolCallId);
-        (string Name, StringBuilder Arguments) toolCall;
-        if (retainDetachedProgress)
-        {
-            toolCall = _toolCalls[toolCallId];
-            if (toolCall.Name.Length == 0)
-            {
-                toolCall.Name = toolName;
-                _toolCalls[toolCallId] = toolCall;
-            }
-        }
-        else if (!_toolCalls.Remove(toolCallId, out toolCall))
+        if (!_toolCalls.Remove(toolCallId, out var toolCall))
         {
             toolCall = (toolName, new StringBuilder());
-            _ = _detachedAgentTasks.Remove(toolCallId);
-            _ = _terminalAgentTaskProgress.Remove(toolCallId);
-            _ = _toolProgressRevisions.Remove(toolCallId);
         }
         else if (toolCall.Name.Length == 0)
         {
@@ -530,8 +460,6 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     private static bool IsTerminal(AgentTaskProgressNode node) =>
         node.Status is AgentTaskProgressStatus.Succeeded
-            or AgentTaskProgressStatus.Failed
-            or AgentTaskProgressStatus.Blocked
             or AgentTaskProgressStatus.Canceled
         && node.Children.All(IsTerminal);
 

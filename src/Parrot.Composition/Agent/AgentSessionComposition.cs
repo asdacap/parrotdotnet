@@ -128,20 +128,26 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.RequestLimits;
             })
-            .Bind<AgentTaskConfig>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.AgentTasks;
-            })
             .Bind<AgentSendConfig>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.AgentSend;
             })
-            .Bind<IAgentTaskRunCatalog>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<IAgentTaskService>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new AgentTaskRunCatalog(arguments.Identity.SessionId, arguments.Diagnostics, arguments.Lifetime);
+                ctx.Inject<IAgentSessionScope>(out var scope);
+                ctx.Inject<ToolOutputBlobStore>(out var outputBlobs);
+                return new AgentTaskService(
+                    scope,
+                    arguments.Identity.SessionId,
+                    arguments.Router,
+                    arguments.AgentTasks,
+                    new AgentTaskNotifier(scope, outputBlobs, arguments.Diagnostics),
+                    arguments.EventBroker,
+                    arguments.EventRepository,
+                    arguments.Diagnostics,
+                    arguments.Lifetime);
             })
             .Bind<IReadOnlyList<string>>().To(ctx =>
             {
@@ -176,13 +182,13 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind<IRuntimeStatus>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                ctx.Inject<IAgentTaskRunCatalog>(out var agentTaskRuns);
+                ctx.Inject<IAgentTaskService>(out var agentTasks);
                 return new RuntimeStatus(
                     arguments.PromptTemplates,
                     arguments.TimeProvider,
                     [
                         new RuntimeTreeStatusProvider(arguments.Registry, arguments.PromptTemplates),
-                        new AgentTaskStatusProvider(agentTaskRuns, arguments.PromptTemplates),
+                        new AgentTaskStatusProvider(agentTasks, arguments.PromptTemplates),
                     ]);
             })
             .Bind<TimeProvider>().To(ctx =>
@@ -248,7 +254,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             })
             .Bind<IReadOnlyList<IAgentWorkOwner>>().As(Lifetime.Scoped).To(ctx =>
             {
-                ctx.Inject<IAgentTaskRunCatalog>(out var agentTasks);
+                ctx.Inject<IAgentTaskService>(out var agentTasks);
                 ctx.Inject<IProcessOwner>(out var processes);
                 return new IAgentWorkOwner[] { agentTasks, processes };
             })
@@ -265,28 +271,11 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind<EditToolFactory>().As(Lifetime.Scoped).To<EditToolFactory>()
             .Bind<WebFetchToolFactory>().As(Lifetime.Scoped).To<WebFetchToolFactory>()
             .Bind<AgentSpawnToolFactory>().As(Lifetime.Scoped).To<AgentSpawnToolFactory>()
-            .Bind<RunAgentTasksToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<SetAgentTasksToolFactory>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                ctx.Inject<IAgentSessionScope>(out var scope);
-                ctx.Inject<IAgentTaskRunCatalog>(out var runs);
-                ctx.Inject<ToolOutputBlobStore>(out var outputBlobs);
-                ctx.Inject<AgentTaskConfig>(out var agentTasks);
-                return new RunAgentTasksToolFactory(
-                    arguments.Workspace,
-                    arguments.Router,
-                    scope,
-                    runs,
-                    AgentTaskParser.ParseArtifact,
-                    callId => new AgentTaskProgress(
-                        arguments.EventBroker,
-                        arguments.EventRepository,
-                        scope.Session.SessionId,
-                        callId,
-                        arguments.Diagnostics),
-                    session => new AgentTaskRunCompletion(session, outputBlobs, arguments.PromptTemplates),
-                    agentTasks,
-                    arguments.ToolDefinitions);
+                ctx.Inject<IAgentTaskService>(out var agentTasks);
+                return new SetAgentTasksToolFactory(arguments.Workspace, agentTasks, arguments.PromptTemplates, arguments.ToolDefinitions);
             })
             .Bind<ICheckpointService>().As(Lifetime.Scoped).To(ctx =>
             {
@@ -364,7 +353,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<EditToolFactory>(out var edit);
                 ctx.Inject<WebFetchToolFactory>(out var webFetch);
                 ctx.Inject<AgentSpawnToolFactory>(out var agentSpawn);
-                ctx.Inject<RunAgentTasksToolFactory>(out var runAgentTasks);
+                ctx.Inject<SetAgentTasksToolFactory>(out var setAgentTasks);
                 ctx.Inject<SetCheckpointToolFactory>(out var setCheckpoint);
                 ctx.Inject<SetExitReminderToolFactory>(out var setExitReminder);
                 ctx.Inject<ClearExitReminderToolFactory>(out var clearExitReminder);
@@ -394,7 +383,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                     edit,
                     webFetch,
                     agentSpawn,
-                    runAgentTasks,
+                    setAgentTasks,
                     setCheckpoint,
                     setExitReminder,
                     clearExitReminder,
@@ -415,7 +404,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<IProcessOwner>(out var processes);
-                ctx.Inject<IAgentTaskRunCatalog>(out var agentTasks);
+                ctx.Inject<IAgentTaskService>(out var agentTasks);
                 ctx.Inject<IChildRegistry>(out var children);
                 ctx.Inject<IAgentQueues>(out var queues);
                 return new IActiveWorkBlocker[]
@@ -459,7 +448,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Root<IAgentSession>("Session")
             .Root<IGoalService>("Goals")
             .Root<IAgentSpawner>("AgentSpawner")
-            .Root<IAgentTaskRunCatalog>("AgentTaskRuns")
+            .Root<IAgentTaskService>("AgentTasks")
             .Root<IChildRegistry>("ChildRegistry")
             .Root<IAgentParentScope>("ParentScope")
             .Root<IChildQuestion>("ChildQuestion")

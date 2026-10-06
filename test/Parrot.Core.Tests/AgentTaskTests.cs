@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Parrot.AgentTasks;
 
 namespace Parrot.Core.Tests;
@@ -35,21 +34,17 @@ internal sealed class AgentTaskTests
         _ = await Assert.That(() => AgentTaskParser.ParseArtifact(json)).Throws<ArgumentException>();
 
     [Test]
-    public async Task Description_is_limited_to_max_length_for_artifact_nested_and_patched_tasks()
+    public async Task Description_is_limited_to_max_length_for_artifact_and_nested_tasks()
     {
         static string Artifact(string topDescription, string childDescription) =>
             $$"""{"schema_version":1,"tasks":[{"name":"root","description":"{{topDescription}}","payload":[{"name":"child","description":"{{childDescription}}","payload":"p","acceptance_criteria":"a"}],"acceptance_criteria":"a"}]}""";
         var atLimit = new string('d', AgentTaskParser.MaxDescriptionLength);
         var overLimit = new string('d', AgentTaskParser.MaxDescriptionLength + 1);
-        var task = EffectiveAgentTask.FromArtifact(AgentTaskParser.ParseArtifact(Artifact(atLimit, atLimit)).Tasks[0]);
-        var overLimitPatch = AgentTaskParser.ParsePrepare($$$"""{"context":"c","task_patch":{"description":"{{{overLimit}}}"}}""").TaskPatch
-            ?? throw new InvalidOperationException();
 
-        _ = await Assert.That(task.Description).IsEqualTo(atLimit);
+        _ = await Assert.That(AgentTaskParser.ParseArtifact(Artifact(atLimit, atLimit)).Tasks[0].Description).IsEqualTo(atLimit);
         _ = await Assert.That(() => AgentTaskParser.ParseArtifact(Artifact(overLimit, "d"))).Throws<ArgumentException>()
             .WithMessage($"tasks[0] description must be at most {AgentTaskParser.MaxDescriptionLength} characters.");
         _ = await Assert.That(() => AgentTaskParser.ParseArtifact(Artifact("d", overLimit))).Throws<ArgumentException>();
-        _ = await Assert.That(() => AgentTaskParser.ValidateEffective(task.Apply(overLimitPatch))).Throws<ArgumentException>();
     }
 
     [Test]
@@ -67,32 +62,18 @@ internal sealed class AgentTaskTests
     }
 
     [Test]
-    public async Task Prepare_accepts_context_only_and_sparse_patch_preserves_omitted_values()
-    {
-        var preparation = AgentTaskParser.ParsePrepare("{" + "\"context\":\"preparation\",\"task_patch\":{\"model\":\"high_llm\"}}");
-        var task = AgentTaskParser.ParseArtifact("""{"schema_version":1,"tasks":[{"name":"x","description":"d","payload":"p","acceptance_criteria":"a"}]}""").Tasks[0];
-        var effective = EffectiveAgentTask.FromArtifact(task).Apply(preparation.TaskPatch ?? throw new InvalidOperationException());
-
-        _ = await Assert.That(preparation.Context).IsEqualTo("preparation");
-        _ = await Assert.That(effective.Description).IsEqualTo("d");
-        _ = await Assert.That(effective.Payload.Instruction).IsEqualTo("p");
-        _ = await Assert.That(effective.Model).IsEqualTo("high_llm");
-        _ = await Assert.That(() => AgentTaskParser.ParsePrepare("{\"context\":\"x\",\"task_patch\":{\"model\":null}}")).Throws<ArgumentException>();
-        _ = await Assert.That(() => AgentTaskParser.ParsePrepare("{\"context\":\"x\",\"task_patch\":{}}")).Throws<ArgumentException>();
-    }
-
-    [Test]
     [Arguments("{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}", "work result", "Accept", null)]
     [Arguments("{\"result\":\"work result\",\"verdict\":\"reject_and_halt\",\"feedback\":\"no\"}", "work result", "RejectAndHalt", null)]
     [Arguments("{\"result\":\"work result\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"again\",\"replacement_result\":\"new context\"}", "work result", "RejectAndRetry", "new context")]
-    [Arguments("{\"result\":\"work result\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":[{\"name\":\"child\",\"description\":\"d\",\"payload\":\"p\",\"acceptance_criteria\":\"a\"}]}", "work result", "RejectAndRetry", null)]
+    [Arguments("{\"result\":\"work result\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\"}", "work result", "RejectAndRetry", null)]
     public async Task Leaf_responses_parse_result_and_verdict(string json, string result, string kind, string? replacementResult)
     {
         var response = AgentTaskParser.ParseLeafResponse(json);
 
         _ = await Assert.That(response.Result).IsEqualTo(result);
         _ = await Assert.That(response.Verdict.Kind.ToString()).IsEqualTo(kind);
-        _ = await Assert.That(response.Verdict.Context).IsEqualTo(replacementResult);
+        _ = await Assert.That(response.Verdict.ReplacementResult).IsEqualTo(replacementResult);
+        _ = await Assert.That(response.Verdict.ReplacementInstruction).IsEqualTo(replacementResult is null ? null : "again");
     }
 
     [Test]
@@ -133,18 +114,6 @@ internal sealed class AgentTaskTests
         _ = await Assert.That(() => AgentTaskParser.ParseLeafResponse(json)).Throws<ArgumentException>();
 
     [Test]
-    [Arguments("Here is the preparation:\n{\"context\":\"preparation\"}")]
-    [Arguments("```json\n{\"context\":\"preparation\"}\n```")]
-    public async Task Prepare_tolerates_surrounding_prose_and_fences(string json) =>
-        _ = await Assert.That(AgentTaskParser.ParsePrepare(json).Context).IsEqualTo("preparation");
-
-    [Test]
-    [Arguments("Here is the verdict:\n{\"verdict\":\"accept\",\"evidence\":\"done\"}")]
-    [Arguments("```\n{\"verdict\":\"accept\",\"evidence\":\"done\"}\n```")]
-    public async Task Verdicts_tolerate_surrounding_prose_and_fences(string json) =>
-        _ = await Assert.That(AgentTaskParser.ParseVerdict(json).Kind).IsEqualTo(AcceptanceVerdictKind.Accept);
-
-    [Test]
     public async Task Artifacts_tolerate_surrounding_prose()
     {
         var artifact = AgentTaskParser.ParseArtifact(
@@ -160,8 +129,8 @@ internal sealed class AgentTaskTests
     [Arguments("{\"result\":\"x\",\"verdict\":\"accept\",\"evidence\":\"done\",\"feedback\":\"no\"}")]
     [Arguments("{\"result\":\"x\",\"verdict\":\"reject_and_halt\",\"feedback\":\"   \"}")]
     [Arguments("{\"result\":\"x\",\"verdict\":\"reject_and_halt\",\"feedback\":\"no\",\"payload\":\"forbidden\"}")]
-    [Arguments("{\"result\":\"x\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\"}")]
     [Arguments("{\"result\":\"x\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":[]}")]
+    [Arguments("{\"result\":\"x\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":[{\"name\":\"child\",\"description\":\"d\",\"payload\":\"p\",\"acceptance_criteria\":\"a\"}]}")]
     [Arguments("{\"result\":\"x\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"   \"}")]
     [Arguments("{\"result\":\"x\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"again\",\"replacement_result\":\"   \"}")]
     [Arguments("{\"result\":\"x\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"again\",\"unknown\":true}")]
@@ -170,48 +139,32 @@ internal sealed class AgentTaskTests
         _ = await Assert.That(() => AgentTaskParser.ParseLeafResponse(json)).Throws<ArgumentException>();
 
     [Test]
-    public async Task Verdicts_parse_and_result_serializes_deterministically()
+    public async Task Task_set_parses_states_and_defers_dependency_validation_to_the_merged_graph()
     {
-        var accept = AgentTaskParser.ParseVerdict("{\"verdict\":\"accept\",\"evidence\":\"done\"}");
-        var reject = AgentTaskParser.ParseVerdict("{\"verdict\":\"reject_and_halt\",\"feedback\":\"no\"}");
-        var retry = AgentTaskParser.ParseVerdict("{\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"again\",\"context\":\"replacement preparation\"}");
-        var serialized = new AgentTaskGraphResult(AgentTaskExecutionStatus.Failed, [
-            new AgentTaskResult("a", AgentTaskExecutionStatus.Succeeded, 1, "context", "result", null, "work", accept, ["fixed"], null, null, null),
-            new AgentTaskResult("b", AgentTaskExecutionStatus.Failed, 2, null, null, null, null, reject, null, null, null, null),
-            new AgentTaskResult("c", AgentTaskExecutionStatus.Blocked, 0, null, null, null, null, null, null, "blocked", ["b"], null),
-        ]).Serialize();
-        using var document = JsonDocument.Parse(serialized);
+        var tasks = AgentTaskParser.ParseTaskSet("""
+            [
+              {"name":"build","dependencies":["declared-earlier"],"description":"d","payload":"p","acceptance_criteria":"a","state":"succeeded","result":"built"},
+              {"name":"lint","description":"d","payload":"p","acceptance_criteria":"a","state":"failed","failure":"style"},
+              {"name":"fresh","description":"d","payload":"p","acceptance_criteria":"a"}
+            ]
+            """);
 
-        _ = await Assert.That((retry.Payload ?? throw new InvalidOperationException()).Instruction).IsEqualTo("again");
-        _ = await Assert.That(retry.Context).IsEqualTo("replacement preparation");
-        _ = await Assert.That(document.RootElement.GetProperty("status").GetString()).IsEqualTo("failed");
-        _ = await Assert.That(document.RootElement.GetProperty("tasks")[0].GetProperty("name").GetString()).IsEqualTo("a");
-        _ = await Assert.That(document.RootElement.GetProperty("tasks")[1].GetProperty("verdict").GetString()).IsEqualTo("reject_and_halt");
-        var retryResult = new AgentTaskGraphResult(AgentTaskExecutionStatus.Failed, [
-            new AgentTaskResult("retry", AgentTaskExecutionStatus.Failed, 1, null, null, null, null, retry, null, "exhausted", null, null),
-        ]).Serialize();
-        using var retryDocument = JsonDocument.Parse(retryResult);
-        _ = await Assert.That(retryDocument.RootElement.GetProperty("tasks")[0].GetProperty("verdict").GetString()).IsEqualTo("reject_and_retry");
-        _ = await Assert.That(document.RootElement.GetProperty("tasks")[0].GetProperty("retry_feedback")[0].GetString()).IsEqualTo("fixed");
-        _ = await Assert.That(document.RootElement.GetProperty("tasks")[2].GetProperty("blocked_by")[0].GetString()).IsEqualTo("b");
-        var patch = new AgentTaskPatch(null, AgentTaskPayload.FromInstruction("replacement"), null, OptionalValue<string>.Unspecified);
-        var patchResult = new AgentTaskGraphResult(AgentTaskExecutionStatus.Succeeded, [
-            new AgentTaskResult("patched", AgentTaskExecutionStatus.Succeeded, 1, null, null, patch, null, null, null, null, null, null),
-        ]).Serialize();
-        using var patchDocument = JsonDocument.Parse(patchResult);
-        var patchJson = patchDocument.RootElement.GetProperty("tasks")[0].GetProperty("task_patch");
-        _ = await Assert.That(patchJson.GetProperty("payload").GetString()).IsEqualTo("replacement");
-        _ = await Assert.That(patchJson.TryGetProperty("description", out _)).IsFalse();
-        _ = await Assert.That(patchJson.TryGetProperty("model", out _)).IsFalse();
-        _ = await Assert.That(() => AgentTaskParser.ParseVerdict("{\"verdict\":\"retry\",\"feedback\":\"fix\",\"payload\":\"again\"}")).Throws<ArgumentException>();
-        _ = await Assert.That(() => AgentTaskParser.ParseVerdict("{\"verdict\":\"reject\",\"feedback\":\"fix\"}")).Throws<ArgumentException>();
-        _ = await Assert.That(() => AgentTaskParser.ParseVerdict("{\"verdict\":\"reject_and_halt\",\"verdict\":\"accept\",\"feedback\":\"fix\",\"evidence\":\"done\"}")).Throws<ArgumentException>();
-        _ = await Assert.That(() => AgentTaskParser.ParseVerdict("{\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\"}")).Throws<ArgumentException>();
-        _ = await Assert.That(() => AgentTaskParser.ParseVerdict("{\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"again\",\"context\":\"   \"}")).Throws<ArgumentException>();
-        _ = await Assert.That(() => AgentTaskParser.ParseVerdict("{\"verdict\":\"accept\",\"evidence\":\"done\",\"context\":\"forbidden\"}")).Throws<ArgumentException>();
-        _ = await Assert.That(() => AgentTaskParser.ParseVerdict("{\"verdict\":\"reject_and_halt\",\"feedback\":\"no\",\"context\":\"forbidden\"}")).Throws<ArgumentException>();
-        _ = await Assert.That(() => AgentTaskParser.ParseVerdict("{\"verdict\":\"accept\",\"evidence\":\"done\",\"feedback\":\"forbidden\"}")).Throws<ArgumentException>();
-        _ = await Assert.That(() => AgentTaskParser.ParseVerdict("{\"verdict\":\"reject_and_halt\",\"feedback\":\"no\",\"payload\":\"forbidden\"}")).Throws<ArgumentException>();
-        _ = await Assert.That(() => AgentTaskParser.ParseVerdict("{\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"again\",\"evidence\":\"forbidden\"}")).Throws<ArgumentException>();
+        _ = await Assert.That(string.Join(",", tasks.Select(task => $"{task.Name}:{task.State}:{task.Result}:{task.Failure}")))
+            .IsEqualTo("build:Succeeded:built:,lint:Failed::style,fresh:Pending::");
+        _ = await Assert.That(() => AgentTaskParser.ValidateGraph(tasks, "tasks")).Throws<ArgumentException>()
+            .WithMessage("tasks task 'build' has missing sibling dependency 'declared-earlier'.");
+        _ = await Assert.That(AgentTaskParser.ParseArtifact("""{"schema_version":1,"tasks":[{"name":"x","description":"d","payload":"p","acceptance_criteria":"a","state":"canceled"}]}""").Tasks[0].State)
+            .IsEqualTo(AgentTaskExecutionStatus.Canceled);
     }
+
+    [Test]
+    [Arguments("{}")]
+    [Arguments("[]")]
+    [Arguments("[{\"name\":\"x\",\"description\":\"d\",\"payload\":\"p\",\"acceptance_criteria\":\"a\",\"state\":\"blocked\"}]")]
+    [Arguments("[{\"name\":\"x\",\"description\":\"d\",\"payload\":\"p\",\"acceptance_criteria\":\"a\",\"result\":\"  \"}]")]
+    [Arguments("[{\"name\":\"x\",\"description\":\"d\",\"payload\":\"p\",\"acceptance_criteria\":\"a\"},{\"name\":\"x\",\"description\":\"d\",\"payload\":\"p\",\"acceptance_criteria\":\"a\"}]")]
+    [Arguments("[{\"name\":\"x\",\"dependencies\":[\"x\"],\"description\":\"d\",\"payload\":\"p\",\"acceptance_criteria\":\"a\"}]")]
+    [Arguments("[{\"name\":\"x\",\"description\":\"d\",\"payload\":[{\"name\":\"child\",\"dependencies\":[\"missing\"],\"description\":\"d\",\"payload\":\"p\",\"acceptance_criteria\":\"a\"}],\"acceptance_criteria\":\"a\"}]")]
+    public async Task Task_set_rejects_invalid_sets(string json) =>
+        _ = await Assert.That(() => AgentTaskParser.ParseTaskSet(json)).Throws<ArgumentException>();
 }

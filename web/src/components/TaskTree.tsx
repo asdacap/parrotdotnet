@@ -1,4 +1,9 @@
-import { AgentTaskProgressStatus, type AgentTaskProgressNode, type PlanTaskDeclaration } from "@/gen/parrot_pb"
+import {
+  AgentTaskProgressStatus,
+  type AgentTaskProgressNode,
+  type AgentTaskProgressSnapshot,
+  type PlanTaskDeclaration,
+} from "@/gen/parrot_pb"
 
 // The terminal CLI's task icons (AgentTaskProgressFormatter).
 const icons: Record<AgentTaskProgressStatus, string> = {
@@ -7,7 +12,6 @@ const icons: Record<AgentTaskProgressStatus, string> = {
   [AgentTaskProgressStatus.RUNNING]: "◐",
   [AgentTaskProgressStatus.SUCCEEDED]: "✓",
   [AgentTaskProgressStatus.FAILED]: "✗",
-  [AgentTaskProgressStatus.BLOCKED]: "⊘",
   [AgentTaskProgressStatus.CANCELED]: "■",
 }
 
@@ -19,13 +23,27 @@ interface TaskNode {
   children: TaskNode[]
 }
 
-export const fromProgress = (node: AgentTaskProgressNode): TaskNode => ({
-  name: node.name,
-  status: node.status,
-  description: node.description,
-  detail: "",
-  children: node.children.map(fromProgress),
-})
+// A node's child agent's own task graph, when one is known, nests as its children.
+export function fromProgress(
+  node: AgentTaskProgressNode,
+  trees: ReadonlyMap<string, AgentTaskProgressSnapshot>,
+  ancestors: ReadonlySet<string> = new Set(),
+): TaskNode {
+  const nested = ancestors.has(node.agentSessionId) ? undefined : trees.get(node.agentSessionId)
+  const inner = nested ? new Set([...ancestors, node.agentSessionId]) : ancestors
+  return {
+    name: node.name,
+    status: node.status,
+    description: node.description,
+    detail: "",
+    children: (nested ? nested.rootNodes : node.children).map((child) => fromProgress(child, trees, inner)),
+  }
+}
+
+// Settled tasks no longer change unless the owning agent sets them again.
+export const isSettled = (node: TaskNode): boolean =>
+  (node.status === AgentTaskProgressStatus.SUCCEEDED || node.status === AgentTaskProgressStatus.CANCELED) &&
+  node.children.every(isSettled)
 
 export const fromDeclaration = (task: PlanTaskDeclaration): TaskNode => ({
   name: task.name,

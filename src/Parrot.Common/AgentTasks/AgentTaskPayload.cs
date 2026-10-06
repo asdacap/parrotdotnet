@@ -17,4 +17,12 @@ internal sealed class AgentTaskPayload
 
     internal static AgentTaskPayload FromTasks(IReadOnlyList<AgentTask> tasks) =>
         new(null, tasks);
+
+    internal bool HasSameDefinition(AgentTaskPayload other) =>
+        Instruction == other.Instruction
+        && (Tasks is null
+            ? other.Tasks is null
+            : other.Tasks is not null
+                && Tasks.Count == other.Tasks.Count
+                && Tasks.Zip(other.Tasks).All(pair => pair.First.HasSameDefinition(pair.Second)));
 }

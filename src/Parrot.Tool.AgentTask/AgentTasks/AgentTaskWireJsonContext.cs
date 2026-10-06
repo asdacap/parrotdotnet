@@ -4,8 +4,6 @@ namespace Parrot.AgentTasks;
 
 [JsonSourceGenerationOptions(UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(AgentTaskArtifactWire), TypeInfoPropertyName = "AgentTaskArtifactWire")]
-[JsonSerializable(typeof(AgentTaskPrepareWire), TypeInfoPropertyName = "AgentTaskPrepareWire")]
-[JsonSerializable(typeof(AcceptanceVerdictWire), TypeInfoPropertyName = "AcceptanceVerdictWire")]
+[JsonSerializable(typeof(AgentTaskWire[]), TypeInfoPropertyName = "AgentTaskWireArray")]
 [JsonSerializable(typeof(AgentTaskLeafResponseWire), TypeInfoPropertyName = "AgentTaskLeafResponseWire")]
-[JsonSerializable(typeof(AgentTaskResultWire), TypeInfoPropertyName = "AgentTaskResultWire")]
 internal sealed partial class AgentTaskWireJsonContext : JsonSerializerContext;

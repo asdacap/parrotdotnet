@@ -767,7 +767,6 @@ internal sealed class BasicCliTests
         _ = await Assert.That(rendered).Contains("├── ○ pending");
         _ = await Assert.That(rendered).Contains("├── ✓ succeeded");
         _ = await Assert.That(rendered).Contains("├── ✗ failed");
-        _ = await Assert.That(rendered).Contains("├── ⊘ blocked");
         _ = await Assert.That(rendered).Contains("└── ■ canceled");
         _ = await Assert.That(rendered).DoesNotContain("\u001b[2J");
         _ = await Assert.That(output.Flushes).Count().IsEqualTo(2);
@@ -834,12 +833,11 @@ internal sealed class BasicCliTests
     {
         public ProgressFixture(AgentTaskProgressStatus rootStatus)
         {
-            var snapshot = new AgentTaskProgressSnapshot { OriginToolCallId = "call", Revision = 1 };
+            var snapshot = new AgentTaskProgressSnapshot { Revision = 1 };
             var root = new AgentTaskProgressNode { Name = "root\u001b[2J\t日本", Status = rootStatus };
             root.Children.Add(new AgentTaskProgressNode { Name = "pending", Status = AgentTaskProgressStatus.Pending });
             root.Children.Add(new AgentTaskProgressNode { Name = "succeeded", Status = AgentTaskProgressStatus.Succeeded });
             root.Children.Add(new AgentTaskProgressNode { Name = "failed", Status = AgentTaskProgressStatus.Failed });
-            root.Children.Add(new AgentTaskProgressNode { Name = "blocked", Status = AgentTaskProgressStatus.Blocked });
             root.Children.Add(new AgentTaskProgressNode { Name = "canceled", Status = AgentTaskProgressStatus.Canceled });
             snapshot.RootNodes.Add(root);
             Snapshot = snapshot;

@@ -46,7 +46,7 @@ internal partial class EnhancedComposition
                     new InterruptProcessToolPresenter(),
                     new ReadImageToolPresenter(),
                     new ReadToolPresenter(),
-                    new RunAgentTasksToolPresenter(new GenericToolPresenter()),
+                    new SetAgentTasksToolPresenter(new GenericToolPresenter()),
                     new QuestionToolPresenter(),
                     new SetCheckpointToolPresenter(),
                     new SetExitReminderToolPresenter(),

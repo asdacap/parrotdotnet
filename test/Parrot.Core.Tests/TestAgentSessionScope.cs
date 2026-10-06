@@ -4,6 +4,7 @@ using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Diagnostics;
 using Parrot.Events;
+using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Questions;
@@ -20,7 +21,8 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
     private readonly IEventBroker _events = new EventBroker();
     private readonly IAgentQueues _queues;
     private readonly IProcessOwner _processes;
-    private readonly IAgentTaskRunCatalog _agentTaskRuns;
+    private readonly SessionDatabase _agentTaskDatabase = SessionDatabase.Open(":memory:");
+    private readonly IAgentTaskService _agentTasks;
     private readonly IChildQuestion _childQuestion;
     private readonly IReadOnlyList<IInventoryPublisher> _publishers;
     private readonly IPromptTemplateCatalog _promptTemplates;
@@ -41,7 +43,16 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         _promptTemplates = promptTemplates;
         _parentLink = parentLink;
         ChildRegistry = new ChildRegistry(owner, QueueChildAdmissionValidator.Validate);
-        _agentTaskRuns = new AgentTaskRunCatalog(owner.SessionId, diagnostics, lifetime);
+        _agentTasks = new AgentTaskService(
+            this,
+            owner.SessionId,
+            TestModels.Route(new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"))),
+            new AgentTaskConfig(5, 3, true, promptTemplates),
+            new AgentTaskNotifier(this, new ToolOutputBlobStore(resources.AgentScratch(owner.NamePath).Root), diagnostics),
+            _events,
+            new EventRepository(_agentTaskDatabase),
+            diagnostics,
+            lifetime);
         _childQuestion = new ChildQuestion(owner);
         _processes = new ShellProcessOwner(owner, resources, new AgentPathEnvironment(resources, resources.AgentScratch(owner.NamePath)), runner, diagnostics, lifetime);
         _queues = new AgentQueues(owner, parentLink.Parent?.GetService<IAgentQueues>(), resources, ChildRegistry, static queueIdentity => new QueueInventory(queueIdentity), diagnostics);
@@ -54,12 +65,12 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         _publishers = [new QueueSnapshotPublisher(_queues, _events, root?.Session.SessionId ?? owner.SessionId), new ProcessSnapshotPublisher(_processes, _events)];
         _services.Register<IAgentQueues>(_queues);
         _services.Register<IProcessOwner>(_processes);
-        _services.Register<IAgentTaskRunCatalog>(_agentTaskRuns);
+        _services.Register<IAgentTaskService>(_agentTasks);
         _services.Register<IChildQuestion>(_childQuestion);
         _services.Register<IRuntimeStatus>(new RuntimeStatus(
             promptTemplates,
             TimeProvider.System,
-            [new RuntimeTreeStatusProvider(registry, promptTemplates), new AgentTaskStatusProvider(_agentTaskRuns, promptTemplates)]));
+            [new RuntimeTreeStatusProvider(registry, promptTemplates), new AgentTaskStatusProvider(_agentTasks, promptTemplates)]));
         _queues.Initialize();
         ParentScope = AgentSessionParentScope.Bind(owner, registry, () => this, ChildRegistry, parentLink);
         AgentSpawner = new AgentSpawner(owner, registry, ParentScope, ChildRegistry);
@@ -153,7 +164,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
 
     public async Task SettleWork()
     {
-        await _agentTaskRuns.Settle().ConfigureAwait(false);
+        await _agentTasks.Settle().ConfigureAwait(false);
         await _processes.Settle().ConfigureAwait(false);
     }
 
@@ -181,7 +192,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         Exception? failure = null;
         try
         {
-            await _agentTaskRuns.DisposeAsync().ConfigureAwait(false);
+            await _agentTasks.DisposeAsync().ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -229,6 +240,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
 
         _queues.Dispose();
         _events.Dispose();
+        _agentTaskDatabase.Dispose();
         _childQuestion.Close();
         _parentLink.ReleaseRetention();
         if (failure is not null)

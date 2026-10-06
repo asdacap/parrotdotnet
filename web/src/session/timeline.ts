@@ -64,7 +64,7 @@ export interface TimelineState {
   usage: SessionUsageSnapshot | undefined
   // The main agent's plan still waiting for the user's decision; any later input settles it.
   pendingPlan: PlanCompleted | undefined
-  // The newest task tree per run_agent_tasks call.
+  // The newest task graph per agent session.
   taskProgress: ReadonlyMap<string, AgentTaskProgressSnapshot>
   queues: ReadonlyMap<string, OwnerInventory<QueueState>>
   processes: ReadonlyMap<string, OwnerInventory<ActiveShellProcess>>
@@ -314,11 +314,10 @@ function reduceItems(state: TimelineState, event: Event): TimelineState {
     case "skillLoaded":
       return isRoot ? notice(state, event, `↻ Skill loaded: ${payload.value.path}`) : state
     case "agentTaskProgressSnapshot": {
-      const { originToolCallId, revision } = payload.value
-      const current = state.taskProgress.get(originToolCallId)
-      return current && current.revision >= revision
+      const current = state.taskProgress.get(event.agentSessionId)
+      return current && current.revision >= payload.value.revision
         ? state
-        : { ...state, taskProgress: new Map(state.taskProgress).set(originToolCallId, payload.value) }
+        : { ...state, taskProgress: new Map(state.taskProgress).set(event.agentSessionId, payload.value) }
     }
     case "queueSnapshot": {
       const snapshot = payload.value

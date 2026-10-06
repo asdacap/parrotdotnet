@@ -49,7 +49,7 @@ internal sealed class ModeRegistryTests : IDisposable
 
         _ = await Assert.That(string.Join(" | ", modes.List())).IsEqualTo("build | plan | query");
         _ = await Assert.That(string.Join(" | ", profiles.Children.Select(profile => profile.Id)))
-            .IsEqualTo("agent-task-payload | agent-task-prepare | agent-task-validation | explorer | review | thinker | worker");
+            .IsEqualTo("agent-task-payload | explorer | review | thinker | worker");
         _ = await Assert.That(profiles.ResolveChild("explore").Id).IsEqualTo("explorer");
         var worker = profiles.ResolveChild("worker");
         _ = await Assert.That(worker.Id).IsEqualTo("worker");
@@ -81,7 +81,7 @@ internal sealed class ModeRegistryTests : IDisposable
 
         _ = await Assert.That(string.Join(" | ", modes.List())).IsEqualTo("build | plan | query | worker");
         _ = await Assert.That(string.Join(" | ", registry.Children.Select(profile => profile.Id)))
-            .IsEqualTo("agent-task-payload | agent-task-prepare | agent-task-validation | build | explorer | thinker | worker");
+            .IsEqualTo("agent-task-payload | build | explorer | thinker | worker");
         _ = await Assert.That(modes.Resolve("worker").Id).IsEqualTo("worker");
         _ = await Assert.That(registry.ResolveChild(ModeRegistry.Build).Id).IsEqualTo(ModeRegistry.Build);
         _ = await Assert.That(() => modes.Resolve("review")).Throws<ModeRegistryException>();
@@ -338,7 +338,7 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(emitted.Dialog.Choices[0].Action.Mode).IsEqualTo(ModeRegistry.Build);
         var canonicalArtifact = SecurityWriteTarget.Resolve(artifact).Path;
         _ = await Assert.That(emitted.Dialog.Choices[0].Action.Prompt)
-            .IsEqualTo($"Implement the approved Markdown plan at {canonicalArtifact}. Call run_agent_tasks with the approved task JSON path {TaskArtifactFor(canonicalArtifact)}.");
+            .IsEqualTo($"Implement the approved Markdown plan at {canonicalArtifact}. Call set_agent_tasks with the approved task JSON path {TaskArtifactFor(canonicalArtifact)}.");
         _ = await Assert.That(emitted.Dialog.EmptyMessage).IsEqualTo("enter yes, no, or feedback");
     }
 
@@ -361,7 +361,6 @@ internal sealed class ModeRegistryTests : IDisposable
             ?? throw new InvalidOperationException("plan completion was not emitted");
         var tree = completed.TaskTree ?? throw new InvalidOperationException("task tree was not emitted");
 
-        _ = await Assert.That(tree.OriginToolCallId).IsEmpty();
         _ = await Assert.That(tree.Revision).IsEqualTo(0UL);
         _ = await Assert.That(string.Join(',', tree.RootNodes.Select(node => node.Name))).IsEqualTo("first,second");
         _ = await Assert.That(string.Join(',', tree.RootNodes.Select(node => node.Status)))

@@ -170,49 +170,31 @@ internal sealed class WaitToolTests : IAsyncDisposable
     }
 
     [Test]
-    public async Task AgentTask_completion_spills_oversized_results_and_errors(CancellationToken cancellationToken)
+    public async Task AgentTask_notifications_spill_oversized_text(CancellationToken cancellationToken)
     {
         var provider = new UnusedProvider();
         var repository = new EventRepository(_database);
         var registry = PrepareRegistry(new EventRepository(_database));
         await using var scope = Session(provider, [], repository, registry);
         var session = scope.Session;
-        var blobDirectory = Path.Combine(_root, "agent-task-blobs");
-        IAgentTaskRunCompletion completion = new AgentTaskRunCompletion(
-            session,
-            new ToolOutputBlobStore(blobDirectory),
-            TestModels.PromptTemplates);
+        var notifier = new AgentTaskNotifier(
+            scope,
+            new ToolOutputBlobStore(Path.Combine(_root, "agent-task-blobs")),
+            TestDiagnosticLog.Instance);
 
-        foreach (var terminal in new[]
-        {
-            new AgentTaskRunTerminal(
-                "result-call",
-                "result-message",
-                AgentTaskExecutionStatus.Succeeded,
-                new string('r', ToolOutputBlobStore.MaximumInlineBytes + 1),
-                string.Empty),
-            new AgentTaskRunTerminal(
-                "error-call",
-                "error-message",
-                AgentTaskExecutionStatus.Failed,
-                string.Empty,
-                new string('e', ToolOutputBlobStore.MaximumInlineBytes + 1)),
-        })
-        {
-            await completion.Deliver(terminal, cancellationToken);
-            var input = repository.Replay().Single(published =>
-                published.AgentSessionId == session.SessionId
-                && published.PayloadCase == Event.PayloadOneofCase.InputAdmitted
-                && published.InputAdmitted.MessageId == terminal.CompletionMessageId).InputAdmitted;
-            _ = await Assert.That(input.Content).Contains("Tool output exceeded 64 KiB and was saved to ");
-            var notice = input.Content.Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                .Single(line => line.StartsWith("Tool output exceeded", StringComparison.Ordinal));
-            var path = notice[(notice.IndexOf("saved to ", StringComparison.Ordinal) + "saved to ".Length)..]
-                .TrimEnd('.');
-            _ = await Assert.That(File.Exists(path)).IsTrue();
-            _ = await Assert.That((await File.ReadAllTextAsync(path, cancellationToken)).Length)
-                .IsEqualTo(ToolOutputBlobStore.MaximumInlineBytes + 1);
-        }
+        notifier.Enqueue(new string('r', ToolOutputBlobStore.MaximumInlineBytes + 1), "AgentTask update", false);
+        await notifier.Settle();
+
+        var input = repository.Replay().Single(published =>
+            published.AgentSessionId == session.SessionId
+            && published.PayloadCase == Event.PayloadOneofCase.InputAdmitted).InputAdmitted;
+        _ = await Assert.That(input.Content).Contains("Tool output exceeded 64 KiB and was saved to ");
+        var notice = input.Content.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Single(line => line.StartsWith("Tool output exceeded", StringComparison.Ordinal));
+        var path = notice[(notice.IndexOf("saved to ", StringComparison.Ordinal) + "saved to ".Length)..]
+            .TrimEnd('.');
+        _ = await Assert.That((await File.ReadAllTextAsync(path, cancellationToken)).Length)
+            .IsEqualTo(ToolOutputBlobStore.MaximumInlineBytes + 1);
     }
 
     [Test]

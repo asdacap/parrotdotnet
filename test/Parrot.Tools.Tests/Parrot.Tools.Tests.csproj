@@ -22,13 +22,10 @@
 
   <ItemGroup>
     <Compile Include="../Parrot.Core.Tests/AgentQueueTestFixture.cs" Link="AgentQueueTestFixture.cs" />
-    <Compile Include="../Parrot.Core.Tests/AgentTaskBlockingProvider.cs" Link="AgentTaskBlockingProvider.cs" />
-    <Compile Include="../Parrot.Core.Tests/AgentTaskQueueProvider.cs" Link="AgentTaskQueueProvider.cs" />
     <Compile Include="../Parrot.Core.Tests/FixedToolFactory.cs" Link="FixedToolFactory.cs" />
     <Compile Include="../Parrot.Core.Tests/SettledTool.cs" Link="SettledTool.cs" />
     <Compile Include="../Parrot.Core.Tests/SteppedProvider.cs" Link="SteppedProvider.cs" />
     <Compile Include="../Parrot.Core.Tests/AgentSessionDependencies.cs" Link="AgentSessionDependencies.cs" />
-    <Compile Include="../Parrot.Core.Tests/AgentTaskTestSessionFactory.cs" Link="AgentTaskTestSessionFactory.cs" />
     <Compile Include="../Parrot.Core.Tests/ControlledTimeProvider.cs" Link="ControlledTimeProvider.cs" />
     <Compile Include="../Parrot.Core.Tests/SecurityProfileTestFixture.cs" Link="SecurityProfileTestFixture.cs" />
     <Compile Include="../Parrot.Core.Tests/TestAgentSessionScope.cs" Link="TestAgentSessionScope.cs" />

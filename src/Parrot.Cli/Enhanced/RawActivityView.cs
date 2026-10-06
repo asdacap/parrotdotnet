@@ -28,7 +28,7 @@ internal sealed class RawActivityView(
     private readonly HashSet<(string OwnerAgentSessionId, string ToolCallId)> _terminalProcessTools = [];
     private readonly Dictionary<string, InventoryState> _processInventories = new(StringComparer.Ordinal);
     private readonly Dictionary<string, InventoryState> _queueInventories = new(StringComparer.Ordinal);
-    private readonly Dictionary<(string AgentSessionId, string ToolCallId), PendingProgress> _pendingProgress = [];
+    private readonly Dictionary<string, PendingProgress> _pendingProgress = new(StringComparer.Ordinal);
     private readonly Dictionary<(string AgentSessionId, string ToolCallId), PendingStart> _pendingStarts = [];
     private readonly HashSet<Task> _progressTasks = [];
     private readonly object _progressTasksLock = new();
@@ -720,9 +720,7 @@ internal sealed class RawActivityView(
             }
 
             _pendingStarts.Clear();
-            foreach (var entry in _pendingProgress.OrderBy(static entry => entry.Key.AgentSessionId, StringComparer.Ordinal)
-                         .ThenBy(static entry => entry.Key.ToolCallId, StringComparer.Ordinal)
-                         .ToArray())
+            foreach (var entry in _pendingProgress.OrderBy(static entry => entry.Key, StringComparer.Ordinal).ToArray())
             {
                 try
                 {
@@ -748,7 +746,7 @@ internal sealed class RawActivityView(
 
     private void ScheduleProgress(AgentSessionState state, AgentTaskProgressSnapshot snapshot)
     {
-        var key = (state.AgentSessionId, snapshot.OriginToolCallId);
+        var key = state.AgentSessionId;
         var flushedRevision = 0UL;
         if (_pendingProgress.TryGetValue(key, out var previous))
         {
@@ -763,7 +761,7 @@ internal sealed class RawActivityView(
     }
 
     private async Task DelayAndFlushProgress(
-        (string AgentSessionId, string ToolCallId) key,
+        string key,
         PendingProgress pending)
     {
         try
@@ -801,15 +799,15 @@ internal sealed class RawActivityView(
     }
 
     private async Task FlushProgress(
-        (string AgentSessionId, string ToolCallId) key,
+        string key,
         PendingProgress pending,
         CancellationToken cancellationToken)
     {
         if (!_pendingProgress.TryGetValue(key, out var current)
             || !ReferenceEquals(current, pending)
             || pending.FlushedRevision >= pending.Snapshot.Revision
-            || !_agentSessions.TryGetValue(key.AgentSessionId, out var state)
-            || !state.IsCurrentAgentTaskProgress(key.ToolCallId, pending.Snapshot.Revision))
+            || !_agentSessions.TryGetValue(key, out var state)
+            || !state.IsCurrentAgentTaskProgress(pending.Snapshot.Revision))
         {
             return;
         }
@@ -819,7 +817,7 @@ internal sealed class RawActivityView(
             Snapshot(),
             cancellationToken).ConfigureAwait(false);
         pending.FlushedRevision = pending.Snapshot.Revision;
-        if (state.RetireDetachedAgentTaskProgress(key.ToolCallId, pending.Snapshot.Revision))
+        if (state.RetireAgentTaskProgress(pending.Snapshot.Revision))
         {
             _ = _pendingProgress.Remove(key);
             await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
@@ -972,7 +970,7 @@ internal sealed class RawActivityView(
             .Concat(_queues.Keys.Select(static key => key.OwnerAgentSessionId))
             .Concat(_agentSessions.Values.Where(state => state.HasReasoning && _hierarchy.IsChild(state.AgentSessionId))
                 .Select(static state => state.AgentSessionId))
-            .Concat(_agentSessions.Values.Where(static state => state.DetachedAgentTaskProgressIds().Count > 0)
+            .Concat(_agentSessions.Values.Where(static state => state.AgentTaskProgress is not null)
                 .Select(static state => state.AgentSessionId))
             .Where(static ownerId => ownerId.Length > 0)
             .ToHashSet(StringComparer.Ordinal);
@@ -997,20 +995,29 @@ internal sealed class RawActivityView(
                 StringComparer.Ordinal);
         var embeddedAgentSessionIds = new HashSet<string>(StringComparer.Ordinal);
         var rows = new List<(string OwnerId, int Kind, string Id, ILiveBufferItem Item)>();
-        rows.AddRange(
-            _agentSessions.Values.SelectMany(state => state.DetachedAgentTaskProgressIds().Select(toolCallId =>
+        var taskTrees = _agentSessions.Values
+            .SelectMany(static state => state.AgentTaskProgress is { } tree ? [(state.AgentSessionId, Tree: tree)] : Array.Empty<(string AgentSessionId, AgentTaskProgressSnapshot Tree)>())
+            .ToDictionary(static entry => entry.AgentSessionId, static entry => entry.Tree, StringComparer.Ordinal);
+        var nestedTaskTrees = taskTrees.Values
+            .SelectMany(static tree => tree.RootNodes)
+            .Select(static node => node.AgentSessionId)
+            .Where(taskTrees.ContainsKey)
+            .ToHashSet(StringComparer.Ordinal);
+        rows.AddRange(taskTrees
+            .Where(tree => !nestedTaskTrees.Contains(tree.Key))
+            .Select(tree =>
             (
-                state.AgentSessionId,
+                tree.Key,
                 0,
-                "task:" + toolCallId,
+                "task",
                 (ILiveBufferItem)new HierarchicalLiveValue(
                     EmbedTaskAgentLines(
-                        state.CreateDetachedAgentTaskProgressItem(toolCallId),
+                        new AgentTaskProgressLiveValue(AgentTaskProgressFormatter.Nest(tree.Value, taskTrees), null),
                         taskAgentLines,
                         embeddedAgentSessionIds),
-                    _hierarchy.GetDepth(state.AgentSessionId),
-                    _hierarchy.GetLabel(state.AgentSessionId),
-                    null)))));
+                    _hierarchy.GetDepth(tree.Key),
+                    _hierarchy.GetLabel(tree.Key),
+                    null))));
         rows.AddRange(_agentSessions.Values
             .Where(state => state.HasReasoning && _hierarchy.IsChild(state.AgentSessionId))
             .Select(state => (
@@ -1280,13 +1287,6 @@ internal sealed class RawActivityView(
         var state = GetNamedAgentSession(published.AgentSessionId);
         var toolCallId = GetTerminalToolCallId(published);
         var key = (published.AgentSessionId, toolCallId);
-        if (_pendingProgress.TryGetValue(key, out var pending))
-        {
-            pending.Cancel();
-            await FlushProgress(key, pending, cancellationToken).ConfigureAwait(false);
-            _ = _pendingProgress.Remove(key);
-        }
-
         var startOmitted = false;
         if (_pendingStarts.Remove(key, out var pendingStart))
         {

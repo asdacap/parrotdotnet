@@ -242,7 +242,6 @@ internal sealed class EventPayloadTests
             AgentSessionId = "agent-session",
             AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
             {
-                OriginToolCallId = "tool-call",
                 Revision = 19,
                 RootNodes =
                 {
@@ -274,8 +273,8 @@ internal sealed class EventPayloadTests
                     },
                     new AgentTaskProgressNode
                     {
-                        Name = "blocked-root",
-                        Status = AgentTaskProgressStatus.Blocked,
+                        Name = "failed-root",
+                        Status = AgentTaskProgressStatus.Failed,
                     },
                     new AgentTaskProgressNode
                     {
@@ -295,13 +294,12 @@ internal sealed class EventPayloadTests
         _ = await Assert.That(roundtripped.Id).IsEqualTo("agent-task-progress-event");
         _ = await Assert.That(roundtripped.AgentSessionId).IsEqualTo("agent-session");
         _ = await Assert.That(roundtripped.PayloadCase).IsEqualTo(Event.PayloadOneofCase.AgentTaskProgressSnapshot);
-        _ = await Assert.That(snapshot.OriginToolCallId).IsEqualTo("tool-call");
         _ = await Assert.That(snapshot.Revision).IsEqualTo(19UL);
         _ = await Assert.That(snapshot.RootNodes).Count().IsEqualTo(3);
         _ = await Assert.That(pendingRoot.Name).IsEqualTo("pending-root");
         _ = await Assert.That(pendingRoot.Status).IsEqualTo(AgentTaskProgressStatus.Pending);
-        _ = await Assert.That(snapshot.RootNodes[1].Name).IsEqualTo("blocked-root");
-        _ = await Assert.That(snapshot.RootNodes[1].Status).IsEqualTo(AgentTaskProgressStatus.Blocked);
+        _ = await Assert.That(snapshot.RootNodes[1].Name).IsEqualTo("failed-root");
+        _ = await Assert.That(snapshot.RootNodes[1].Status).IsEqualTo(AgentTaskProgressStatus.Failed);
         _ = await Assert.That(snapshot.RootNodes[2].Name).IsEqualTo("canceled-root");
         _ = await Assert.That(snapshot.RootNodes[2].Status).IsEqualTo(AgentTaskProgressStatus.Canceled);
         _ = await Assert.That(pendingRoot.Children).Count().IsEqualTo(1);

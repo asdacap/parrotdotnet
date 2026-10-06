@@ -284,7 +284,6 @@ internal sealed class EnhancedCliTests
                 Markdown = "# Written plan",
                 TaskTree = new AgentTaskProgressSnapshot
                 {
-                    OriginToolCallId = "plan",
                     Revision = 1,
                     RootNodes =
                     {
