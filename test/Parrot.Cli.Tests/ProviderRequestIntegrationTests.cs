@@ -154,7 +154,6 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
             _ = await Assert.That(displaying.IsCompleted).IsFalse();
 
             body.ReleaseCompletion.SetResult();
-            await agent.Settled();
             await forwarding.WaitAsync(cancellationToken);
             var completed = await displaying.WaitAsync(cancellationToken);
             _ = await Assert.That(error.ToString()).IsEmpty();
@@ -167,7 +166,6 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
             _ = handler.ReleaseHeaders.TrySetResult();
             _ = body.ReleaseBody.TrySetResult();
             _ = body.ReleaseCompletion.TrySetResult();
-            await agent.Settled();
             subscription.Dispose();
             await forwarding;
             _ = await displaying;

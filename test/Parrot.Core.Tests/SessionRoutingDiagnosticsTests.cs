@@ -61,6 +61,7 @@ internal sealed class SessionRoutingDiagnosticsTests
                 AgentTaskParser.ParseArtifact);
             var store = new SessionStore(paths, root, "host", factory, router, modes, diagnostics);
             string firstId;
+            string secondId;
             string firstLogPath;
             string secondLogPath;
             string firstAgentId;
@@ -70,6 +71,7 @@ internal sealed class SessionRoutingDiagnosticsTests
             await using (var second = await store.CreateFresh(router.Resolve(model.Selector), modes.Default, false))
             {
                 firstId = first.Id;
+                secondId = second.Id;
                 firstLogPath = first.Resources.LogPath;
                 secondLogPath = second.Resources.LogPath;
                 var firstScope = first.Registry.SnapshotScopes().Single();
@@ -109,22 +111,24 @@ internal sealed class SessionRoutingDiagnosticsTests
                     provider.Release();
                 }
 
-                await Task.WhenAll(firstScope.Session.Settled(), secondScope.Session.Settled(), child.Session.Settled());
-                var firstLog = await File.ReadAllTextAsync(firstLogPath, cancellationToken);
-                var secondLog = await File.ReadAllTextAsync(secondLogPath, cancellationToken);
-                _ = await Assert.That(firstLog).Contains($"session=\"{first.Id}\"").And.Contains($"agent=\"{firstAgentId}\"")
-                    .And.Contains($"agent=\"{childId}\"").And.DoesNotContain(second.Id).And.DoesNotContain(secondAgentId);
-                _ = await Assert.That(secondLog).Contains($"session=\"{second.Id}\"").And.Contains($"agent=\"{secondAgentId}\"")
-                    .And.DoesNotContain(first.Id).And.DoesNotContain(firstAgentId).And.DoesNotContain(childId);
-                foreach (var (log, agentId) in new[] { (firstLog, firstAgentId), (firstLog, childId), (secondLog, secondAgentId) })
-                {
-                    var turnLines = log.Split('\n').Where(line => line.Contains("category=\"turn\"", StringComparison.Ordinal)
-                        && line.Contains($"agent=\"{agentId}\"", StringComparison.Ordinal)).ToArray();
-                    _ = await Assert.That(turnLines.Count(line => line.Contains("event=\"started\"", StringComparison.Ordinal))).IsEqualTo(1);
-                    _ = await Assert.That(turnLines.Count(line => line.Contains("event=\"finished\"", StringComparison.Ordinal))).IsEqualTo(1);
-                    _ = await Assert.That(turnLines.Single(line => line.Contains("event=\"finished\"", StringComparison.Ordinal)))
-                        .Contains(interrupt ? "outcome=\"cancelled\"" : "outcome=\"completed\"").And.Contains("duration_ms=");
-                }
+                await Task.WhenAll(TurnEndings(first, 2, cancellationToken), TurnEndings(second, 1, cancellationToken));
+            }
+
+            // Read after the sessions close: a turn's finished diagnostic can follow its ending event.
+            var firstLog = await File.ReadAllTextAsync(firstLogPath, cancellationToken);
+            var secondLog = await File.ReadAllTextAsync(secondLogPath, cancellationToken);
+            _ = await Assert.That(firstLog).Contains($"session=\"{firstId}\"").And.Contains($"agent=\"{firstAgentId}\"")
+                .And.Contains($"agent=\"{childId}\"").And.DoesNotContain(secondId).And.DoesNotContain(secondAgentId);
+            _ = await Assert.That(secondLog).Contains($"session=\"{secondId}\"").And.Contains($"agent=\"{secondAgentId}\"")
+                .And.DoesNotContain(firstId).And.DoesNotContain(firstAgentId).And.DoesNotContain(childId);
+            foreach (var (log, agentId) in new[] { (firstLog, firstAgentId), (firstLog, childId), (secondLog, secondAgentId) })
+            {
+                var turnLines = log.Split('\n').Where(line => line.Contains("category=\"turn\"", StringComparison.Ordinal)
+                    && line.Contains($"agent=\"{agentId}\"", StringComparison.Ordinal)).ToArray();
+                _ = await Assert.That(turnLines.Count(line => line.Contains("event=\"started\"", StringComparison.Ordinal))).IsEqualTo(1);
+                _ = await Assert.That(turnLines.Count(line => line.Contains("event=\"finished\"", StringComparison.Ordinal))).IsEqualTo(1);
+                _ = await Assert.That(turnLines.Single(line => line.Contains("event=\"finished\"", StringComparison.Ordinal)))
+                    .Contains(interrupt ? "outcome=\"cancelled\"" : "outcome=\"completed\"").And.Contains("duration_ms=");
             }
 
             var beforeResume = await File.ReadAllTextAsync(firstLogPath, cancellationToken);
@@ -156,6 +160,18 @@ internal sealed class SessionRoutingDiagnosticsTests
         finally
         {
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+    // Follows a session the way a client does, replaying what was published before it listened.
+    private static async Task TurnEndings(IUserSession session, int count, CancellationToken cancellationToken)
+    {
+        await foreach (var published in session.Listen(string.Empty, cancellationToken))
+        {
+            if (published.PayloadCase is Event.PayloadOneofCase.TurnEnded or Event.PayloadOneofCase.TurnFailed && --count == 0)
+            {
+                return;
+            }
         }
     }
 }

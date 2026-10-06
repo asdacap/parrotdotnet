@@ -25,6 +25,7 @@
     <Compile Include="../Parrot.Core.Tests/AgentTaskBlockingProvider.cs" Link="AgentTaskBlockingProvider.cs" />
     <Compile Include="../Parrot.Core.Tests/AgentTaskQueueProvider.cs" Link="AgentTaskQueueProvider.cs" />
     <Compile Include="../Parrot.Core.Tests/FixedToolFactory.cs" Link="FixedToolFactory.cs" />
+    <Compile Include="../Parrot.Core.Tests/SessionEvents.cs" Link="SessionEvents.cs" />
     <Compile Include="../Parrot.Core.Tests/SettledTool.cs" Link="SettledTool.cs" />
     <Compile Include="../Parrot.Core.Tests/SteppedProvider.cs" Link="SteppedProvider.cs" />
     <Compile Include="../Parrot.Core.Tests/AgentSessionDependencies.cs" Link="AgentSessionDependencies.cs" />

@@ -516,9 +516,6 @@ internal sealed partial class AgentSession(
         }
     }
 
-    public async Task Settled() =>
-        _ = await WaitForDrainResult().ConfigureAwait(false);
-
     private static long Elapsed(long started) =>
         (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
 

@@ -53,9 +53,6 @@ internal interface IAgentSession : IAsyncDisposable
     /// <summary>Queues compaction within the session drain, using a one-off target or the selected policy when null.</summary>
     Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken);
 
-    /// <summary>Waits for the captured drain result without admitting or waking work.</summary>
-    Task Settled();
-
     /// <summary>Resolves the current selection's security policy through its ancestor lineage.</summary>
     AgentSelection ResolvePolicySelection();
 

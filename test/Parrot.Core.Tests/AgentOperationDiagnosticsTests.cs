@@ -92,6 +92,7 @@ internal sealed class AgentOperationDiagnosticsTests : IDisposable
             new AgentSessionActivity(TimeProvider.System),
             diagnostics,
             cancellationToken);
+        using var turns = events.Subscribe();
         _ = await session.Send([ConversationPart.TextPart("private-prompt-sentinel")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         if (outcome == "turn_cancelled")
         {
@@ -108,7 +109,11 @@ internal sealed class AgentOperationDiagnosticsTests : IDisposable
             }
         }
 
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
+
+        // The turn's finished diagnostic can follow its ending event; disposing
+        // waits for the drain to unwind past it.
+        await session.DisposeAsync();
         var log = await File.ReadAllTextAsync(resources.LogPath, cancellationToken);
         if (outcome.StartsWith("turn_", StringComparison.Ordinal))
         {

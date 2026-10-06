@@ -167,8 +167,6 @@ internal sealed class AgentInterruptToolTests
 
         public Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task Settled() => throw new NotSupportedException();
-
         public AgentSelection ResolvePolicySelection() => throw new NotSupportedException();
 
         public AgentPolicyLineage ResolvePolicyLineage() => throw new NotSupportedException();

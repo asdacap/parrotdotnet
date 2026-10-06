@@ -1220,15 +1220,16 @@ internal sealed class AgentTaskRunnerTests : IAsyncDisposable
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic));
+        using var turns = _broker.Subscribe();
         _ = await manualScope.Session.SendAndWaitForResult("manual prompt", cancellationToken);
-        await runtime.Parent.Settled();
+        _ = await turns.TurnEnding(runtime.Parent.SessionId, cancellationToken);
         var originalSelection = manualScope.Session.CurrentSelection();
         var artifact = AgentTaskParser.ParseArtifact("""
             {"schema_version":1,"tasks":[{"name":"Existing Agent","description":"Reuse manual child","model":"missing-provider/missing-model","payload":"work","acceptance_criteria":"Done"}]}
             """);
 
         var result = await new RunnerFixture(runtime, "manual-reuse", 5, 3, _broker, _repository).Runner.Run(artifact, cancellationToken);
-        await runtime.Parent.Settled();
+        _ = await turns.TurnEnding(runtime.Parent.SessionId, cancellationToken);
 
         _ = await Assert.That(result.Tasks.Single().Result).IsEqualTo("task result");
         _ = await Assert.That(runtime.Sessions.Identities).Count().IsEqualTo(1);

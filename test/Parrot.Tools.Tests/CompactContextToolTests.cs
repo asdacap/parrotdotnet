@@ -63,6 +63,7 @@ internal sealed class CompactContextToolTests : IDisposable
         ]);
         var repository = new EventRepository(database);
         await using var session = Session(provider, repository, broker, 100_000, cancellationToken);
+        using var turns = broker.Subscribe();
 
         foreach (var prompt in new[] { "first", "second", "third" })
         {
@@ -72,7 +73,7 @@ internal sealed class CompactContextToolTests : IDisposable
                 Delivery.Steer,
                 new IncomingActivity(string.Empty, null),
                 cancellationToken);
-            await session.Settled();
+            _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         }
 
         _ = await session.Send(
@@ -81,7 +82,7 @@ internal sealed class CompactContextToolTests : IDisposable
             Delivery.Steer,
             new IncomingActivity(string.Empty, null),
             cancellationToken);
-        await session.Settled().WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken).WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
 
         _ = await Assert.That(repository.Compaction("agent")).IsNotNull();
         _ = await Assert.That(repository.ToolTerminals("agent")).Count().IsEqualTo(2);
@@ -132,6 +133,7 @@ internal sealed class CompactContextToolTests : IDisposable
             var provider = new QueueProvider(responses);
             var repository = new EventRepository(database);
             await using var session = Session(provider, repository, broker, scenario.ContextWindow, cancellationToken);
+            using var turns = broker.Subscribe();
 
             if (scenario.Seed)
             {
@@ -141,7 +143,7 @@ internal sealed class CompactContextToolTests : IDisposable
                     Delivery.Steer,
                     new IncomingActivity(string.Empty, null),
                     cancellationToken);
-                await session.Settled();
+                _ = await turns.TurnEnding(session.SessionId, cancellationToken);
             }
 
             _ = await session.Send(
@@ -150,7 +152,7 @@ internal sealed class CompactContextToolTests : IDisposable
                 Delivery.Steer,
                 new IncomingActivity(string.Empty, null),
                 cancellationToken);
-            await session.Settled().WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+            _ = await turns.TurnEnding(session.SessionId, cancellationToken).WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
 
             var terminal = repository.ToolTerminals("agent").Single();
             _ = await Assert.That(terminal.Message).Contains(scenario.Expected);

@@ -43,25 +43,6 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
-    public async Task Faulted_repository_drain_retires_active_work(CancellationToken cancellationToken)
-    {
-        using var provider = new SteppedProvider(Answer("done"));
-        using var database = SessionDatabase.Open(":memory:");
-        var repository = new EventRepository(database);
-        var session = Session(provider, repository, [], cancellationToken);
-
-        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-        await provider.Arrived(cancellationToken);
-        database.Dispose();
-        provider.Release();
-
-        _ = await Assert.That(session.Settled).Throws<Exception>();
-        _ = await Assert.That(session.IsActive()).IsFalse();
-        _ = await Assert.That(session.Activity.Capture().State).IsEqualTo(DrainState.Idle);
-        await session.DisposeAsync();
-    }
-
-    [Test]
     public async Task Interrupt_releases_stopping_after_repository_fault(CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(Answer("done"));
@@ -88,6 +69,7 @@ internal sealed class DrainTests : IDisposable
         using var provider = new SteppedProvider(Answer("first answer"), Answer("second answer"));
         var repository = new EventRepository(_database);
         await using var session = Session(provider, repository, [], cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("first prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -100,7 +82,8 @@ internal sealed class DrainTests : IDisposable
         await provider.Arrived(cancellationToken);
         provider.Release();
 
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
 
         // Two calls, not four: one drain answered both.
@@ -121,6 +104,7 @@ internal sealed class DrainTests : IDisposable
         using var provider = new SteppedProvider(Answer("done"));
         var repository = new EventRepository(_database);
         await using var session = Session(provider, repository, [], contextWindow, 0, 0, 0, cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -143,7 +127,7 @@ internal sealed class DrainTests : IDisposable
         }
 
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
     }
 
     [Test]
@@ -157,11 +141,12 @@ internal sealed class DrainTests : IDisposable
             Answer("done"));
         var repository = new EventRepository(_database);
         await using var session = Session(provider, repository, [], contextWindow, 0, 0, 0, cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("first prompt")], "message-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("second prompt")], "message-2", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -170,7 +155,7 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(reportedInputTokens + request.MaxOutputTokens).IsLessThanOrEqualTo(contextWindow);
         _ = await Assert.That(request.MaxOutputTokens).IsLessThan(32_768);
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
     }
 
     [Test]
@@ -185,9 +170,10 @@ internal sealed class DrainTests : IDisposable
             contextWindow: 400_000,
             maximumInputTokens: 1,
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
         _ = await Assert.That(provider.Requests).IsEmpty();
         _ = await Assert.That(repository.Replay().Last(published =>
@@ -202,9 +188,10 @@ internal sealed class DrainTests : IDisposable
         var provider = new ScriptedProvider("should not be called");
         var repository = new EventRepository(_database);
         await using var session = Session(provider, repository, [], 1, 0, 0, 0, cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
         _ = await Assert.That(provider.Requests).IsEmpty();
         _ = await Assert.That(repository.Replay().Last(published =>
@@ -313,13 +300,14 @@ internal sealed class DrainTests : IDisposable
             [first, second, third],
             new TestProfileFixture().Mode,
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         await provider.Arrived(cancellationToken);
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
 
         var callbackNames = string.Join(',', calls.Select(call => call[..call.IndexOf(':')]));
@@ -401,13 +389,14 @@ internal sealed class DrainTests : IDisposable
             [retry],
             new DrainProfile(maxTurns: 2).Mode,
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         await provider.Arrived(cancellationToken);
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
 
         // Both requests are made and the turn completes. Without the reset the
@@ -452,6 +441,7 @@ internal sealed class DrainTests : IDisposable
             skills,
             null,
             cancellationToken);
+        using var turns = _broker.Subscribe();
         const string originalPrompt = "use $second then $second";
         const string steer = "also $first";
 
@@ -478,7 +468,7 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(continuedRequest.Messages.Sum(message => message.Content.Split("SECOND BODY", StringSplitOptions.None).Length - 1)).IsEqualTo(1);
 
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         _ = Directory.CreateDirectory(thirdDirectory);
         await File.WriteAllTextAsync(thirdPath, "---\nname: third\ndescription: third description\n---\nTHIRD BODY", cancellationToken);
         _ = await session.Send(
@@ -492,7 +482,7 @@ internal sealed class DrainTests : IDisposable
             .Contains("FIRST BODY")
             .And.Contains("THIRD BODY");
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
 
         string[] skillBodies = ["FIRST", "SECOND", "THIRD"];
@@ -551,6 +541,7 @@ internal sealed class DrainTests : IDisposable
             skills,
             securityProfile,
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send(
             [ConversationPart.TextPart("$unknown $disabled $enabled $over-budget")],
@@ -558,7 +549,7 @@ internal sealed class DrainTests : IDisposable
             Delivery.Steer,
             new IncomingActivity(string.Empty, null),
             cancellationToken);
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
 
         var request = provider.Requests.Single();
@@ -582,6 +573,7 @@ internal sealed class DrainTests : IDisposable
             Answer("first answer"), Answer("second answer"), Answer("third answer"));
         var repository = new EventRepository(_database);
         await using var session = Session(provider, repository, [], cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("first prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -593,7 +585,9 @@ internal sealed class DrainTests : IDisposable
         provider.Release();
         await provider.Arrived(cancellationToken);
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
 
         _ = await Assert.That(provider.Requests.Count).IsEqualTo(3);
@@ -617,13 +611,14 @@ internal sealed class DrainTests : IDisposable
             [new TestTool(new SettledTool("settled"))],
             new DrainProfile(maxTurns: 2).Mode,
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         await provider.Arrived(cancellationToken);
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
 
         var replay = repository.Replay().ToList();
@@ -663,13 +658,14 @@ internal sealed class DrainTests : IDisposable
             [new TestTool(new SettledTool("settled"))],
             new DrainProfile(maxTurns: 2).Mode,
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         await provider.Arrived(cancellationToken);
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
 
         _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.ToolRequestReceived)).IsEqualTo(1);
@@ -705,6 +701,7 @@ internal sealed class DrainTests : IDisposable
             [new TestTool(new SettledTool("settled"))],
             new DrainProfile(maxTurns: 4).Mode,
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -713,7 +710,7 @@ internal sealed class DrainTests : IDisposable
         provider.Release();
         await provider.Arrived(cancellationToken);
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
 
         // Neither retried batch was accepted, so neither is counted.
@@ -733,6 +730,7 @@ internal sealed class DrainTests : IDisposable
             [new TestTool(new SettledTool("settled"))],
             new DrainProfile(maxTurns: 2).Mode,
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("first prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -747,7 +745,7 @@ internal sealed class DrainTests : IDisposable
             message.Role == LLMRole.System
             && message.Content.Contains("Tool access is restored", StringComparison.Ordinal));
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
 
         // One turn, not two: the steer was answered inside the turn that was
@@ -898,6 +896,7 @@ internal sealed class DrainTests : IDisposable
             ]);
         var repository = new EventRepository(_database);
         using var subscription = _broker.Subscribe();
+        using var turns = _broker.Subscribe();
         await using var session = Session(provider, repository, [], cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
@@ -942,7 +941,7 @@ internal sealed class DrainTests : IDisposable
         else
         {
             provider.Release();
-            await session.Settled();
+            _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         }
 
         if (outcome == "completed")
@@ -954,7 +953,7 @@ internal sealed class DrainTests : IDisposable
                 provider.Release();
             }
 
-            await session.Settled();
+            _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         }
 
         await session.DisposeAsync();
@@ -1031,6 +1030,7 @@ internal sealed class DrainTests : IDisposable
         using var provider = new RequestPhaseProvider(false, [.. steps.Select(step => step.Event)]);
         var repository = new EventRepository(_database);
         using var subscription = _broker.Subscribe();
+        using var turns = _broker.Subscribe();
         await using var session = Session(provider, repository, [], cancellationToken);
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         var published = new List<Event>();
@@ -1061,7 +1061,7 @@ internal sealed class DrainTests : IDisposable
             provider.Release();
         }
 
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
         while (subscription.Reader.TryRead(out var next))
         {
@@ -1168,13 +1168,14 @@ internal sealed class DrainTests : IDisposable
             [new TestTool(firstFactory.Tool, firstFactory), new TestTool(secondFactory.Tool, secondFactory)],
             firstProfile,
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("first prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(string.Join(" | ", provider.Requests[0].Tools.Select(tool => tool.Name)))
             .IsEqualTo("first");
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
         session.UpdateSelection(session.CurrentSelection().RequestedModel, secondProfile);
         _ = await session.Send([ConversationPart.TextPart("second prompt")], "msg-2", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
@@ -1182,7 +1183,7 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(string.Join(" | ", provider.Requests[1].Tools.Select(tool => tool.Name)))
             .IsEqualTo("second");
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
         _ = await Assert.That(firstFactory.CreateCount).IsEqualTo(1);
         _ = await Assert.That(secondFactory.CreateCount).IsEqualTo(1);
@@ -1212,6 +1213,7 @@ internal sealed class DrainTests : IDisposable
             new HashSet<string>(StringComparer.Ordinal),
             readOnly: true).Mode;
         await using var session = Session(provider, repository, [new TestTool(factory.Tool, factory)], writable, cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("first prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -1221,7 +1223,7 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(string.Join(" | ", factory.RecordingTool.Selections.Select(SelectionSummary)))
             .IsEqualTo("writable:True");
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("second prompt")], "msg-2", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -1230,7 +1232,7 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(string.Join(" | ", factory.RecordingTool.Selections.Select(SelectionSummary)))
             .IsEqualTo("writable:True | read-only:True");
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
         _ = await Assert.That(factory.CreateCount).IsEqualTo(1);
     }
@@ -1249,6 +1251,7 @@ internal sealed class DrainTests : IDisposable
             [new TestTool(new SettledTool("settled")), new TestTool(new HeldTool())],
             new DrainProfile(3, ["settled", "held"], new HashSet<string>(["settled"], StringComparer.Ordinal)).Mode,
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -1259,7 +1262,7 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(string.Join(" | ", provider.Requests[1].Tools.Select(tool => tool.Name)))
             .IsEqualTo("held");
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
 
         _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
@@ -1281,6 +1284,7 @@ internal sealed class DrainTests : IDisposable
             [new TestTool(new SettledTool("settled"))],
             new DrainProfile(maxTurns: 2).Mode,
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("first prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -1301,7 +1305,8 @@ internal sealed class DrainTests : IDisposable
             message.Role == LLMRole.System
             && message.Content.Contains("Tool access is restored", StringComparison.Ordinal));
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
 
         _ = await Assert.That(Endings(repository)).IsEqualTo("stop | stop");
@@ -1338,6 +1343,7 @@ internal sealed class DrainTests : IDisposable
             [new TestTool(new SettledTool("settled"))],
             new DrainProfile(maxTurns: 2).Mode,
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await restoredSession.Send([ConversationPart.TextPart("second prompt")], "msg-2", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await restoredProvider.Arrived(cancellationToken);
@@ -1346,7 +1352,7 @@ internal sealed class DrainTests : IDisposable
             message.Role == LLMRole.System
             && message.Content.Contains("Tool access is restored", StringComparison.Ordinal))).IsEqualTo(1);
         restoredProvider.Release();
-        await restoredSession.Settled();
+        _ = await turns.TurnEnding(restoredSession.SessionId, cancellationToken);
 
         _ = await restoredSession.Send([ConversationPart.TextPart("third prompt")], "msg-3", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await restoredProvider.Arrived(cancellationToken);
@@ -1354,7 +1360,7 @@ internal sealed class DrainTests : IDisposable
             message.Role == LLMRole.System
             && message.Content.Contains("Tool access is restored", StringComparison.Ordinal))).IsEqualTo(1);
         restoredProvider.Release();
-        await restoredSession.Settled();
+        _ = await turns.TurnEnding(restoredSession.SessionId, cancellationToken);
 
         _ = await Assert.That(repository.Messages("agent").Count(message =>
             message.Contains("Tool access is restored", StringComparison.Ordinal))).IsEqualTo(1);
@@ -1376,6 +1382,7 @@ internal sealed class DrainTests : IDisposable
             Answer("done"));
         var repository = new EventRepository(_database);
         using var subscription = _broker.Subscribe();
+        using var turns = _broker.Subscribe();
         await using var session = Session(
             provider,
             repository,
@@ -1401,7 +1408,7 @@ internal sealed class DrainTests : IDisposable
         provider.Release();
         await provider.Arrived(cancellationToken);
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
         var published = new List<Event>();
         while (subscription.Reader.TryRead(out var next))
@@ -1435,6 +1442,7 @@ internal sealed class DrainTests : IDisposable
             Answer("done"));
         var repository = new EventRepository(_database);
         using var subscription = _broker.Subscribe();
+        using var turns = _broker.Subscribe();
         await using var session = Session(
             provider,
             repository,
@@ -1460,7 +1468,7 @@ internal sealed class DrainTests : IDisposable
         provider.Release();
         await provider.Arrived(cancellationToken);
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
         var published = new List<Event>();
         while (subscription.Reader.TryRead(out var next))
@@ -1497,13 +1505,14 @@ internal sealed class DrainTests : IDisposable
             [new TestTool(new SettledTool("settled"))],
             new DrainProfile(maxTurns: 2).Mode,
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         await provider.Arrived(cancellationToken);
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(2);
         _ = await Assert.That(ToolLifecycle(repository)).IsEmpty();
@@ -1521,11 +1530,12 @@ internal sealed class DrainTests : IDisposable
             LLMEvent.Completed("length", 1, 0, 32_768, "partial answer", []));
         var repository = new EventRepository(_database);
         await using var session = Session(provider, repository, [], cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
         _ = await Assert.That(Endings(repository)).IsEqualTo("length");
@@ -1547,6 +1557,7 @@ internal sealed class DrainTests : IDisposable
             [new TestTool(new SettledTool("settled"))],
             new DrainProfile(maxTurns: 1).Mode,
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -1554,7 +1565,7 @@ internal sealed class DrainTests : IDisposable
         provider.Release();
         await provider.Arrived(cancellationToken);
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
 
         _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
@@ -1582,6 +1593,7 @@ internal sealed class DrainTests : IDisposable
             ],
             new DrainProfile(maxTurns: 2).Mode,
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -1591,7 +1603,7 @@ internal sealed class DrainTests : IDisposable
         provider.Release();
         await provider.Arrived(cancellationToken);
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
 
         _ = await Assert.That(finalDefinitions).HasSingleItem();
@@ -1622,6 +1634,7 @@ internal sealed class DrainTests : IDisposable
             [new TestTool(new SurvivingTool("survivor"))],
             new DrainProfile(maxTurns: 2).Mode,
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         for (var cycle = 0; cycle < 6; cycle++)
@@ -1630,7 +1643,7 @@ internal sealed class DrainTests : IDisposable
             provider.Release();
         }
 
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
 
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(6);
@@ -1666,9 +1679,10 @@ internal sealed class DrainTests : IDisposable
         var provider = new FailingProvider(new ProviderHttpException(400, "invalid_request", "bad", "broken", "provider body"));
         var repository = new EventRepository(_database);
         await using var session = Session(provider, repository, [], cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
 
         var failure = repository.Replay().Last(published =>
@@ -1694,9 +1708,10 @@ internal sealed class DrainTests : IDisposable
             : new RetryingProvider(failingProvider) { HeaderTimeoutMaxRetries = maximumRetries, TimeProvider = new ImmediateTimeProvider() };
         var repository = new EventRepository(_database);
         await using var session = Session(provider, repository, [], cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
 
         var events = repository.Replay().ToArray();
@@ -1753,6 +1768,7 @@ internal sealed class DrainTests : IDisposable
             repository,
             [new TestTool(new SettledTool("result"))],
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -1764,7 +1780,7 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(executing.Recent).Count().IsEqualTo(1);
         _ = await Assert.That(executing.Recent[0].Content).IsEqualTo("tool preface");
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         await session.DisposeAsync();
         var settled = session.Activity.Capture();
         _ = await Assert.That(settled.CurrentTool).IsNull();
@@ -2021,6 +2037,7 @@ internal sealed class DrainTests : IDisposable
             [new TestTool(new ReadImageTool(new ToolWorkspace(_blobDirectory), images, new RequestLimitsConfig())), new TestTool(new SettledTool("continued"))],
             imageBytes.Length + spareBytes,
             cancellationToken);
+        using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -2038,7 +2055,7 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(provider.Requests[2].Messages.Single(message => message.ToolCallId == "retry").Content)
             .IsEqualTo("image read");
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
         var terminals = repository.ToolTerminals("agent");
 
@@ -2108,12 +2125,13 @@ internal sealed class DrainTests : IDisposable
             [new TestTool(new ReadImageTool(new ToolWorkspace(_blobDirectory), images, new RequestLimitsConfig())), new TestTool(new SettledTool("continued"))],
             imageBytes.Length * (overflowSettled ? 3 : 1),
             cancellationToken);
+        using var turns = _broker.Subscribe();
         _ = await session.Send([ConversationPart.TextPart("resume")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(provider.Requests.Single().Messages.SelectMany(message => message.Contents)
             .Count(content => content.Kind == LLMContentKind.Image)).IsEqualTo(1);
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
         var terminals = repository.ToolTerminals("agent");
         _ = await Assert.That(string.Join(" | ", terminals.Select(terminal => $"{terminal.ToolCallId}:{terminal.Status}")))

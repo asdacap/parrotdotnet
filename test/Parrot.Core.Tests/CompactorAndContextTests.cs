@@ -564,11 +564,12 @@ internal sealed class CompactorAndContextTests : IDisposable
             new AgentSessionActivity(TimeProvider.System),
             TestDiagnosticLog.Instance,
             cancellationToken);
+        using var turns = broker.Subscribe();
         foreach (var prompt in new[] { "start", new string('x', 4_000), new string('y', 40_000) })
         {
             _ = await session.Send(
                 [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-            await session.Settled();
+            _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         }
 
         var firstCheckpoint = repository.LatestContextReminder("agent")
@@ -615,7 +616,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             cancellationToken);
         _ = await restarted.Send(
             [ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-        await restarted.Settled();
+        _ = await turns.TurnEnding(restarted.SessionId, cancellationToken);
         _ = await Assert.That(repository.ModelHistory("agent").Count(message =>
                 message.Role == LLMRole.System
                 && message.Content.StartsWith("Context usage entered", StringComparison.Ordinal)))
@@ -629,7 +630,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         restarted.UseResolvedSelection(resolvedSecondModel);
         _ = await restarted.Send(
             [ConversationPart.TextPart("model changed")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-        await restarted.Settled();
+        _ = await turns.TurnEnding(restarted.SessionId, cancellationToken);
         var remindersAfterRebase = repository.ModelHistory("agent").Count(message =>
             message.Role == LLMRole.System
             && message.Content.StartsWith("Context usage entered", StringComparison.Ordinal));
@@ -641,7 +642,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             Delivery.Steer,
             new IncomingActivity(string.Empty, null),
             cancellationToken);
-        await restarted.Settled();
+        _ = await turns.TurnEnding(restarted.SessionId, cancellationToken);
         var secondCheckpoint = repository.LatestContextReminder("agent")
             ?? throw new InvalidOperationException("Expected a reminder after model rebase.");
         _ = await Assert.That(secondCheckpoint.CanonicalModel).IsEqualTo(secondModel.Selector);
@@ -698,9 +699,10 @@ internal sealed class CompactorAndContextTests : IDisposable
             TestDiagnosticLog.Instance,
             cancellationToken);
 
+        using var turns = broker.Subscribe();
         _ = await session.Send(
             [ConversationPart.TextPart("baseline")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         var instructions = provider.Requests[0].Instructions;
         var history = repository.ModelHistory("agent");
         var targetTokens = ((long)model.Model.ContextWindow * 99 / 100) - 10;
@@ -713,7 +715,7 @@ internal sealed class CompactorAndContextTests : IDisposable
 
         _ = await session.Send(
             [ConversationPart.TextPart(padding)], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
         _ = await Assert.That(repository.LatestContextReminder("agent")).IsNull();
         _ = await Assert.That(repository.Replay()).Contains(published =>
@@ -776,6 +778,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             TestDiagnosticLog.Instance,
             cancellationToken);
 
+        using var turns = broker.Subscribe();
         _ = await session.Send(
             [ConversationPart.TextPart(new string('p', 24_000))],
             Identifier.MessageId(),
@@ -788,7 +791,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(provider.Requests[1].Tools).IsEmpty();
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
         var checkpoint = repository.LatestContextReminder("agent")
             ?? throw new InvalidOperationException("Expected context reminder after tool result growth.");
@@ -818,9 +821,10 @@ internal sealed class CompactorAndContextTests : IDisposable
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
         await using IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new AgentOutputFile(_workspace), _compactionGroupBlobs, new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, cancellationToken);
 
+        using var turns = broker.Subscribe();
         _ = await session.Send(
             [ConversationPart.TextPart("keep this prompt")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
         var inferenceRequest = provider.Requests.Single();
         _ = await Assert.That(inferenceRequest.Instructions).Contains("Test base prompt.");
@@ -884,10 +888,11 @@ internal sealed class CompactorAndContextTests : IDisposable
             new AgentSessionActivity(TimeProvider.System),
             TestDiagnosticLog.Instance,
             cancellationToken);
+        using var turns = broker.Subscribe();
         foreach (var prompt in new[] { "old prompt", "middle prompt", "latest prompt" })
         {
             _ = await session.Send([ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-            await session.Settled();
+            _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         }
 
         var selected = session.CurrentSelection();
@@ -942,7 +947,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             TestDiagnosticLog.Instance,
             cancellationToken);
         _ = await restarted.Send([ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-        await restarted.Settled();
+        _ = await turns.TurnEnding(restarted.SessionId, cancellationToken);
         await restarted.DisposeAsync();
 
         var restoredRequest = provider.Requests.Skip(requestsBeforeRestart).Single();
@@ -992,11 +997,12 @@ internal sealed class CompactorAndContextTests : IDisposable
             new AgentSessionActivity(TimeProvider.System),
             TestDiagnosticLog.Instance,
             cancellationToken);
+        using var turns = broker.Subscribe();
         foreach (var prompt in new[] { "old prompt", "middle prompt", "latest prompt" })
         {
             _ = await session.Send(
                 [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-            await session.Settled();
+            _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         }
 
         var eventsBeforeCompaction = repository.Replay().Count;
@@ -1044,7 +1050,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var requestsBeforeRestart = provider.Requests.Count;
         _ = await restarted.Send(
             [ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-        await restarted.Settled();
+        _ = await turns.TurnEnding(restarted.SessionId, cancellationToken);
         await restarted.DisposeAsync();
 
         var restoredRequest = provider.Requests.Skip(requestsBeforeRestart).Single();
@@ -1270,13 +1276,14 @@ internal sealed class CompactorAndContextTests : IDisposable
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
         await using IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new AgentOutputFile(_workspace), _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, cancellationToken);
 
+        using var turns = broker.Subscribe();
         foreach (var prompt in new[] { "first", "second" })
         {
             _ = await session.Send(
                 [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
             await provider.Arrived(cancellationToken);
             provider.Release();
-            await session.Settled();
+            _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         }
 
         _ = await session.Send(
@@ -1310,6 +1317,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
         await using IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new AgentOutputFile(_workspace), _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, cancellationToken);
 
+        using var turns = broker.Subscribe();
         _ = await session.Send(
             [ConversationPart.TextPart("blocked")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -1320,10 +1328,14 @@ internal sealed class CompactorAndContextTests : IDisposable
         await compactionCancellation.CancelAsync();
         _ = await Assert.That(async () => await compaction.WaitAsync(TimeSpan.FromSeconds(1)))
             .Throws<OperationCanceledException>();
-        _ = await Assert.That(session.Settled().IsCompleted).IsFalse();
+        while (turns.Reader.TryRead(out var published))
+        {
+            _ = await Assert.That(published.AgentSessionId == session.SessionId
+                && published.PayloadCase is Event.PayloadOneofCase.TurnEnded or Event.PayloadOneofCase.TurnFailed).IsFalse();
+        }
 
         provider.Release();
-        await session.Settled();
+        _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
         _ = await Assert.That(repository.Replay().Skip(eventsBeforeCompaction).Select(published => published.PayloadCase))
@@ -1369,11 +1381,12 @@ internal sealed class CompactorAndContextTests : IDisposable
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
         await using IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new AgentOutputFile(_workspace), _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, cancellationToken);
 
+        using var turns = broker.Subscribe();
         foreach (var prompt in new[] { "first", "second", "third" })
         {
             _ = await session.Send(
                 [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-            await session.Settled();
+            _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         }
 
         using var subscription = broker.Subscribe();
@@ -1435,11 +1448,12 @@ internal sealed class CompactorAndContextTests : IDisposable
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
         await using IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new AgentOutputFile(_workspace), _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, cancellationToken);
 
+        using var turns = broker.Subscribe();
         foreach (var prompt in new[] { "first", "second", "third" })
         {
             _ = await session.Send(
                 [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-            await session.Settled();
+            _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         }
 
         var eventsBeforeCompaction = repository.Replay().Count;
@@ -1469,10 +1483,11 @@ internal sealed class CompactorAndContextTests : IDisposable
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
         await using IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new AgentOutputFile(_workspace), _compactionGroupBlobs, new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, cancellationToken);
 
+        using var turns = broker.Subscribe();
         foreach (var prompt in new[] { "first", "second", "third" })
         {
             _ = await session.Send([ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
-            await session.Settled();
+            _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         }
 
         var lifecycle = repository.Replay()
