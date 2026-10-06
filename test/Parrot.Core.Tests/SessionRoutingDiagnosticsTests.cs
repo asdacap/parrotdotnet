@@ -91,7 +91,7 @@ internal sealed class SessionRoutingDiagnosticsTests
                     new ModelSelector(model.Selector),
                     first.Mode,
                     first.Mode.Profile.SecurityProfile,
-                    first.Registry.InitializeChildHistory(childIdentity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty")),
+                    first.Registry.InitializeChildHistory(childIdentity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty"), new AgentHistorySource.Parent()),
                     first.Lifetime);
 
                 _ = await first.SendText("private-root-prompt-sentinel https://example.invalid/?token=private-url-sentinel", "first-message", Delivery.Steer, cancellationToken);

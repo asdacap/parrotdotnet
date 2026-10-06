@@ -62,6 +62,28 @@ internal sealed class AgentTaskProgressFormatterTests
     }
 
     [Test]
+    public async Task Pending_and_not_yet_materialized_running_tasks_have_no_agent_links_or_nested_graphs()
+    {
+        var snapshot = new AgentTaskProgressSnapshot
+        {
+            RootNodes =
+            {
+                new AgentTaskProgressNode { Name = "pending", Status = AgentTaskProgressStatus.Pending },
+                new AgentTaskProgressNode { Name = "starting", Status = AgentTaskProgressStatus.Running },
+            },
+        };
+        var trees = new Dictionary<string, AgentTaskProgressSnapshot>(StringComparer.Ordinal)
+        {
+            ["other-agent"] = new() { RootNodes = { new AgentTaskProgressNode { Name = "unrelated" } } },
+        };
+        var lines = new Dictionary<string, string>(StringComparer.Ordinal) { ["other-agent"] = "unrelated agent line" };
+        var nested = AgentTaskProgressFormatter.Nest(snapshot, trees);
+        _ = await Assert.That(AgentTaskProgressFormatter.RunningAgentSessionIds(nested)).IsEmpty();
+        _ = await Assert.That(string.Join('\n', AgentTaskProgressFormatter.FormatRows(nested, lines).Select(row => row.Text)))
+            .IsEqualTo("Agent tasks:\n○ pending\n◐ starting");
+    }
+
+    [Test]
     [Arguments(0, "")]
     [Arguments(1, "  ")]
     [Arguments(2, "      ")]

@@ -915,8 +915,8 @@ agent_tasks:
   maximum_attempts: 5
   # Maximum re-prompts per role turn when the response is not the required strict JSON.
   maximum_response_repairs: 3
-  # Fork the owning parent's conversation history into fresh AgentTask children.
-  fork_parent_history: true
+  # Fresh AgentTask history source: dependency (first dependency, otherwise parent), parent, or empty.
+  fork_history_mode: dependency
 
 # Default foreground profile when no mode is selected explicitly.
 default_profile: build

@@ -103,11 +103,13 @@ internal interface IEventRepository
 
     EffectiveConversationHistory EffectiveConversationGroups(string agentSessionId);
 
+    /// <summary>Atomically forks history, using the fallback only when the primary has no effective history.</summary>
     void InitializeForkedAgentHistory(
         string sourceAgentSessionId,
         string destinationAgentSessionId,
         HistoryForkBoundary boundary,
-        HistoryForkSelection selection);
+        HistoryForkSelection selection,
+        HistoryForkSource? fallback);
 
     void CleanupForkedAgentHistory(string agentSessionId);
 

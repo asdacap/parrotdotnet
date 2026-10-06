@@ -246,7 +246,8 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             "agent",
             "child",
             new HistoryForkBoundary.BeforeToolBatch(spawnAssistant, "spawn"),
-            HistoryForkSelection.Parse("handoff"));
+            HistoryForkSelection.Parse("handoff"),
+            null);
 
         _ = await Assert.That(await File.ReadAllTextAsync(history.Path)).Contains("before");
         _ = await Assert.That(await File.ReadAllTextAsync(childHistory.Path)).Contains("handoff").And.Contains("between").And.DoesNotContain("before");
@@ -264,7 +265,9 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
     }
 
     [Test]
-    public async Task Full_fork_after_completed_history_copies_settled_batches_and_checkpoints()
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Full_fork_copies_settled_batches_and_checkpoints(bool useSafePrefix)
     {
         var resources = Resources("full-fork");
         using var database = SessionDatabase.Open(resources.DatabasePath);
@@ -305,8 +308,9 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         repository.InitializeForkedAgentHistory(
             "agent",
             "child",
-            new HistoryForkBoundary.AfterCompletedHistory(),
-            HistoryForkSelection.Parse("full"));
+            useSafePrefix ? new HistoryForkBoundary.AfterSafeHistoryPrefix() : new HistoryForkBoundary.AfterCompletedHistory(),
+            HistoryForkSelection.Parse("full"),
+            null);
 
         var child = repository.Conversation("child");
         _ = await Assert.That(child).Count().IsEqualTo(4);
@@ -318,7 +322,9 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
     }
 
     [Test]
-    public async Task Full_fork_after_completed_history_copies_effective_compaction_state()
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Full_fork_copies_effective_compaction_state(bool useSafePrefix)
     {
         var resources = Resources("full-fork-compaction");
         using var database = SessionDatabase.Open(resources.DatabasePath);
@@ -346,8 +352,9 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         repository.InitializeForkedAgentHistory(
             "agent",
             "child",
-            new HistoryForkBoundary.AfterCompletedHistory(),
-            HistoryForkSelection.Parse("full"));
+            useSafePrefix ? new HistoryForkBoundary.AfterSafeHistoryPrefix() : new HistoryForkBoundary.AfterCompletedHistory(),
+            HistoryForkSelection.Parse("full"),
+            null);
 
         var context = repository.CompactionHistory("child")
             ?? throw new InvalidOperationException("Expected cloned compaction history.");
@@ -378,8 +385,234 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             "agent",
             "child",
             new HistoryForkBoundary.AfterCompletedHistory(),
-            HistoryForkSelection.Parse("full"))).Throws<ArgumentException>();
+            HistoryForkSelection.Parse("full"),
+            null)).Throws<ArgumentException>();
         _ = await Assert.That(repository.Conversation("child")).IsEmpty();
+    }
+
+    [Test]
+    public async Task Safe_prefix_excludes_incomplete_batches_and_complete_batches_crossing_the_cutoff()
+    {
+        var resources = Resources("safe-prefix-crossing");
+        using var database = SessionDatabase.Open(resources.DatabasePath);
+        var repository = new EventRepository(database);
+        repository.AppendConversation(
+            new Event { Id = "before", AgentSessionId = "agent" },
+            ConversationOrigin.UserInput,
+            LLMRole.User,
+            [ConversationPart.TextPart("before")],
+            [],
+            string.Empty);
+        repository.AppendConversation(
+            new Event { Id = "checkpoint", AgentSessionId = "agent" },
+            ConversationOrigin.Model,
+            LLMRole.Assistant,
+            [],
+            [new LLMToolCall("checkpoint", "set_checkpoint", "{}")],
+            string.Empty);
+        var checkpoint = repository.Conversation("agent")[^1].Sequence;
+        _ = repository.RecordCheckpoint("agent", "handoff", checkpoint, "checkpoint");
+        _ = repository.AppendToolSettlement(
+            new Event { Id = "checkpoint-result", AgentSessionId = "agent" },
+            checkpoint,
+            new ToolExecutionTerminal(
+                "checkpoint",
+                "set_checkpoint",
+                ToolExecutionStatus.Finished,
+                [ConversationPart.TextPart("settled")],
+                "settled"));
+
+        var crossing = new List<(long Sequence, string CallId)>();
+        foreach (var callId in new[] { "early", "later", "incomplete" })
+        {
+            repository.AppendConversation(
+                new Event { Id = callId, AgentSessionId = "agent" },
+                ConversationOrigin.Model,
+                LLMRole.Assistant,
+                [],
+                [new LLMToolCall(callId, "exec_command", "{}")],
+                string.Empty);
+            if (callId != "incomplete")
+            {
+                crossing.Add((repository.Conversation("agent")[^1].Sequence, callId));
+            }
+        }
+
+        repository.AppendConversation(
+            new Event { Id = "after", AgentSessionId = "agent" },
+            ConversationOrigin.UserInput,
+            LLMRole.User,
+            [ConversationPart.TextPart("after")],
+            [],
+            string.Empty);
+        foreach (var (sequence, callId) in crossing)
+        {
+            _ = repository.AppendToolSettlement(
+                new Event { Id = $"result-{callId}", AgentSessionId = "agent" },
+                sequence,
+                new ToolExecutionTerminal(
+                    callId,
+                    "exec_command",
+                    ToolExecutionStatus.Finished,
+                    [ConversationPart.TextPart(callId)],
+                    callId));
+        }
+
+        repository.InitializeForkedAgentHistory(
+            "agent",
+            "child",
+            new HistoryForkBoundary.AfterSafeHistoryPrefix(),
+            HistoryForkSelection.Parse("full"),
+            null);
+
+        var child = repository.Conversation("child");
+        _ = await Assert.That(child).Count().IsEqualTo(3);
+        _ = await Assert.That(child[0].Parts.Single().Text).IsEqualTo("before");
+        _ = await Assert.That(child[^1].Parts.Single().Text).IsEqualTo("settled");
+        _ = await Assert.That(repository.ToolTerminals("child").Select(terminal => terminal.ToolCallId))
+            .IsEquivalentTo(["checkpoint"]);
+        _ = await Assert.That(repository.EffectiveConversationGroups("child").Groups.All(group => group.IsComplete)).IsTrue();
+        var remapped = repository.LatestUsableCheckpoint("child", "handoff", long.MaxValue);
+        _ = await Assert.That(remapped?.AssistantSequence).IsEqualTo(child[1].Sequence);
+        _ = await Assert.That(remapped?.AssistantSequence).IsNotEqualTo(checkpoint);
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Safe_prefix_falls_back_only_for_absent_history_and_keeps_the_parent_boundary(bool hasIncompleteHistory)
+    {
+        var resources = Resources("safe-prefix-fallback");
+        using var database = SessionDatabase.Open(resources.DatabasePath);
+        var repository = new EventRepository(database);
+        repository.AppendConversation(
+            new Event { Id = "parent-before", AgentSessionId = "parent" },
+            ConversationOrigin.UserInput,
+            LLMRole.User,
+            [ConversationPart.TextPart("parent-before")],
+            [],
+            string.Empty);
+        repository.AppendConversation(
+            new Event { Id = "parent-launch", AgentSessionId = "parent" },
+            ConversationOrigin.Model,
+            LLMRole.Assistant,
+            [],
+            [new LLMToolCall("launch", "set_agent_tasks", "{}")],
+            string.Empty);
+        var launch = repository.Conversation("parent")[^1].Sequence;
+        if (hasIncompleteHistory)
+        {
+            repository.AppendConversation(
+                new Event { Id = "unfinished", AgentSessionId = "source" },
+                ConversationOrigin.Model,
+                LLMRole.Assistant,
+                [],
+                [new LLMToolCall("unfinished", "exec_command", "{}")],
+                string.Empty);
+        }
+
+        repository.InitializeForkedAgentHistory(
+            "source",
+            "child",
+            new HistoryForkBoundary.AfterSafeHistoryPrefix(),
+            HistoryForkSelection.Parse("full"),
+            new HistoryForkSource("parent", new HistoryForkBoundary.BeforeToolBatch(launch, "launch")));
+
+        var child = repository.Conversation("child");
+        _ = await Assert.That(child.Count).IsEqualTo(hasIncompleteHistory ? 0 : 1);
+        if (!hasIncompleteHistory)
+        {
+            _ = await Assert.That(child.Single().Parts.Single().Text).IsEqualTo("parent-before");
+        }
+
+        _ = await Assert.That(repository.ToolTerminals("child")).IsEmpty();
+    }
+
+    [Test]
+    public async Task Safe_prefix_treats_compaction_only_history_as_present()
+    {
+        var resources = Resources("safe-prefix-compaction-only");
+        using var database = SessionDatabase.Open(resources.DatabasePath);
+        var repository = new EventRepository(database);
+        repository.AppendConversation(
+            new Event { Id = "compacted", AgentSessionId = "source" },
+            ConversationOrigin.UserInput,
+            LLMRole.User,
+            [ConversationPart.TextPart("compacted")],
+            [],
+            string.Empty);
+        _ = repository.AppendCompactionStatus(
+            new Event { Id = "status", AgentSessionId = "source" },
+            new CompactionSnapshot("dependency summary", repository.Conversation("source")[^1].Sequence),
+            "dependency status");
+        _ = await Assert.That(repository.EffectiveConversationGroups("source").Groups).IsEmpty();
+
+        repository.InitializeForkedAgentHistory(
+            "source",
+            "child",
+            new HistoryForkBoundary.AfterSafeHistoryPrefix(),
+            HistoryForkSelection.Parse("full"),
+            new HistoryForkSource("absent-parent", new HistoryForkBoundary.BeforeToolBatch(100, "absent")));
+
+        var compaction = repository.CompactionHistory("child");
+        _ = await Assert.That(compaction?.Snapshot.Summary).IsEqualTo("dependency summary");
+        _ = await Assert.That(compaction?.Status?.Parts.Single().Text).IsEqualTo("dependency status");
+        _ = await Assert.That(repository.EffectiveConversationGroups("child").Groups).IsEmpty();
+    }
+
+    [Test]
+    public async Task Safe_prefix_fallback_failure_leaves_destination_empty()
+    {
+        var resources = Resources("safe-prefix-fallback-failure");
+        using var database = SessionDatabase.Open(resources.DatabasePath);
+        var repository = new EventRepository(database);
+        _ = await Assert.That(() => repository.InitializeForkedAgentHistory(
+            "absent",
+            "child",
+            new HistoryForkBoundary.AfterSafeHistoryPrefix(),
+            HistoryForkSelection.Parse("full"),
+            new HistoryForkSource("parent", new HistoryForkBoundary.BeforeToolBatch(1, "missing"))))
+            .Throws<ArgumentException>();
+        _ = await Assert.That(repository.Conversation("child")).IsEmpty();
+        _ = await Assert.That(repository.AgentHistory("child")).IsEmpty();
+        _ = await Assert.That(repository.CompactionHistory("child")).IsNull();
+    }
+
+    [Test]
+    public async Task Safe_prefix_fallback_rejects_a_compacted_parent_boundary_without_using_current_history()
+    {
+        var resources = Resources("safe-prefix-compacted-parent");
+        using var database = SessionDatabase.Open(resources.DatabasePath);
+        var repository = new EventRepository(database);
+        repository.AppendConversation(
+            new Event { Id = "launch", AgentSessionId = "parent" },
+            ConversationOrigin.Model,
+            LLMRole.Assistant,
+            [],
+            [new LLMToolCall("launch", "set_agent_tasks", "{}")],
+            string.Empty);
+        var launch = repository.Conversation("parent")[^1].Sequence;
+        _ = repository.AppendToolSettlement(
+            new Event { Id = "launch-result", AgentSessionId = "parent" },
+            launch,
+            new ToolExecutionTerminal("launch", "set_agent_tasks", ToolExecutionStatus.Finished, [], "declared"));
+        _ = repository.AppendCompactionStatus(
+            new Event { Id = "summary", AgentSessionId = "parent" },
+            new CompactionSnapshot("later parent summary", repository.Conversation("parent")[^1].Sequence),
+            "later status");
+
+        var failure = await Assert.That(() => repository.InitializeForkedAgentHistory(
+            "absent-source",
+            "child",
+            new HistoryForkBoundary.AfterSafeHistoryPrefix(),
+            HistoryForkSelection.Parse("full"),
+            new HistoryForkSource("parent", new HistoryForkBoundary.BeforeToolBatch(launch, "launch"))))
+            .Throws<ArgumentException>();
+        _ = await Assert.That(failure?.Message)
+            .Contains("captured fork tool batch is unavailable in effective history; it may have been compacted");
+        _ = await Assert.That(failure?.ParamName).IsEqualTo("boundary");
+        _ = await Assert.That(repository.AgentHistory("child")).IsEmpty();
+        _ = await Assert.That(repository.CompactionHistory("child")).IsNull();
     }
 
     [Test]
@@ -494,7 +727,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         var parentText = await File.ReadAllTextAsync(parentHistory.Path);
         _ = await Assert.That(parentText).Contains("saved summary");
 
-        child.InitializeForkedAgentHistory("parent", "child", new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("full"));
+        child.InitializeForkedAgentHistory("parent", "child", new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("full"), null);
 
         _ = await Assert.That(await File.ReadAllTextAsync(childHistory.Path)).Contains("saved summary");
         child.CleanupForkedAgentHistory("child");
@@ -561,7 +794,8 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             "agent",
             "child",
             new HistoryForkBoundary.BeforeToolBatch(current, "latest"),
-            HistoryForkSelection.Parse("same"))).Throws<ArgumentException>();
+            HistoryForkSelection.Parse("same"),
+            null)).Throws<ArgumentException>();
         _ = await Assert.That(repository.Conversation("child")).IsEmpty();
     }
 

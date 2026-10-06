@@ -9,4 +9,6 @@ internal abstract record HistoryForkBoundary
     public sealed record BeforeToolBatch(long AssistantSequence, string ToolCallId) : HistoryForkBoundary;
 
     public sealed record AfterCompletedHistory : HistoryForkBoundary;
+
+    public sealed record AfterSafeHistoryPrefix : HistoryForkBoundary;
 }

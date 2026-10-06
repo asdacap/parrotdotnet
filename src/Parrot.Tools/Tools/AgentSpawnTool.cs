@@ -56,7 +56,8 @@ internal sealed class AgentSpawnTool(
                 requestedScope,
                 requestedFork,
                 new HistoryForkBoundary.BeforeToolBatch(invocation.AssistantSequence, invocation.CallId),
-                AgentCompletionDeliveryPolicy.Automatic)).Session;
+                AgentCompletionDeliveryPolicy.Automatic,
+                new AgentHistorySource.Parent())).Session;
             _ = await agent.SendTextMessage(prompt, cancellationToken).ConfigureAwait(false);
             return new SpawnAgentResult(agent.Name, agent.Depth, agent.OutputPath).Format();
         }

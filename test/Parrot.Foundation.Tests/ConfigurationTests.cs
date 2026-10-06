@@ -654,46 +654,65 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
 
     [Test]
-    public async Task Agent_task_configuration_defaults_to_forking_parent_history()
+    public async Task Agent_task_configuration_defaults_to_dependency_history()
     {
         var configuration = Load(Write(string.Empty));
 
-        _ = await Assert.That(configuration.AgentTasks.ForkParentHistory).IsTrue();
+        _ = await Assert.That(configuration.AgentTasks.ForkHistoryMode).IsEqualTo(AgentTaskForkHistoryMode.Dependency);
     }
 
     [Test]
-    [Arguments("true", true)]
-    [Arguments("false", false)]
-    public async Task Agent_task_configuration_parses_fork_parent_history(string value, bool expected)
+    [Arguments("dependency", AgentTaskForkHistoryMode.Dependency)]
+    [Arguments("parent", AgentTaskForkHistoryMode.Parent)]
+    [Arguments("empty", AgentTaskForkHistoryMode.Empty)]
+    public async Task Agent_task_configuration_parses_fork_history_mode(string value, AgentTaskForkHistoryMode expected)
     {
-        var configuration = Load(Write($"agent_tasks:\n  fork_parent_history: {value}\n"));
+        var configuration = Load(Write($"agent_tasks:\n  fork_history_mode: {value}\n"));
 
-        _ = await Assert.That(configuration.AgentTasks.ForkParentHistory).IsEqualTo(expected);
+        _ = await Assert.That(configuration.AgentTasks.ForkHistoryMode).IsEqualTo(expected);
     }
 
     [Test]
     [Arguments("1")]
     [Arguments("null")]
+    [Arguments("true")]
+    [Arguments("false")]
     [Arguments("yes")]
     [Arguments("[]")]
-    public async Task Agent_task_configuration_requires_a_boolean_fork_parent_history(string value) =>
+    [Arguments("{}")]
+    [Arguments("Parent")]
+    [Arguments("full")]
+    [Arguments("\"\"")]
+    public async Task Agent_task_configuration_requires_a_supported_fork_history_mode(string value) =>
+        _ = await Assert.That(() => Load(Write($"agent_tasks:\n  fork_history_mode: {value}\n")))
+            .Throws<InvalidDataException>().WithMessage("agent_tasks.fork_history_mode must be dependency, parent, or empty");
+
+    [Test]
+    [Arguments("true")]
+    [Arguments("false")]
+    [Arguments("null")]
+    [Arguments("true\n  fork_history_mode: parent")]
+    public async Task Agent_task_configuration_rejects_the_legacy_fork_key(string value) =>
         _ = await Assert.That(() => Load(Write($"agent_tasks:\n  fork_parent_history: {value}\n")))
-            .Throws<InvalidDataException>().WithMessage("agent_tasks.fork_parent_history must be true or false");
+            .Throws<InvalidDataException>().WithMessage(
+                "agent_tasks.fork_parent_history has been replaced by agent_tasks.fork_history_mode; use parent for true, empty for false, or dependency for the new default behavior");
 
     [Test]
     public async Task Agent_task_configuration_partial_overrides_preserve_other_values()
     {
         var maximumAttempts = Load(Write("agent_tasks:\n  maximum_attempts: 2\n")).AgentTasks;
-        var forkParentHistory = Load(Write("agent_tasks:\n  fork_parent_history: false\n")).AgentTasks;
+        var forkHistoryMode = Load(Write("agent_tasks:\n  fork_history_mode: empty\n")).AgentTasks;
         var responseRepairs = Load(Write("agent_tasks:\n  maximum_response_repairs: 1\n")).AgentTasks;
 
         _ = await Assert.That(maximumAttempts.MaximumAttempts).IsEqualTo(2);
         _ = await Assert.That(maximumAttempts.MaximumResponseRepairs).IsEqualTo(3);
-        _ = await Assert.That(maximumAttempts.ForkParentHistory).IsTrue();
-        _ = await Assert.That(forkParentHistory.MaximumAttempts).IsEqualTo(5);
-        _ = await Assert.That(forkParentHistory.ForkParentHistory).IsFalse();
+        _ = await Assert.That(maximumAttempts.ForkHistoryMode).IsEqualTo(AgentTaskForkHistoryMode.Dependency);
+        _ = await Assert.That(forkHistoryMode.MaximumAttempts).IsEqualTo(5);
+        _ = await Assert.That(forkHistoryMode.MaximumResponseRepairs).IsEqualTo(3);
+        _ = await Assert.That(forkHistoryMode.ForkHistoryMode).IsEqualTo(AgentTaskForkHistoryMode.Empty);
         _ = await Assert.That(responseRepairs.MaximumResponseRepairs).IsEqualTo(1);
         _ = await Assert.That(responseRepairs.MaximumAttempts).IsEqualTo(5);
+        _ = await Assert.That(responseRepairs.ForkHistoryMode).IsEqualTo(AgentTaskForkHistoryMode.Dependency);
     }
 
     [Test]

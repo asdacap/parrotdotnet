@@ -58,7 +58,7 @@ internal sealed class AgentTaskScopeTests
             await using var session = await store.Open(router.Resolve(model.Selector));
             var root = session.Registry.SnapshotScopes().Single();
             var rejectedIdentity = AgentIdentity.Child("rejected-owner", root.Session.Identity, "rejected", 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates);
-            var rejectedHistory = session.Registry.InitializeChildHistory(rejectedIdentity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty"));
+            var rejectedHistory = session.Registry.InitializeChildHistory(rejectedIdentity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty"), new AgentHistorySource.Parent());
             _ = await Assert.That(() => session.Registry.CreateChildScope(
                 rejectedIdentity,
                 AgentSessionParentLink.Root(),
@@ -78,7 +78,7 @@ internal sealed class AgentTaskScopeTests
                     new ModelSelector(model.Selector),
                     session.Mode,
                     session.Mode.Profile.SecurityProfile,
-                    session.Registry.InitializeChildHistory(identity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty")),
+                    session.Registry.InitializeChildHistory(identity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty"), new AgentHistorySource.Parent()),
                     session.Lifetime);
                 _ = await Assert.That(root.ChildRegistry.TryAdd(child)).IsTrue();
                 scopes.Add(child);
@@ -124,6 +124,98 @@ internal sealed class AgentTaskScopeTests
             await session.DisposeAsync();
             _ = await Assert.That(States(scopes[1].GetService<IAgentTaskService>())).IsEqualTo("worker:Canceled");
             _ = await Assert.That(States(nestedOwner.GetService<IAgentTaskService>())).IsEqualTo("worker:Canceled");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Real_nested_graph_inherits_dependency_history_without_changing_ownership(CancellationToken cancellationToken)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-nested-forks", Guid.NewGuid().ToString("n"));
+        _ = Directory.CreateDirectory(directory);
+        try
+        {
+            var dependentArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var sourceReply = """{"result":"nested-source-marker","verdict":"accept","evidence":"checked"}""";
+            var provider = new AgentTaskReplyProvider(async (request, token) =>
+            {
+                if (!AgentTaskReplyProvider.IsTaskAgent(request))
+                {
+                    return "noted";
+                }
+
+                var prompt = AgentTaskReplyProvider.Prompt(request);
+                if (prompt.Contains("Task: composite\n", StringComparison.Ordinal))
+                {
+                    await dependentArrived.Task.WaitAsync(token);
+                }
+                else if (prompt.Contains("Task: dependent\n", StringComparison.Ordinal))
+                {
+                    dependentArrived.SetResult();
+                }
+                else
+                {
+                    return sourceReply;
+                }
+
+                return """{"result":"nested done","verdict":"accept","evidence":"checked"}""";
+            });
+            var paths = new StatePaths(Path.Combine(directory, "state"), Path.Combine(directory, "config"), Path.Combine(directory, "data"));
+            using var diagnostics = new DiagnosticLogs(paths, FileDiagnosticLog.CreateInstanceId(), TextWriter.Null, TimeProvider.System);
+            var configuration = Configuration.Load(paths.ConfigFile, paths.PredefinedConfigFile);
+            var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+            var router = TestModels.Route(model);
+            var profiles = new ProfileRegistry(configuration.Profiles, configuration.SandboxRules, [], configuration.DisabledTools);
+            var modes = new ModeRegistry(profiles, configuration.DefaultProfile);
+            var source = new AgentSessionFactorySource(
+                ProcessRunner.Locate(ExecutableLocator.Capture()),
+                new Compactor(90, 30, 60_000, 1024, configuration.PromptTemplates),
+                WebFetcher.Create(new PublicWebAddressPolicy()),
+                configuration.ToolDefinitions,
+                configuration.AgentTasks,
+                configuration.AgentSend,
+                configuration.RequestLimits,
+                configuration.ReadOnlyExecCommandPrefixes,
+                router,
+                [],
+                configuration.PromptTemplates,
+                static (arguments, scope) => new AgentSessionComposition(arguments, scope));
+            var factory = new UserSessionFactory(
+                source,
+                modes,
+                configuration.PromptTemplates,
+                profiles,
+                new SkillCatalogFactory(configuration, directory, Path.Combine(directory, "skills")),
+                TimeSpan.FromSeconds(30),
+                TimeProvider.System,
+                AgentTaskParser.ParseArtifact);
+            var store = new SessionStore(paths, directory, "host", factory, router, modes, diagnostics);
+            await using var session = await store.Open(router.Resolve(model.Selector));
+            var root = session.Registry.SnapshotScopes().Single();
+            Set(root, router, AgentTaskParser.ParseTaskSet("""
+                [{"name":"composite","description":"Own nested work","payload":[
+                  {"name":"dependent","description":"Continue work","payload":"dependent work","dependencies":["source"],"acceptance_criteria":"Done"},
+                  {"name":"source","description":"Prepare work","payload":"source work","acceptance_criteria":"Done"}
+                ],"acceptance_criteria":"Done"}]
+                """));
+            await dependentArrived.Task.WaitAsync(cancellationToken);
+            var dependent = provider.Requests.Single(request => AgentTaskReplyProvider.IsTaskAgent(request)
+                && AgentTaskReplyProvider.Prompt(request).Contains("Task: dependent\n", StringComparison.Ordinal));
+            _ = await Assert.That(dependent.Messages.Where(message => message.Role == LLMRole.Assistant).Select(message => message.Content))
+                .Contains(sourceReply);
+            _ = await Assert.That(AgentTaskReplyProvider.Prompt(dependent)).Contains("Result: nested-source-marker");
+            var compositeScope = root.ChildRegistry.SnapshotChildScopes().Single();
+            var nestedScopes = compositeScope.ChildRegistry.SnapshotChildScopes();
+            _ = await Assert.That(nestedScopes.Select(scope => scope.Session.Name)).IsEquivalentTo(["source", "dependent"]);
+            _ = await Assert.That(nestedScopes.All(scope => scope.Session.ParentSessionId == compositeScope.Session.SessionId)).IsTrue();
+            while (root.GetService<IAgentTaskService>().Snapshot().Single().State != AgentTaskExecutionStatus.Succeeded
+                || compositeScope.GetService<IAgentTaskService>().Snapshot().Any(task => task.State != AgentTaskExecutionStatus.Succeeded))
+            {
+                await Task.Delay(10, cancellationToken);
+            }
         }
         finally
         {

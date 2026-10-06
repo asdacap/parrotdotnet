@@ -107,7 +107,11 @@ internal sealed class StatisticsHistoryTests : IDisposable
             [],
             string.Empty);
         repository.InitializeForkedAgentHistory(
-            "main", "fork", new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("full"));
+            "main",
+            "fork",
+            new HistoryForkBoundary.AfterCompletedHistory(),
+            HistoryForkSelection.Parse("full"),
+            null);
         foreach (var (agentId, parentId) in new[] { ("child", "main"), ("grandchild", "child"), ("sibling", "main") })
         {
             var child = main.Clone();

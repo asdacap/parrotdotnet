@@ -748,7 +748,8 @@ internal sealed partial class EventRepository : IEventRepository
         string sourceAgentSessionId,
         string destinationAgentSessionId,
         HistoryForkBoundary boundary,
-        HistoryForkSelection selection)
+        HistoryForkSelection selection,
+        HistoryForkSource? fallback)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceAgentSessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(destinationAgentSessionId);
@@ -764,6 +765,15 @@ internal sealed partial class EventRepository : IEventRepository
             _historyFile?.ValidateSession(destinationAgentSessionId);
             using var transaction = _database.Begin();
             var effective = ReadEffectiveConversationGroups(transaction, sourceAgentSessionId);
+            if (fallback is not null && effective.Snapshot is null && effective.Groups.Count == 0)
+            {
+                ArgumentException.ThrowIfNullOrWhiteSpace(fallback.AgentSessionId);
+                ArgumentNullException.ThrowIfNull(fallback.Boundary);
+                sourceAgentSessionId = fallback.AgentSessionId;
+                boundary = fallback.Boundary;
+                effective = ReadEffectiveConversationGroups(transaction, sourceAgentSessionId);
+            }
+
             ConversationGroup[] preceding;
             long boundaryAssistantSequence;
             switch (boundary)
@@ -775,7 +785,7 @@ internal sealed partial class EventRepository : IEventRepository
                             && group.Items[0].ToolCalls.Any(call => string.Equals(call.Id, before.ToolCallId, StringComparison.Ordinal)));
                     if (currentIndex < 0)
                     {
-                        throw new ArgumentException("fork requires the identified durable agent_spawn batch", nameof(boundary));
+                        throw new ArgumentException("captured fork tool batch is unavailable in effective history; it may have been compacted", nameof(boundary));
                     }
 
                     preceding = [.. effective.Groups.Take(currentIndex)];
@@ -784,6 +794,12 @@ internal sealed partial class EventRepository : IEventRepository
                 case HistoryForkBoundary.AfterCompletedHistory:
                     preceding = [.. effective.Groups];
                     boundaryAssistantSequence = long.MaxValue;
+                    break;
+                case HistoryForkBoundary.AfterSafeHistoryPrefix:
+                    preceding = SelectSafeHistoryPrefix(effective.Groups);
+                    boundaryAssistantSequence = preceding.Length == effective.Groups.Count
+                        ? long.MaxValue
+                        : effective.Groups[preceding.Length].StartWatermark + 1;
                     break;
                 default:
                     throw new ArgumentException("unknown history fork boundary", nameof(boundary));
@@ -1883,6 +1899,32 @@ internal sealed partial class EventRepository : IEventRepository
         }
 
         return artifacts;
+    }
+
+    private static ConversationGroup[] SelectSafeHistoryPrefix(IReadOnlyList<ConversationGroup> groups)
+    {
+        var prefixLength = 0;
+        while (prefixLength < groups.Count && groups[prefixLength].IsComplete)
+        {
+            prefixLength++;
+        }
+
+        if (prefixLength == groups.Count)
+        {
+            return [.. groups];
+        }
+
+        var cutoff = groups[prefixLength].StartWatermark;
+        for (var index = prefixLength - 1; index >= 0; index--)
+        {
+            if (groups[index].EndWatermark > cutoff)
+            {
+                prefixLength = index;
+                cutoff = groups[index].StartWatermark;
+            }
+        }
+
+        return [.. groups.Take(prefixLength)];
     }
 
     // Spelt out rather than derived from the enum name: the column outlives any
