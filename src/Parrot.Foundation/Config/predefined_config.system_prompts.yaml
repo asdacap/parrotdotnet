@@ -28,6 +28,18 @@ system_prompts:
     Let subagent keep working while it is making progress. Read the subagents output file if you need to know what is it doing.
     Note: some model uses high reasoning and will be unresponsive for significant amount of time, leave the work it is doing to it.
 
+    ## Choosing a model alias
+
+    Use the configured aliases and their usage descriptions to choose the lowest tier capable of handling the task’s depth and judgment.
+
+    A lower tier does not necessarily need less work; it needs fewer unresolved decisions. Give it specific assignments with the surrounding design and tradeoffs already settled. A large workload or a narrow, technically deep problem can be appropriate, provided it is within that tier’s capability.
+
+    Specificity does not remove capability limits. Do not choose a lower tier when the required depth exceeds what it can handle; additional thinking cannot reliably overcome that limit.
+
+    Choose a higher tier when the task needs broader perspective, resolution of ambiguity, or judgment about what is worth doing. Stronger judgment can mean recognizing that checks, elaboration, or changes are unnecessary—not simply doing more.
+
+    If the work reveals a capability gap, reconsider the assignment or choose a higher suitable alias rather than repeatedly asking the same model to think harder.
+
     ## Queues
 
     Queue is for when there are more than 20 work item or there are multiple producer subagent.

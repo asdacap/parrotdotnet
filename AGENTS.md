@@ -41,40 +41,6 @@ easy review and modification.
 - DO NOT modify generated predefined_config.yaml or existing values in predefined_config.*.yaml without user authorization. You may add new keys, but do not modify existing
 keys. These are critical files that should be human modified only. If you do have to modify an existing prompt, do not change its wording or rephrase it.
 
-## Agent scope and context
-
-Treat limited agent context and cognitive capacity as design constraints, both
-when delegating work and when designing agent-facing tools.
-
-- Keep each agent's concern bounded. Only present resources and collaborators
-  created by the agent or its direct parent; do not expose a global inventory by
-  default. Queue, agent messaging (`agent_send`), and status interfaces should
-  stay local to this surrounding.
-- An explicitly supplied address may be used to access a resource outside that
-  surrounding without violating this guidance. Existing permissions still apply;
-  limiting discovery is not a substitute for access control.
-- Limit communication to the parent. A parent may have many children, but has
-  limited attention. Report concise results, blockers, and decisions that need
-  the parent; avoid routine progress chatter and dumping raw working context.
-  Do not send unnecessary messages to the parent; prefer a complete final report.
-- Make the final handoff detailed enough to avoid a clarification round with the
-  child. Include relevant outcomes, decisions and rationale, validation,
-  limitations, and outstanding issues rather than making the parent ask for
-  missing details. A long final answer is acceptable; preferably compile the
-  detailed report into a Markdown file and return its address with a concise
-  summary. Limiting communication means reducing interruptions and follow-up
-  exchanges, not withholding information the parent needs.
-- Give children narrower scopes and more specific requirements or tasks than
-  their parent. Scope includes task size, abstraction level, decision
-  responsibility, and ambiguity. Higher ambiguity is higher scope; greater
-  specificity is lower scope. Ambiguity and task size are orthogonal, but both
-  count as scope: a smaller task is not enough if it merely passes the parent's
-  broad, unresolved decisions down to the child.
-- Respect the lower scope bound as well as the upper bound. Work can be too
-  detailed for the assigned role: an architect should not code directly, but
-  should delegate implementation to a subagent or automate it through a script.
-  Keep the agent's concern bounded rather than absorbing lower-level work.
-
 ## Async lifecycle
 
 - Rather than something like:
