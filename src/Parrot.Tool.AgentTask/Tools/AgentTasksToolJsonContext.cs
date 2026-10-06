@@ -4,4 +4,5 @@ namespace Parrot.Tools;
 
 [JsonSourceGenerationOptions(UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(SetAgentTasksTool.Input), TypeInfoPropertyName = "SetAgentTasksToolInput")]
-internal sealed partial class SetAgentTasksToolJsonContext : JsonSerializerContext;
+[JsonSerializable(typeof(GetAgentTasksTool.Input), TypeInfoPropertyName = "GetAgentTasksToolInput")]
+internal sealed partial class AgentTasksToolJsonContext : JsonSerializerContext;

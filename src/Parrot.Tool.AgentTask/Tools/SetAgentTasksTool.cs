@@ -25,7 +25,7 @@ internal sealed class SetAgentTasksTool(
         {
             input = JsonSerializer.Deserialize(
                 invocation.ArgumentsJson,
-                SetAgentTasksToolJsonContext.Default.SetAgentTasksToolInput)
+                AgentTasksToolJsonContext.Default.SetAgentTasksToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
         }
         catch (Exception failure) when (failure is JsonException or FormatException)

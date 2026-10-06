@@ -1656,6 +1656,16 @@ tools:
           - payload
           - acceptance_criteria
           additionalProperties: false
+  get_agent_tasks:
+    description: Read your own AgentTask graph. Without a name, lists every task with its name, state, and description. With a name, returns that task in full, including its state, result, and failure, in the shape set_agent_tasks accepts.
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Name of the task to return in full; omit it to list every task.
+      additionalProperties: false
   wait:
     description: Wait for incoming activity. Returns early for a new message, completed child-agent, AgentTask graph completion, process completion. Do not use the sleep shell command. Use this wait tool than `sleep` cli.
     parameters:

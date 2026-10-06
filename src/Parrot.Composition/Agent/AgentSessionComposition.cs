@@ -271,6 +271,12 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind<EditToolFactory>().As(Lifetime.Scoped).To<EditToolFactory>()
             .Bind<WebFetchToolFactory>().As(Lifetime.Scoped).To<WebFetchToolFactory>()
             .Bind<AgentSpawnToolFactory>().As(Lifetime.Scoped).To<AgentSpawnToolFactory>()
+            .Bind<GetAgentTasksToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                ctx.Inject<IAgentTaskService>(out var agentTasks);
+                return new GetAgentTasksToolFactory(agentTasks, arguments.ToolDefinitions);
+            })
             .Bind<SetAgentTasksToolFactory>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
@@ -354,6 +360,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<WebFetchToolFactory>(out var webFetch);
                 ctx.Inject<AgentSpawnToolFactory>(out var agentSpawn);
                 ctx.Inject<SetAgentTasksToolFactory>(out var setAgentTasks);
+                ctx.Inject<GetAgentTasksToolFactory>(out var getAgentTasks);
                 ctx.Inject<SetCheckpointToolFactory>(out var setCheckpoint);
                 ctx.Inject<SetExitReminderToolFactory>(out var setExitReminder);
                 ctx.Inject<ClearExitReminderToolFactory>(out var clearExitReminder);
@@ -384,6 +391,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                     webFetch,
                     agentSpawn,
                     setAgentTasks,
+                    getAgentTasks,
                     setCheckpoint,
                     setExitReminder,
                     clearExitReminder,
