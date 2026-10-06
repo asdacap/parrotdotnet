@@ -7,7 +7,7 @@ using Parrot.Queues;
 
 namespace Parrot.Tools;
 
-internal sealed class QueueTakeTool(IAgentQueues queues, IDiagnosticLog diagnostics) : ITool
+internal sealed class QueueTakeTool(IAgentQueues queues, IAgentResolver resolver, IDiagnosticLog diagnostics) : ITool
 {
     public string Name => "queue_take";
 
@@ -25,6 +25,14 @@ internal sealed class QueueTakeTool(IAgentQueues queues, IDiagnosticLog diagnost
         {
             var input = QueueToolExecution.Deserialize(invocation.ArgumentsJson, QueueToolJsonContext.Default.QueueTakeToolInput);
             var name = QueueToolExecution.RequireName(input.Name);
+            IQueueStore? store = null;
+            if (name.Contains('/', StringComparison.Ordinal))
+            {
+                var resource = resolver.ResolveResource(name);
+                store = resource.Scope.GetService<IAgentQueues>().Local;
+                name = resource.Name;
+            }
+
             var count = input.Count ?? 1;
             var direction = QueueToolExecution.ParseDirection(input.Direction);
             var yieldAfter = input.YieldAfterMilliseconds ?? 30_000;
@@ -46,7 +54,7 @@ internal sealed class QueueTakeTool(IAgentQueues queues, IDiagnosticLog diagnost
 
                 try
                 {
-                    var taken = queues.TryTake(name, count, direction);
+                    var taken = store is null ? queues.TryTake(name, count, direction) : store.TryTake(name, count, direction);
 
                     if (taken.Acquired)
                     {
@@ -66,13 +74,13 @@ internal sealed class QueueTakeTool(IAgentQueues queues, IDiagnosticLog diagnost
                 if (remaining <= 0)
                 {
                     outcome = "timeout";
-                    return QueueToolExecution.Serialize(empty ?? queues.Get(name), []);
+                    return QueueToolExecution.Serialize(empty ?? (store is null ? queues.Get(name) : store.Get(name)), []);
                 }
 
                 await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(10, remaining)), cancellationToken).ConfigureAwait(false);
             }
         }
-        catch (Exception failure) when (failure is JsonException or FormatException or QueueException)
+        catch (Exception failure) when (failure is AgentRegistryException or JsonException or FormatException or QueueException)
         {
             errorCode = DiagnosticEvent.ClassifyFailure(failure);
             return ToolResultFormatter.Error(invocation, failure.Message);

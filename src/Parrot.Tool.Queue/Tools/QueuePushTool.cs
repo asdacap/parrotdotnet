@@ -2,11 +2,12 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
+using Parrot.Diagnostics;
 using Parrot.Queues;
 
 namespace Parrot.Tools;
 
-internal sealed class QueuePushTool(IAgentQueues queues, ToolWorkspace workspace) : ITool
+internal sealed class QueuePushTool(IAgentQueues queues, IAgentResolver resolver, ToolWorkspace workspace, IDiagnosticLog diagnostics) : ITool
 {
     private const int MaximumSourceFileBytes = 16 << 20;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
@@ -24,15 +25,37 @@ internal sealed class QueuePushTool(IAgentQueues queues, ToolWorkspace workspace
                 invocation.ArgumentsJson,
                 QueueToolJsonContext.Default.QueuePushToolInput);
             var items = await LoadItems(input, selection, cancellationToken).ConfigureAwait(false);
+            var name = QueueToolExecution.RequireName(input.Name);
+            if (name.Contains('/', StringComparison.Ordinal))
+            {
+                var resource = resolver.ResolveResource(name);
+                cancellationToken.ThrowIfCancellationRequested();
+                var pushed = resource.Scope.GetService<IAgentQueues>().Local.Push(
+                    resource.Name,
+                    items,
+                    QueueToolExecution.ParseDirection(input.Direction),
+                    input.Close ?? false);
+                if (input.Close ?? false)
+                {
+                    diagnostics.Write(new DiagnosticEvent("queue", "closed", DiagnosticSeverity.Information)
+                    {
+                        AgentSessionId = resource.Scope.GetService<IAgentQueues>().SessionId,
+                        Outcome = "closed",
+                    });
+                }
+
+                return QueueToolExecution.Serialize(pushed);
+            }
+
             var info = await queues.Push(
-                QueueToolExecution.RequireName(input.Name),
+                name,
                 items,
                 QueueToolExecution.ParseDirection(input.Direction),
                 input.Close ?? false,
                 cancellationToken).ConfigureAwait(false);
             return QueueToolExecution.Serialize(info);
         }
-        catch (Exception failure) when (failure is JsonException or FormatException or QueueException)
+        catch (Exception failure) when (failure is AgentRegistryException or JsonException or FormatException or QueueException)
         {
             return ToolResultFormatter.Error(invocation, failure.Message);
         }

@@ -38,7 +38,7 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         var queues = queueFixture.Queues;
         _ = queues.Create("work", string.Empty);
 
-        ITool tool = new QueuePushTool(queues, new ToolWorkspace(_root));
+        ITool tool = new QueuePushTool(queues, new ResourceResolverFixture(null, null), new ToolWorkspace(_root), TestDiagnosticLog.Instance);
         var result = await tool.Execute(
             Invocation("work", "items.txt", "back", close: false),
             new PushTurnFixture(Permissive()).Selection,
@@ -61,7 +61,7 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         var queues = queueFixture.Queues;
         _ = queues.Create("work", string.Empty);
 
-        ITool tool = new QueuePushTool(queues, new ToolWorkspace(workspace.FullName));
+        ITool tool = new QueuePushTool(queues, new ResourceResolverFixture(null, null), new ToolWorkspace(workspace.FullName), TestDiagnosticLog.Instance);
         var result = await tool.Execute(
             Invocation("work", source, "front", close: true),
             new PushTurnFixture(Permissive()).Selection,
@@ -82,7 +82,7 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         var queues = queueFixture.Queues;
         _ = queues.Create("work", string.Empty);
 
-        ITool tool = new QueuePushTool(queues, new ToolWorkspace(_root));
+        ITool tool = new QueuePushTool(queues, new ResourceResolverFixture(null, null), new ToolWorkspace(_root), TestDiagnosticLog.Instance);
         var result = await tool.Execute(
             Invocation("work", "empty.txt", "back", close: true),
             new PushTurnFixture(Permissive()).Selection,
@@ -196,7 +196,7 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         _ = queues.Create("work", string.Empty);
         _ = await queues.Push("work", ["existing"], QueueDirection.Back, false, cancellationToken);
 
-        ITool tool = new QueuePushTool(queues, new ToolWorkspace(_root));
+        ITool tool = new QueuePushTool(queues, new ResourceResolverFixture(null, null), new ToolWorkspace(_root), TestDiagnosticLog.Instance);
         var result = await tool.Execute(
             Invocation("work", "escaped.txt", "back", close: true),
             new PushTurnFixture(Permissive()).Selection,
@@ -218,7 +218,7 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         using var canceled = new CancellationTokenSource();
         await canceled.CancelAsync();
 
-        ITool tool = new QueuePushTool(queues, new ToolWorkspace(_root));
+        ITool tool = new QueuePushTool(queues, new ResourceResolverFixture(null, null), new ToolWorkspace(_root), TestDiagnosticLog.Instance);
         _ = await Assert.That(async () =>
                 _ = await tool.Execute(
                     Invocation("work", "items.txt", "back", close: true),
@@ -258,7 +258,7 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         _ = queues.Create("work", string.Empty);
         _ = await queues.Push("work", ["existing"], QueueDirection.Back, false, cancellationToken);
 
-        ITool tool = new QueuePushTool(queues, new ToolWorkspace(_root));
+        ITool tool = new QueuePushTool(queues, new ResourceResolverFixture(null, null), new ToolWorkspace(_root), TestDiagnosticLog.Instance);
         var result = await tool.Execute(
             Invocation("work", sourceFile, "back", close: true),
             new PushTurnFixture(security).Selection,

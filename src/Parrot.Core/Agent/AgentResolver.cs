@@ -12,7 +12,9 @@ internal sealed class AgentResolver(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         RequireRegisteredOwner();
-        return ownerScope.ChildRegistry.ResolveNamedChildScope(name);
+        return name.Contains('/', StringComparison.Ordinal)
+            ? ResolvePath(name)
+            : ownerScope.ChildRegistry.ResolveNamedChildScope(name);
     }
 
     public IAgentSession ResolveStatusTarget(string name) =>
@@ -25,7 +27,7 @@ internal sealed class AgentResolver(
 
         if (nameOrPath.Contains('/', StringComparison.Ordinal))
         {
-            return ResolveDescendantPath(nameOrPath).Session;
+            return ResolvePath(nameOrPath).Session;
         }
 
         if (parentScope.Parent is { } parent
@@ -36,6 +38,40 @@ internal sealed class AgentResolver(
         }
 
         return ownerScope.ChildRegistry.ResolveNamedChildScope(nameOrPath).Session;
+    }
+
+    public (IAgentSessionScope Scope, string Name) ResolveResource(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        RequireRegisteredOwner();
+        var separator = path.LastIndexOf('/');
+        if (separator <= 0 || separator == path.Length - 1)
+        {
+            throw new AgentRegistryException($"invalid resource path: {path}");
+        }
+
+        var scope = ResolvePath(path[..separator]);
+        if (!ownerScope.Session.ResolvePolicySelection().SecurityProfile.AllowsDelegationTo(
+                scope.Session.ResolvePolicySelection().SecurityProfile))
+        {
+            throw new AgentRegistryException("cannot access resources of a more permissive agent");
+        }
+
+        return (scope, path[(separator + 1)..]);
+    }
+
+    public bool IsAncestor(IAgentSession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        for (var scope = parentScope.Parent; scope is not null; scope = scope.ParentScope.Parent)
+        {
+            if (ReferenceEquals(scope.Session, session))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void RequireRegisteredOwner()
@@ -51,22 +87,39 @@ internal sealed class AgentResolver(
         }
     }
 
-    private IAgentSessionScope ResolveDescendantPath(string path)
+    private IAgentSessionScope ResolvePath(string path)
     {
-        var registry = ownerScope.ChildRegistry;
-        IAgentSessionScope? descendant = null;
-
-        foreach (var segment in path.Split('/', StringSplitOptions.None))
+        var segments = path.Split('/', StringSplitOptions.None);
+        var scope = ownerScope;
+        var start = 0;
+        if (path.StartsWith('/'))
         {
-            if (segment.Length == 0)
+            var roots = authority.SnapshotScopes()
+                .Where(candidate => !candidate.ParentScope.HasParent
+                    && string.Equals(candidate.Session.Name, segments[1], StringComparison.Ordinal))
+                .ToArray();
+            if (roots.Length != 1)
+            {
+                throw new AgentRegistryException($"child agent not found: {path}");
+            }
+
+            scope = roots[0];
+            start = 2;
+        }
+
+        for (var index = start; index < segments.Length; index++)
+        {
+            var segment = segments[index];
+            if (string.IsNullOrWhiteSpace(segment) || segment is "." or "..")
             {
                 throw new AgentRegistryException($"child agent not found: {path}");
             }
 
             try
             {
-                descendant = registry.ResolveNamedChildScope(segment);
-                registry = descendant.ChildRegistry;
+                scope = string.Equals(segment, ParentRecipient, StringComparison.Ordinal)
+                    ? scope.ParentScope.Parent ?? throw new AgentRegistryException($"child agent not found: {path}")
+                    : scope.ChildRegistry.ResolveNamedChildScope(segment);
             }
             catch (AgentRegistryException)
             {
@@ -74,6 +127,6 @@ internal sealed class AgentResolver(
             }
         }
 
-        return descendant ?? throw new AgentRegistryException($"child agent not found: {path}");
+        return scope;
     }
 }

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using Parrot.Agent;
 using Parrot.Queues;
 
 namespace Parrot.Tools;
@@ -34,7 +35,7 @@ internal static class QueueToolExecution
         {
             return Task.FromResult<ToolExecutionResult>(action());
         }
-        catch (Exception failure) when (failure is JsonException or FormatException or QueueException)
+        catch (Exception failure) when (failure is AgentRegistryException or JsonException or FormatException or QueueException)
         {
             return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.Error(invocation, failure.Message));
         }

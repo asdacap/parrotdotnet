@@ -3,9 +3,9 @@ using Parrot.Queues;
 
 namespace Parrot.Tools;
 
-internal sealed class QueueInfoToolFactory(IAgentQueues queues, ToolDefinitionCatalog definitions) : IToolFactory
+internal sealed class QueueInfoToolFactory(IAgentQueues queues, IAgentResolver resolver, ToolDefinitionCatalog definitions) : IToolFactory
 {
     public IToolDefinition Definition => definitions.Describe("queue_info");
 
-    public ITool Create(IAgentSession session) => new QueueInfoTool(queues);
+    public ITool Create(IAgentSession session) => new QueueInfoTool(queues, resolver);
 }

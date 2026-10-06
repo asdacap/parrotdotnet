@@ -5,7 +5,7 @@ using Parrot.Process;
 
 namespace Parrot.Tools;
 
-internal sealed class InterruptProcessTool(IProcessOwner processes) : ITool
+internal sealed class InterruptProcessTool(IProcessOwner processes, IAgentResolver resolver) : ITool
 {
     public string Name => "interrupt_process";
 
@@ -44,12 +44,20 @@ internal sealed class InterruptProcessTool(IProcessOwner processes) : ITool
                 return ToolResultFormatter.Error(invocation, "process name must not be empty");
             }
 
-            var process = processes.Claim(name);
+            var owner = processes;
+            if (name.Contains('/', StringComparison.Ordinal))
+            {
+                var resource = resolver.ResolveResource(name);
+                owner = resource.Scope.GetService<IProcessOwner>();
+                name = resource.Name;
+            }
+
+            var process = owner.Claim(name);
             await process.SendSignal(signal, cancellationToken).ConfigureAwait(false);
             return $"Signal {signal.Value} sent to shell process '{name}'.";
         }
         catch (Exception failure) when (
-            failure is JsonException or FormatException or IOException or InvalidOperationException or PlatformNotSupportedException)
+            failure is AgentRegistryException or JsonException or FormatException or IOException or InvalidOperationException or PlatformNotSupportedException)
         {
             return ToolResultFormatter.Error(invocation, failure.Message);
         }

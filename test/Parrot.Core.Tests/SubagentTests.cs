@@ -978,20 +978,16 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var nameDescription = schema.RootElement.GetProperty("properties").GetProperty("name")
             .GetProperty("description").GetString();
 
-        _ = await Assert.That(definition.Description).Contains("direct parent or direct child or to a descendant");
-        _ = await Assert.That(definition.Description).Contains("sender's own descendant tree");
-        _ = await Assert.That(definition.Description).Contains("slash-separated friendly-name paths");
-        _ = await Assert.That(definition.Description).Contains("child/grandchild");
-        _ = await Assert.That(definition.Description).Contains("paths only travel downward");
-        _ = await Assert.That(nameDescription).Contains("literal 'parent'");
-        _ = await Assert.That(nameDescription).Contains("direct-child friendly name");
-        _ = await Assert.That(nameDescription).Contains("slash-separated relative");
-        _ = await Assert.That(nameDescription).Contains("child/grandchild");
-        _ = await Assert.That(nameDescription).Contains("direct-parent alias precedence");
+        _ = await Assert.That(definition.Description).Contains("relative or absolute");
+        _ = await Assert.That(definition.Description).Contains("parent/sibling");
+        _ = await Assert.That(definition.Description).Contains("/root-name/child");
+        _ = await Assert.That(nameDescription).Contains("bare 'parent'");
+        _ = await Assert.That(nameDescription).Contains("parent/parent/sibling");
+        _ = await Assert.That(nameDescription).Contains("any ancestor");
     }
 
     [Test]
-    public async Task Send_resolves_descendant_paths_only_through_branch_local_friendly_names(
+    public async Task Agent_paths_resolve_absolute_and_relative_topology_without_canonical_ids(
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
@@ -1020,8 +1016,9 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var firstScope = Spawn(rootScope, "worker", "first");
         var duplicateScope = Spawn(rootScope, "worker", "duplicate");
         var nestedDuplicateScope = Spawn(firstScope, "explorer", "duplicate");
-        var parentNamedScope = Spawn(nestedDuplicateScope, "worker", "parent");
+        var parentNamedScope = Spawn(nestedDuplicateScope, "worker", "branch");
         var targetScope = Spawn(parentNamedScope, "explorer", "target");
+        var parentCollisionScope = Spawn(nestedDuplicateScope, "worker", "parent");
         var unrelatedTargetScope = Spawn(duplicateScope, "explorer", "target");
         var first = firstScope.Session;
         var duplicate = duplicateScope.Session;
@@ -1031,20 +1028,20 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
         _ = await Assert.That(TestModels.ScopeOf(target)).IsSameReferenceAs(targetScope);
 
-        _ = await Assert.That(new AgentResolver(root.Identity, ParentScope(root, registry), TestModels.ScopeOf(root), registry).ResolveRecipient("first/duplicate/parent/target"))
+        _ = await Assert.That(new AgentResolver(root.Identity, ParentScope(root, registry), TestModels.ScopeOf(root), registry).ResolveRecipient("first/duplicate/branch/target"))
             .IsSameReferenceAs(target);
-        _ = await Assert.That(new AgentResolver(first.Identity, ParentScope(first, registry), TestModels.ScopeOf(first), registry).ResolveRecipient("duplicate/parent/target"))
+        _ = await Assert.That(new AgentResolver(first.Identity, ParentScope(first, registry), TestModels.ScopeOf(first), registry).ResolveRecipient("duplicate/branch/target"))
             .IsSameReferenceAs(target);
         _ = await Assert.That(new AgentResolver(root.Identity, ParentScope(root, registry), TestModels.ScopeOf(root), registry).ResolveRecipient("duplicate/target"))
             .IsSameReferenceAs(unrelatedTarget);
-        _ = await Assert.That(new AgentResolver(nestedDuplicate.Identity, ParentScope(nestedDuplicate, registry), TestModels.ScopeOf(nestedDuplicate), registry).ResolveRecipient("parent/target"))
+        _ = await Assert.That(new AgentResolver(nestedDuplicate.Identity, ParentScope(nestedDuplicate, registry), TestModels.ScopeOf(nestedDuplicate), registry).ResolveRecipient("branch/target"))
             .IsSameReferenceAs(target);
 
         ITool send = new AgentSendTool(root.Identity, new AgentResolver(root.Identity, ParentScope(root, registry), TestModels.ScopeOf(root), registry), root, TestModels.AgentSend);
         var sent = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                """{"name":"first/duplicate/parent/target","message":"deep work"}"""),
+                """{"name":"first/duplicate/branch/target","message":"deep work"}"""),
             new TurnFixture(root, new RouterFixture(provider, []).Router).Selection,
             cancellationToken)).Text;
         using var sentResult = JsonDocument.Parse(sent);
@@ -1060,7 +1057,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         foreach (var path in new[]
                  {
                      "/first", "first/", "first//duplicate", "first/missing", "First/duplicate",
-                     "first/./target", "first/../target", "duplicate/parent/target",
+                     "first/./target", "first/../target", "duplicate/branch/target",
                      $"first/{nestedDuplicate.SessionId}", $"{first.SessionId}/duplicate",
                  })
         {
@@ -1070,8 +1067,114 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             _ = await Assert.That(error?.Message).DoesNotContain(unrelatedTarget.SessionId);
         }
 
-        _ = await Assert.That(() => new AgentResolver(root.Identity, ParentScope(root, registry), TestModels.ScopeOf(root), registry).ResolveStatusTarget("first/duplicate"))
-            .Throws<AgentRegistryException>();
+        var rootResolver = new AgentResolver(root.Identity, ParentScope(root, registry), rootScope, registry);
+        var nestedResolver = new AgentResolver(nestedDuplicate.Identity, ParentScope(nestedDuplicate, registry), nestedDuplicateScope, registry);
+        _ = await Assert.That(rootResolver.ResolveStatusTarget("first/duplicate")).IsSameReferenceAs(nestedDuplicate);
+        _ = await Assert.That(rootResolver.ResolveRecipient($"/{root.Name}/first/duplicate/branch/target")).IsSameReferenceAs(target);
+        _ = await Assert.That(nestedResolver.ResolveRecipient("parent/parent/duplicate/target")).IsSameReferenceAs(unrelatedTarget);
+        _ = await Assert.That(nestedResolver.ResolveStatusTarget("parent/parent/duplicate")).IsSameReferenceAs(duplicate);
+        _ = await Assert.That(nestedResolver.ResolveRecipient("parent/duplicate")).IsSameReferenceAs(nestedDuplicate);
+        _ = await Assert.That(nestedResolver.ResolveStatusTarget("parent")).IsSameReferenceAs(parentCollisionScope.Session);
+        _ = await Assert.That(nestedResolver.ResolveRecipient("parent")).IsSameReferenceAs(first);
+        _ = await Assert.That(nestedResolver.ResolveStatusTarget("branch/parent/parent/duplicate")).IsSameReferenceAs(nestedDuplicate);
+        _ = await Assert.That(nestedResolver.IsAncestor(root)).IsTrue();
+        _ = await Assert.That(nestedResolver.IsAncestor(first)).IsTrue();
+        _ = await Assert.That(nestedResolver.IsAncestor(nestedDuplicate)).IsFalse();
+        _ = await Assert.That(nestedResolver.IsAncestor(duplicate)).IsFalse();
+        _ = await Assert.That(() => rootResolver.ResolveRecipient($"/{root.Name}/parent")).Throws<AgentRegistryException>();
+        _ = await Assert.That(() => nestedResolver.ResolveRecipient("parent/parent/parent/first")).Throws<AgentRegistryException>();
+        foreach (var path in new[] { "first//duplicate", "first/", "first/./duplicate", "first/../duplicate", $"//{root.Name}/first" })
+        {
+            _ = await Assert.That(() => rootResolver.ResolveStatusTarget(path)).Throws<AgentRegistryException>();
+        }
+
+        var resource = rootResolver.ResolveResource($"/{root.Name}/first/shell1");
+        _ = await Assert.That(resource.Scope).IsSameReferenceAs(firstScope);
+        _ = await Assert.That(resource.Name).IsEqualTo("shell1");
+        resource = rootResolver.ResolveResource("first/duplicate/queue1");
+        _ = await Assert.That(resource.Scope).IsSameReferenceAs(nestedDuplicateScope);
+        _ = await Assert.That(resource.Name).IsEqualTo("queue1");
+        foreach (var path in new[] { "shell1", "first/", "first//shell1", "first/./shell1", $"/{root.Name}/parent/shell1" })
+        {
+            _ = await Assert.That(() => rootResolver.ResolveResource(path)).Throws<AgentRegistryException>();
+        }
+
+        nestedDuplicate.UpdateSelection(nestedDuplicate.CurrentSelection().RequestedModel, new NoopMode(
+            new AgentProfile("restricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
+            SecurityProfile.Compose(readOnly: true, [], [], [])));
+        var deniedResource = await Assert.That(() => nestedResolver.ResolveResource($"/{root.Name}/shell1")).Throws<AgentRegistryException>();
+        _ = await Assert.That(deniedResource?.Message).IsEqualTo("cannot access resources of a more permissive agent");
+        duplicate.UpdateSelection(duplicate.CurrentSelection().RequestedModel, new NoopMode(
+            new AgentProfile("unrestricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
+            SecurityProfile.Compose(readOnly: false, [], [], [])));
+        ITool restrictedSend = new AgentSendTool(nestedDuplicate.Identity, nestedResolver, nestedDuplicate, TestModels.AgentSend);
+        var deniedSend = (await restrictedSend.Execute(
+            new ToolInvocation("restricted-send", """{"name":"parent/parent/duplicate","message":"disallowed delegation"}"""),
+            new TurnFixture(nestedDuplicate, new RouterFixture(provider, []).Router).Selection,
+            cancellationToken)).Text;
+        _ = await Assert.That(deniedSend).IsEqualTo("error: cannot delegate to a more permissive agent");
+    }
+
+    [Test]
+    [Arguments(false, false)]
+    [Arguments(false, true)]
+    [Arguments(true, false)]
+    [Arguments(true, true)]
+    public async Task Send_checks_ancestor_policy_for_relative_and_absolute_paths(
+        bool toParent,
+        bool absolute,
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "received", []));
+        var router = new RouterFixture(provider, []).Router;
+        await using var registry = TestModels.Registry(
+            new TestAgentSessions(router),
+            _broker,
+            _repository,
+            new TestProfileFixture().Registry,
+            TestModels.PromptTemplates,
+            cancellationToken);
+        await using var root = Session(provider, 0, "ancestor-root", registry, cancellationToken);
+
+        IAgentSessionScope Spawn(IAgentSessionScope parent, string name) => parent.AgentSpawner.SpawnScope(new AgentLaunchRequest(
+            parent.Session,
+            new TurnFixture(parent.Session, router).Selection,
+            "worker",
+            parent.Session.CurrentSelection().RequestedModel,
+            name,
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            new HistoryForkBoundary.AfterCompletedHistory(),
+            AgentCompletionDeliveryPolicy.RetainedOnly,
+            new AgentHistorySource.Parent()));
+
+        var rootScope = TestModels.ScopeOf(root);
+        var childScope = Spawn(rootScope, "child");
+        var grandchildScope = Spawn(childScope, "grandchild");
+        var grandchild = grandchildScope.Session;
+        grandchild.UpdateSelection(grandchild.CurrentSelection().RequestedModel, new NoopMode(
+            new AgentProfile("restricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
+            SecurityProfile.Compose(readOnly: true, [], [], [])));
+        var resolver = new AgentResolver(grandchild.Identity, grandchildScope.ParentScope, grandchildScope, registry);
+        ITool send = new AgentSendTool(grandchild.Identity, resolver, grandchild, new AgentSendConfig(toParent));
+        var path = absolute ? $"/{root.Name}" : "parent/parent";
+        var sent = (await send.Execute(
+            new ToolInvocation("ancestor-send", $$"""{"name":"{{path}}","message":"ancestor message"}"""),
+            new TurnFixture(grandchild, router).Selection,
+            cancellationToken)).Text;
+        if (!toParent)
+        {
+            _ = await Assert.That(sent).IsEqualTo("error: sending to the parent agent is disabled; report through the final message instead");
+            _ = await Assert.That(provider.Requests.Count).IsEqualTo(0);
+            return;
+        }
+
+        using var result = JsonDocument.Parse(sent);
+        _ = await Assert.That(result.RootElement.GetProperty("name").GetString()).IsEqualTo(root.Name);
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests.Single().Messages.Select(message => message.Content)).Contains("ancestor message");
+        provider.Release();
+        _ = await root.Wait(0, cancellationToken);
     }
 
     [Test]

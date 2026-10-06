@@ -146,7 +146,7 @@ internal sealed class BrokerDiagnosticsTests : IDisposable
             await cancellation.CancelAsync();
         }
 
-        var tool = new QueueTakeTool(queues, diagnostics);
+        var tool = new QueueTakeTool(queues, new ResourceResolverFixture(null, null), diagnostics);
         var arguments = outcome == "failed"
             ? "{\"name\":\"missing-private-sentinel\",\"yield_after_ms\":0}"
             : "{\"name\":\"private-sentinel\",\"yield_after_ms\":0}";

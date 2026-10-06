@@ -82,7 +82,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             processes,
             new ToolWorkspace(_workspace),
             TestModels.ToolDefinitions).Create(session);
-        var writeStdinFactoryTool = new WriteStdinToolFactory(processes, TestModels.ToolDefinitions).Create(session);
+        var writeStdinFactoryTool = new WriteStdinToolFactory(processes, new ResourceResolverFixture(null, null), TestModels.ToolDefinitions).Create(session);
         _ = await Assert.That(factoryTool.Name).IsEqualTo("exec_command");
         _ = await Assert.That(writeStdinFactoryTool.Name).IsEqualTo("write_stdin");
 
@@ -214,6 +214,43 @@ internal sealed class ExecCommandToolTests : IDisposable
         _ = await Assert.That(Path.IsPathFullyQualified(spilledPath)).IsTrue();
         _ = await Assert.That(Path.GetDirectoryName(spilledPath)).IsEqualTo(scratch.BlobDirectory);
 
+        await using var resourceQueues = TestModels.Queues(identity);
+        await using var otherProcesses = new ShellProcessOwner(
+            identity,
+            resources,
+            new AgentPathEnvironment(resources, scratch),
+            new ProcessRunner(CreateSandboxPassThrough(_workspace)),
+            TestDiagnosticLog.Instance,
+            CancellationToken.None);
+        var resourceResolver = new ResourceResolverFixture(resourceQueues.Queues, processes);
+        _ = await Execute(tool, """{"command":"printf ''; sleep 30","name":"qualified-signal","yield_after_ms":0}""", selection, cancellationToken);
+        var qualifiedSignaled = await Execute(
+            new InterruptProcessTool(otherProcesses, resourceResolver),
+            """{"name":"/root/target/qualified-signal","signal":9}""",
+            selection,
+            cancellationToken);
+        _ = await processes.Claim("qualified-signal").Wait(null, cancellationToken);
+        _ = await Execute(tool, """{"command":"printf ''; sleep 0.05; printf qualified-output","name":"qualified-input","yield_after_ms":0,"tty":true}""", selection, cancellationToken);
+        var qualifiedWaited = await Execute(
+            new WriteStdinTool(otherProcesses, resourceResolver),
+            """{"name":"parent/parent/target/qualified-input","input":"","yield_after_ms":1000}""",
+            selection,
+            cancellationToken);
+        var qualifiedWriteError = await Execute(
+            new WriteStdinTool(otherProcesses, new ResourceResolverFixture(null, null)),
+            """{"name":"missing/process","input":""}""",
+            selection,
+            cancellationToken);
+        var qualifiedSignalError = await Execute(
+            new InterruptProcessTool(otherProcesses, new ResourceResolverFixture(null, null)),
+            """{"name":"missing/process"}""",
+            selection,
+            cancellationToken);
+        _ = await Assert.That(qualifiedSignaled.Text).IsEqualTo("Signal 9 sent to shell process 'qualified-signal'.");
+        _ = await Assert.That(qualifiedWaited.Text).EndsWith("s\n[stdout]\nqualified-output");
+        _ = await Assert.That(qualifiedWriteError.Text).IsEqualTo("error: resource owner unavailable");
+        _ = await Assert.That(qualifiedSignalError.Text).IsEqualTo("error: resource owner unavailable");
+
         var yielded = await Execute(tool, """{"command":"printf ''; sleep 0.05; printf '%s' \"$LATER_VALUE\"","env":{"LATER_VALUE":"later"},"name":"later","yield_after_ms":0}""", selection, cancellationToken);
         var waited = (await processes.Claim("later").Wait(null, cancellationToken)).Format();
         var reusedAfterCompletion = await Execute(tool, """{"command":"printf reused","name":"later"}""", selection, cancellationToken);
@@ -223,7 +260,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             selection,
             cancellationToken);
         var defaultSignaled = await Execute(
-            new InterruptProcessTool(processes),
+            new InterruptProcessTool(processes, new ResourceResolverFixture(null, null)),
             """{"name":"default-signal"}""",
             selection,
             cancellationToken);
@@ -231,25 +268,25 @@ internal sealed class ExecCommandToolTests : IDisposable
         var running = await Execute(tool, """{"command":"printf ''; sleep 30","name":"running","yield_after_ms":0}""", selection, cancellationToken);
         var runningDuplicate = await Execute(tool, """{"command":"true","name":"running"}""", selection, cancellationToken);
         var signaled = await Execute(
-            new InterruptProcessTool(processes),
+            new InterruptProcessTool(processes, new ResourceResolverFixture(null, null)),
             """{"name":"running","signal":17}""",
             selection,
             cancellationToken);
-        var killed = await Execute(new InterruptProcessTool(processes), """{"name":"running","signal":9}""", selection, cancellationToken);
+        var killed = await Execute(new InterruptProcessTool(processes, new ResourceResolverFixture(null, null)), """{"name":"running","signal":9}""", selection, cancellationToken);
         var waitedAfterKill = (await processes.Claim("running").Wait(null, cancellationToken)).Format();
         var reusedAfterKill = await Execute(tool, """{"command":"printf restarted","name":"running"}""", selection, cancellationToken);
         var invalidLowSignal = await Execute(
-            new InterruptProcessTool(processes),
+            new InterruptProcessTool(processes, new ResourceResolverFixture(null, null)),
             """{"name":"running","signal":0}""",
             selection,
             cancellationToken);
         var invalidHighSignal = await Execute(
-            new InterruptProcessTool(processes),
+            new InterruptProcessTool(processes, new ResourceResolverFixture(null, null)),
             """{"name":"running","signal":65}""",
             selection,
             cancellationToken);
         var malformedSignal = await Execute(
-            new InterruptProcessTool(processes),
+            new InterruptProcessTool(processes, new ResourceResolverFixture(null, null)),
             """{"name":"running","signal":"SIGINT"}""",
             selection,
             cancellationToken);

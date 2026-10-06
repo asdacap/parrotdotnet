@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="../Parrot.Core.Tests/ResourceResolverFixture.cs" Link="ResourceResolverFixture.cs" />
     <Compile Include="../Parrot.Core.Tests/AgentQueueTestFixture.cs" Link="AgentQueueTestFixture.cs" />
     <Compile Include="../Parrot.Core.Tests/FixedToolFactory.cs" Link="FixedToolFactory.cs" />
     <Compile Include="../Parrot.Core.Tests/SessionEvents.cs" Link="SessionEvents.cs" />

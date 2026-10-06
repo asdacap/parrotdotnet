@@ -114,6 +114,15 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         _ = await Assert.That(report).Contains("\n- grandchild\n");
         _ = await Assert.That(report).Contains("assistant message (2.0s ago): line one\n  line two");
         _ = await Assert.That(rejected).StartsWith("error: child agent not found:");
+        foreach (var path in new[] { "child/grandchild", $"/{parent.Name}/child/grandchild" })
+        {
+            var nestedReport = (await tool.Execute(
+                new ToolInvocation("nested-status", $$"""{"name":"{{path}}"}"""),
+                new TurnFixture(parent, router).Selection,
+                cancellationToken)).Text;
+            _ = await Assert.That(nestedReport).Contains("\nName: grandchild");
+            _ = await Assert.That(nestedReport).Contains($"\nLive output file: {grandchild.OutputPath}\n");
+        }
 
         child.Activity.RecordAssistantMessage(new string('a', 2000));
         child.Activity.RecordAssistantMessage(new string('b', 2000));

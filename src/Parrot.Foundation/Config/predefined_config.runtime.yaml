@@ -212,19 +212,14 @@ tools:
       - answers
       additionalProperties: false
   agent_send:
-    description: Send a message to the specified agent. Send to the direct parent or direct child or to a descendant in this sender's own
-      descendant tree. Descendants use relative, slash-separated friendly-name paths such as child/grandchild;
-      paths only travel downward.
+    description: Send a message to an agent in this user session using a direct name or a relative or absolute slash-separated agent path. Paths may traverse children, use parent segments to reach ancestors or siblings, or start with /root-name to address from the root; examples include child/grandchild, parent/sibling, and /root-name/child.
     parameters:
       type: object
       properties:
         name:
           type: string
           minLength: 1
-          description: The case-sensitive literal 'parent', the parent's friendly name, a direct-child friendly name, or a
-            slash-separated relative descendant friendly-name path such as child/grandchild. Descendant paths stay within this
-            sender's descendant tree and user session and travel only downward. Resolution follows the direct-parent alias
-            precedence.
+          description: Agent name or slash-separated path within this user session. Relative paths may traverse child names and 'parent' segments (for example child/grandchild, parent/sibling, or parent/parent/sibling); absolute paths start with /root-name (for example /root-name/child). A bare 'parent' or the parent's friendly name addresses the parent. Sending to any ancestor is disabled when parent sending is disabled. Sending to a non-ancestor with a more permissive security profile is rejected.
         message:
           type: string
           minLength: 1
@@ -234,14 +229,14 @@ tools:
       - message
       additionalProperties: false
   agent_status:
-    description: Report the current activity of a child agent.
+    description: Report current activity for an agent in this user session using a direct child name or relative or absolute slash-separated path. Paths may traverse children and parent segments (for example child/grandchild or parent/sibling), or start at /root-name.
     parameters:
       type: object
       properties:
         name:
           type: string
           minLength: 1
-          description: Friendly name of this agent's direct child.
+          description: Direct child name or relative or absolute slash-separated agent path in this user session; paths may traverse children and parent segments or start at /root-name.
       required:
       - name
       additionalProperties: false
@@ -367,13 +362,13 @@ tools:
       - pattern
       additionalProperties: false
   interrupt_process:
-    description: Send a process signal to a running shell process's tracked top-level wrapper.
+    description: Send a process signal to a running shell process's tracked top-level wrapper. Use a bare process name for this agent or agent-path/process-name to target a process owned by another agent in this user session.
     parameters:
       type: object
       properties:
         name:
           type: string
-          description: Reserved shell process name
+          description: Bare process name for this agent or agent-path/process-name for a process owned by another agent in this user session.
         signal:
           type: integer
           minimum: 1
@@ -450,28 +445,24 @@ tools:
       - name
       additionalProperties: false
   queue_info:
-    description: Get metadata and the current size of an accessible queue owned by the invoking agent or its direct parent.
+    description: Get metadata and current size of a queue. Use a bare name for a local or parent queue, or agent-path/queue-name to select an exact owner in this user session; explicit owner paths do not fall back to another owner.
     parameters:
       type: object
       properties:
         name:
           type: string
-          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
-          description: Name of the queue whose metadata and size to retrieve.
+          description: Bare queue name or agent-path/queue-name; an explicit owner path selects that exact agent and does not fall back.
       required:
       - name
       additionalProperties: false
   queue_push:
-    description: Push strings onto an accessible queue owned by the invoking agent or its direct parent, then optionally close
-      it. Exactly one of items or source_file is required. Items may be empty to close without adding data. A source file
-      up to 16 MiB contributes one item per nonblank UTF-8 line.
+    description: Push strings onto a queue, then optionally close it. Use a bare name for a local or parent queue, or agent-path/queue-name to select an exact owner in this user session; explicit owner paths do not fall back. Exactly one of items or source_file is required. Items may be empty to close without adding data. A source file up to 16 MiB contributes one item per nonblank UTF-8 line.
     parameters:
       type: object
       properties:
         name:
           type: string
-          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
-          description: Name of the queue to receive the items.
+          description: Bare queue name or agent-path/queue-name; an explicit owner path selects that exact agent and does not fall back.
         items:
           type: array
           items:
@@ -496,17 +487,13 @@ tools:
       - name
       additionalProperties: false
   queue_take:
-    description: Remove and return strings from an accessible queue owned by the invoking agent or its direct parent. If the
-      queue is open and empty, wait until an item is available or yield_after_ms elapses. Every result reports whether the
-      queue is closed; a closed drained queue returns immediately. Count defaults to one, direction defaults to front, and
-      yield_after_ms defaults to 30000. The queue does not need to fill count before returning.
+    description: Remove and return strings from a queue. Use a bare name for a local or parent queue, or agent-path/queue-name to select an exact owner in this user session; explicit owner paths do not fall back. If the queue is open and empty, wait until an item is available or yield_after_ms elapses. Every result reports whether the queue is closed; a closed drained queue returns immediately. Count defaults to one, direction defaults to front, and yield_after_ms defaults to 30000. The queue does not need to fill count before returning.
     parameters:
       type: object
       properties:
         name:
           type: string
-          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
-          description: Name of the queue from which to remove items.
+          description: Bare queue name or agent-path/queue-name; an explicit owner path selects that exact agent and does not fall back.
         count:
           type: integer
           minimum: 1
@@ -793,7 +780,7 @@ tools:
       properties:
         name:
           type: string
-          description: Reserved shell process name
+          description: Bare process name for this agent or agent-path/process-name for a process owned by another agent in this user session.
         input:
           type: string
           description: Text to write to the process standard input

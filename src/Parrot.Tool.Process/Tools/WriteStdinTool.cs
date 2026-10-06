@@ -5,7 +5,7 @@ using Parrot.Process;
 
 namespace Parrot.Tools;
 
-internal sealed class WriteStdinTool(IProcessOwner processes) : ITool
+internal sealed class WriteStdinTool(IProcessOwner processes, IAgentResolver resolver) : ITool
 {
     public string Name => "write_stdin";
 
@@ -31,10 +31,18 @@ internal sealed class WriteStdinTool(IProcessOwner processes) : ITool
                 return ToolResultFormatter.Error(invocation, "process name must not be empty");
             }
 
-            var result = await processes.WriteStdin(name, text, yieldAfter, cancellationToken).ConfigureAwait(false);
+            var owner = processes;
+            if (name.Contains('/', StringComparison.Ordinal))
+            {
+                var resource = resolver.ResolveResource(name);
+                owner = resource.Scope.GetService<IProcessOwner>();
+                name = resource.Name;
+            }
+
+            var result = await owner.WriteStdin(name, text, yieldAfter, cancellationToken).ConfigureAwait(false);
             return result.Format();
         }
-        catch (Exception failure) when (failure is JsonException or FormatException or InvalidOperationException)
+        catch (Exception failure) when (failure is AgentRegistryException or JsonException or FormatException or InvalidOperationException)
         {
             return ToolResultFormatter.Error(invocation, failure.Message);
         }

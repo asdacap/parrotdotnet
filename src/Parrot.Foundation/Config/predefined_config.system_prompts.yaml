@@ -362,9 +362,7 @@ prompt_templates:
     allowed_arguments: [title, titles]
     required_arguments: [title, titles]
   agent-send-tool.description-without-parent:
-    template: Send a message to a direct child or to a descendant in this sender's own descendant tree. Descendants use
-      relative, slash-separated friendly-name paths such as child/grandchild; paths only travel downward. Sending to the
-      parent is disabled; report to the parent through the final message instead.
+    template: Send a message to an agent in this user session using a direct name or a relative or absolute slash-separated agent path. Paths may traverse children, use parent segments to reach ancestors or siblings, or start with /root-name (for example child/grandchild, parent/sibling, or /root-name/child). Sending to any ancestor is disabled; report to the parent through the final message instead. Delegation to a more permissive agent is rejected.
     allowed_arguments: []
     required_arguments: []
   agent-session.runaway:

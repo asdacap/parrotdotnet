@@ -46,7 +46,8 @@ internal sealed class AgentSendTool(
         try
         {
             var target = resolver.ResolveRecipient(name);
-            var isParent = string.Equals(target.SessionId, identity.ParentSessionId, StringComparison.Ordinal);
+            var isParent = string.Equals(target.SessionId, identity.ParentSessionId, StringComparison.Ordinal)
+                || resolver.IsAncestor(target);
 
             if (isParent && !config.ToParent)
             {
