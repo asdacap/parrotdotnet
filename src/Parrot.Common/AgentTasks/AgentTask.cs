@@ -6,4 +6,16 @@ internal sealed record AgentTask(
     string Description,
     AgentTaskPayload Payload,
     string AcceptanceCriteria,
-    string? Model);
+    string? Model,
+    AgentTaskExecutionStatus State,
+    string? Result,
+    string? Failure)
+{
+    internal bool HasSameDefinition(AgentTask other) =>
+        Name == other.Name
+        && Dependencies.SequenceEqual(other.Dependencies, StringComparer.Ordinal)
+        && Description == other.Description
+        && Payload.HasSameDefinition(other.Payload)
+        && AcceptanceCriteria == other.AcceptanceCriteria
+        && Model == other.Model;
+}

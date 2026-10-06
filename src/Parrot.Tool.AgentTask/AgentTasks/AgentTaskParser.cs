@@ -22,47 +22,22 @@ internal static class AgentTaskParser
         }
 
         var tasks = ParseTasks(root.GetProperty("tasks"), "tasks");
+        ValidateGraph(tasks, "tasks");
         return new AgentTaskArtifact(AgentTaskArtifact.Version1, tasks);
     }
 
-    internal static AgentTaskPrepareResult ParsePrepare(string json)
+    /// <summary>Parses an upsert whose dependencies may name tasks set earlier, so only the merged graph is validated.</summary>
+    internal static IReadOnlyList<AgentTask> ParseTaskSet(string json)
     {
-        var envelope = JsonEnvelope.Extract(json);
-        _ = Deserialize<AgentTaskPrepareWire>(envelope, AgentTaskWireJsonContext.Default.AgentTaskPrepareWire);
-        using var document = JsonDocument.Parse(envelope);
+        _ = Deserialize<AgentTaskWire[]>(json, AgentTaskWireJsonContext.Default.AgentTaskWireArray);
+        using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
-        RequireObject(root, "prepare response");
-        RejectUnknown(root, "prepare response", "context", "task_patch");
-        var context = RequiredString(root, "context", "prepare response");
-        AgentTaskPatch? patch = null;
-        if (root.TryGetProperty("task_patch", out var patchElement))
+        if (root.ValueKind != JsonValueKind.Array)
         {
-            if (patchElement.ValueKind == JsonValueKind.Null)
-            {
-                throw new ArgumentException("prepare response task_patch must not be null.");
-            }
-
-            patch = ParsePatch(patchElement, "prepare response task_patch");
+            throw new ArgumentException("tasks must be an array.");
         }
 
-        return new AgentTaskPrepareResult(context, patch);
-    }
-
-    internal static AcceptanceVerdict ParseVerdict(string json)
-    {
-        var envelope = JsonEnvelope.Extract(json);
-        _ = Deserialize<AcceptanceVerdictWire>(envelope, AgentTaskWireJsonContext.Default.AcceptanceVerdictWire);
-        using var document = JsonDocument.Parse(envelope);
-        var root = document.RootElement;
-        RequireObject(root, "acceptance verdict");
-        var verdict = RequiredString(root, "verdict", "acceptance verdict");
-        return verdict switch
-        {
-            "accept" => Accept(root),
-            "reject_and_halt" => RejectAndHalt(root),
-            "reject_and_retry" => RejectAndRetry(root),
-            _ => throw new ArgumentException("acceptance verdict verdict must be accept, reject_and_halt, or reject_and_retry."),
-        };
+        return ParseTasks(root, "tasks");
     }
 
     internal static AgentTaskLeafResponse ParseLeafResponse(string json)
@@ -76,8 +51,50 @@ internal static class AgentTaskParser
         return new(result, ParseLeafVerdict(root));
     }
 
-    internal static void ValidateEffective(EffectiveAgentTask task) =>
-        _ = ParseTask(task.Name, task.Dependencies, task.Description, task.Payload, task.AcceptanceCriteria, task.Model, "effective task");
+    /// <summary>Rejects a graph with a dependency on an absent task or a dependency cycle.</summary>
+    internal static void ValidateGraph(IReadOnlyList<AgentTask> tasks, string path)
+    {
+        var lookup = tasks.ToDictionary(task => task.Name, StringComparer.Ordinal);
+        foreach (var task in tasks)
+        {
+            foreach (var dependency in task.Dependencies)
+            {
+                if (!lookup.ContainsKey(dependency))
+                {
+                    throw new ArgumentException($"{path} task '{task.Name}' has missing sibling dependency '{dependency}'.");
+                }
+            }
+        }
+
+        var visiting = new HashSet<string>(StringComparer.Ordinal);
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var task in tasks)
+        {
+            Visit(task);
+        }
+
+        return;
+        void Visit(AgentTask task)
+        {
+            if (visited.Contains(task.Name))
+            {
+                return;
+            }
+
+            if (!visiting.Add(task.Name))
+            {
+                throw new ArgumentException($"{path} contains a dependency cycle.");
+            }
+
+            foreach (var dependency in task.Dependencies)
+            {
+                Visit(lookup[dependency]);
+            }
+
+            _ = visiting.Remove(task.Name);
+            _ = visited.Add(task.Name);
+        }
+    }
 
     private static AcceptanceVerdict ParseLeafVerdict(JsonElement root)
     {
@@ -106,41 +123,12 @@ internal static class AgentTaskParser
     private static AcceptanceVerdict LeafRejectAndRetry(JsonElement root)
     {
         RejectUnknown(root, "leaf response", "result", "verdict", "feedback", "payload", "replacement_result");
-        var replacementResult = root.TryGetProperty("replacement_result", out var replacementResultElement)
-            ? Nonblank(RequireString(replacementResultElement, "leaf response replacement_result"), "leaf response replacement_result")
-            : null;
         return new(
             AcceptanceVerdictKind.RejectAndRetry,
             null,
             RequiredString(root, "feedback", "leaf response"),
-            ParsePayload(RequiredProperty(root, "payload", JsonValueKind.String, JsonValueKind.Array), "leaf response payload"),
-            replacementResult);
-    }
-
-    private static AcceptanceVerdict Accept(JsonElement root)
-    {
-        RejectUnknown(root, "acceptance verdict", "verdict", "evidence");
-        return new(AcceptanceVerdictKind.Accept, RequiredString(root, "evidence", "acceptance verdict"), null, null, null);
-    }
-
-    private static AcceptanceVerdict RejectAndHalt(JsonElement root)
-    {
-        RejectUnknown(root, "acceptance verdict", "verdict", "feedback");
-        return new(AcceptanceVerdictKind.RejectAndHalt, null, RequiredString(root, "feedback", "acceptance verdict"), null, null);
-    }
-
-    private static AcceptanceVerdict RejectAndRetry(JsonElement root)
-    {
-        RejectUnknown(root, "acceptance verdict", "verdict", "feedback", "payload", "context");
-        var context = root.TryGetProperty("context", out var contextElement)
-            ? Nonblank(RequireString(contextElement, "acceptance verdict context"), "acceptance verdict context")
-            : null;
-        return new(
-            AcceptanceVerdictKind.RejectAndRetry,
-            null,
-            RequiredString(root, "feedback", "acceptance verdict"),
-            ParsePayload(RequiredProperty(root, "payload", JsonValueKind.String, JsonValueKind.Array), "acceptance verdict payload"),
-            context);
+            OptionalString(root, "payload", "leaf response"),
+            OptionalString(root, "replacement_result", "leaf response"));
     }
 
     private static List<AgentTask> ParseTasks(JsonElement element, string path)
@@ -158,58 +146,72 @@ internal static class AgentTaskParser
             index++;
         }
 
-        ValidateSiblingGraph(tasks, path);
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var task in tasks)
+        {
+            if (!names.Add(task.Name))
+            {
+                throw new ArgumentException($"{path} contains duplicate task name '{task.Name}'.");
+            }
+
+            if (task.Dependencies.Contains(task.Name, StringComparer.Ordinal))
+            {
+                throw new ArgumentException($"{path} task '{task.Name}' cannot depend on itself.");
+            }
+        }
+
         return tasks;
     }
 
     private static AgentTask ParseTask(JsonElement element, string path)
     {
         RequireObject(element, path);
-        RejectUnknown(element, path, "name", "dependencies", "description", "payload", "acceptance_criteria", "model");
+        RejectUnknown(element, path, "name", "dependencies", "description", "payload", "acceptance_criteria", "model", "state", "result", "failure");
         var name = RequiredString(element, "name", path);
         var description = RequiredString(element, "description", path);
-        var criteria = RequiredString(element, "acceptance_criteria", path);
-        var payload = ParsePayload(RequiredProperty(element, "payload", JsonValueKind.String, JsonValueKind.Array), $"{path} payload");
-        var dependencies = ParseDependencies(element, path);
-        var model = OptionalString(element, "model", path);
-        return ParseTask(name, dependencies, description, payload, criteria, model, path);
-    }
-
-    private static AgentTask ParseTask(string name, IReadOnlyList<string> dependencies, string description, AgentTaskPayload payload, string criteria, string? model, string path)
-    {
-        RequireNonblank(name, $"{path} name");
-        RequireNonblank(description, $"{path} description");
         if (description.Length > MaxDescriptionLength)
         {
             throw new ArgumentException($"{path} description must be at most {MaxDescriptionLength} characters.");
         }
 
-        RequireNonblank(criteria, $"{path} acceptance_criteria");
-        if (model is not null)
-        {
-            RequireNonblank(model, $"{path} model");
-        }
-
-        if (payload.Instruction is not null)
-        {
-            RequireNonblank(payload.Instruction, $"{path} payload");
-        }
-        else if (payload.Tasks is null || payload.Tasks.Count == 0)
-        {
-            throw new ArgumentException($"{path} payload is invalid.");
-        }
-
-        return new AgentTask(name, [.. dependencies], description, payload, criteria, model);
+        var criteria = RequiredString(element, "acceptance_criteria", path);
+        var payload = ParsePayload(RequiredProperty(element, "payload", JsonValueKind.String, JsonValueKind.Array), $"{path} payload");
+        return new AgentTask(
+            name,
+            ParseDependencies(element, path),
+            description,
+            payload,
+            criteria,
+            OptionalString(element, "model", path),
+            ParseState(element, path),
+            OptionalString(element, "result", path),
+            OptionalString(element, "failure", path));
     }
 
-    private static AgentTaskPayload ParsePayload(JsonElement element, string path) => element.ValueKind switch
-    {
-        JsonValueKind.String => AgentTaskPayload.FromInstruction(Nonblank(element.GetString(), path)),
-        JsonValueKind.Array => AgentTaskPayload.FromTasks(ParseTasks(element, path)),
-        _ => throw new ArgumentException($"{path} must be a nonblank string or nonempty task array."),
-    };
+    private static AgentTaskExecutionStatus ParseState(JsonElement task, string path) =>
+        OptionalString(task, "state", path) switch
+        {
+            null or "pending" => AgentTaskExecutionStatus.Pending,
+            "running" => AgentTaskExecutionStatus.Running,
+            "succeeded" => AgentTaskExecutionStatus.Succeeded,
+            "failed" => AgentTaskExecutionStatus.Failed,
+            "canceled" => AgentTaskExecutionStatus.Canceled,
+            _ => throw new ArgumentException($"{path} state must be pending, running, succeeded, failed, or canceled."),
+        };
 
-    private static List<string> ParseDependencies(JsonElement task, string path)
+    private static AgentTaskPayload ParsePayload(JsonElement element, string path)
+    {
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            return AgentTaskPayload.FromInstruction(Nonblank(element.GetString(), path));
+        }
+
+        var tasks = ParseTasks(element, path);
+        ValidateGraph(tasks, path);
+        return AgentTaskPayload.FromTasks(tasks);
+    }
+
+    private static string[] ParseDependencies(JsonElement task, string path)
     {
         if (!task.TryGetProperty("dependencies", out var element))
         {
@@ -237,99 +239,13 @@ internal static class AgentTaskParser
             throw new ArgumentException($"{path} dependencies must be distinct.");
         }
 
-        return values;
+        return [.. values];
     }
-
-    private static AgentTaskPatch ParsePatch(JsonElement element, string path)
-    {
-        RequireObject(element, path);
-        RejectUnknown(element, path, "description", "payload", "acceptance_criteria", "model");
-        if (!element.EnumerateObject().Any())
-        {
-            throw new ArgumentException($"{path} must contain a mutable field.");
-        }
-
-        var description = OptionalPatchString(element, "description", path);
-        var criteria = OptionalPatchString(element, "acceptance_criteria", path);
-        AgentTaskPayload? payload = null;
-        if (element.TryGetProperty("payload", out var payloadElement))
-        {
-            payload = ParsePayload(RequireNotNull(payloadElement, $"{path} payload"), $"{path} payload");
-        }
-
-        var model = element.TryGetProperty("model", out var modelElement)
-            ? OptionalValue<string>.From(Nonblank(RequireString(modelElement, $"{path} model"), $"{path} model"))
-            : OptionalValue<string>.Unspecified;
-        return new AgentTaskPatch(description, payload, criteria, model);
-    }
-
-    private static string? OptionalPatchString(JsonElement objectElement, string name, string path) =>
-        objectElement.TryGetProperty(name, out var value)
-            ? Nonblank(RequireString(value, $"{path} {name}"), $"{path} {name}")
-            : null;
 
     private static string? OptionalString(JsonElement objectElement, string name, string path) =>
         objectElement.TryGetProperty(name, out var value)
             ? Nonblank(RequireString(value, $"{path} {name}"), $"{path} {name}")
             : null;
-
-    private static void ValidateSiblingGraph(IReadOnlyList<AgentTask> tasks, string path)
-    {
-        var names = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var task in tasks)
-        {
-            if (!names.Add(task.Name))
-            {
-                throw new ArgumentException($"{path} contains duplicate task name '{task.Name}'.");
-            }
-        }
-
-        foreach (var task in tasks)
-        {
-            foreach (var dependency in task.Dependencies)
-            {
-                if (dependency == task.Name)
-                {
-                    throw new ArgumentException($"{path} task '{task.Name}' cannot depend on itself.");
-                }
-
-                if (!names.Contains(dependency))
-                {
-                    throw new ArgumentException($"{path} task '{task.Name}' has missing sibling dependency '{dependency}'.");
-                }
-            }
-        }
-
-        var visiting = new HashSet<string>(StringComparer.Ordinal);
-        var visited = new HashSet<string>(StringComparer.Ordinal);
-        var lookup = tasks.ToDictionary(task => task.Name, StringComparer.Ordinal);
-        foreach (var task in tasks)
-        {
-            Visit(task);
-        }
-
-        return;
-        void Visit(AgentTask task)
-        {
-            if (visited.Contains(task.Name))
-            {
-                return;
-            }
-
-            if (!visiting.Add(task.Name))
-            {
-                throw new ArgumentException($"{path} contains a dependency cycle.");
-            }
-
-            foreach (var dependency in task.Dependencies)
-            {
-                Visit(lookup[dependency]);
-            }
-
-            _ = visiting.Remove(task.Name);
-            _ = visited.Add(task.Name);
-        }
-    }
 
     private static T Deserialize<T>(string json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)
     {
@@ -360,15 +276,11 @@ internal static class AgentTaskParser
 
     private static void RequireProperty(JsonElement element, string name, JsonValueKind kind) => _ = RequiredProperty(element, name, kind);
 
-    private static JsonElement RequireNotNull(JsonElement element, string path) => element.ValueKind == JsonValueKind.Null ? throw new ArgumentException($"{path} must not be null.") : element;
-
     private static string RequiredString(JsonElement element, string name, string path) => Nonblank(RequireString(RequiredProperty(element, name, JsonValueKind.String), $"{path} {name}"), $"{path} {name}");
 
     private static string RequireString(JsonElement value, string path) => value.ValueKind == JsonValueKind.String ? value.GetString() ?? throw new ArgumentException($"{path} must not be null.") : throw new ArgumentException($"{path} must be a string.");
 
     private static string Nonblank(string? value, string path) => string.IsNullOrWhiteSpace(value) ? throw new ArgumentException($"{path} must be nonblank.") : value;
-
-    private static void RequireNonblank(string value, string path) => _ = Nonblank(value, path);
 
     private static void RequireObject(JsonElement element, string path)
     {

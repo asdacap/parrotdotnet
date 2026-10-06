@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react"
 
-import type { AgentTaskProgressSnapshot } from "@/gen/parrot_pb"
 import { Markdown } from "@/components/Markdown"
 import { TaskTree, fromDeclaration } from "@/components/TaskTree"
 import { ToolEntry } from "@/components/ToolEntry"
@@ -18,7 +17,7 @@ const noticeTones = {
   error: "text-destructive",
 } as const satisfies Record<NoticeTone, string>
 
-function TimelineEntry({ item, taskProgress }: { item: TimelineItem; taskProgress: ReadonlyMap<string, AgentTaskProgressSnapshot> }) {
+function TimelineEntry({ item }: { item: TimelineItem }) {
   switch (item.kind) {
     case "user":
       return <div className="self-end rounded-lg bg-secondary px-3 py-2 text-sm whitespace-pre-wrap">{item.text}</div>
@@ -32,7 +31,7 @@ function TimelineEntry({ item, taskProgress }: { item: TimelineItem; taskProgres
         </details>
       )
     case "tool":
-      return <ToolEntry item={item} progress={taskProgress.get(item.toolCallId)} />
+      return <ToolEntry item={item} />
     case "notice":
       return item.detail ? (
         <details className={cn("text-xs", noticeTones[item.tone])}>
@@ -60,10 +59,9 @@ function TimelineEntry({ item, taskProgress }: { item: TimelineItem; taskProgres
 interface TimelineProps {
   items: TimelineItem[]
   agents: ReadonlyMap<string, AgentInfo>
-  taskProgress: ReadonlyMap<string, AgentTaskProgressSnapshot>
 }
 
-export function Timeline({ items, agents, taskProgress }: TimelineProps) {
+export function Timeline({ items, agents }: TimelineProps) {
   const scrollerRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
 
@@ -89,7 +87,7 @@ export function Timeline({ items, agents, taskProgress }: TimelineProps) {
             // Nested under its agent, as the terminal CLI indents a subagent's activity.
             <div key={index} className={cn("flex flex-col gap-1", depth > 0 && "border-l pl-3", depthIndents[Math.min(depth, 4)])}>
               {agent && <Badge variant="outline">{agent.name}</Badge>}
-              <TimelineEntry item={item} taskProgress={taskProgress} />
+              <TimelineEntry item={item} />
             </div>
           )
         })}

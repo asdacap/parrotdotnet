@@ -1,16 +1,16 @@
 namespace Parrot.Cli.Enhanced.Tools;
 
-internal sealed class RunAgentTasksToolPresenter(IToolPresenter generic) : IToolPresenter
+internal sealed class SetAgentTasksToolPresenter(IToolPresenter generic) : IToolPresenter
 {
-    public string ToolName => "run_agent_tasks";
+    public string ToolName => "set_agent_tasks";
 
     public ToolPresentationMetadata Metadata => ToolPresentationMetadata.Default with
     {
-        RedactedInputFields = ["path", "artifact"],
+        RedactedInputFields = ["path", "tasks"],
     };
 
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) =>
-        new ToolLiveValue("running agent tasks", [], frame);
+        new ToolLiveValue("setting agent tasks", [], frame);
 
     public IScrollbackItem? PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal) =>
         generic.PresentTerminal(call with { ArgumentsJson = string.Empty }, terminal);

@@ -30,6 +30,19 @@ internal static class AgentTaskProgressFormatter
         return rows;
     }
 
+    /// <summary>
+    /// Copies the tree with the task graph of each node's child agent, when <paramref name="trees"/> has one, nested as
+    /// that node's children.
+    /// </summary>
+    internal static AgentTaskProgressSnapshot Nest(
+        AgentTaskProgressSnapshot snapshot,
+        IReadOnlyDictionary<string, AgentTaskProgressSnapshot> trees)
+    {
+        var nested = snapshot.Clone();
+        NestNodes(nested.RootNodes, trees, new HashSet<string>(StringComparer.Ordinal));
+        return nested;
+    }
+
     internal static IEnumerable<string> RunningAgentSessionIds(AgentTaskProgressSnapshot snapshot) =>
         snapshot.RootNodes.SelectMany(Flatten)
             .Where(static node => node.Status == AgentTaskProgressStatus.Running && node.AgentSessionId.Length > 0)
@@ -76,6 +89,25 @@ internal static class AgentTaskProgressFormatter
         rows.Add(AgentTaskRow.Create($"{lead}{Icon(node.Status)} ", DisplayText(node)));
     }
 
+    private static void NestNodes(
+        RepeatedField<AgentTaskProgressNode> nodes,
+        IReadOnlyDictionary<string, AgentTaskProgressSnapshot> trees,
+        HashSet<string> ancestors)
+    {
+        foreach (var node in nodes)
+        {
+            if (!trees.TryGetValue(node.AgentSessionId, out var tree) || !ancestors.Add(node.AgentSessionId))
+            {
+                continue;
+            }
+
+            node.Children.Clear();
+            node.Children.Add(tree.RootNodes.Select(static child => child.Clone()));
+            NestNodes(node.Children, trees, ancestors);
+            _ = ancestors.Remove(node.AgentSessionId);
+        }
+    }
+
     private static IEnumerable<AgentTaskProgressNode> Flatten(AgentTaskProgressNode node) =>
         node.Children.SelectMany(Flatten).Prepend(node);
 
@@ -85,7 +117,6 @@ internal static class AgentTaskProgressFormatter
         AgentTaskProgressStatus.Running => "◐",
         AgentTaskProgressStatus.Succeeded => "✓",
         AgentTaskProgressStatus.Failed => "✗",
-        AgentTaskProgressStatus.Blocked => "⊘",
         AgentTaskProgressStatus.Canceled => "■",
         _ => "?",
     };

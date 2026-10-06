@@ -63,7 +63,7 @@ The whole map at low resolution, loaded once per session. Open tickets are **not
 
 ### Tickets
 
-`tickets.json` is a strict AgentTask v1 artifact, `{"schema_version":1,"tasks":[...]}`, holding one top-level task per ticket, open or closed. It is a valid input to `run_agent_tasks`, so any unblocked ticket can be handed to a subagent as is. Keep it flat: every payload is a string, never a nested task array. Each task is sized to one 100K token agent session:
+`tickets.json` is a strict AgentTask v1 artifact, `{"schema_version":1,"tasks":[...]}`, holding one top-level task per ticket, open or closed. It is a valid input to `set_agent_tasks`, so any unblocked ticket can be handed to a subagent as is. Keep it flat: every payload is a string, never a nested task array. Each task is sized to one 100K token agent session:
 
 ```json
 {
@@ -135,7 +135,7 @@ User invokes with a loose idea.
 2. **Map the frontier.** Grill again, **breadth-first** this time: fan out across the whole space rather than deep on any one thread, surfacing the open decisions and the first steps takeable now. **If this surfaces no fog** (the way to the destination is already clear, the whole journey small enough for one session), you don't need a map. Stop and ask the user how they'd like to proceed.
 3. **Create the map** (`map.md`): Destination and Notes filled in, Decisions-so-far empty, the fog sketched into **Not yet specified**.
 4. **Create the tickets you can specify now** in `tickets.json`, with each ticket's `dependencies` naming the tickets that block it. Wiring sorts them into the frontier and the blocked; everything you can't yet specify stays in the fog: the **Not yet specified** section.
-5. **Fire the research subagents.** Call `run_agent_tasks` with an inline artifact holding the unblocked `research` tickets, copied from `tickets.json` without their `dependencies`, so they resolve in parallel. Each subagent claims, resolves, and closes its ticket, writing findings under `assets/`; add each one's line to Decisions so far when it returns.
+5. **Fire the research subagents.** Call `set_agent_tasks` with inline `tasks` holding the unblocked `research` tickets, copied from `tickets.json` without their `dependencies`, so they resolve in parallel. Each subagent claims, resolves, and closes its ticket, writing findings under `assets/`; add each one's line to Decisions so far when it returns.
 6. Stop: charting is one session's work; it hand-resolves nothing.
 
 ### Work through the map

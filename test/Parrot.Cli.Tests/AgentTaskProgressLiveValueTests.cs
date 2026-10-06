@@ -13,7 +13,6 @@ internal sealed class AgentTaskProgressLiveValueTests
     [Arguments(AgentTaskProgressStatus.Running, "◐")]
     [Arguments(AgentTaskProgressStatus.Succeeded, "✓")]
     [Arguments(AgentTaskProgressStatus.Failed, "✗")]
-    [Arguments(AgentTaskProgressStatus.Blocked, "⊘")]
     [Arguments(AgentTaskProgressStatus.Canceled, "■")]
     public async Task Render_shows_each_status_icon(AgentTaskProgressStatus status, string icon)
     {
@@ -153,12 +152,12 @@ internal sealed class AgentTaskProgressLiveValueTests
     }
 
     [Test]
-    public async Task Presenter_redacts_path_and_artifact_from_live_but_retains_terminal_behavior()
+    public async Task Presenter_redacts_path_and_tasks_from_live_but_retains_terminal_behavior()
     {
-        IToolPresenter presenter = new RunAgentTasksToolPresenter(new GenericToolPresenter());
+        IToolPresenter presenter = new SetAgentTasksToolPresenter(new GenericToolPresenter());
         var call = new ToolCallPresentation(
-            "run_agent_tasks",
-            "{\"path\":\"/private/task.json\",\"artifact\":{\"secret\":\"embedded\"}}");
+            "set_agent_tasks",
+            "{\"path\":\"/private/task.json\",\"tasks\":[{\"secret\":\"embedded\"}]}");
         var live = presenter.PresentLive(call, 0);
         var terminal = presenter.PresentTerminal(
             call,
@@ -168,10 +167,10 @@ internal sealed class AgentTaskProgressLiveValueTests
         var renderedTerminal = terminal?.Render(new ScrollbackRenderContext(80, Palette))
             ?? throw new InvalidOperationException();
 
-        _ = await Assert.That(renderedLive).IsEqualTo("⠋ running agent tasks");
+        _ = await Assert.That(renderedLive).IsEqualTo("⠋ setting agent tasks");
         _ = await Assert.That(renderedLive).DoesNotContain("/private/task.json");
         _ = await Assert.That(renderedLive).DoesNotContain("embedded");
-        _ = await Assert.That(renderedTerminal[0]).IsEqualTo("✓ tool call run_agent_tasks");
+        _ = await Assert.That(renderedTerminal[0]).IsEqualTo("✓ tool call set_agent_tasks");
         _ = await Assert.That(renderedTerminal[1]).IsEqualTo("  complete");
     }
 

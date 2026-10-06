@@ -70,19 +70,28 @@ internal sealed class ActiveWorkBlockerTests
     }
 
     [Test]
-    public async Task Agent_task_blocker_returns_sorted_active_task_section()
+    public async Task Agent_task_blocker_returns_sorted_unresolved_task_section()
     {
-        await using var taskCatalog = new StubTaskCatalog(
+        await using var agentTasks = new StubTaskService(
         [
-            new ActiveWorkObservation("task-b", "B", ActiveWorkState.Running),
-            new ActiveWorkObservation("task-a", "A", ActiveWorkState.Running),
+            Declared("task-d", AgentTaskExecutionStatus.Running),
+            Declared("task-b", AgentTaskExecutionStatus.Succeeded),
+            Declared("task-c", AgentTaskExecutionStatus.Failed),
+            Declared("task-e", AgentTaskExecutionStatus.Canceled),
+            Declared("task-a", AgentTaskExecutionStatus.Pending),
         ]);
 
-        var result = new AgentTaskActiveWorkBlocker(taskCatalog, TestModels.PromptTemplates).Observe();
+        var result = new AgentTaskActiveWorkBlocker(agentTasks, TestModels.PromptTemplates).Observe();
 
         _ = await Assert.That(result?.WorkSection).IsEqualTo(
-            "\nRunning AgentTask graphs:\n- task-a (name: A)\n- task-b (name: B)");
+            "\nUnresolved AgentTasks (pending, running, or failed and awaiting your set_agent_tasks decision):"
+            + "\n- task-a [pending] (name: Do task-a)\n- task-c [failed] (name: Do task-c)\n- task-d [running] (name: Do task-d)");
         _ = await Assert.That(result?.Reminder).IsNull();
+        await using var settled = new StubTaskService([Declared("done", AgentTaskExecutionStatus.Succeeded), Declared("dropped", AgentTaskExecutionStatus.Canceled)]);
+        _ = await Assert.That(new AgentTaskActiveWorkBlocker(settled, TestModels.PromptTemplates).Observe()).IsNull();
+
+        static AgentTask Declared(string name, AgentTaskExecutionStatus state) =>
+            new(name, [], $"Do {name}", AgentTaskPayload.FromInstruction("work"), "Done", null, state, null, null);
     }
 
     [Test]
@@ -137,13 +146,12 @@ internal sealed class ActiveWorkBlockerTests
         public string RenderStructured(string id, Scriban.Runtime.ScriptObject arguments, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
-    private sealed class StubTaskCatalog(IReadOnlyList<ActiveWorkObservation> active) : IAgentTaskRunCatalog
+    private sealed class StubTaskService(IReadOnlyList<AgentTask> tasks) : IAgentTaskService
     {
-        public IReadOnlyList<ActiveWorkObservation> Active() => active;
+        public void SetTasks(IReadOnlyList<AgentTask> tasks, AgentTurnSelection selection, Parrot.Store.HistoryForkBoundary historyBoundary) =>
+            throw new NotSupportedException();
 
-        public void Start(AgentTaskRunRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public IReadOnlyList<AgentTaskRunSnapshot> Snapshot() => [];
+        public IReadOnlyList<AgentTask> Snapshot() => tasks;
 
         public Task Settle() => Task.CompletedTask;
 

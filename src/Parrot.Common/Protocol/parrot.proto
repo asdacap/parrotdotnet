@@ -581,7 +581,7 @@ enum AgentTaskProgressStatus {
   AGENT_TASK_PROGRESS_STATUS_RUNNING = 2;
   AGENT_TASK_PROGRESS_STATUS_SUCCEEDED = 3;
   AGENT_TASK_PROGRESS_STATUS_FAILED = 4;
-  AGENT_TASK_PROGRESS_STATUS_BLOCKED = 5;
+  reserved 5;
   AGENT_TASK_PROGRESS_STATUS_CANCELED = 6;
 }
 
@@ -590,12 +590,13 @@ message AgentTaskProgressNode {
   AgentTaskProgressStatus status = 2;
   repeated AgentTaskProgressNode children = 3;
   string description = 4;
-  // Session of the agent currently running this task's role (prepare/execute/accept); empty until one is spawned.
+  // Session of the task's retained child agent; that agent's own task graph nests under this node.
   string agent_session_id = 5;
 }
 
+// The owning agent's whole task graph, keyed by the event's agent session.
 message AgentTaskProgressSnapshot {
-  string origin_tool_call_id = 1;
+  reserved 1;
   uint64 revision = 2;
   repeated AgentTaskProgressNode root_nodes = 3;
 }

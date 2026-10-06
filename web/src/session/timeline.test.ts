@@ -101,12 +101,12 @@ describe("reduceTimeline", () => {
         [root, { case: "inputAdmitted", value: { inputId: "input-1", content: "first" } }],
         [root, { case: "inputAdmitted", value: { inputId: "input-2", content: "second" } }],
         [root, { case: "inputCanceled", value: { inputId: "input-1" } }],
-        [root, { case: "agentTaskProgressSnapshot", value: { originToolCallId: "call-1", revision: 2n, rootNodes: [{ name: "new" }] } }],
-        [root, { case: "agentTaskProgressSnapshot", value: { originToolCallId: "call-1", revision: 1n, rootNodes: [{ name: "old" }] } }],
+        [root, { case: "agentTaskProgressSnapshot", value: { revision: 2n, rootNodes: [{ name: "new" }] } }],
+        [root, { case: "agentTaskProgressSnapshot", value: { revision: 1n, rootNodes: [{ name: "old" }] } }],
       ],
       {
         items: [{ kind: "user", inputId: "input-2", text: "second" }],
-        taskProgress: new Map([["call-1", { revision: 2n, rootNodes: [{ name: "new" }] }]]),
+        taskProgress: new Map([[root, { revision: 2n, rootNodes: [{ name: "new" }] }]]),
       },
     ],
     [

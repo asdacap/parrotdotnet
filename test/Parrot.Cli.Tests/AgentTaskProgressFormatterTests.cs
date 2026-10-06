@@ -24,6 +24,44 @@ internal sealed class AgentTaskProgressFormatterTests
     }
 
     [Test]
+    public async Task Nest_places_each_known_child_agent_graph_under_its_task_without_changing_the_source()
+    {
+        var owner = new AgentTaskProgressSnapshot
+        {
+            Revision = 3,
+            RootNodes =
+            {
+                new AgentTaskProgressNode { Name = "composite", Status = AgentTaskProgressStatus.Running, AgentSessionId = "composite-agent" },
+                new AgentTaskProgressNode { Name = "leaf", Status = AgentTaskProgressStatus.Pending, AgentSessionId = "leaf-agent" },
+            },
+        };
+        var trees = new Dictionary<string, AgentTaskProgressSnapshot>(StringComparer.Ordinal)
+        {
+            ["composite-agent"] = new()
+            {
+                RootNodes =
+                {
+                    new AgentTaskProgressNode { Name = "inner", Status = AgentTaskProgressStatus.Running, AgentSessionId = "inner-agent" },
+                    new AgentTaskProgressNode { Name = "after", Status = AgentTaskProgressStatus.Pending },
+                },
+            },
+            ["inner-agent"] = new() { RootNodes = { new AgentTaskProgressNode { Name = "deepest", Status = AgentTaskProgressStatus.Succeeded } } },
+        };
+
+        var nested = AgentTaskProgressFormatter.Nest(owner, trees);
+
+        _ = await Assert.That(string.Join('\n', AgentTaskProgressFormatter.Format(nested))).IsEqualTo(
+            "Agent tasks:\n" +
+            "◐ composite\n" +
+            "├── ◐ inner\n" +
+            "│   └── ✓ deepest\n" +
+            "└── ○ after\n" +
+            "○ leaf");
+        _ = await Assert.That(nested.Revision).IsEqualTo(3UL);
+        _ = await Assert.That(owner.RootNodes[0].Children).IsEmpty();
+    }
+
+    [Test]
     [Arguments(0, "")]
     [Arguments(1, "  ")]
     [Arguments(2, "      ")]

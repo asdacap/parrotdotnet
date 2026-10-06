@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react"
 
-import type { AgentTaskProgressSnapshot } from "@/gen/parrot_pb"
-import { TaskTree, fromProgress } from "@/components/TaskTree"
 import { Badge } from "@/components/ui/badge"
 import { formatDuration } from "@/lib/duration"
 import { cn } from "@/lib/utils"
@@ -95,7 +93,7 @@ function Output({ text, full }: { text: string; full?: string }) {
   )
 }
 
-export function ToolEntry({ item, progress }: { item: ToolItem; progress: AgentTaskProgressSnapshot | undefined }) {
+export function ToolEntry({ item }: { item: ToolItem }) {
   const running = item.status === "running"
   const elapsed = useElapsed(running)
   const args = parseToolArguments(item.args)
@@ -120,7 +118,6 @@ export function ToolEntry({ item, progress }: { item: ToolItem; progress: AgentT
         </summary>
         <ToolBody item={item} args={args} />
       </details>
-      {progress && <TaskTree title="Agent tasks:" nodes={progress.rootNodes.map(fromProgress)} />}
     </div>
   )
 }

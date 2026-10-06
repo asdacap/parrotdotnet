@@ -1072,9 +1072,7 @@ internal sealed partial class Configuration(string path)
             "explorer",
             "review",
             "worker",
-            "agent-task-prepare",
             "agent-task-payload",
-            "agent-task-validation",
             "thinker",
         };
 

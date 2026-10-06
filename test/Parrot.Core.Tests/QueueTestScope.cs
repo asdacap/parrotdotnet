@@ -1,5 +1,6 @@
 using Parrot.Agent;
 using Parrot.AgentTasks;
+using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
@@ -22,7 +23,7 @@ internal sealed class QueueTestScope : IAgentSessionScope
     private readonly AgentSessionServices _services = new();
     private readonly IAgentQueues _queues;
     private readonly IProcessOwner _processes;
-    private readonly IAgentTaskRunCatalog _agentTaskRuns;
+    private readonly IAgentTaskService _agentTasks;
     private readonly IReadOnlyList<IInventoryPublisher> _publishers;
     private bool _disposed;
 
@@ -30,8 +31,17 @@ internal sealed class QueueTestScope : IAgentSessionScope
     {
         _parent = parent;
         _children = new ChildRegistry(identity, QueueChildAdmissionValidator.Validate);
-        _agentTaskRuns = new AgentTaskRunCatalog(identity.SessionId, TestDiagnosticLog.Instance, CancellationToken.None);
         var repository = new EventRepository(_database);
+        _agentTasks = new AgentTaskService(
+            this,
+            identity.SessionId,
+            TestModels.Route(new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"))),
+            new AgentTaskConfig(5, 3, true, TestModels.PromptTemplates),
+            new AgentTaskNotifier(this, new ToolOutputBlobStore(resources.AgentScratch(identity.NamePath).Root), TestDiagnosticLog.Instance),
+            _events,
+            repository,
+            TestDiagnosticLog.Instance,
+            CancellationToken.None);
         _dependencies = TestModels.Dependencies(identity, _events, repository, CancellationToken.None);
         _processes = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.NamePath)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, CancellationToken.None);
         _queues = new AgentQueues(identity, parent?.GetService<IAgentQueues>(), resources, _children, static queueIdentity => new QueueInventory(queueIdentity), TestDiagnosticLog.Instance);
@@ -44,7 +54,7 @@ internal sealed class QueueTestScope : IAgentSessionScope
         _publishers = [new QueueSnapshotPublisher(_queues, _events, root?.Session.SessionId ?? identity.SessionId), new ProcessSnapshotPublisher(_processes, _events)];
         _services.Register<IAgentQueues>(_queues);
         _services.Register<IProcessOwner>(_processes);
-        _services.Register<IAgentTaskRunCatalog>(_agentTaskRuns);
+        _services.Register<IAgentTaskService>(_agentTasks);
         _services.Register<IChildQuestion>(new ChildQuestion(identity));
         _queues.Initialize();
         ParentScope = parent is null ? AgentSessionParentScope.Root() : AgentSessionParentScope.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly);
@@ -80,7 +90,7 @@ internal sealed class QueueTestScope : IAgentSessionScope
 
     public async Task SettleWork()
     {
-        await _agentTaskRuns.Settle().ConfigureAwait(false);
+        await _agentTasks.Settle().ConfigureAwait(false);
         await _processes.Settle().ConfigureAwait(false);
     }
 
@@ -97,7 +107,7 @@ internal sealed class QueueTestScope : IAgentSessionScope
             _ = _parent.ChildRegistry.DetachDirectChildScope(this);
         }
 
-        await _agentTaskRuns.DisposeAsync().ConfigureAwait(false);
+        await _agentTasks.DisposeAsync().ConfigureAwait(false);
         await _children.DisposeAsync().ConfigureAwait(false);
         await Session.DisposeAsync().ConfigureAwait(false);
         _queues.Dispose();

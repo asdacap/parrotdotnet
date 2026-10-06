@@ -208,7 +208,7 @@ internal sealed class SkillFoundationTests
 
             _ = await Assert.That(files.Count).IsEqualTo(76);
             var manifest = await Manifest(packaged, files);
-            _ = await Assert.That(manifest).IsEqualTo("5BFB4AA236CA33A70F722595DFEA7D7429B45BBCE96B2E970F7B529CF6611CA8");
+            _ = await Assert.That(manifest).IsEqualTo("7258F7021FBBB0DC43D80AFEC19B88448C4FBDCC4ADFBDC2D23E60486717E455");
         }
         finally
         {

@@ -550,7 +550,6 @@ internal sealed class EnhancedTurnRendererTests
     {
         var first = new AgentTaskProgressSnapshot
         {
-            OriginToolCallId = "call",
             Revision = 1,
             RootNodes =
             {
@@ -563,7 +562,6 @@ internal sealed class EnhancedTurnRendererTests
                         new AgentTaskProgressNode { Name = "pending", Status = AgentTaskProgressStatus.Pending },
                         new AgentTaskProgressNode { Name = "succeeded", Status = AgentTaskProgressStatus.Succeeded },
                         new AgentTaskProgressNode { Name = "failed", Status = AgentTaskProgressStatus.Failed },
-                        new AgentTaskProgressNode { Name = "blocked", Status = AgentTaskProgressStatus.Blocked },
                         new AgentTaskProgressNode { Name = "canceled", Status = AgentTaskProgressStatus.Canceled },
                     },
                 },
@@ -571,7 +569,6 @@ internal sealed class EnhancedTurnRendererTests
         };
         var second = new AgentTaskProgressSnapshot
         {
-            OriginToolCallId = "call",
             Revision = 1,
             RootNodes =
             {
@@ -584,7 +581,6 @@ internal sealed class EnhancedTurnRendererTests
                         new AgentTaskProgressNode { Name = "pending", Status = AgentTaskProgressStatus.Pending },
                         new AgentTaskProgressNode { Name = "succeeded", Status = AgentTaskProgressStatus.Succeeded },
                         new AgentTaskProgressNode { Name = "failed", Status = AgentTaskProgressStatus.Failed },
-                        new AgentTaskProgressNode { Name = "blocked", Status = AgentTaskProgressStatus.Blocked },
                         new AgentTaskProgressNode { Name = "canceled", Status = AgentTaskProgressStatus.Canceled },
                     },
                 },

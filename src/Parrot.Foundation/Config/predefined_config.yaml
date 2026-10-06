@@ -276,22 +276,10 @@ prompt_templates:
     template: 'Running AgentTask graphs'
     allowed_arguments: []
     required_arguments: []
-  agent-task-run.started:
-    template: |-
-      AgentTask graph {run_id} started in the background (name: {display_name}).
-      Completion will be delivered automatically.
-    allowed_arguments: [run_id, display_name]
-    required_arguments: [run_id, display_name]
-  agent-task-run.completion:
-    template: |-
-      AgentTask graph completion
-      Graph: {run_id}
-      Status: {status}
-
-      Result:
-      {outcome}
-    allowed_arguments: [run_id, status, outcome]
-    required_arguments: [run_id, status, outcome]
+  agent-session.active-work-unresolved-agent-tasks-heading:
+    template: 'Unresolved AgentTasks (pending, running, or failed and awaiting your set_agent_tasks decision)'
+    allowed_arguments: []
+    required_arguments: []
   agent-session.exit-reminder:
     template: |-
       Exit reminders are set. You cannot finish until every one is cleared with clear_exit_reminder:
@@ -450,7 +438,7 @@ prompt_templates:
     allowed_arguments: [task_artifact, error]
     required_arguments: [task_artifact, error]
   mode.plan-implementation:
-    template: 'Implement the approved Markdown plan at {plan_artifact}. Call run_agent_tasks with the approved task JSON path {task_artifact}.'
+    template: 'Implement the approved Markdown plan at {plan_artifact}. Call set_agent_tasks with the approved task JSON path {task_artifact}.'
     allowed_arguments: [plan_artifact, task_artifact]
     required_arguments: [plan_artifact, task_artifact]
   agent-task.role-prompts:
@@ -521,42 +509,102 @@ prompt_templates:
     template: 'AgentTask {role} for {task_name}'
     allowed_arguments: [role, task_name]
     required_arguments: [role, task_name]
-  agent-task.prepare:
-    template: |-
-      AgentTask role: prepare{header}
-      Current task path: {path}
-      Original current task declaration:
-      {declaration}
-      Prepare this task by building useful context and optionally applying a narrow run-local correction to the effective task or inner graph. Return only strict JSON with no prose or code fence: {{"context":"nonblank preparation context","task_patch":{{"description":"optional","payload":"optional","acceptance_criteria":"optional","model":"optional"}}}}
-      Omit task_patch when no change is needed; when present omit every unchanged field.
-    allowed_arguments: [header, path, declaration]
-    required_arguments: [header, path, declaration]
-  agent-task.execution:
-    template: |-
-      AgentTask role: payload executor{header}{feedback}
-      Execute this instruction and return the execution result:
-      {instruction}
-    allowed_arguments: [header, feedback, instruction]
-    required_arguments: [header, feedback, instruction]
   agent-task.leaf:
     template: |-
       AgentTask role: payload executor{header}{feedback}
       Inspect, implement, and verify this instruction:
       {instruction}
-      Return only one strict JSON object with no prose or code fence: {{"result":"nonblank","verdict":"accept","evidence":"nonblank"}}, {{"result":"nonblank","verdict":"reject_and_halt","feedback":"nonblank"}}, or {{"result":"nonblank","verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","replacement_result":"optional nonblank replacement result"}}.
+      Return only one strict JSON object with no prose or code fence: {{"result":"nonblank","verdict":"accept","evidence":"nonblank"}}, {{"result":"nonblank","verdict":"reject_and_halt","feedback":"nonblank"}}, or {{"result":"nonblank","verdict":"reject_and_retry","feedback":"nonblank","payload":"optional replacement instruction","replacement_result":"optional nonblank replacement result"}}.
       Omit replacement_result to carry the returned result into the next attempt.
-      To split this leaf task into child tasks, return reject_and_retry with payload set to a nonempty array of AgentTask child declarations, not a quoted JSON string. This converts the leaf into a composite: subject to the existing attempt limit, the runner prepares the composite, executes its child graph, and validates the composite result. This uses the next retry attempt; it does not bypass the attempt limit.
     allowed_arguments: [header, feedback, instruction]
     required_arguments: [header, feedback, instruction]
-  agent-task.acceptance:
+  agent-task.composite:
     template: |-
-      AgentTask role: acceptance reviewer{header}{feedback}
-      Execution result:
-      {execution}{nested}
-      Assess the completed attempt. Return only one strict JSON object with no prose or code fence: {{"verdict":"accept","evidence":"nonblank"}}, {{"verdict":"reject_and_halt","feedback":"nonblank"}}, or {{"verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","context":"optional nonblank replacement preparation context"}}.
-      A reject_and_retry context replaces this task's preparation context for later attempts and descendants; omit it to retain the existing context.
-    allowed_arguments: [header, feedback, execution, nested]
-    required_arguments: [header, feedback, execution, nested]
+      AgentTask role: composite owner{header}{feedback}
+      This task is split into child tasks, which are registered in your own AgentTask service and run on your child agents:{children}
+      Wait for their notifications. When a child task fails, resolve it with set_agent_tasks: set its state to pending to retry it, to succeeded with a result to accept it, or to canceled to cancel it and its dependents. You cannot finish while a child task is unresolved.
+      When every child task is resolved, return only one strict JSON object with no prose or code fence: {{"result":"nonblank","verdict":"accept","evidence":"nonblank"}}, {{"result":"nonblank","verdict":"reject_and_halt","feedback":"nonblank"}}, or {{"result":"nonblank","verdict":"reject_and_retry","feedback":"nonblank"}}.
+    allowed_arguments: [header, feedback, children]
+    required_arguments: [header, feedback, children]
+  agent-task.composite-child:
+    template: "\n[{name}] {description}"
+    allowed_arguments: [name, description]
+    required_arguments: [name, description]
+  agent-task.attempts-exhausted:
+    template: 'rejected after {attempts} attempts: {feedback}'
+    allowed_arguments: [attempts, feedback]
+    required_arguments: [attempts, feedback]
+  agent-task.set-accepted:
+    template: |-
+      AgentTask update accepted ({count} tasks). State changes are delivered as notifications.
+    allowed_arguments: [count]
+    required_arguments: [count]
+  agent-task.notification-succeeded:
+    template: |-
+      AgentTask succeeded: {name}
+      Description: {description}
+
+      Result:
+      {result}
+    allowed_arguments: [name, description, result]
+    required_arguments: [name, description, result]
+  agent-task.notification-failed:
+    template: |-
+      AgentTask failed: {name}
+      Description: {description}
+
+      Failure:
+      {failure}
+
+      Its dependents wait until you resolve it with set_agent_tasks: set its state to pending to retry it, to succeeded with a result to accept it, or to canceled to cancel it and its dependents.
+    allowed_arguments: [name, description, failure]
+    required_arguments: [name, description, failure]
+  agent-task.notification-updated:
+    template: |-
+      AgentTask states changed by your update:{items}
+    allowed_arguments: [items]
+    required_arguments: [items]
+  agent-task.notification-all-complete:
+    template: |-
+      All AgentTasks are complete:{items}
+    allowed_arguments: [items]
+    required_arguments: [items]
+  agent-task.notification-item:
+    template: "\n- {name}: {state}"
+    allowed_arguments: [name, state]
+    required_arguments: [name, state]
+  agent-task.force-stopped:
+    template: 'Your AgentTask turn was stopped: {reason}'
+    allowed_arguments: [reason]
+    required_arguments: [reason]
+  agent-task.stop-canceled:
+    template: 'the owner canceled this task.'
+    allowed_arguments: []
+    required_arguments: []
+  agent-task.stop-succeeded:
+    template: 'the owner marked this task as succeeded.'
+    allowed_arguments: []
+    required_arguments: []
+  agent-task.stop-failed:
+    template: 'the owner marked this task as failed.'
+    allowed_arguments: []
+    required_arguments: []
+  agent-task.stop-restarted:
+    template: 'the owner reset or changed this task; it restarts in this session.'
+    allowed_arguments: []
+    required_arguments: []
+  agent-task.stop-dependency-canceled:
+    template: 'a task this task depends on was canceled.'
+    allowed_arguments: []
+    required_arguments: []
+  agent-task.stop-dependency-reset:
+    template: 'a task this task depends on was reset; it restarts in this session once that task succeeds again.'
+    allowed_arguments: []
+    required_arguments: []
+  agent-task.stop-shutdown:
+    template: 'the agent session is shutting down.'
+    allowed_arguments: []
+    required_arguments: []
   agent-task.response-repair:
     template: >-
       Your previous response was not accepted: {error} Reply again with only the required strict JSON object for this role and nothing else.
@@ -1000,36 +1048,12 @@ profiles:
     enforce_active_work_completion: true
     is_user_selectable: false
     is_agent_selectable: true
-  agent-task-prepare:
-    usage: Prepare and validate a composite AgentTask in one retained session.
-    prompt: |-
-      You are the retained composite agent for an AgentTask. Follow the current templated turn: first prepare the task, then later validate its nested results in this same session. You own any nested task agents created for this composite task.
-
-      During preparation, build useful context from the task and relevant code, and optionally apply a narrow run-local correction to the effective task or inner graph. Return only the preparation context and, when needed, the narrowly corrected task instruction. During validation, review the completed task against its acceptance contract and return the requested strict verdict with focused evidence. Do not implement the task or modify the workspace.
-    max_turns: 128
-    recursion_limit: 4
-    read_only: false
-    enforce_active_work_completion: true
-    is_user_selectable: false
-    is_agent_selectable: true
   agent-task-payload:
     usage: Execute an AgentTask payload and verify its observable result.
     prompt: |-
       You are an AgentTask payload executor. Implement the assigned task within its approved scope and verify the observable result against the strict contract.
 
       Preserve existing behavior outside the task, report concrete verification evidence, and stop when the task contract is satisfied. For instruction leaves, return only the required strict JSON with nonblank result and exactly one strict verdict. Composite preparation context and validation evidence remain separate.
-    max_turns: 128
-    recursion_limit: 4
-    read_only: false
-    enforce_active_work_completion: true
-    is_user_selectable: false
-    is_agent_selectable: true
-  agent-task-validation:
-    usage: Validate an AgentTask result against its acceptance contract.
-    prompt: |-
-      You are the retained composite agent's validation turn for an AgentTask. Review the completed task and its acceptance contract, then verify correctness with focused evidence. The nested task agents are children owned by this retained composite agent.
-
-      Return exactly one strict verdict: accept, reject_and_halt, or reject_and_retry. Include nonblank evidence or actionable feedback, and do not modify the workspace.
     max_turns: 128
     recursion_limit: 4
     read_only: false
@@ -1547,59 +1571,44 @@ tools:
     parameters:
       type: object
       additionalProperties: false
-  run_agent_tasks:
-    description: Start an approved AgentTask v1 artifact with a nonempty list of top-level sibling tasks in the background, reusing same-name direct child agents with their existing settings and history or creating retained-only children when absent; agents remain available after graph completion, and SendAndWaitForResult waits for prior work before each task turn. New instruction leaf agents use agent-task-payload for implementation and verification with strict result JSON, while composites use distinct preparation and validation turns on one retained composite agent that owns nested child agents, then deliver hierarchical JSON evidence automatically on completion.
+  set_agent_tasks:
+    description: Upsert tasks by name into your own AgentTask graph. Each task whose dependencies all succeeded runs on a retained child agent named after the task, which implements and verifies it and retries internally on rejection; a restarted task continues in that same child session. You are notified when a task succeeds, when it fails after its retries, after each of your updates, and when every task is complete. A failed task holds its dependents until you resolve it by setting its state to pending to retry it, to succeeded with a result to accept it, or to canceled. Changing a running task's state or definition stops it. A canceled task also cancels every task that depends on it until it is set back to pending, and resetting a succeeded task to pending resets its dependents too. A task whose payload is a task array owns those child tasks in its child agent's own graph.
     parameters:
       type: object
       properties:
         path:
           type: string
           minLength: 1
-          description: Path to the approved AgentTask v1 JSON artifact. The path must resolve to a readable regular file without symbolic links.
-        artifact:
-          $ref: '#/$defs/artifact'
-          description: Embedded AgentTask v1 artifact executed without reading the filesystem.
+          description: Path to an approved AgentTask v1 JSON artifact whose tasks are upserted. The path must resolve to a readable regular file without symbolic links.
+        tasks:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/$defs/task'
+          description: Full tasks to upsert, each including its state. Dependencies may name tasks set by earlier calls.
       oneOf:
       - required:
         - path
       - required:
-        - artifact
+        - tasks
       additionalProperties: false
       $defs:
-        artifact:
-          type: object
-          description: AgentTask v1 artifact containing one or more top-level sibling tasks.
-          properties:
-            schema_version:
-              type: integer
-              const: 1
-              description: AgentTask artifact schema version, which must be 1.
-            tasks:
-              type: array
-              minItems: 1
-              items:
-                $ref: '#/$defs/task'
-              description: Nonempty top-level sibling tasks in the AgentTask graph.
-          required:
-          - schema_version
-          - tasks
-          additionalProperties: false
         task:
           type: object
-          description: A task in an AgentTask graph.
+          description: A task in an AgentTask graph, including its state.
           properties:
             name:
               type: string
               minLength: 1
-              description: Unique task name among its siblings.
+              description: Unique task name in the graph; an existing task with this name is updated.
             dependencies:
               type: array
               items:
                 type: string
                 minLength: 1
-                description: Name of a sibling task this task depends on.
+                description: Name of a task in the same graph that this task depends on.
               uniqueItems: true
-              description: Optional distinct sibling task dependencies.
+              description: Optional distinct dependencies.
             description:
               type: string
               minLength: 1
@@ -1614,8 +1623,8 @@ tools:
                 minItems: 1
                 items:
                   $ref: '#/$defs/task'
-                description: Nested AgentTask graph payload.
-              description: Direct instruction or nested AgentTask graph to execute.
+                description: Child tasks owned by this task's child agent.
+              description: Direct instruction or child tasks.
             acceptance_criteria:
               type: string
               minLength: 1
@@ -1623,13 +1632,40 @@ tools:
             model:
               type: string
               minLength: 1
-              description: Optional model selector for this task.
+              description: Optional model selector for this task's child agent when it is first created.
+            state:
+              type: string
+              enum:
+              - pending
+              - running
+              - succeeded
+              - failed
+              - canceled
+              description: Desired state, pending when omitted. Pending retries or restarts the task, succeeded accepts it with the given result, canceled cancels it and its dependents, and running keeps a running task with an unchanged definition.
+            result:
+              type: string
+              minLength: 1
+              description: Result passed to dependents when setting the state to succeeded.
+            failure:
+              type: string
+              minLength: 1
+              description: Reason recorded when setting the state to failed.
           required:
           - name
           - description
           - payload
           - acceptance_criteria
           additionalProperties: false
+  get_agent_tasks:
+    description: Read your own AgentTask graph. Without a name, lists every task with its name, state, and description. With a name, returns that task in full, including its state, result, and failure, in the shape set_agent_tasks accepts.
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Name of the task to return in full; omit it to list every task.
+      additionalProperties: false
   wait:
     description: Wait for incoming activity. Returns early for a new message, completed child-agent, AgentTask graph completion, process completion. Do not use the sleep shell command. Use this wait tool than `sleep` cli.
     parameters:

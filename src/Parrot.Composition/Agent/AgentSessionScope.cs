@@ -37,7 +37,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
             _workOwners = _composition.WorkOwners;
             _services.Register<IAgentQueues>(_composition.Queues);
             _services.Register<IProcessOwner>(_composition.Processes);
-            _services.Register<IAgentTaskRunCatalog>(_composition.AgentTaskRuns);
+            _services.Register<IAgentTaskService>(_composition.AgentTasks);
             _services.Register<IChildQuestion>(_composition.ChildQuestion);
             _services.Register<IRuntimeStatus>(_composition.Status);
             ChildRegistry = _composition.ChildRegistry;
