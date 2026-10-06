@@ -464,7 +464,7 @@ internal sealed class ConfigurationTests : IDisposable
               custom:guidance: Additional guidance.
             """)).SystemPrompts;
 
-        _ = await Assert.That(prompts).Count().IsEqualTo(7);
+        _ = await Assert.That(prompts).Count().IsEqualTo(8);
         _ = await Assert.That(prompts["runtime:system-context:01-base"]).IsEqualTo("Custom base prompt.");
         _ = await Assert.That(prompts["runtime:system-context:02-delegation"])
             .StartsWith("# Agent delegation\nOnly split larger task to subagent IF:");

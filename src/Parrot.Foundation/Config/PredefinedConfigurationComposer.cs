@@ -9,8 +9,8 @@ internal static class PredefinedConfigurationComposer
     {
         var combined = new YamlMappingNode();
         var owners = new Dictionary<string, string>(StringComparer.Ordinal);
-        var templateOwners = new Dictionary<string, string>(StringComparer.Ordinal);
-        var combinedTemplates = new YamlMappingNode();
+        var mappingOwners = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+        var combinedMappings = new Dictionary<string, YamlMappingNode>(StringComparer.Ordinal);
         foreach (var (name, content) in sources)
         {
             if (content is null)
@@ -23,19 +23,26 @@ internal static class PredefinedConfigurationComposer
             foreach (var entry in root.Children)
             {
                 var key = ReadKey(entry.Key, name, string.Empty);
-                if (key == "prompt_templates")
+                if (key is "prompt_templates" or "system_prompts" or "tools")
                 {
-                    if (entry.Value is not YamlMappingNode templates)
+                    if (entry.Value is not YamlMappingNode mapping)
                     {
-                        throw new InvalidDataException($"{name}: prompt_templates must be a mapping");
+                        throw new InvalidDataException($"{name}: {key} must be a mapping");
                     }
 
-                    _ = combined.Children.TryAdd(entry.Key, combinedTemplates);
-                    foreach (var template in templates.Children)
+                    if (!combinedMappings.TryGetValue(key, out var combinedMapping))
                     {
-                        var id = ReadKey(template.Key, name, key);
-                        AddOwner(templateOwners, id, name, $"{key}.{id}");
-                        combinedTemplates.Add(template.Key, template.Value);
+                        combinedMapping = [];
+                        combinedMappings.Add(key, combinedMapping);
+                        mappingOwners.Add(key, new Dictionary<string, string>(StringComparer.Ordinal));
+                        combined.Add(entry.Key, combinedMapping);
+                    }
+
+                    foreach (var item in mapping.Children)
+                    {
+                        var id = ReadKey(item.Key, name, key);
+                        AddOwner(mappingOwners[key], id, name, $"{key}.{id}");
+                        combinedMapping.Add(item.Key, item.Value);
                     }
                 }
                 else

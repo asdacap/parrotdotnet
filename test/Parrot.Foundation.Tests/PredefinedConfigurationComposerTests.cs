@@ -23,6 +23,11 @@ internal sealed class PredefinedConfigurationComposerTests
                     allowed_arguments: [name]
                 """),
             ("tasks", """
+                system_prompts:
+                  agent-tasks: Task guidance
+                tools:
+                  task-tool:
+                    description: Task tool
                 agent_tasks:
                   maximum_attempts: 2
                 prompt_templates:
@@ -53,6 +58,8 @@ internal sealed class PredefinedConfigurationComposerTests
         var root = (YamlMappingNode)stream.Documents[0].RootNode;
         _ = await Assert.That(root.Children.Count).IsEqualTo(6);
         _ = await Assert.That(root["system_prompts"]["base"].ToString()).IsEqualTo("First {literal}\nSecond line");
+        _ = await Assert.That(root["system_prompts"]["agent-tasks"].ToString()).IsEqualTo("Task guidance");
+        _ = await Assert.That(root["tools"]["task-tool"]["description"].ToString()).IsEqualTo("Task tool");
         var templates = (YamlMappingNode)root["prompt_templates"];
         _ = await Assert.That(templates.Children.Count).IsEqualTo(2);
         _ = await Assert.That(templates["ordinary"]["template"].ToString()).IsEqualTo("Hello {name}");
@@ -67,6 +74,8 @@ internal sealed class PredefinedConfigurationComposerTests
     [Test]
     [Arguments("model: first", "model: first", "model")]
     [Arguments("model: first", "model: second", "model")]
+    [Arguments("system_prompts:\n  shared: first", "system_prompts:\n  shared: second", "system_prompts.shared")]
+    [Arguments("tools:\n  shared:\n    description: first", "tools:\n  shared:\n    description: second", "tools.shared")]
     [Arguments(
         "prompt_templates:\n  shared:\n    template: first",
         "prompt_templates:\n  shared:\n    template: first",
@@ -93,6 +102,8 @@ internal sealed class PredefinedConfigurationComposerTests
     [Arguments("scalar", "exactly one mapping document")]
     [Arguments("", "exactly one mapping document")]
     [Arguments("prompt_templates: []", "prompt_templates must be a mapping")]
+    [Arguments("system_prompts: []", "system_prompts must be a mapping")]
+    [Arguments("tools: []", "tools must be a mapping")]
     [Arguments("tools:\n  ? [one, two]\n  : value", "mapping keys at tools must be strings")]
     public async Task Invalid_sources_report_resource_and_reason(string content, string reason)
     {

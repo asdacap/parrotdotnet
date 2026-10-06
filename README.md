@@ -1557,17 +1557,18 @@ and formatting from the source files, but not its values.
 The source files under `src/Parrot.Foundation/Config/` are:
 
 - `predefined_config.agent_tasks.yaml` contains the `agent_tasks` settings and
-  `prompt_templates` entries whose IDs begin with `agent-task.`.
-- `predefined_config.system_prompts.yaml` contains `system_prompts` and all
-  other `prompt_templates` entries.
+  `prompt_templates` entries whose IDs begin with `agent-task.`, the Agent Tasks
+  system-context guidance, and the `set_agent_tasks` and `get_agent_tasks` tool definitions.
+- `predefined_config.system_prompts.yaml` contains the remaining `system_prompts`
+  and all other `prompt_templates` entries.
 - `predefined_config.profiles.yaml` contains `default_profile` and `profiles`.
 - `predefined_config.runtime.yaml` contains every remaining configuration
   entry and its examples.
 
 Each file contributes a YAML mapping. The runtime combines these mappings to
-make the generated reference. The two prompt files share the
-`prompt_templates` mapping, so their template IDs must be distinct. Duplicate
-configuration definitions are rejected rather than chosen by file order. These
+make the generated reference. The `prompt_templates`, `system_prompts`, and
+`tools` mappings can span source files, but their entry keys must be distinct.
+Duplicate configuration definitions are rejected rather than chosen by file order. These
 source files are for maintainers; edit user settings in `config.yaml` instead.
 
 The generated reference owns built-in serializable provider defaults, including
