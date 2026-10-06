@@ -11,7 +11,7 @@ internal static class AgentTaskProgressFormatter
 
     /// <summary>
     /// Formats visible branches, retaining paths to active workers beneath hidden nodes. An agent line replaces
-    /// the status icon, with the task description beneath it.
+    /// the status icon, with the task description after it.
     /// </summary>
     internal static IReadOnlyList<AgentTaskRow> FormatRows(
         AgentTaskProgressSnapshot snapshot,
@@ -29,7 +29,7 @@ internal static class AgentTaskProgressFormatter
         var rows = new List<AgentTaskRow> { new("Agent tasks:", string.Empty) };
         foreach (var node in nodes)
         {
-            AppendNode(node, string.Empty, string.Empty, agentLines, rows);
+            AppendNode(node, string.Empty, agentLines, rows);
             Append(node.Children, string.Empty, agentLines, rows);
         }
 
@@ -105,7 +105,7 @@ internal static class AgentTaskProgressFormatter
             var last = index == nodes.Count - 1;
             var node = nodes[index];
             var descendants = ancestors + (last ? "    " : "│   ");
-            AppendNode(node, $"{ancestors}{(last ? "└──" : "├──")} ", descendants, agentLines, rows);
+            AppendNode(node, $"{ancestors}{(last ? "└──" : "├──")} ", agentLines, rows);
             Append(node.Children, descendants, agentLines, rows);
         }
     }
@@ -113,20 +113,18 @@ internal static class AgentTaskProgressFormatter
     private static void AppendNode(
         AgentTaskProgressNode node,
         string lead,
-        string continuation,
         IReadOnlyDictionary<string, TaskAgentLine>? agentLines,
         List<AgentTaskRow> rows)
     {
         if (agentLines is not null
             && agentLines.TryGetValue(node.AgentSessionId, out var agentLine))
         {
-            rows.Add(AgentTaskRow.Create(lead, agentLine.Text) with
+            rows.Add(AgentTaskRow.Create(lead, $"{agentLine.Text.TrimEnd()} {DisplayText(node)}") with
             {
                 Status = node.Status,
                 ModelAliasIcon = agentLine.ModelAliasIcon,
                 GlyphStartIndex = lead.Length + agentLine.GlyphStartIndex,
             });
-            rows.Add(AgentTaskRow.Create(continuation + "  ", DisplayText(node)) with { Status = node.Status });
             return;
         }
 

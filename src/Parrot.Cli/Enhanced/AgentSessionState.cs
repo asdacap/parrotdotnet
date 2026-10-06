@@ -42,14 +42,14 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public string AgentLabel => CreateAgentLabel();
 
-    public string AgentSpinnerText => _waitingForFirstToken
+    public string AgentSpinnerText => (_waitingForFirstToken
         ? $"{AgentLabel} Waiting for first token…"
         : _requestAttempt switch
         {
             0 => AgentLabel,
             1 => $"{AgentLabel} Requesting…",
             _ => $"{AgentLabel} Requesting (attempt {_requestAttempt})…",
-        };
+        }).Trim();
 
     public bool IsStreamingResponse => !_waitingForFirstToken && _requestAttempt == 0 && _response.Length > 0;
 
@@ -482,8 +482,6 @@ internal sealed class AgentSessionState(string agentSessionId)
         _ => count.ToString(CultureInfo.InvariantCulture),
     };
 
-    private static string FormatContextLimit(long limit) => limit == 0 ? "?" : FormatTokenCount(limit);
-
     private static bool IsBlank(string response) => string.IsNullOrWhiteSpace(response);
 
     private IScrollbackItem CreateReasoningScrollback(string reasoning) => IsReasoningSummary
@@ -503,15 +501,33 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     private string CreateAgentLabel()
     {
-        var label = _statistics is { } statistics
-            ? $"agent {Name} ({FormatTokenCount(statistics.InputTokens)} in / " +
-              $"{FormatTokenCount(statistics.CachedInputTokens)} cached / " +
-              $"{FormatTokenCount(statistics.OutputTokens)} out, " +
-              $"{FormatTokenCount(statistics.ContextSize)}/{FormatContextLimit(statistics.ContextLimit)} ctx)"
-            : $"agent {Name}";
-        return _foldedTools.Count == 0
-            ? label
-            : $"{label} Working: {LatestFoldedTool()}";
+        var labels = new List<string>();
+        if (_statistics is { } statistics)
+        {
+            var usage = new RuntimeUsage(
+                statistics.InputTokens,
+                statistics.CachedInputTokens,
+                statistics.OutputTokens,
+                statistics.ContextSize,
+                statistics.ContextLimit,
+                0);
+            if (usage.FormatContext() is { Length: > 0 } context)
+            {
+                labels.Add($"({context})");
+            }
+
+            if (usage.FormatTokens() is { Length: > 0 } tokens)
+            {
+                labels.Add(tokens);
+            }
+        }
+
+        if (_foldedTools.Count > 0)
+        {
+            labels.Add($"Working: {LatestFoldedTool()}");
+        }
+
+        return string.Join(' ', labels);
     }
 
     private string LatestFoldedTool() => _foldedTools.Values

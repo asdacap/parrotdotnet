@@ -114,7 +114,7 @@ internal sealed class AgentTaskProgressFormatterTests
     }
 
     [Test]
-    public async Task FormatRows_puts_running_agent_lines_above_their_descriptions()
+    public async Task FormatRows_puts_descriptions_after_running_agent_lines()
     {
         var root = new AgentTaskProgressNode
         {
@@ -148,9 +148,9 @@ internal sealed class AgentTaskProgressFormatterTests
         snapshot.RootNodes.Add(root);
         var agentLines = new Dictionary<string, TaskAgentLine>(StringComparer.Ordinal)
         {
-            ["root-agent"] = new("⠋ [root] agent root", null),
-            ["first-agent"] = new("⠋ [first] agent first", null),
-            ["done-agent"] = new("⠋ [done] agent done", null),
+            ["root-agent"] = new("⠋ [root] ", null),
+            ["first-agent"] = new("⠋ [first] ", null),
+            ["done-agent"] = new("⠋ [done] ", null),
         };
 
         var rows = AgentTaskProgressFormatter.FormatRows(snapshot, agentLines, agentLines.Keys.ToHashSet(StringComparer.Ordinal));
@@ -158,13 +158,10 @@ internal sealed class AgentTaskProgressFormatterTests
         _ = await Assert.That(string.Join('\n', rows.Select(static row => $"{row.HangingIndent.Length}:{row.Text}")))
             .IsEqualTo(
                 "0:Agent tasks:\n" +
-                "0:⠋ [root] agent root\n" +
-                "2:  root description\n" +
-                "4:├── ⠋ [first] agent first\n" +
-                "6:│     first description\n" +
+                "0:⠋ [root] root description\n" +
+                "4:├── ⠋ [first] first description\n" +
                 "6:├── ◐ unseen description\n" +
-                "4:└── ⠋ [done] agent done\n" +
-                "6:      done description");
+                "4:└── ⠋ [done] done description");
     }
 
     [Test]
@@ -187,7 +184,7 @@ internal sealed class AgentTaskProgressFormatterTests
         var rows = AgentTaskProgressFormatter.FormatRows(snapshot, lines, active);
 
         _ = await Assert.That(string.Join('\n', rows.Select(static row => row.Text))).IsEqualTo(
-            "Agent tasks:\n◐ root description\n└── ○ child description\n    └── working grandchild\n          日本語 説明\n✗ last root");
+            "Agent tasks:\n◐ root description\n└── ○ child description\n    └── working grandchild 日本語 説明\n✗ last root");
         _ = await Assert.That(snapshot.Equals(original)).IsTrue();
         _ = await Assert.That(AgentTaskProgressFormatter.GetEmbeddedAgentSessionIds(snapshot, lines, active))
             .IsEquivalentTo(["grandchild-agent"]);

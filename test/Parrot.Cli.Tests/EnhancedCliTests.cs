@@ -1004,7 +1004,7 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(live).Contains("answer");
         _ = await Assert.That(live).DoesNotContain("agent main");
         _ = await Assert.That(mainActivities).Contains("agent main");
-        _ = await Assert.That(live).Contains("  ⠋ [explorer[31m] agent explorer[31m (1.2m in / 800 cached / 300 out, 1.5k/? ctx)");
+        _ = await Assert.That(live).Contains("  ⠋ [explorer[31m] (1.5k) +1.2Mi +300o (+0.07% cache)");
         _ = await Assert.That(live).Contains("⠋ exec_command");
         _ = await Assert.That(live).Contains("  ⠋ [explorer[31m] read[2J");
         _ = await Assert.That(live).DoesNotContain("|⠋ [explorer[31m] read[2J");
@@ -1040,7 +1040,7 @@ internal sealed class EnhancedCliTests
             cancellationToken);
         _ = await Assert.That(mainActivities.Last()).IsEmpty();
         await view.ReplaceContent([], cancellationToken);
-        _ = await Assert.That(draws.Last()).Contains("agent explorer[31m");
+        _ = await Assert.That(draws.Last()).Contains("[explorer[31m]");
         _ = await Assert.That(draws.Last()).DoesNotContain("agent main");
 
         await view.Render(

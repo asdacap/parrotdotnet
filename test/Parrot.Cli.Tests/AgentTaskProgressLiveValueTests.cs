@@ -230,12 +230,12 @@ internal sealed class AgentTaskProgressLiveValueTests
         var live = new AgentTaskProgressLiveValue(snapshot, agentLines, agentLines.Keys.ToHashSet(StringComparer.Ordinal))
             .Render(new LiveBufferRenderContext(80, palette));
 
-        _ = await Assert.That(live.Lines[1].Text).IsEqualTo("  ⠋ [child] ◆ working");
+        _ = await Assert.That(live.Lines[1].Text).IsEqualTo("  ⠋ [child] ◆ working Inspect dependencies");
         _ = await Assert.That(live.Lines[1].Style).IsEqualTo(palette.GetTaskStyle(AgentTaskProgressStatus.Running, true));
         _ = await Assert.That(live.Lines[1].StyleSpans.Count).IsEqualTo(1);
         _ = await Assert.That(live.Lines[1].StyleSpans[0]).IsEqualTo(
             new TerminalCellStyleSpan(12, 1, palette.GetLiveIconStyle(icon.Color)));
-        _ = await Assert.That(live.Lines[2].Style).IsEqualTo(palette.GetTaskStyle(AgentTaskProgressStatus.Running, true));
+        _ = await Assert.That(live.Lines.Count).IsEqualTo(2);
         if (!color)
         {
             _ = await Assert.That(live.Lines.All(static line => string.IsNullOrEmpty(line.Style.Start))).IsTrue();
@@ -301,7 +301,7 @@ internal sealed class AgentTaskProgressLiveValueTests
         _ = await Assert.That(Render(snapshot, 80)).IsEmpty();
         _ = await Assert.That(Scrollback(snapshot, 80)).IsEmpty();
         _ = await Assert.That(string.Join('|', live.Lines.Select(static line => line.Text)))
-            .IsEqualTo("• Agent tasks:|  worker is active|    finished");
+            .IsEqualTo("• Agent tasks:|  worker is active finished");
         _ = await Assert.That(snapshot.RootNodes[0].Hidden).IsTrue();
     }
 

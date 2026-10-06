@@ -74,7 +74,7 @@ internal sealed class EnhancedHierarchyTests
                 .IsEqualTo(phase == ProviderRequestPhase.HeadersReceived);
             if (phase == ProviderRequestPhase.HeadersReceived)
             {
-                _ = await Assert.That(drawn).Contains("agent worker Waiting for first token…");
+                _ = await Assert.That(drawn).Contains("[worker] Waiting for first token…");
                 _ = await Assert.That(drawn).DoesNotContain("earlier preview");
             }
             else if (phase != ProviderRequestPhase.Requesting)
@@ -1500,8 +1500,8 @@ internal sealed class EnhancedHierarchyTests
             cancellationToken);
 
         var spinner = Render(drawn[^1], context);
-        var spinnerRow = spinner.Split('|').Single(static row => row.Contains("agent worker", StringComparison.Ordinal));
-        _ = await Assert.That(spinnerRow).IsEqualTo("  ⠋ [worker] ◆ agent worker");
+        var spinnerRow = spinner.Split('|').Single(static row => row.Contains("[worker]", StringComparison.Ordinal));
+        _ = await Assert.That(spinnerRow).IsEqualTo("  ⠋ [worker] ◆");
         _ = await Assert.That(Count(spinner, "◆")).IsEqualTo(1);
         _ = await Assert.That(spinner).DoesNotContain("R");
         _ = await Assert.That(spinner).Contains("existing content");
@@ -1562,7 +1562,7 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
         var nextSpinner = Render(drawn[^1], context);
-        _ = await Assert.That(nextSpinner).Contains("[worker] ◇ agent worker");
+        _ = await Assert.That(nextSpinner).Contains("[worker] ◇");
         _ = await Assert.That(nextSpinner).DoesNotContain("◆");
         _ = await Assert.That(nextSpinner).DoesNotContain("△");
 
@@ -1580,7 +1580,7 @@ internal sealed class EnhancedHierarchyTests
             new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "unaliased" } },
             cancellationToken);
         var clearedSpinner = Render(drawn[^1], context);
-        _ = await Assert.That(clearedSpinner).Contains("[worker] agent worker");
+        _ = await Assert.That(clearedSpinner).Contains("[worker]");
         _ = await Assert.That(clearedSpinner).DoesNotContain("◇");
         _ = await Assert.That(clearedSpinner).DoesNotContain("replacement");
     }
@@ -2494,16 +2494,15 @@ internal sealed class EnhancedHierarchyTests
 
         _ = await Assert.That(drawn[^1]).Contains(
             "  • [worker] Agent tasks:|" +
-            "    [worker] ⠋ [higher] ◆ agent higher|" +
-            "    [worker]   Implement the higher thing|" +
+            "    [worker] ⠋ [higher] ◆ Implement the higher thing|" +
             "    [worker] ○ later");
-        _ = await Assert.That(Count(drawn[^1], "agent higher")).IsEqualTo(1);
+        _ = await Assert.That(Count(drawn[^1], "[higher]")).IsEqualTo(1);
 
         await view.Render(
             new Event { AgentSessionId = "task-agent", TextChunk = new TextChunk { Fragment = "streamed text" } },
             cancellationToken);
 
-        _ = await Assert.That(drawn[^1]).Contains("    [worker] ⠋ [higher] ◆ agent higher|    [worker]   Implement the higher thing");
+        _ = await Assert.That(drawn[^1]).Contains("    [worker] ⠋ [higher] ◆ Implement the higher thing");
         _ = await Assert.That(drawn[^1]).Contains("● [higher] ◆ streamed text");
     }
 
