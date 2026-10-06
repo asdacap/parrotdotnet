@@ -15,7 +15,7 @@ internal static class AgentTaskProgressFormatter
     /// </summary>
     internal static IReadOnlyList<AgentTaskRow> FormatRows(
         AgentTaskProgressSnapshot snapshot,
-        IReadOnlyDictionary<string, string>? agentLines)
+        IReadOnlyDictionary<string, TaskAgentLine>? agentLines)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
@@ -57,7 +57,7 @@ internal static class AgentTaskProgressFormatter
     private static void Append(
         RepeatedField<AgentTaskProgressNode> nodes,
         string ancestors,
-        IReadOnlyDictionary<string, string>? agentLines,
+        IReadOnlyDictionary<string, TaskAgentLine>? agentLines,
         List<AgentTaskRow> rows)
     {
         for (var index = 0; index < nodes.Count; index++)
@@ -74,19 +74,19 @@ internal static class AgentTaskProgressFormatter
         AgentTaskProgressNode node,
         string lead,
         string continuation,
-        IReadOnlyDictionary<string, string>? agentLines,
+        IReadOnlyDictionary<string, TaskAgentLine>? agentLines,
         List<AgentTaskRow> rows)
     {
         if (node.Status == AgentTaskProgressStatus.Running
             && agentLines is not null
             && agentLines.TryGetValue(node.AgentSessionId, out var agentLine))
         {
-            rows.Add(AgentTaskRow.Create(lead, agentLine));
-            rows.Add(AgentTaskRow.Create(continuation + "  ", DisplayText(node)));
+            rows.Add(AgentTaskRow.Create(lead, agentLine.Text) with { Status = node.Status, ModelAliasIcon = agentLine.ModelAliasIcon });
+            rows.Add(AgentTaskRow.Create(continuation + "  ", DisplayText(node)) with { Status = node.Status });
             return;
         }
 
-        rows.Add(AgentTaskRow.Create($"{lead}{Icon(node.Status)} ", DisplayText(node)));
+        rows.Add(AgentTaskRow.Create($"{lead}{Icon(node.Status)} ", DisplayText(node)) with { Status = node.Status });
     }
 
     private static void NestNodes(

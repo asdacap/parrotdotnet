@@ -174,6 +174,71 @@ internal sealed class AgentTaskProgressLiveValueTests
         _ = await Assert.That(renderedTerminal[1]).IsEqualTo("  complete");
     }
 
+    [Test]
+    [Arguments(AgentTaskProgressStatus.Pending, "38;5;245")]
+    [Arguments(AgentTaskProgressStatus.Running, "36")]
+    [Arguments(AgentTaskProgressStatus.Succeeded, "32")]
+    [Arguments(AgentTaskProgressStatus.Failed, "31")]
+    [Arguments(AgentTaskProgressStatus.Canceled, "38;5;245")]
+    public async Task Render_colors_status_rows_and_their_wrapped_continuations(
+        AgentTaskProgressStatus status,
+        string foreground)
+    {
+        var snapshot = new AgentTaskProgressSnapshot();
+        snapshot.RootNodes.Add(new AgentTaskProgressNode
+        {
+            Description = "Inspect the poetry lock file and pin the transitive dependency",
+            Status = status,
+        });
+        var palette = new TerminalPalette(true);
+        var live = new AgentTaskProgressLiveValue(snapshot, null)
+            .Render(new LiveBufferRenderContext(30, palette));
+        var scrollback = new AgentTaskProgressScrollbackValue(snapshot)
+            .Render(new ScrollbackRenderContext(30, palette));
+
+        _ = await Assert.That(live.Lines.Count).IsGreaterThan(2);
+        foreach (var line in live.Lines.Skip(1))
+        {
+            _ = await Assert.That(line.Style.Start).IsEqualTo($"\u001b[48;5;236m\u001b[{foreground}m");
+        }
+
+        foreach (var line in scrollback.Skip(1))
+        {
+            _ = await Assert.That(line.StartsWith($"\u001b[{foreground}m", StringComparison.Ordinal)).IsTrue();
+            _ = await Assert.That(line.EndsWith(TerminalStyle.Reset, StringComparison.Ordinal)).IsTrue();
+        }
+    }
+
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Render_preserves_embedded_agent_color_without_changing_task_status_color(bool color)
+    {
+        var snapshot = new AgentTaskProgressSnapshot();
+        snapshot.RootNodes.Add(new AgentTaskProgressNode
+        {
+            Description = "Inspect dependencies",
+            Status = AgentTaskProgressStatus.Running,
+            AgentSessionId = "child",
+        });
+        var icon = new LiveModelAliasIcon("◆", Parrot.Llm.ModelAliasIconColor.Magenta);
+        var agentLines = new Dictionary<string, TaskAgentLine>(StringComparer.Ordinal)
+        {
+            ["child"] = new("⠋ [child] ◆ working", icon),
+        };
+        var palette = new TerminalPalette(color);
+        var live = new AgentTaskProgressLiveValue(snapshot, agentLines)
+            .Render(new LiveBufferRenderContext(80, palette));
+
+        _ = await Assert.That(live.Lines[1].Text).IsEqualTo("  ⠋ [child] ◆ working");
+        _ = await Assert.That(live.Lines[1].Style).IsEqualTo(palette.GetLiveIconStyle(icon.Color));
+        _ = await Assert.That(live.Lines[2].Style).IsEqualTo(palette.GetTaskStyle(AgentTaskProgressStatus.Running, true));
+        if (!color)
+        {
+            _ = await Assert.That(live.Lines.All(static line => string.IsNullOrEmpty(line.Style.Start))).IsTrue();
+        }
+    }
+
     private static string[] Render(AgentTaskProgressSnapshot snapshot, int columns)
     {
         ILiveBufferItem value = new AgentTaskProgressLiveValue(snapshot, null);

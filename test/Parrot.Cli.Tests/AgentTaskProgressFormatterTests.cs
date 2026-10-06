@@ -123,11 +123,11 @@ internal sealed class AgentTaskProgressFormatterTests
         });
         var snapshot = new AgentTaskProgressSnapshot();
         snapshot.RootNodes.Add(root);
-        var agentLines = new Dictionary<string, string>(StringComparer.Ordinal)
+        var agentLines = new Dictionary<string, TaskAgentLine>(StringComparer.Ordinal)
         {
-            ["root-agent"] = "⠋ [root] agent root",
-            ["first-agent"] = "⠋ [first] agent first",
-            ["done-agent"] = "⠋ [done] agent done",
+            ["root-agent"] = new("⠋ [root] agent root", null),
+            ["first-agent"] = new("⠋ [first] agent first", null),
+            ["done-agent"] = new("⠋ [done] agent done", null),
         };
 
         var rows = AgentTaskProgressFormatter.FormatRows(snapshot, agentLines);

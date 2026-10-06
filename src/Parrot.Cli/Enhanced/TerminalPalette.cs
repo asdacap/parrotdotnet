@@ -1,4 +1,5 @@
 using Parrot.Llm;
+using Parrot.Protocol;
 
 namespace Parrot.Cli.Enhanced;
 
@@ -37,6 +38,25 @@ internal sealed class TerminalPalette(bool color)
     public TerminalStyle DiffAdded => Success;
 
     public TerminalStyle DiffRemoved => Failure;
+
+    public TerminalStyle GetTaskStyle(AgentTaskProgressStatus? status, bool live)
+    {
+        if (!ColorEnabled)
+        {
+            return default;
+        }
+
+        var foreground = status switch
+        {
+            AgentTaskProgressStatus.Pending or AgentTaskProgressStatus.Canceled => "38;5;245",
+            AgentTaskProgressStatus.Running => "36",
+            AgentTaskProgressStatus.Succeeded => "32",
+            AgentTaskProgressStatus.Failed => "31",
+            _ => "38;5;252",
+        };
+        var background = live ? "\u001b[48;5;236m" : string.Empty;
+        return new TerminalStyle($"{background}\u001b[{foreground}m");
+    }
 
     public TerminalStyle GetLiveIconStyle(ModelAliasIconColor iconColor)
     {

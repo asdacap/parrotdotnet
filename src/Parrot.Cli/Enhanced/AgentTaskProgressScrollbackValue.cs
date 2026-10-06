@@ -14,11 +14,15 @@ internal sealed class AgentTaskProgressScrollbackValue(AgentTaskProgressSnapshot
     {
         var columns = context.Decoration.ContentColumns(context.Columns);
         var result = new List<string>();
+        var styles = new List<TerminalStyle>();
         foreach (var row in AgentTaskProgressFormatter.FormatRows(snapshot, null))
         {
-            result.AddRange(TerminalText.LayoutWordsHanging(row.Text, columns, row.HangingIndent));
+            var wrapped = TerminalText.LayoutWordsHanging(row.Text, columns, row.HangingIndent);
+            result.AddRange(wrapped);
+            styles.AddRange(Enumerable.Repeat(context.Palette.GetTaskStyle(row.Status, false), wrapped.Count));
         }
 
-        return context.Decoration.Apply(TerminalIcons.Activity, result);
+        return [.. context.Decoration.Apply(TerminalIcons.Activity, result)
+            .Select((line, index) => styles[index].Apply(line))];
     }
 }

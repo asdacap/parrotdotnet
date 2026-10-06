@@ -553,7 +553,7 @@ internal sealed class RawActivityView(
 
     private static ILiveBufferItem EmbedTaskAgentLines(
         ILiveBufferItem value,
-        IReadOnlyDictionary<string, string> taskAgentLines,
+        IReadOnlyDictionary<string, TaskAgentLine> taskAgentLines,
         HashSet<string> embeddedAgentSessionIds)
     {
         if (value is not AgentTaskProgressLiveValue tree)
@@ -1342,17 +1342,18 @@ internal sealed class RawActivityView(
         }
     }
 
-    private string CreateTaskAgentLine(AgentSessionState state)
+    private TaskAgentLine CreateTaskAgentLine(AgentSessionState state)
     {
         var spinner = TerminalIcons.SpinnerFrames[_frame % TerminalIcons.SpinnerFrames.Length];
         var glyph = state.ModelAliasIcon is { } icon ? $"{icon.Glyph} " : string.Empty;
-        return TerminalText.Sanitize($"{spinner} [{_hierarchy.GetLabel(state.AgentSessionId)}] {glyph}{state.AgentSpinnerText}")
+        var text = TerminalText.Sanitize($"{spinner} [{_hierarchy.GetLabel(state.AgentSessionId)}] {glyph}{state.AgentSpinnerText}")
             .Replace("\n", string.Empty, StringComparison.Ordinal);
+        return new TaskAgentLine(text, state.ModelAliasIcon);
     }
 
     private HierarchicalLiveValue CreateActivityItem(
         (AgentSessionState State, string ActivityId) activity,
-        IReadOnlyDictionary<string, string> taskAgentLines,
+        IReadOnlyDictionary<string, TaskAgentLine> taskAgentLines,
         HashSet<string> embeddedAgentSessionIds)
     {
         var value = EmbedTaskAgentLines(
