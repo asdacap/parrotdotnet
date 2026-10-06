@@ -254,7 +254,8 @@ internal sealed class AgentSpawner : IAgentSpawner
             childHistory = _authority.InitializeChildHistory(
                 childIdentity,
                 request.Boundary,
-                request.Fork);
+                request.Fork,
+                request.HistorySource);
             var securityProfile = childParentLink.PolicyLineage.Resolve(profile.SecurityProfile);
             constructedScope = _authority.CreateChildScope(
                 childIdentity,

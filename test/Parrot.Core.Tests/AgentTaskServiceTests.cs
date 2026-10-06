@@ -109,7 +109,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             var name = TaskName(request);
             return Task.FromResult(Accept($"{name} done {runs.AddOrUpdate(name, 1, (_, count) => count + 1)}"));
         });
-        var fixture = Fixture(provider, 5, cancellationToken);
+        var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
         await using var registry = fixture.Runtime.Registry;
         await using var service = fixture.Service;
 
@@ -152,7 +152,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             : TaskName(request) == "b" ? Accept("b done")
             : Interlocked.Increment(ref attempts) == 1 ? Halt("broken")
             : Accept("a fixed")));
-        var fixture = Fixture(provider, 5, cancellationToken);
+        var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
         await using var registry = fixture.Runtime.Registry;
         await using var service = fixture.Service;
 
@@ -217,7 +217,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             var prompt = AgentTaskReplyProvider.Prompt(request);
             return Accept(prompt.Contains("Work on a differently", StringComparison.Ordinal) ? "Work on a differently" : "Work on a");
         });
-        var fixture = Fixture(provider, 5, cancellationToken);
+        var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
         await using var registry = fixture.Runtime.Registry;
         await using var service = fixture.Service;
 
@@ -273,7 +273,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
                 _ => reply,
             } : throw new InvalidOperationException("No reply remains."));
         });
-        var fixture = Fixture(provider, 3, cancellationToken);
+        var fixture = Fixture(provider, 3, AgentTaskForkHistoryMode.Empty, cancellationToken);
         await using var registry = fixture.Runtime.Registry;
         await using var service = fixture.Service;
 
@@ -308,7 +308,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             _ = await WaitFor(children, tasks => tasks.All(task => task.State == AgentTaskExecutionStatus.Succeeded), token);
             return Accept("parent done");
         });
-        var fixture = Fixture(provider, 5, cancellationToken);
+        var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
         runtime = fixture.Runtime;
         await using var registry = fixture.Runtime.Registry;
         await using var service = fixture.Service;
@@ -348,7 +348,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             await Task.Delay(Timeout.InfiniteTimeSpan, token);
             return Accept("unreachable");
         });
-        var fixture = Fixture(provider, 5, cancellationToken);
+        var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
         await using var registry = fixture.Runtime.Registry;
         var service = fixture.Service;
         Set(fixture, Declare("a", string.Empty), Declare("b", ",\"dependencies\":[\"a\"]"), Declare("c", string.Empty));
@@ -378,10 +378,10 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
     public async Task Reuses_manual_agent_configuration_and_delivery_before_resolving_requested_model(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskReplyProvider((request, _) => Task.FromResult(
-            AgentTaskReplyProvider.Prompt(request).Contains("Task: existing-agent", StringComparison.Ordinal)
+            AgentTaskReplyProvider.Prompt(request).Contains("Task: ", StringComparison.Ordinal)
                 ? Accept("task result")
                 : "manual history"));
-        var fixture = Fixture(provider, 5, cancellationToken);
+        var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
         await using var registry = fixture.Runtime.Registry;
         await using var service = fixture.Service;
         var runtime = fixture.Runtime;
@@ -394,7 +394,8 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             "manual scope",
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic));
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent()));
         using var turns = _broker.Subscribe();
         _ = await manualScope.Session.SendAndWaitForResult("manual prompt", cancellationToken);
         _ = await turns.TurnEnding(runtime.Parent.SessionId, cancellationToken);
@@ -411,9 +412,223 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
         _ = await Assert.That(manualScope.ParentScope.DeliveryPolicy).IsEqualTo(AgentCompletionDeliveryPolicy.Automatic);
         var taskRequest = provider.Requests.Single(request => AgentTaskReplyProvider.Prompt(request).Contains("Task: existing-agent", StringComparison.Ordinal));
         _ = await Assert.That(taskRequest.Messages.Select(message => message.Content)).Contains("manual history");
-        _ = await Assert.That(() => Set(fixture, Declare("new-agent", ",\"model\":\"missing-provider/missing-model\"")))
-            .Throws<LLMProviderException>().WithMessage("provider: unknown provider \"missing-provider\"");
+        Set(fixture, Declare("new-agent", ",\"model\":\"missing-provider/missing-model\""));
+        var failed = await WaitFor(service, tasks => tasks.Single(task => task.Name == "new-agent").State == AgentTaskExecutionStatus.Failed, cancellationToken);
+        _ = await Assert.That(failed.Single(task => task.Name == "new-agent").Failure)
+            .IsEqualTo("provider: unknown provider \"missing-provider\"");
         _ = await Assert.That(runtime.Sessions.Identities).Count().IsEqualTo(1);
+        _ = await Assert.That(LastProgress(runtime.Parent.SessionId).RootNodes.Single(node => node.Name == "new-agent").AgentSessionId).IsEmpty();
+        Set(fixture, Declare("new-agent", string.Empty));
+        _ = await WaitFor(service, tasks => tasks.All(task => task.State == AgentTaskExecutionStatus.Succeeded), cancellationToken);
+        _ = await Assert.That(runtime.Sessions.Identities).Count().IsEqualTo(2);
+    }
+
+    [Test]
+    [Arguments(AgentTaskForkHistoryMode.Dependency)]
+    [Arguments(AgentTaskForkHistoryMode.Parent)]
+    [Arguments(AgentTaskForkHistoryMode.Empty)]
+    public async Task Forks_by_mode_using_the_first_declared_dependency_not_completion_order(
+        AgentTaskForkHistoryMode mode,
+        CancellationToken cancellationToken)
+    {
+        var firstArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = new AgentTaskReplyProvider(async (request, token) =>
+        {
+            if (!AgentTaskReplyProvider.IsTaskAgent(request))
+            {
+                return "noted";
+            }
+
+            var name = TaskName(request);
+            if (name == "first")
+            {
+                firstArrived.SetResult();
+                await releaseFirst.Task.WaitAsync(token);
+            }
+
+            return Accept(name + "-transcript-marker");
+        });
+        var fixture = Fixture(provider, 5, mode, cancellationToken);
+        await using var registry = fixture.Runtime.Registry;
+        await using var service = fixture.Service;
+        _repository.AppendConversation(
+            new Event { Id = "owner-before", AgentSessionId = fixture.Runtime.Parent.SessionId },
+            ConversationOrigin.UserInput,
+            LLMRole.User,
+            [ConversationPart.TextPart("owner-history-marker")],
+            [],
+            string.Empty);
+
+        Set(
+            fixture,
+            Declare("next", ",\"dependencies\":[\"second\",\"first\"]"),
+            Declare("second", string.Empty),
+            Declare("first", string.Empty));
+        await firstArrived.Task.WaitAsync(cancellationToken);
+        _ = await WaitFor(service, tasks => tasks.Single(task => task.Name == "second").State == AgentTaskExecutionStatus.Succeeded, cancellationToken);
+        Set(fixture, Declare("next", ",\"dependencies\":[\"first\",\"second\"]"));
+        _ = await Assert.That(fixture.Runtime.Sessions.Identities.Select(identity => identity.Name)).DoesNotContain("next");
+        _ = await Assert.That(LastProgress(fixture.Runtime.Parent.SessionId).RootNodes.Single(node => node.Name == "next").AgentSessionId).IsEmpty();
+        releaseFirst.SetResult();
+        _ = await WaitFor(service, tasks => tasks.All(task => task.State == AgentTaskExecutionStatus.Succeeded), cancellationToken);
+
+        var next = provider.Requests.Single(request => AgentTaskReplyProvider.IsTaskAgent(request) && TaskName(request) == "next");
+        var assistantHistory = next.Messages.Where(message => message.Role == LLMRole.Assistant).Select(message => message.Content).ToArray();
+        _ = await Assert.That(assistantHistory.Contains(Accept("first-transcript-marker"), StringComparer.Ordinal))
+            .IsEqualTo(mode == AgentTaskForkHistoryMode.Dependency);
+        _ = await Assert.That(assistantHistory).DoesNotContain(Accept("second-transcript-marker"));
+        _ = await Assert.That(next.Messages.Any(message => message.Content == "owner-history-marker"))
+            .IsEqualTo(mode != AgentTaskForkHistoryMode.Empty);
+        _ = await Assert.That(AgentTaskReplyProvider.Prompt(next)).Contains("[first] Do first\nResult: first-transcript-marker")
+            .And.Contains("[second] Do second\nResult: second-transcript-marker");
+        var retained = fixture.Runtime.Sessions.ResolveScope("next");
+        _ = await Assert.That(retained.Session.ParentSessionId).IsEqualTo(fixture.Runtime.Parent.SessionId);
+        Set(fixture, Declare("next", ",\"dependencies\":[\"second\",\"first\"]"));
+        _ = await WaitFor(service, tasks => tasks.All(task => task.State == AgentTaskExecutionStatus.Succeeded), cancellationToken);
+        _ = await Assert.That(fixture.Runtime.Sessions.ResolveScope("next")).IsSameReferenceAs(retained);
+        var restarted = provider.Requests.Last(request => AgentTaskReplyProvider.IsTaskAgent(request) && TaskName(request) == "next");
+        _ = await Assert.That(restarted.Messages.Where(message => message.Role == LLMRole.Assistant).Select(message => message.Content))
+            .Contains(Accept("next-transcript-marker"))
+            .And.DoesNotContain(Accept("second-transcript-marker"));
+        _ = await Assert.That(fixture.Runtime.Sessions.Identities).Count().IsEqualTo(3);
+    }
+
+    [Test]
+    public async Task Historyless_manual_success_falls_back_before_the_owners_invoking_batch_without_creating_terminal_agents(
+        CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskReplyProvider((request, _) => Task.FromResult(
+            AgentTaskReplyProvider.IsTaskAgent(request) ? Accept("next done") : "noted"));
+        var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Dependency, cancellationToken);
+        await using var registry = fixture.Runtime.Registry;
+        await using var service = fixture.Service;
+        var owner = fixture.Runtime.Parent.SessionId;
+        _repository.AppendConversation(
+            new Event { Id = "owner-safe", AgentSessionId = owner },
+            ConversationOrigin.UserInput,
+            LLMRole.User,
+            [ConversationPart.TextPart("owner-safe-marker")],
+            [],
+            string.Empty);
+        _repository.AppendConversation(
+            new Event { Id = "owner-invocation", AgentSessionId = owner },
+            ConversationOrigin.Model,
+            LLMRole.Assistant,
+            [ConversationPart.TextPart("invoking-batch-marker")],
+            [new LLMToolCall("set-tasks", "set_agent_tasks", "{}")],
+            string.Empty);
+        var boundary = new HistoryForkBoundary.BeforeToolBatch(_repository.Conversation(owner)[^1].Sequence, "set-tasks");
+        service.SetTasks(
+            Tasks(
+                Declare("manual", ",\"state\":\"succeeded\",\"result\":\"manually accepted\""),
+                Declare("canceled", ",\"state\":\"canceled\""),
+                Declare("held", ",\"dependencies\":[\"canceled\"]"),
+                Declare("next", ",\"dependencies\":[\"manual\"]")),
+            fixture.Runtime.Selection,
+            boundary);
+        _ = await WaitFor(service, tasks => tasks.Single(task => task.Name == "next").State == AgentTaskExecutionStatus.Succeeded, cancellationToken);
+        _ = await Assert.That(fixture.Runtime.Sessions.Identities.Select(identity => identity.Name)).IsEquivalentTo(["next"]);
+        _ = await Assert.That(LastProgress(owner).RootNodes.Where(node => node.Name != "next").Select(node => node.AgentSessionId))
+            .IsEquivalentTo([string.Empty, string.Empty, string.Empty]);
+        var next = provider.Requests.Single(AgentTaskReplyProvider.IsTaskAgent);
+        _ = await Assert.That(next.Messages.Select(message => message.Content)).Contains("owner-safe-marker")
+            .And.DoesNotContain("invoking-batch-marker");
+        _ = await Assert.That(AgentTaskReplyProvider.Prompt(next)).Contains("manually accepted");
+    }
+
+    [Test]
+    public async Task Compacted_owner_boundary_fails_the_deferred_task_without_creating_an_agent(CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskReplyProvider((_, _) => Task.FromResult("noted"));
+        var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Dependency, cancellationToken);
+        await using var registry = fixture.Runtime.Registry;
+        await using var service = fixture.Service;
+        var owner = fixture.Runtime.Parent.SessionId;
+        _repository.AppendConversation(
+            new Event { Id = "owner-launch", AgentSessionId = owner },
+            ConversationOrigin.Model,
+            LLMRole.Assistant,
+            [],
+            [new LLMToolCall("launch", "set_agent_tasks", "{}")],
+            string.Empty);
+        var launch = _repository.Conversation(owner)[^1].Sequence;
+        _ = _repository.AppendToolSettlement(
+            new Event { Id = "owner-launch-result", AgentSessionId = owner },
+            launch,
+            new ToolExecutionTerminal("launch", "set_agent_tasks", ToolExecutionStatus.Finished, [], "declared"));
+        service.SetTasks(
+            Tasks(
+                Declare("manual", ",\"state\":\"failed\",\"failure\":\"awaiting acceptance\""),
+                Declare("next", ",\"dependencies\":[\"manual\"]")),
+            fixture.Runtime.Selection,
+            new HistoryForkBoundary.BeforeToolBatch(launch, "launch"));
+        _ = _repository.AppendCompactionStatus(
+            new Event { Id = "owner-compacted", AgentSessionId = owner },
+            new CompactionSnapshot("later owner summary", _repository.Conversation(owner)[^1].Sequence),
+            "later status");
+        Set(fixture, Declare("manual", ",\"state\":\"succeeded\",\"result\":\"accepted\""));
+        var failed = service.Snapshot().Single(task => task.Name == "next");
+        _ = await Assert.That(failed.State).IsEqualTo(AgentTaskExecutionStatus.Failed);
+        _ = await Assert.That(failed.Failure).Contains("captured fork tool batch is unavailable in effective history; it may have been compacted");
+        _ = await Assert.That(fixture.Runtime.Sessions.Identities).IsEmpty();
+        _ = await Assert.That(LastProgress(owner).RootNodes.Single(node => node.Name == "next").AgentSessionId).IsEmpty();
+    }
+
+    [Test]
+    public async Task Explicit_success_of_an_active_dependency_forks_only_its_safe_prefix(CancellationToken cancellationToken)
+    {
+        var arrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = new AgentTaskReplyProvider(async (request, token) =>
+        {
+            if (!AgentTaskReplyProvider.IsTaskAgent(request))
+            {
+                return "noted";
+            }
+
+            if (TaskName(request) == "source")
+            {
+                arrived.SetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            }
+
+            return Accept("next done");
+        });
+        var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Dependency, cancellationToken);
+        await using var registry = fixture.Runtime.Registry;
+        await using var service = fixture.Service;
+        Set(fixture, Declare("source", string.Empty), Declare("next", ",\"dependencies\":[\"source\"]"));
+        await arrived.Task.WaitAsync(cancellationToken);
+        var source = fixture.Runtime.Sessions.ResolveScope("source").Session.SessionId;
+        _repository.AppendConversation(
+            new Event { Id = "source-safe", AgentSessionId = source },
+            ConversationOrigin.UserInput,
+            LLMRole.User,
+            [ConversationPart.TextPart("source-safe-marker")],
+            [],
+            string.Empty);
+        _repository.AppendConversation(
+            new Event { Id = "source-incomplete", AgentSessionId = source },
+            ConversationOrigin.Model,
+            LLMRole.Assistant,
+            [ConversationPart.TextPart("incomplete-marker")],
+            [new LLMToolCall("unfinished", "exec_command", "{}")],
+            string.Empty);
+        _repository.AppendConversation(
+            new Event { Id = "source-after", AgentSessionId = source },
+            ConversationOrigin.UserInput,
+            LLMRole.User,
+            [ConversationPart.TextPart("after-incomplete-marker")],
+            [],
+            string.Empty);
+        Set(fixture, Declare("source", ",\"state\":\"succeeded\",\"result\":\"accepted while active\""));
+        _ = await WaitFor(service, tasks => tasks.All(task => task.State == AgentTaskExecutionStatus.Succeeded), cancellationToken);
+        var next = provider.Requests.Single(request => AgentTaskReplyProvider.IsTaskAgent(request) && TaskName(request) == "next");
+        _ = await Assert.That(next.Messages.Select(message => message.Content)).Contains("source-safe-marker")
+            .And.DoesNotContain("incomplete-marker")
+            .And.DoesNotContain("after-incomplete-marker");
+        _ = await Assert.That(next.Messages.Any(message => message.ToolCalls.Count > 0)).IsFalse();
+        _ = await Assert.That(AgentTaskReplyProvider.Prompt(next)).Contains("accepted while active");
     }
 
     private static string Accept(string result) => $$"""{"result":"{{result}}","verdict":"accept","evidence":"checked"}""";
@@ -434,9 +649,10 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
 
     private static string TaskName(LLMRequest request)
     {
-        var conversation = AgentTaskReplyProvider.Conversation(request);
-        var start = conversation.IndexOf("Task: ", StringComparison.Ordinal) + "Task: ".Length;
-        return conversation[start..conversation.IndexOf('\n', start)];
+        var prompt = request.Messages.Last(message => message.Role == LLMRole.User
+            && message.Content.Contains("Task: ", StringComparison.Ordinal)).Content;
+        var start = prompt.IndexOf("Task: ", StringComparison.Ordinal) + "Task: ".Length;
+        return prompt[start..prompt.IndexOf('\n', start)];
     }
 
     private static string DependencyPrompt(AgentTaskReplyProvider provider) =>
@@ -480,14 +696,14 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             .Last(published => published.AgentSessionId == agentSessionId && published.PayloadCase == Event.PayloadOneofCase.AgentTaskProgressSnapshot)
             .AgentTaskProgressSnapshot;
 
-    private (RuntimeContext Runtime, AgentTaskService Service) Fixture(ILLMProvider provider, int maximumAttempts, CancellationToken cancellationToken)
+    private (RuntimeContext Runtime, AgentTaskService Service) Fixture(ILLMProvider provider, int maximumAttempts, AgentTaskForkHistoryMode forkMode, CancellationToken cancellationToken)
     {
         var runtime = Runtime(provider, cancellationToken);
         return (runtime, new AgentTaskService(
             runtime.ParentScope,
             runtime.Parent.SessionId,
             runtime.Router,
-            new AgentTaskConfig(maximumAttempts, 1, false, TestModels.PromptTemplates),
+            new AgentTaskConfig(maximumAttempts, 1, forkMode, TestModels.PromptTemplates),
             new AgentTaskNotifier(runtime.ParentScope, new ToolOutputBlobStore(Path.GetTempPath()), TestDiagnosticLog.Instance),
             _broker,
             _repository,

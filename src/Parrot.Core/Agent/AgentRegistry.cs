@@ -213,11 +213,30 @@ internal sealed class AgentRegistry(
     public IEventRepository InitializeChildHistory(
         AgentIdentity child,
         HistoryForkBoundary boundary,
-        HistoryForkSelection fork)
+        HistoryForkSelection fork,
+        AgentHistorySource source)
     {
         ArgumentNullException.ThrowIfNull(child);
+        ArgumentNullException.ThrowIfNull(source);
+        var sourceSessionId = child.ParentSessionId;
+        var sourceBoundary = boundary;
+        HistoryForkSource? fallback = null;
+        if (source is AgentHistorySource.Sibling sibling)
+        {
+            ArgumentNullException.ThrowIfNull(sibling.Session);
+            if (!string.Equals(sibling.Session.ParentSessionId, child.ParentSessionId, StringComparison.Ordinal)
+                || !SnapshotScopes().Any(scope => ReferenceEquals(scope.Session, sibling.Session)))
+            {
+                throw new AgentRegistryException("history source must be a registered sibling under the child's owning parent");
+            }
+
+            sourceSessionId = sibling.Session.SessionId;
+            sourceBoundary = new HistoryForkBoundary.AfterSafeHistoryPrefix();
+            fallback = new HistoryForkSource(child.ParentSessionId, boundary);
+        }
+
         var childHistory = agentSessions.PrepareHistory(child, eventRepository);
-        childHistory.InitializeForkedAgentHistory(child.ParentSessionId, child.SessionId, boundary, fork);
+        childHistory.InitializeForkedAgentHistory(sourceSessionId, child.SessionId, sourceBoundary, fork, fallback);
         return childHistory;
     }
 

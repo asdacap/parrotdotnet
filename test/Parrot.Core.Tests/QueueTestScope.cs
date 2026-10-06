@@ -36,7 +36,7 @@ internal sealed class QueueTestScope : IAgentSessionScope
             this,
             identity.SessionId,
             TestModels.Route(new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"))),
-            new AgentTaskConfig(5, 3, true, TestModels.PromptTemplates),
+            new AgentTaskConfig(5, 3, AgentTaskForkHistoryMode.Parent, TestModels.PromptTemplates),
             new AgentTaskNotifier(this, new ToolOutputBlobStore(resources.AgentScratch(identity.NamePath).Root), TestDiagnosticLog.Instance),
             _events,
             repository,

@@ -50,9 +50,10 @@ internal interface IAgentRegistry : IAsyncDisposable
         IEventRepository childHistory,
         CancellationToken childLifetime);
 
-    /// <summary>Initializes child history at the requested parent fork boundary.</summary>
+    /// <summary>Initializes child history from its parent or a registered sibling without changing ownership.</summary>
     IEventRepository InitializeChildHistory(
         AgentIdentity child,
         HistoryForkBoundary boundary,
-        HistoryForkSelection fork);
+        HistoryForkSelection fork,
+        AgentHistorySource source);
 }

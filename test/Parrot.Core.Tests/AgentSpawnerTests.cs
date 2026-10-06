@@ -1,6 +1,7 @@
 using Parrot.Agent;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Protocol;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -192,6 +193,111 @@ internal sealed class AgentSpawnerTests
         _ = await Assert.That(children[0].Session.Name).IsEqualTo("shared-helper");
     }
 
+    [Test]
+    public async Task Sibling_history_inheritance_preserves_ownership_and_security_lineage(CancellationToken cancellationToken)
+    {
+        await using var fixture = new SpawnerFixture(10, cancellationToken);
+        var source = fixture.Root.AgentSpawner.SpawnScope(fixture.Request with { RequestedName = "source" });
+        fixture.Repository.AppendConversation(
+            new Event { Id = "source-context", AgentSessionId = source.Session.SessionId },
+            ConversationOrigin.UserInput,
+            LLMRole.User,
+            [ConversationPart.TextPart("dependency context")],
+            [],
+            string.Empty);
+        fixture.Repository.AppendConversation(
+            new Event { Id = "source-live", AgentSessionId = source.Session.SessionId },
+            ConversationOrigin.Model,
+            LLMRole.Assistant,
+            [],
+            [new LLMToolCall("live", "exec_command", "{}")],
+            string.Empty);
+
+        var child = fixture.Root.AgentSpawner.SpawnScope(fixture.Request with
+        {
+            RequestedName = "dependent",
+            Fork = HistoryForkSelection.Parse("full"),
+            HistorySource = new AgentHistorySource.Sibling(source.Session),
+        });
+
+        _ = await Assert.That(fixture.Repository.Conversation(child.Session.SessionId).Single().Parts.Single().Text)
+            .IsEqualTo("dependency context");
+        _ = await Assert.That(child.Session.ParentSessionId).IsEqualTo(fixture.Root.Session.SessionId);
+        _ = await Assert.That(child.ParentScope.Parent).IsSameReferenceAs(fixture.Root);
+        _ = await Assert.That(child.Session.Depth).IsEqualTo(source.Session.Depth);
+        _ = await Assert.That(string.Join('/', child.Session.Identity.NamePath)).IsEqualTo("main/dependent");
+        _ = await Assert.That(child.Session.ResolvePolicyLineage().CountProfile("worker"))
+            .IsEqualTo(source.Session.ResolvePolicyLineage().CountProfile("worker"));
+        foreach (var path in new[] { "/", "/tmp", "/tmp/dependency-artifact" })
+        {
+            _ = await Assert.That(child.Session.CurrentSelection().SecurityProfile.AllowsRead(path))
+                .IsEqualTo(source.Session.CurrentSelection().SecurityProfile.AllowsRead(path));
+            _ = await Assert.That(child.Session.CurrentSelection().SecurityProfile.AllowsWrite(path))
+                .IsEqualTo(source.Session.CurrentSelection().SecurityProfile.AllowsWrite(path));
+        }
+
+        _ = await Assert.That(child.ParentScope.DeliveryPolicy).IsEqualTo(AgentCompletionDeliveryPolicy.RetainedOnly);
+        _ = await Assert.That(source.ChildRegistry.SnapshotChildScopes()).IsEmpty();
+    }
+
+    [Test]
+    public async Task Sibling_without_history_falls_back_to_the_owning_parent(CancellationToken cancellationToken)
+    {
+        await using var fixture = new SpawnerFixture(10, cancellationToken);
+        fixture.Repository.AppendConversation(
+            new Event { Id = "parent-context", AgentSessionId = fixture.Root.Session.SessionId },
+            ConversationOrigin.UserInput,
+            LLMRole.User,
+            [ConversationPart.TextPart("parent context")],
+            [],
+            string.Empty);
+        var source = fixture.Root.AgentSpawner.SpawnScope(fixture.Request with { RequestedName = "source" });
+        var child = fixture.Root.AgentSpawner.SpawnScope(fixture.Request with
+        {
+            RequestedName = "dependent",
+            Fork = HistoryForkSelection.Parse("full"),
+            HistorySource = new AgentHistorySource.Sibling(source.Session),
+        });
+
+        _ = await Assert.That(fixture.Repository.Conversation(child.Session.SessionId).Single().Parts.Single().Text)
+            .IsEqualTo("parent context");
+        _ = await Assert.That(child.ParentScope.Parent).IsSameReferenceAs(fixture.Root);
+    }
+
+    [Test]
+    public async Task Rejects_history_sources_from_other_owners_or_user_sessions(CancellationToken cancellationToken)
+    {
+        await using var fixture = new SpawnerFixture(10, cancellationToken);
+        await using var otherSession = new SpawnerFixture(10, cancellationToken);
+        var parent = fixture.Root.AgentSpawner.SpawnScope(fixture.Request with { RequestedName = "other-parent" });
+        var otherBranch = parent.AgentSpawner.SpawnScope(fixture.Request with
+        {
+            Parent = parent.Session,
+            RequestedName = "other-branch",
+        });
+        var foreign = otherSession.Root.AgentSpawner.SpawnScope(otherSession.Request);
+        var before = fixture.Root.ChildRegistry.SnapshotDescendants().Count;
+        foreach (var source in new[] { fixture.Root.Session, otherBranch.Session, foreign.Session })
+        {
+            _ = await Assert.That(() => fixture.Root.AgentSpawner.SpawnScope(fixture.Request with
+            {
+                RequestedName = "rejected",
+                Fork = HistoryForkSelection.Parse("full"),
+                HistorySource = new AgentHistorySource.Sibling(source),
+            })).Throws<AgentRegistryException>()
+                .WithMessage("history source must be a registered sibling under the child's owning parent");
+            _ = await Assert.That(fixture.Root.ChildRegistry.SnapshotDescendants().Count).IsEqualTo(before);
+        }
+
+        var validSource = fixture.Root.AgentSpawner.SpawnScope(fixture.Request with { RequestedName = "valid-source" });
+        var validChild = fixture.Root.AgentSpawner.SpawnScope(fixture.Request with
+        {
+            RequestedName = "rejected",
+            HistorySource = new AgentHistorySource.Sibling(validSource.Session),
+        });
+        _ = await Assert.That(validChild.Session.Name).IsEqualTo("rejected");
+    }
+
     private sealed class SpawnerFixture : IAsyncDisposable
     {
         private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
@@ -202,7 +308,8 @@ internal sealed class AgentSpawnerTests
         public SpawnerFixture(int retainedCapacity, CancellationToken cancellationToken)
         {
             _provider = Provider;
-            var repository = new EventRepository(_database);
+            Repository = new EventRepository(_database);
+            var repository = Repository;
             var router = TestModels.Route(new ProviderModel(_provider, new LLMModel("model", _provider.Id)));
             var sessions = new AgentTaskTestSessionFactory(router);
             var profiles = new TestProfileFixture();
@@ -235,8 +342,11 @@ internal sealed class AgentSpawnerTests
                 "original scope",
                 HistoryForkSelection.Parse(string.Empty),
                 new HistoryForkBoundary.AfterCompletedHistory(),
-                AgentCompletionDeliveryPolicy.RetainedOnly);
+                AgentCompletionDeliveryPolicy.RetainedOnly,
+                new AgentHistorySource.Parent());
         }
+
+        public IEventRepository Repository { get; }
 
         public IAgentSessionScope Root { get; }
 

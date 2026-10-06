@@ -12,4 +12,5 @@ internal sealed record AgentLaunchRequest(
     string RequestedScope,
     HistoryForkSelection Fork,
     HistoryForkBoundary Boundary,
-    AgentCompletionDeliveryPolicy DeliveryPolicy);
+    AgentCompletionDeliveryPolicy DeliveryPolicy,
+    AgentHistorySource HistorySource);

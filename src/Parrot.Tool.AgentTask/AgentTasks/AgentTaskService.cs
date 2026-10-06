@@ -46,9 +46,6 @@ internal sealed class AgentTaskService(
             AgentTaskParser.ValidateGraph(
                 [.. _entries.Select(entry => entry.Task).Where(task => !incomingNames.Contains(task.Name)), .. tasks],
                 "tasks");
-            var spawned = tasks
-                .Where(task => Find(task.Name) is null)
-                .ToDictionary(task => task.Name, task => Spawn(task, selection, historyBoundary), StringComparer.Ordinal);
             var before = _entries.ToDictionary(entry => entry.Task.Name, Effective, StringComparer.Ordinal);
             foreach (var task in tasks)
             {
@@ -58,10 +55,13 @@ internal sealed class AgentTaskService(
                 }
                 else
                 {
+                    var boundary = historyBoundary is HistoryForkBoundary.AfterCompletedHistory
+                        ? new HistoryForkBoundary.AfterSafeHistoryPrefix()
+                        : historyBoundary;
                     _entries.Add(new Entry(
                         task with { State = task.State == AgentTaskExecutionStatus.Running ? AgentTaskExecutionStatus.Pending : task.State },
-                        spawned[task.Name],
-                        selection));
+                        selection,
+                        boundary));
                 }
             }
 
@@ -221,6 +221,26 @@ internal sealed class AgentTaskService(
         var dependencies = task.Dependencies
             .Select(name => Find(name)?.Task ?? throw new InvalidOperationException($"AgentTask dependency '{name}' is not declared."))
             .ToArray();
+        var started = Stopwatch.GetTimestamp();
+        try
+        {
+            entry.Scope ??= Spawn(task, entry.Selection, entry.HistoryBoundary);
+        }
+        catch (Exception failure)
+        {
+            entry.Task = task with { State = AgentTaskExecutionStatus.Failed, Result = null, Failure = failure.Message };
+            WriteDiagnostic(entry, "terminal", started);
+            notifier.Enqueue(
+                Render(
+                    "agent-task.notification-failed",
+                    ("name", task.Name),
+                    ("description", task.Description),
+                    ("failure", failure.Message)),
+                NotificationCause,
+                true);
+            return;
+        }
+
         var run = new Run(_lifetime.Token);
         entry.Task = task with { State = AgentTaskExecutionStatus.Running, Result = null, Failure = null };
         entry.Run = run;
@@ -243,7 +263,9 @@ internal sealed class AgentTaskService(
         AgentTask? outcome = null;
         try
         {
-            outcome = await _runner.Run(task, siblings, dependencies, entry.Scope, entry.Selection, run.Cancellation.Token)
+            run.Cancellation.Token.ThrowIfCancellationRequested();
+            var scope = entry.Scope ?? throw new InvalidOperationException("A running AgentTask requires an agent scope.");
+            outcome = await _runner.Run(task, siblings, dependencies, scope, entry.Selection, run.Cancellation.Token)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (run.Cancellation.IsCancellationRequested)
@@ -315,9 +337,14 @@ internal sealed class AgentTaskService(
 
     private async Task RecordStop(Entry entry, string reason)
     {
+        if (entry.Scope is not { } scope)
+        {
+            return;
+        }
+
         try
         {
-            await entry.Scope.Session.Record(
+            await scope.Session.Record(
                 [ConversationPart.TextPart(Render("agent-task.force-stopped", ("reason", reason)))],
                 Identifier.MessageId(),
                 Delivery.Steer,
@@ -374,16 +401,25 @@ internal sealed class AgentTaskService(
     private Entry? Find(string name) => _entries.Find(entry => string.Equals(entry.Task.Name, name, StringComparison.Ordinal));
 
     private IAgentSessionScope Spawn(AgentTask task, AgentTurnSelection selection, HistoryForkBoundary historyBoundary) =>
-        ownerScope.AgentSpawner.GetOrSpawnScope(task.Name, () => new AgentLaunchRequest(
-            ownerScope.Session,
-            selection,
-            "agent-task-payload",
-            task.Model is null ? selection.RequestedModel : router.Resolve(task.Model).RequestedSelector,
-            task.Name,
-            Render("agent-task.child-scope", ("role", "execute"), ("task_name", task.Name)),
-            HistoryForkSelection.Parse(configuration.ForkParentHistory ? "full" : string.Empty),
-            historyBoundary,
-            AgentCompletionDeliveryPolicy.RetainedOnly));
+        ownerScope.AgentSpawner.GetOrSpawnScope(task.Name, () =>
+        {
+            AgentHistorySource source = configuration.ForkHistoryMode == AgentTaskForkHistoryMode.Dependency
+                && task.Dependencies.Count > 0
+                && Find(task.Dependencies[0])?.Scope is { } dependencyScope
+                    ? new AgentHistorySource.Sibling(dependencyScope.Session)
+                    : new AgentHistorySource.Parent();
+            return new AgentLaunchRequest(
+                ownerScope.Session,
+                selection,
+                "agent-task-payload",
+                task.Model is null ? selection.RequestedModel : router.Resolve(task.Model).RequestedSelector,
+                task.Name,
+                Render("agent-task.child-scope", ("role", "execute"), ("task_name", task.Name)),
+                HistoryForkSelection.Parse(configuration.ForkHistoryMode == AgentTaskForkHistoryMode.Empty ? string.Empty : "full"),
+                historyBoundary,
+                AgentCompletionDeliveryPolicy.RetainedOnly,
+                source);
+        });
 
     private void Publish()
     {
@@ -400,7 +436,7 @@ internal sealed class AgentTaskService(
                 AgentTaskExecutionStatus.Failed => AgentTaskProgressStatus.Failed,
                 _ => AgentTaskProgressStatus.Canceled,
             },
-            AgentSessionId = entry.Scope.Session.SessionId,
+            AgentSessionId = entry.Scope?.Session.SessionId ?? string.Empty,
         }));
         var published = new Event
         {
@@ -424,15 +460,17 @@ internal sealed class AgentTaskService(
     private string Render(string id, params (string Name, string Value)[] values) =>
         configuration.PromptTemplates.Render(id, [.. values.Select(value => new PromptTemplateArgument(value.Name, value.Value))]);
 
-    private sealed class Entry(AgentTask task, IAgentSessionScope scope, AgentTurnSelection selection)
+    private sealed class Entry(AgentTask task, AgentTurnSelection selection, HistoryForkBoundary historyBoundary)
     {
         internal string DiagnosticId { get; } = $"task-{Guid.CreateVersion7():n}";
 
         internal AgentTask Task { get; set; } = task;
 
-        internal IAgentSessionScope Scope => scope;
+        internal IAgentSessionScope? Scope { get; set; }
 
         internal AgentTurnSelection Selection => selection;
+
+        internal HistoryForkBoundary HistoryBoundary => historyBoundary;
 
         internal Run? Run { get; set; }
 

@@ -108,7 +108,7 @@ internal sealed partial class Configuration(string path)
     public AgentTaskConfig AgentTasks { get; private set; } = new(
         5,
         3,
-        true,
+        AgentTaskForkHistoryMode.Dependency,
         new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)));
 
     public AgentSendConfig AgentSend { get; private set; } = new(false);
@@ -1524,11 +1524,24 @@ internal sealed partial class Configuration(string path)
             throw new InvalidDataException($"{AgentTasksKey} must be a mapping");
         }
 
-        ValidateKeys(agentTasks, AgentTasksKey, "maximum_attempts", "maximum_response_repairs", "fork_parent_history");
+        if (Child(agentTasks, "fork_parent_history", out _))
+        {
+            throw new InvalidDataException(
+                "agent_tasks.fork_parent_history has been replaced by agent_tasks.fork_history_mode; use parent for true, empty for false, or dependency for the new default behavior");
+        }
+
+        ValidateKeys(agentTasks, AgentTasksKey, "maximum_attempts", "maximum_response_repairs", "fork_history_mode");
+        var forkHistoryMode = Child(agentTasks, "fork_history_mode", out var forkHistoryNode) ? forkHistoryNode switch
+        {
+            YamlScalarNode { Value: "dependency" } => AgentTaskForkHistoryMode.Dependency,
+            YamlScalarNode { Value: "parent" } => AgentTaskForkHistoryMode.Parent,
+            YamlScalarNode { Value: "empty" } => AgentTaskForkHistoryMode.Empty,
+            _ => throw new InvalidDataException("agent_tasks.fork_history_mode must be dependency, parent, or empty"),
+        } : throw new InvalidDataException("agent_tasks.fork_history_mode must be dependency, parent, or empty");
         return new AgentTaskConfig(
             PositiveInteger(agentTasks, "maximum_attempts", $"{AgentTasksKey}.maximum_attempts"),
             PositiveInteger(agentTasks, "maximum_response_repairs", $"{AgentTasksKey}.maximum_response_repairs"),
-            ReadOptionalBoolean(agentTasks, "fork_parent_history", $"{AgentTasksKey}.fork_parent_history"),
+            forkHistoryMode,
             ReadPromptTemplates(root, static templates => new PromptTemplateCatalog(templates)));
     }
 

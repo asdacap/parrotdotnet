@@ -34,7 +34,8 @@ internal sealed partial class SubagentTests
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session;
         var questions = new[] { new QuestionDefinition("Colour", "Pick", [new Parrot.Questions.QuestionOption("Blue", string.Empty)], false, false) };
         var asking = coordinator.Ask(child, questions, cancellationToken);
         var pending = await WaitForChildQuestion(coordinator, parent, cancellationToken);
@@ -124,7 +125,8 @@ internal sealed partial class SubagentTests
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session;
         var asking = coordinator.Ask(child, [new QuestionDefinition("Continue", "continue", [new Parrot.Questions.QuestionOption("Yes", string.Empty)], false, false)], cancellationToken);
         _ = await WaitForChildQuestion(coordinator, parent, cancellationToken);
         var arguments = $$"""
@@ -193,7 +195,8 @@ internal sealed partial class SubagentTests
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session;
         var secondChild = TestModels.ScopeOf(secondParent).AgentSpawner.SpawnScope(new AgentLaunchRequest(
             secondParent,
             new TurnFixture(secondParent, router).Selection,
@@ -203,7 +206,8 @@ internal sealed partial class SubagentTests
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session;
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var cancelled = firstCoordinator.Ask(firstChild, [new QuestionDefinition("Continue", "cancelled", [new Parrot.Questions.QuestionOption("Yes", string.Empty)], false, false)], stopping.Token);
         _ = await WaitForChildQuestion(firstCoordinator, firstParent, cancellationToken);
@@ -217,7 +221,8 @@ internal sealed partial class SubagentTests
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session,
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session,
             [new QuestionDefinition("Continue", "disposed", [new Parrot.Questions.QuestionOption("Yes", string.Empty)], false, false)],
             cancellationToken);
         var isolated = secondCoordinator.Ask(secondChild, [new QuestionDefinition("Continue", "isolated", [new Parrot.Questions.QuestionOption("Yes", string.Empty)], false, false)], cancellationToken);
@@ -277,7 +282,8 @@ internal sealed partial class SubagentTests
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session;
         var asking = coordinator.Ask(child, [new QuestionDefinition("Continue", "continue", [new Parrot.Questions.QuestionOption("Yes", string.Empty)], false, false)], cancellationToken);
         var pending = await WaitForChildQuestion(coordinator, parent, cancellationToken);
         var arguments = argumentsTemplate.Replace("{0}", child.Name, StringComparison.Ordinal);
@@ -319,7 +325,8 @@ internal sealed partial class SubagentTests
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session;
         var coordinator = TestModels.CreateChildQuestions(TestModels.ScopeOf(parent));
         var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(new AgentLaunchRequest(
             parent,
@@ -330,7 +337,8 @@ internal sealed partial class SubagentTests
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session;
 
         var asking = coordinator.Ask(child, [new QuestionDefinition("Continue", "nested", [new Parrot.Questions.QuestionOption("Yes", string.Empty)], false, false)], cancellationToken);
         var pending = await WaitForChildQuestion(coordinator, parent, cancellationToken);
@@ -373,7 +381,8 @@ internal sealed partial class SubagentTests
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session;
         var second = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(new AgentLaunchRequest(
             parent,
             new TurnFixture(parent, router).Selection,
@@ -383,7 +392,8 @@ internal sealed partial class SubagentTests
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session;
 
         var firstAsking = coordinator.Ask(first, [new QuestionDefinition("Continue", "first", [new Parrot.Questions.QuestionOption("Yes", string.Empty)], false, false)], cancellationToken);
         var secondAsking = coordinator.Ask(second, [new QuestionDefinition("Continue", "second", [new Parrot.Questions.QuestionOption("Yes", string.Empty)], false, false)], cancellationToken);
@@ -428,7 +438,8 @@ internal sealed partial class SubagentTests
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session;
         var childQuestions = rootScope.ChildQuestions;
         var rootFactory = new QuestionToolFactory(userQuestions, AgentSessionParentScope.Root(), TestModels.ToolDefinitions);
         var childFactory = new QuestionToolFactory(userQuestions, AgentSessionParentScope.Child(rootScope, AgentCompletionDeliveryPolicy.RetainedOnly), TestModels.ToolDefinitions);
@@ -482,7 +493,8 @@ internal sealed partial class SubagentTests
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session;
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var reservation = coordinator.BeginParentCompletion(parent);
         var asking = coordinator.Ask(child, [new QuestionDefinition("Continue", "reserved", [new Parrot.Questions.QuestionOption("Yes", string.Empty)], false, false)], stopping.Token);

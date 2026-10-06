@@ -464,7 +464,7 @@ internal sealed class AgentInventoryStreamTests
             new ModelSelector(model.Selector),
             Session.Mode,
             Session.Mode.Profile.SecurityProfile,
-            Session.Registry.InitializeChildHistory(identity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty")),
+            Session.Registry.InitializeChildHistory(identity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty"), new AgentHistorySource.Parent()),
             Session.Lifetime);
     }
 }

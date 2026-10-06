@@ -72,7 +72,8 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
+            AgentCompletionDeliveryPolicy.RetainedOnly,
+            new AgentHistorySource.Parent())).Session;
         var grandchild = TestModels.ScopeOf(child).AgentSpawner.SpawnScope(new AgentLaunchRequest(
             child,
             new TurnFixture(child, router).Selection,
@@ -82,7 +83,8 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
+            AgentCompletionDeliveryPolicy.RetainedOnly,
+            new AgentHistorySource.Parent())).Session;
         _ = await child.SendTextMessage("work", cancellationToken);
         await provider.Arrived(cancellationToken);
         _ = await grandchild.SendTextMessage("work", cancellationToken);

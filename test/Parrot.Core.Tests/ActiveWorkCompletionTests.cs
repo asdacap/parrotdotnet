@@ -69,7 +69,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
+            AgentCompletionDeliveryPolicy.RetainedOnly,
+            new AgentHistorySource.Parent())).Session;
         using (var trigger = _database.Connection.CreateCommand())
         {
             trigger.CommandText = """
@@ -123,7 +124,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session;
         using var subscription = _broker.Subscribe();
 
         _ = await child.SendTextMessage("work", cancellationToken);
@@ -313,7 +315,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
+            AgentCompletionDeliveryPolicy.RetainedOnly,
+            new AgentHistorySource.Parent())).Session;
         var secondChild = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(new AgentLaunchRequest(
             parent,
             new TurnFixture(parent, router).Selection,
@@ -323,7 +326,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
+            AgentCompletionDeliveryPolicy.RetainedOnly,
+            new AgentHistorySource.Parent())).Session;
         using var subscription = _broker.Subscribe();
 
         _ = await parent.SendTextMessage("finish", cancellationToken);
@@ -386,7 +390,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session;
         using var subscription = _broker.Subscribe();
 
         _ = await child.SendTextMessage("work", cancellationToken);
@@ -439,7 +444,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session;
         var rootQueues = TestModels.ScopeOf(root).GetService<IAgentQueues>();
         _ = rootQueues.Create("parent-open", string.Empty);
         _ = rootQueues.Create("parent-closed", string.Empty);
@@ -457,7 +463,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session;
         var grandchild = TestModels.ScopeOf(sibling).AgentSpawner.SpawnScope(new AgentLaunchRequest(
             sibling,
             new TurnFixture(sibling, router).Selection,
@@ -467,7 +474,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session;
         using var subscription = _broker.Subscribe();
 
         _ = await sibling.SendTextMessage("work", cancellationToken);
@@ -576,7 +584,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
+            AgentCompletionDeliveryPolicy.Automatic,
+            new AgentHistorySource.Parent())).Session;
         var queues = TestModels.ScopeOf(parent).GetService<IAgentQueues>();
         _ = queues.Create("owned-work", string.Empty);
         _ = await queues.Push("owned-work", ["pending"], QueueDirection.Back, false, cancellationToken);

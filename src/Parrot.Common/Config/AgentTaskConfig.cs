@@ -2,11 +2,11 @@ namespace Parrot.Config;
 
 internal sealed record AgentTaskConfig
 {
-    public AgentTaskConfig(int maximumAttempts, int maximumResponseRepairs, bool forkParentHistory, IPromptTemplateCatalog promptTemplates)
+    public AgentTaskConfig(int maximumAttempts, int maximumResponseRepairs, AgentTaskForkHistoryMode forkHistoryMode, IPromptTemplateCatalog promptTemplates)
     {
         MaximumAttempts = maximumAttempts;
         MaximumResponseRepairs = maximumResponseRepairs;
-        ForkParentHistory = forkParentHistory;
+        ForkHistoryMode = forkHistoryMode;
         PromptTemplates = promptTemplates;
     }
 
@@ -14,7 +14,7 @@ internal sealed record AgentTaskConfig
 
     public int MaximumResponseRepairs { get; }
 
-    public bool ForkParentHistory { get; }
+    public AgentTaskForkHistoryMode ForkHistoryMode { get; }
 
     public IPromptTemplateCatalog PromptTemplates { get; }
 }

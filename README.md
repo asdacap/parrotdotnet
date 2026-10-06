@@ -603,18 +603,25 @@ active-work enforcement, and are canceled and joined when the user session shuts
 down. Its
 terminal hierarchical JSON is later admitted durably as an automatic completion
 message to the invoking agent rather than returned by the completed tool call.
-By default, every fresh AgentTask child session inherits the effective conversation
-history of its immediate owning agent. A top-level task child receives the invoking
-agent's history from before the original `run_agent_tasks` tool-call batch, so the
-request that admitted the graph and results from sibling calls in that batch are
-excluded. A nested task
-child is owned by its retained composite parent and receives that parent's
-completed history at the moment it is created, including completed preparation or
-validation exchanges as applicable. Concurrent siblings independently copy the
-same completed owner history; they do not inherit each other's later exchanges.
-If the owner has been compacted, the child receives the effective compacted
-history—the current summary, associated status when present, and retained tail—not
-the pre-compaction transcript.
+By default, a fresh AgentTask child inherits the effective conversation history
+of its first declared dependency. The declared dependency order determines the
+source, not completion order. A task with no dependencies, or whose first dependency
+has no agent history, inherits its immediate owner's history instead. It does not
+search later dependencies for another source. All declared dependency results still
+appear in the task prompt, regardless of the history source.
+
+Fresh task agents are created only when their task becomes runnable. Blocked or
+initially terminal tasks do not create agents, and pending tasks have no agent-session
+link until an agent exists. Dependency history is copied atomically through the
+latest safe prefix, stopping before the first incomplete tool batch and excluding
+later conversation groups. This does not require the dependency agent to be idle.
+Owner inheritance uses the history before the invoking tool-call batch, excluding
+that live batch and its sibling calls. Internally created nested tasks use their
+owner's completed history, limited to a safe prefix if needed. A nested task remains
+owned by its retained composite parent even when it inherits a sibling's history.
+If the source has been compacted, the child receives its effective compacted
+history: the current summary, associated status when present, and safe retained
+tail, not the pre-compaction transcript.
 
 This copies conversation context only. A child still has its own identity and
 session lifecycle, and does not inherit the owner's permissions, queues, running
@@ -730,13 +737,21 @@ results. Direct dependents receive only each declared dependency's bounded
 order and blocking semantics. The AgentTask v1 artifact envelope and schema above
 are unchanged.
 
-`agent_tasks.fork_parent_history` is a global strict boolean and defaults to
-`true`. When `true`, fresh AgentTask sessions use the immediate-owner inheritance
-semantics above. Setting it to `false` preserves the compatibility behavior: every
-fresh AgentTask session starts with an empty conversation, while retained sessions
-continue to keep the exchanges accumulated during their own lifecycle. This option
-changes only AgentTask-internal child creation; it does not change the public
-`agent_spawn.fork` contract.
+`agent_tasks.fork_history_mode` is a global strict string with three values:
+
+- `dependency` is the default. Fresh agents inherit the first declared dependency's
+  safe history, falling back to the owner when there are no dependencies or the
+  first dependency has no agent history.
+- `parent` always inherits the immediate owner's safe history.
+- `empty` starts fresh agents with no inherited conversation.
+
+Retained agents keep the exchanges accumulated during their own lifecycle and
+never receive another fork on retry or restart. This setting changes only
+AgentTask-internal child creation; it does not change the public `agent_spawn.fork`
+contract. The old `agent_tasks.fork_parent_history` key is rejected with migration
+guidance. Replace `true` with `fork_history_mode: parent` or `false` with
+`fork_history_mode: empty` to preserve the old behavior, or choose `dependency` for
+the new default.
 
 `agent_tasks.maximum_attempts` is global runtime configuration enforced
 independently for every task invocation. It accepts any positive `Int32`,
