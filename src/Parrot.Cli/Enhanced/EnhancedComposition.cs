@@ -47,6 +47,7 @@ internal partial class EnhancedComposition
                     new ReadImageToolPresenter(),
                     new ReadToolPresenter(),
                     new SetAgentTasksToolPresenter(new GenericToolPresenter()),
+                    new GetAgentTasksToolPresenter(new GenericToolPresenter()),
                     new QuestionToolPresenter(),
                     new SetCheckpointToolPresenter(),
                     new SetExitReminderToolPresenter(),
