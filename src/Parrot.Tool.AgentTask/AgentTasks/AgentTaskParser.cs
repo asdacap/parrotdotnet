@@ -110,14 +110,14 @@ internal static class AgentTaskParser
 
     private static AcceptanceVerdict LeafAccept(JsonElement root)
     {
-        RejectUnknown(root, "leaf response", "result", "verdict", "evidence");
-        return new(AcceptanceVerdictKind.Accept, RequiredString(root, "evidence", "leaf response"), null, null, null);
+        RejectUnknown(root, "leaf response", "result", "verdict");
+        return new(AcceptanceVerdictKind.Accept, null, null, null);
     }
 
     private static AcceptanceVerdict LeafRejectAndHalt(JsonElement root)
     {
         RejectUnknown(root, "leaf response", "result", "verdict", "feedback");
-        return new(AcceptanceVerdictKind.RejectAndHalt, null, RequiredString(root, "feedback", "leaf response"), null, null);
+        return new(AcceptanceVerdictKind.RejectAndHalt, RequiredString(root, "feedback", "leaf response"), null, null);
     }
 
     private static AcceptanceVerdict LeafRejectAndRetry(JsonElement root)
@@ -125,7 +125,6 @@ internal static class AgentTaskParser
         RejectUnknown(root, "leaf response", "result", "verdict", "feedback", "payload", "replacement_result");
         return new(
             AcceptanceVerdictKind.RejectAndRetry,
-            null,
             RequiredString(root, "feedback", "leaf response"),
             OptionalString(root, "payload", "leaf response"),
             OptionalString(root, "replacement_result", "leaf response"));

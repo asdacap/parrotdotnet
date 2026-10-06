@@ -139,7 +139,7 @@ internal sealed class AgentTaskScopeTests
         try
         {
             var dependentArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var sourceReply = """{"result":"nested-source-marker","verdict":"accept","evidence":"checked"}""";
+            var sourceReply = """{"result":"nested-source-marker","verdict":"accept"}""";
             var provider = new AgentTaskReplyProvider(async (request, token) =>
             {
                 if (!AgentTaskReplyProvider.IsTaskAgent(request))
@@ -161,7 +161,7 @@ internal sealed class AgentTaskScopeTests
                     return sourceReply;
                 }
 
-                return """{"result":"nested done","verdict":"accept","evidence":"checked"}""";
+                return """{"result":"nested done","verdict":"accept"}""";
             });
             var paths = new StatePaths(Path.Combine(directory, "state"), Path.Combine(directory, "config"), Path.Combine(directory, "data"));
             using var diagnostics = new DiagnosticLogs(paths, FileDiagnosticLog.CreateInstanceId(), TextWriter.Null, TimeProvider.System);

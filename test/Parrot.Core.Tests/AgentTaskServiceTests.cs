@@ -860,7 +860,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
         _ = await Assert.That(AgentTaskReplyProvider.Prompt(next)).Contains("accepted while active");
     }
 
-    private static string Accept(string result) => $$"""{"result":"{{result}}","verdict":"accept","evidence":"checked"}""";
+    private static string Accept(string result) => $$"""{"result":"{{result}}","verdict":"accept"}""";
 
     private static string Halt(string feedback) => $$"""{"result":"a 1","verdict":"reject_and_halt","feedback":"{{feedback}}"}""";
 

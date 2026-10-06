@@ -126,7 +126,7 @@ internal sealed class AgentTaskTests
     }
 
     [Test]
-    [Arguments("{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}", "work result", "Accept", null)]
+    [Arguments("{\"result\":\"work result\",\"verdict\":\"accept\"}", "work result", "Accept", null)]
     [Arguments("{\"result\":\"work result\",\"verdict\":\"reject_and_halt\",\"feedback\":\"no\"}", "work result", "RejectAndHalt", null)]
     [Arguments("{\"result\":\"work result\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"again\",\"replacement_result\":\"new context\"}", "work result", "RejectAndRetry", "new context")]
     [Arguments("{\"result\":\"work result\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\"}", "work result", "RejectAndRetry", null)]
@@ -141,16 +141,16 @@ internal sealed class AgentTaskTests
     }
 
     [Test]
-    [Arguments("{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
-    [Arguments("Here is my response:\n{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
-    [Arguments("Add `foo() {` to the file.\n{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
-    [Arguments("Match with regex [^\"]+ then output:\n{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
-    [Arguments("```c\nprintf(\"{\");\n```\n{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
-    [Arguments("Example: {\"result\":\"oops\n{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
-    [Arguments("Example envelope: {\"result\":\"example\",\"verdict\":\"reject_and_halt\",\"feedback\":\"ignore me\"}\nHere is the answer: {\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
-    [Arguments("Sure.\n```json\n{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}\n```\nDone.")]
-    [Arguments("Sure.\n```\n{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}\n```")]
-    [Arguments("\uFEFF  {\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}  ")]
+    [Arguments("{\"result\":\"work result\",\"verdict\":\"accept\"}")]
+    [Arguments("Here is my response:\n{\"result\":\"work result\",\"verdict\":\"accept\"}")]
+    [Arguments("Add `foo() {` to the file.\n{\"result\":\"work result\",\"verdict\":\"accept\"}")]
+    [Arguments("Match with regex [^\"]+ then output:\n{\"result\":\"work result\",\"verdict\":\"accept\"}")]
+    [Arguments("```c\nprintf(\"{\");\n```\n{\"result\":\"work result\",\"verdict\":\"accept\"}")]
+    [Arguments("Example: {\"result\":\"oops\n{\"result\":\"work result\",\"verdict\":\"accept\"}")]
+    [Arguments("Example envelope: {\"result\":\"example\",\"verdict\":\"reject_and_halt\",\"feedback\":\"ignore me\"}\nHere is the answer: {\"result\":\"work result\",\"verdict\":\"accept\"}")]
+    [Arguments("Sure.\n```json\n{\"result\":\"work result\",\"verdict\":\"accept\"}\n```\nDone.")]
+    [Arguments("Sure.\n```\n{\"result\":\"work result\",\"verdict\":\"accept\"}\n```")]
+    [Arguments("\uFEFF  {\"result\":\"work result\",\"verdict\":\"accept\"}  ")]
     public async Task Leaf_responses_tolerate_surrounding_prose_and_fences(string json)
     {
         var response = AgentTaskParser.ParseLeafResponse(json);
@@ -163,7 +163,7 @@ internal sealed class AgentTaskTests
     public async Task Leaf_responses_keep_braces_and_brackets_inside_string_values()
     {
         var response = AgentTaskParser.ParseLeafResponse(
-            "Here it is:\n{\"result\":\"contains {braces} and [brackets] in the text\",\"verdict\":\"accept\",\"evidence\":\"done\"}");
+            "Here it is:\n{\"result\":\"contains {braces} and [brackets] in the text\",\"verdict\":\"accept\"}");
 
         _ = await Assert.That(response.Result).IsEqualTo("contains {braces} and [brackets] in the text");
         _ = await Assert.That(response.Verdict.Kind).IsEqualTo(AcceptanceVerdictKind.Accept);
@@ -172,8 +172,8 @@ internal sealed class AgentTaskTests
     [Test]
     [Arguments("no json here at all")]
     [Arguments("I could not complete the task.")]
-    [Arguments("Here is a wrapped envelope: {\"result\":\"x\",\"verdict\":\"accept\",\"evidence\":\"done\",\"unknown\":true}")]
-    [Arguments("{\"result\":\"work result\",\"verdict\":\"accept\",\"evidence\":\"done\"}\nLet me know if you need anything else.")]
+    [Arguments("Here is a wrapped envelope: {\"result\":\"x\",\"verdict\":\"accept\",\"unknown\":true}")]
+    [Arguments("{\"result\":\"work result\",\"verdict\":\"accept\"}\nLet me know if you need anything else.")]
     public async Task Leaf_responses_still_reject_prose_without_an_envelope_trailing_prose_and_unknown_fields(string json) =>
         _ = await Assert.That(() => AgentTaskParser.ParseLeafResponse(json)).Throws<ArgumentException>();
 
@@ -187,10 +187,11 @@ internal sealed class AgentTaskTests
     }
 
     [Test]
-    [Arguments("{\"verdict\":\"accept\",\"evidence\":\"done\"}")]
-    [Arguments("{\"context\":\"   \",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
+    [Arguments("{\"verdict\":\"accept\"}")]
+    [Arguments("{\"context\":\"   \",\"verdict\":\"accept\"}")]
     [Arguments("{\"result\":\"x\",\"verdict\":\"accept\",\"evidence\":\"   \"}")]
-    [Arguments("{\"result\":\"x\",\"verdict\":\"accept\",\"evidence\":\"done\",\"feedback\":\"no\"}")]
+    [Arguments("{\"result\":\"x\",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
+    [Arguments("{\"result\":\"x\",\"verdict\":\"accept\",\"feedback\":\"no\"}")]
     [Arguments("{\"result\":\"x\",\"verdict\":\"reject_and_halt\",\"feedback\":\"   \"}")]
     [Arguments("{\"result\":\"x\",\"verdict\":\"reject_and_halt\",\"feedback\":\"no\",\"payload\":\"forbidden\"}")]
     [Arguments("{\"result\":\"x\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":[]}")]
