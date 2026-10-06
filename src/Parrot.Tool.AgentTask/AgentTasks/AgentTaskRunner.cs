@@ -207,8 +207,6 @@ internal sealed class AgentTaskRunner(AgentTaskConfig configuration)
             ("task_name", task.Name),
             ("description", task.Description),
             ("acceptance_criteria", task.AcceptanceCriteria),
-            ("ancestors", string.Empty),
-            ("contexts", string.Empty),
             ("dependencies", dependencyText.ToString()));
     }
 

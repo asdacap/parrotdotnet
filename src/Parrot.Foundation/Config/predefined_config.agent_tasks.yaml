@@ -35,9 +35,9 @@ prompt_templates:
     template: |-
       Task: {task_name}
       Description: {description}
-      Acceptance criteria: {acceptance_criteria}{ancestors}{contexts}{dependencies}
-    allowed_arguments: [task_name, description, acceptance_criteria, ancestors, contexts, dependencies]
-    required_arguments: [task_name, description, acceptance_criteria, ancestors, contexts, dependencies]
+      Acceptance criteria: {acceptance_criteria}{dependencies}
+    allowed_arguments: [task_name, description, acceptance_criteria, dependencies]
+    required_arguments: [task_name, description, acceptance_criteria, dependencies]
   agent-task.result:
     template: |-
       Prior leaf result:
