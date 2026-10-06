@@ -14,8 +14,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Config/predefined_config.yaml"
-                      LogicalName="Config/predefined_config.yaml" />
+    <EmbeddedResource Include="Config/predefined_config.system_prompts.yaml"
+                      LogicalName="Config/predefined_config.system_prompts.yaml" />
+    <EmbeddedResource Include="Config/predefined_config.agent_tasks.yaml"
+                      LogicalName="Config/predefined_config.agent_tasks.yaml" />
+    <EmbeddedResource Include="Config/predefined_config.profiles.yaml"
+                      LogicalName="Config/predefined_config.profiles.yaml" />
+    <EmbeddedResource Include="Config/predefined_config.runtime.yaml"
+                      LogicalName="Config/predefined_config.runtime.yaml" />
   </ItemGroup>
 
   <ItemGroup>

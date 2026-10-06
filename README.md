@@ -319,8 +319,9 @@ The following fragment groups are likewise consolidated. Existing overrides must
 
 These consolidations preserve the default messages, ordering, and availability. Retired keys are no longer rendered.
 
-Parrot writes an agent-readable `predefined_config.yaml` alongside the
-user-owned `config.yaml`. The user file is recursively layered over the
+Parrot writes one agent-readable `predefined_config.yaml` alongside the
+user-owned `config.yaml`. The embedded defaults are split across category source
+files and combined at runtime. The user file is recursively layered over the
 predefined defaults and is never rewritten except by an interactive setting.
 
 `live_buffer_rows` must be a positive integer. Its predefined default is `20`; it
@@ -1430,15 +1431,35 @@ again converges them.
 ## Configuration files
 
 Parrot keeps its configuration under `$XDG_CONFIG_HOME/parrotdotnet` (or
-`~/.config/parrotdotnet` when `XDG_CONFIG_HOME` is unset). The shipped
-`predefined_config.yaml` is copied there at startup and replaced whenever the
-running binary changes. It is the complete, agent-readable reference for the
-active defaults; do not edit it. It owns built-in serializable provider
-defaults, including offline `model_defaults` catalogues of seed model names
-and descriptions. Endpoint metadata takes priority, while `models` and
-`model_defaults` fill fields omitted by the endpoint. A successful endpoint
-refresh removes seeded entries that are absent from the response. Provider
-`models` remain selectable even when the endpoint omits them.
+`~/.config/parrotdotnet` when `XDG_CONFIG_HOME` is unset). At startup, Parrot
+combines four embedded source files and copies one generated
+`predefined_config.yaml` there. It replaces that generated reference whenever
+the running binary changes. The reference is the complete, agent-readable view
+of active defaults; do not edit it. YAML serialization may change its comments
+and formatting from the source files, but not its values.
+
+The source files under `src/Parrot.Foundation/Config/` are:
+
+- `predefined_config.agent_tasks.yaml` contains the `agent_tasks` settings and
+  `prompt_templates` entries whose IDs begin with `agent-task.`.
+- `predefined_config.system_prompts.yaml` contains `system_prompts` and all
+  other `prompt_templates` entries.
+- `predefined_config.profiles.yaml` contains `default_profile` and `profiles`.
+- `predefined_config.runtime.yaml` contains every remaining configuration
+  entry and its examples.
+
+Each file contributes a YAML mapping. The runtime combines these mappings to
+make the generated reference. The two prompt files share the
+`prompt_templates` mapping, so their template IDs must be distinct. Duplicate
+configuration definitions are rejected rather than chosen by file order. These
+source files are for maintainers; edit user settings in `config.yaml` instead.
+
+The generated reference owns built-in serializable provider defaults, including
+offline `model_defaults` catalogues of seed model names and descriptions.
+Endpoint metadata takes priority, while `models` and `model_defaults` fill
+fields omitted by the endpoint. A successful endpoint refresh removes seeded
+entries that are absent from the response. Provider `models` remain selectable
+even when the endpoint omits them.
 
 Implementation-specific provider adapters and model-list decoders remain in
 code, as does the ChatGPT OAuth transport; the YAML contains only their
