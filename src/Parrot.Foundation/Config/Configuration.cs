@@ -381,12 +381,30 @@ internal sealed partial class Configuration(string path)
         }
     }
 
-    private static string ReadPredefined()
+    private static string ReadPredefined() => PredefinedConfigurationComposer.Compose(ReadPredefinedSources());
+
+    private static IEnumerable<(string Name, string? Content)> ReadPredefinedSources()
     {
-        using var stream = typeof(Configuration).Assembly.GetManifestResourceStream("Config/predefined_config.yaml")
-            ?? throw new InvalidOperationException("the predefined configuration was not embedded in this build");
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-        return reader.ReadToEnd();
+        string[] resources =
+        [
+            "Config/predefined_config.system_prompts.yaml",
+            "Config/predefined_config.agent_tasks.yaml",
+            "Config/predefined_config.profiles.yaml",
+            "Config/predefined_config.runtime.yaml",
+        ];
+        foreach (var name in resources)
+        {
+            using var stream = typeof(Configuration).Assembly.GetManifestResourceStream(name);
+            if (stream is null)
+            {
+                yield return (name, null);
+            }
+            else
+            {
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+                yield return (name, reader.ReadToEnd());
+            }
+        }
     }
 
     private static void CopyPredefined(string destination)
@@ -394,6 +412,7 @@ internal sealed partial class Configuration(string path)
         var directory = Path.GetDirectoryName(destination);
 
         ArgumentException.ThrowIfNullOrEmpty(destination);
+        var predefined = Predefined.Value;
 
         try
         {
@@ -403,7 +422,7 @@ internal sealed partial class Configuration(string path)
             }
 
             var temporary = Path.Combine(directory ?? string.Empty, Path.GetRandomFileName());
-            File.WriteAllText(temporary, Predefined.Value);
+            File.WriteAllText(temporary, predefined);
             File.Move(temporary, destination, overwrite: true);
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)

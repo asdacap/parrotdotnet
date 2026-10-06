@@ -38,9 +38,8 @@ duplicated code, so dont make unit test like that. This is not the same as makin
 config value.
 - Every interaction with the agent, as in the prompt MUST be templated and made configurable via predefined_config for
 easy review and modification.
-- DO NOT modify predefined_config.yaml, verbatim, without user authorization. You may add new keys, but do not modify existing
-keys. That is a critical file that should be human modified only. If you do have to modify it, do not change the wording
-of existing prompt, do not rephrase. 
+- DO NOT modify generated predefined_config.yaml or existing values in predefined_config.*.yaml without user authorization. You may add new keys, but do not modify existing
+keys. These are critical files that should be human modified only. If you do have to modify an existing prompt, do not change its wording or rephrase it.
 
 ## Async lifecycle
 

@@ -5,6 +5,7 @@ using Parrot.Config;
 using Parrot.Context;
 using Parrot.Security;
 using Scriban.Runtime;
+using YamlDotNet.RepresentationModel;
 
 namespace Parrot.Core.Tests;
 
@@ -1765,14 +1766,62 @@ internal sealed class ConfigurationTests : IDisposable
     {
         var path = Write("model: openai/gpt-5\n");
         var predefined = Path.Combine(_directory, "predefined_config.yaml");
+        var originalUserBytes = await File.ReadAllBytesAsync(path, cancellationToken);
         _ = Directory.CreateDirectory(_directory);
         await File.WriteAllTextAsync(predefined, "model: stale/model\n", cancellationToken);
 
         _ = Load(path);
 
         _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo("model: openai/gpt-5\n");
-        _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken))
-            .Contains("Predefined configuration reference.");
+        var userBytes = await File.ReadAllBytesAsync(path, cancellationToken);
+        _ = await Assert.That(userBytes.SequenceEqual(originalUserBytes)).IsTrue();
+        var reference = await File.ReadAllTextAsync(predefined, cancellationToken);
+        _ = await Assert.That(reference).DoesNotContain("stale/model");
+        var stream = new YamlStream();
+        using var reader = new StringReader(reference);
+        stream.Load(reader);
+        _ = await Assert.That(stream.Documents.Count).IsEqualTo(1);
+        var root = (YamlMappingNode)stream.Documents[0].RootNode;
+        _ = await Assert.That(root.Children.ContainsKey(new YamlScalarNode("system_prompts"))).IsTrue();
+        _ = await Assert.That(root.Children.ContainsKey(new YamlScalarNode("agent_tasks"))).IsTrue();
+        _ = await Assert.That(root.Children.ContainsKey(new YamlScalarNode("profiles"))).IsTrue();
+        _ = await Assert.That(root.Children.ContainsKey(new YamlScalarNode("tools"))).IsTrue();
+    }
+
+    [Test]
+    public async Task Category_overrides_preserve_inherited_templates_profiles_and_runtime_settings()
+    {
+        var baseline = Load(Path.Combine(_directory, "absent.yaml"));
+        _ = await Assert.That(File.Exists(Path.Combine(_directory, "absent.yaml"))).IsFalse();
+        var configuration = Load(Write("""
+            prompt_templates:
+              agent-task.stop-canceled:
+                template: Task canceled by owner.
+              agent-session.child-completion:
+                template: '{agent_name}: {result}'
+            profiles:
+              build:
+                usage: Custom foreground usage
+            live_buffer_rows: 37
+            agent_tasks:
+              maximum_attempts: 7
+            """));
+
+        _ = await Assert.That(configuration.PromptTemplates.Render("agent-task.stop-canceled", []))
+            .IsEqualTo("Task canceled by owner.");
+        _ = await Assert.That(configuration.PromptTemplates.Render(
+            "agent-session.child-completion",
+            [new("agent_name", "worker"), new("result", "literal {value}")]))
+            .IsEqualTo("worker: literal {value}");
+        _ = await Assert.That(configuration.PromptTemplates.Render("agent-task.stop-succeeded", []))
+            .IsEqualTo(baseline.PromptTemplates.Render("agent-task.stop-succeeded", []));
+        _ = await Assert.That(configuration.SystemPrompts.SequenceEqual(baseline.SystemPrompts)).IsTrue();
+        _ = await Assert.That(configuration.Profiles["build"].ReadOnly).IsEqualTo(baseline.Profiles["build"].ReadOnly);
+        _ = await Assert.That(configuration.Profiles["build"].Usage).IsEqualTo("Custom foreground usage");
+        _ = await Assert.That(configuration.LiveBufferRows).IsEqualTo(37);
+        _ = await Assert.That(configuration.AgentTasks.MaximumAttempts).IsEqualTo(7);
+        _ = await Assert.That(configuration.ToolDefinitions.Definitions.Count)
+            .IsEqualTo(baseline.ToolDefinitions.Definitions.Count);
     }
 
     [Test]
