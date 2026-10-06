@@ -5,6 +5,39 @@ send it a one-shot prompt, or host it as a service for remote clients. It
 supports configurable model providers, persistent sessions, foreground modes,
 and delegated child agents.
 
+## Agent scope and context: design principles
+
+Agents have limited context and cognitive capacity. Each agent should have a
+bounded concern and a limited view of collaborators and resources, rather than
+being presented with the whole system. These principles guide delegation and
+tool-interface design; they are not a claim that every tool already enforces
+them.
+
+- **Keep resource discovery local.** An agent should only be presented with
+  resources and collaborators that it created or that its direct parent created.
+  Tool interfaces should expose this local surrounding, not a global inventory.
+  This applies to queues, agent messaging (`agent_send`), and status tools, for
+  example. Accessing another resource when its address is explicitly supplied
+  does not violate this principle, provided the applicable permissions allow it.
+  This is a context-management boundary, not a replacement for access control.
+- **Conserve the parent's attention.** A parent may coordinate many children but
+  still has limited cognitive capacity. Children should limit upward
+  communication to useful results, blockers, and decisions requiring the parent,
+  rather than streaming routine progress or raw working context. Prefer concise
+  summaries with references to details when needed.
+- **Delegate narrower scope.** A child should have a narrower scope than its
+  parent and receive a more specific task or requirement. Scope includes not only
+  task size, but also level of abstraction, decision responsibility, and
+  ambiguity. Greater ambiguity means broader scope; greater specificity means
+  narrower scope. Ambiguity and task size are independent dimensions, and both
+  count: making a task smaller does not by itself make it a suitably scoped
+  delegation if it leaves the parent's broad, unresolved decisions to the child.
+- **Respect the lower scope bound.** A task also tends to have a lower scope
+  bound: work can be too detailed for the agent's assigned role. An architect
+  should delegate coding to a subagent or automate it through a script rather
+  than taking on implementation directly. Delegation should keep the agent's
+  concern bounded from below as well as above.
+
 ## Why Native AOT
 
 Parrot ships as a self-contained executable that starts quickly and does not
