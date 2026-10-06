@@ -23,8 +23,15 @@ them.
 - **Conserve the parent's attention.** A parent may coordinate many children but
   still has limited cognitive capacity. Children should limit upward
   communication to useful results, blockers, and decisions requiring the parent,
-  rather than streaming routine progress or raw working context. Prefer concise
-  summaries with references to details when needed.
+  rather than streaming routine progress or raw working context. Avoid
+  unnecessary messages to the parent; each one consumes attention. A final
+  report should be self-contained and detailed enough that the parent does not
+  need to ask the child for clarification, which would add another communication
+  round. Include relevant outcomes, decisions and their rationale, validation,
+  limitations, and outstanding issues. A long final answer is appropriate when
+  needed; preferably compile a detailed report into a Markdown file and return
+  its address with a concise summary. Conserve attention by making the handoff
+  complete, not by omitting information the parent needs.
 - **Delegate narrower scope.** A child should have a narrower scope than its
   parent and receive a more specific task or requirement. Scope includes not only
   task size, but also level of abstraction, decision responsibility, and

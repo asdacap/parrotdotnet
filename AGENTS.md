@@ -56,7 +56,14 @@ when delegating work and when designing agent-facing tools.
 - Limit communication to the parent. A parent may have many children, but has
   limited attention. Report concise results, blockers, and decisions that need
   the parent; avoid routine progress chatter and dumping raw working context.
-  Reference detailed artifacts when needed instead of sending all their contents.
+  Do not send unnecessary messages to the parent; prefer a complete final report.
+- Make the final handoff detailed enough to avoid a clarification round with the
+  child. Include relevant outcomes, decisions and rationale, validation,
+  limitations, and outstanding issues rather than making the parent ask for
+  missing details. A long final answer is acceptable; preferably compile the
+  detailed report into a Markdown file and return its address with a concise
+  summary. Limiting communication means reducing interruptions and follow-up
+  exchanges, not withholding information the parent needs.
 - Give children narrower scopes and more specific requirements or tasks than
   their parent. Scope includes task size, abstraction level, decision
   responsibility, and ambiguity. Higher ambiguity is higher scope; greater
