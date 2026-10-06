@@ -48,10 +48,10 @@ model_aliases:
 # define all four aliases, and each target must select that provider.
 provider_model_alias_defaults:
   chatgpt:
-    low_llm: chatgpt/gpt-5.6-luna/medium
-    medium_llm: chatgpt/gpt-5.6-luna/xhigh
-    high_llm: chatgpt/gpt-6-astra/low
-    xhigh_llm: chatgpt/gpt-6-astra/high
+    low_llm: chatgpt/gpt-6-luna/medium
+    medium_llm: chatgpt/gpt-6.1-sol/medium
+    high_llm: chatgpt/gpt-6.1-sol/high
+    xhigh_llm: chatgpt/gpt-6-astra/medium
 
   opencode-go:
     low_llm: opencode-go/deepseek-v4-flash/high
