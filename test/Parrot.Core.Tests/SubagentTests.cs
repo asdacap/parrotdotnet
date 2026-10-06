@@ -1072,6 +1072,12 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await Assert.That(rootResolver.ResolveStatusTarget("first/duplicate")).IsSameReferenceAs(nestedDuplicate);
         _ = await Assert.That(rootResolver.ResolveRecipient($"/{root.Name}/first/duplicate/branch/target")).IsSameReferenceAs(target);
         _ = await Assert.That(nestedResolver.ResolveRecipient("parent/parent/duplicate/target")).IsSameReferenceAs(unrelatedTarget);
+        _ = await Assert.That(nestedResolver.ResolveRecipient("../../duplicate/target")).IsSameReferenceAs(unrelatedTarget);
+        _ = await Assert.That(nestedResolver.ResolveStatusTarget("../parent/duplicate")).IsSameReferenceAs(duplicate);
+        _ = await Assert.That(nestedResolver.ResolveRecipient("..")).IsSameReferenceAs(first);
+        _ = await Assert.That(nestedResolver.ResolveStatusTarget("..")).IsSameReferenceAs(first);
+        _ = await Assert.That(rootResolver.ResolveStatusTarget("first/../duplicate")).IsSameReferenceAs(duplicate);
+        _ = await Assert.That(rootResolver.ResolveRecipient($"/{root.Name}/first/../duplicate")).IsSameReferenceAs(duplicate);
         _ = await Assert.That(nestedResolver.ResolveStatusTarget("parent/parent/duplicate")).IsSameReferenceAs(duplicate);
         _ = await Assert.That(nestedResolver.ResolveRecipient("parent/duplicate")).IsSameReferenceAs(nestedDuplicate);
         _ = await Assert.That(nestedResolver.ResolveStatusTarget("parent")).IsSameReferenceAs(parentCollisionScope.Session);
@@ -1083,12 +1089,18 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await Assert.That(nestedResolver.IsAncestor(duplicate)).IsFalse();
         _ = await Assert.That(() => rootResolver.ResolveRecipient($"/{root.Name}/parent")).Throws<AgentRegistryException>();
         _ = await Assert.That(() => nestedResolver.ResolveRecipient("parent/parent/parent/first")).Throws<AgentRegistryException>();
-        foreach (var path in new[] { "first//duplicate", "first/", "first/./duplicate", "first/../duplicate", $"//{root.Name}/first" })
+        _ = await Assert.That(() => rootResolver.ResolveRecipient("..")).Throws<AgentRegistryException>();
+        _ = await Assert.That(() => rootResolver.ResolveStatusTarget("..")).Throws<AgentRegistryException>();
+        _ = await Assert.That(() => nestedResolver.ResolveRecipient("../../../first")).Throws<AgentRegistryException>();
+        foreach (var path in new[] { "first//duplicate", "first/", "first/./duplicate", $"//{root.Name}/first" })
         {
             _ = await Assert.That(() => rootResolver.ResolveStatusTarget(path)).Throws<AgentRegistryException>();
         }
 
         var resource = rootResolver.ResolveResource($"/{root.Name}/first/shell1");
+        _ = await Assert.That(resource.Scope).IsSameReferenceAs(firstScope);
+        _ = await Assert.That(resource.Name).IsEqualTo("shell1");
+        resource = rootResolver.ResolveResource("first/duplicate/../shell1");
         _ = await Assert.That(resource.Scope).IsSameReferenceAs(firstScope);
         _ = await Assert.That(resource.Name).IsEqualTo("shell1");
         resource = rootResolver.ResolveResource("first/duplicate/queue1");
@@ -1104,6 +1116,8 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             SecurityProfile.Compose(readOnly: true, [], [], [])));
         var deniedResource = await Assert.That(() => nestedResolver.ResolveResource($"/{root.Name}/shell1")).Throws<AgentRegistryException>();
         _ = await Assert.That(deniedResource?.Message).IsEqualTo("cannot access resources of a more permissive agent");
+        var deniedRelativeResource = await Assert.That(() => nestedResolver.ResolveResource("../../shell1")).Throws<AgentRegistryException>();
+        _ = await Assert.That(deniedRelativeResource?.Message).IsEqualTo("cannot access resources of a more permissive agent");
         duplicate.UpdateSelection(duplicate.CurrentSelection().RequestedModel, new NoopMode(
             new AgentProfile("unrestricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
             SecurityProfile.Compose(readOnly: false, [], [], [])));

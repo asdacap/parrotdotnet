@@ -97,7 +97,7 @@ internal sealed class AgentSessionHierarchy
     public string ResolveAgentReference(string ownerAgentSessionId, string reference)
     {
         var targetSessionId = reference;
-        if (string.Equals(reference, "parent", StringComparison.Ordinal)
+        if ((reference is ".." || string.Equals(reference, "parent", StringComparison.Ordinal))
             && _sessions.TryGetValue(ownerAgentSessionId, out var owner)
             && owner.ParentSessionId.Length > 0)
         {

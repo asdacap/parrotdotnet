@@ -12,7 +12,7 @@ internal sealed class AgentResolver(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         RequireRegisteredOwner();
-        return name.Contains('/', StringComparison.Ordinal)
+        return name is ".." || name.Contains('/', StringComparison.Ordinal)
             ? ResolvePath(name)
             : ownerScope.ChildRegistry.ResolveNamedChildScope(name);
     }
@@ -25,7 +25,7 @@ internal sealed class AgentResolver(
         ArgumentException.ThrowIfNullOrWhiteSpace(nameOrPath);
         RequireRegisteredOwner();
 
-        if (nameOrPath.Contains('/', StringComparison.Ordinal))
+        if (nameOrPath is ".." || nameOrPath.Contains('/', StringComparison.Ordinal))
         {
             return ResolvePath(nameOrPath).Session;
         }
@@ -110,14 +110,14 @@ internal sealed class AgentResolver(
         for (var index = start; index < segments.Length; index++)
         {
             var segment = segments[index];
-            if (string.IsNullOrWhiteSpace(segment) || segment is "." or "..")
+            if (string.IsNullOrWhiteSpace(segment) || segment is ".")
             {
                 throw new AgentRegistryException($"child agent not found: {path}");
             }
 
             try
             {
-                scope = string.Equals(segment, ParentRecipient, StringComparison.Ordinal)
+                scope = segment is ".." || string.Equals(segment, ParentRecipient, StringComparison.Ordinal)
                     ? scope.ParentScope.Parent ?? throw new AgentRegistryException($"child agent not found: {path}")
                     : scope.ChildRegistry.ResolveNamedChildScope(segment);
             }

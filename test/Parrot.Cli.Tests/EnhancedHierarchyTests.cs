@@ -2033,6 +2033,7 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(hierarchy.GetLabel("child")).IsEqualTo("friendly");
         _ = await Assert.That(hierarchy.ResolveAgentReference("root", "child")).IsEqualTo("friendly");
         _ = await Assert.That(hierarchy.ResolveAgentReference("child", "parent")).IsEqualTo("main");
+        _ = await Assert.That(hierarchy.ResolveAgentReference("child", "..")).IsEqualTo("main");
         _ = await Assert.That(hierarchy.ResolveAgentReference("child", "root")).IsEqualTo("main");
         _ = await Assert.That(hierarchy.ResolveAgentReference("child", "unknown")).IsEqualTo("unknown");
         _ = await Assert.That(order["child"]).IsLessThan(order["root"]);
