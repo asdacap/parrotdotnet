@@ -33,7 +33,8 @@ internal interface IEventRepository
 
     bool HasToolSynthetic(long assistantSequence, string agentSessionId);
 
-    bool AppendToolSynthetic(
+    /// <summary>Projects a batch's image message, returning it or null when one was already projected.</summary>
+    ConversationItem? AppendToolSynthetic(
         Event published,
         long assistantSequence,
         IReadOnlyList<ConversationPart> imageParts);
@@ -95,6 +96,9 @@ internal interface IEventRepository
 
     IReadOnlyList<AgentHistoryEntry> AgentHistory(string agentSessionId);
 
+    /// <summary>Lists the history entries recorded after both cursors, in projection order.</summary>
+    IReadOnlyList<AgentHistoryEntry> AgentHistoryAfter(string agentSessionId, long historySequence, long requestEventSequence);
+
     bool RecordCheckpoint(string agentSessionId, string title, long assistantSequence, string toolCallId);
 
     HistoryCheckpoint? LatestUsableCheckpoint(string agentSessionId, string title, long beforeAssistantSequence);
@@ -117,12 +121,16 @@ internal interface IEventRepository
 
     bool AppendToolTerminal(Event published, ToolExecutionTerminal terminal);
 
-    bool AppendToolSettlement(
+    /// <summary>Settles a tool call, returning the tool result it projected or null when one was already projected.</summary>
+    ConversationItem? AppendToolSettlement(
         Event published,
         long assistantSequence,
         ToolExecutionTerminal terminal);
 
     IReadOnlyList<ToolExecutionTerminal> ToolTerminals(string agentSessionId);
+
+    /// <summary>Lists the terminals of the given tool calls that have settled; an unsettled call has none.</summary>
+    IReadOnlyList<ToolExecutionTerminal> ToolTerminalsOfCalls(string agentSessionId, IReadOnlyCollection<string> toolCallIds);
 
     bool SaveCompaction(string agentSessionId, CompactionSnapshot snapshot);
 

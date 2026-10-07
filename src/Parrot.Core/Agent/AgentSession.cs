@@ -98,6 +98,7 @@ internal sealed partial class AgentSession(
 
     private AgentSelection _selection = new(model, mode, security.Policy());
     private ResolvedModelSelection? _resolvedSelection;
+    private long _settledConversationSequence;
     private bool _disposing;
     private bool _started;
     private Task<AgentExecution> _execution = Task.FromResult(AgentExecution.Succeeded(string.Empty));

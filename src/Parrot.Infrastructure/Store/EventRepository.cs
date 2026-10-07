@@ -160,7 +160,7 @@ internal sealed partial class EventRepository : IEventRepository
             }
 
             _ = Record(transaction, published);
-            InsertToolResult(transaction, published.AgentSessionId, assistantSequence, terminal);
+            _ = InsertToolResult(transaction, published.AgentSessionId, assistantSequence, terminal);
             transaction.Commit();
         }
 
@@ -179,7 +179,7 @@ internal sealed partial class EventRepository : IEventRepository
         }
     }
 
-    public bool AppendToolSynthetic(
+    public ConversationItem? AppendToolSynthetic(
         Event published,
         long assistantSequence,
         IReadOnlyList<ConversationPart> imageParts)
@@ -191,6 +191,7 @@ internal sealed partial class EventRepository : IEventRepository
             throw new ArgumentException("A tool synthetic message requires image artifact parts.", nameof(imageParts));
         }
 
+        long sequence;
         lock (_database.Gate)
         {
             _historyFile?.ValidateSession(published.AgentSessionId);
@@ -198,11 +199,11 @@ internal sealed partial class EventRepository : IEventRepository
             if (HasToolSynthetic(transaction, published.AgentSessionId, assistantSequence))
             {
                 transaction.Commit();
-                return false;
+                return null;
             }
 
             _ = Record(transaction, published);
-            var sequence = Project(
+            sequence = Project(
                 transaction,
                 published.AgentSessionId,
                 ConversationOrigin.Tool,
@@ -223,7 +224,7 @@ internal sealed partial class EventRepository : IEventRepository
         }
 
         RefreshAgentHistory(published.AgentSessionId);
-        return true;
+        return new ConversationItem(sequence, ConversationOrigin.Tool, LLMRole.User, imageParts, [], string.Empty);
     }
 
     // Accepts a prompt without promoting it: it becomes durable here, and joins
@@ -612,7 +613,13 @@ internal sealed partial class EventRepository : IEventRepository
         }
     }
 
-    public IReadOnlyList<AgentHistoryEntry> AgentHistory(string agentSessionId)
+    public IReadOnlyList<AgentHistoryEntry> AgentHistory(string agentSessionId) =>
+        AgentHistoryAfter(agentSessionId, 0, 0);
+
+    public IReadOnlyList<AgentHistoryEntry> AgentHistoryAfter(
+        string agentSessionId,
+        long historySequence,
+        long requestEventSequence)
     {
         lock (_database.Gate)
         {
@@ -624,8 +631,9 @@ internal sealed partial class EventRepository : IEventRepository
                 read.Transaction = transaction;
                 read.CommandText =
                     "SELECT sequence, kind, conversation_sequence, summary, watermark FROM agent_history "
-                    + "WHERE agent_session = $session ORDER BY sequence;";
+                    + "WHERE agent_session = $session AND sequence > $after ORDER BY sequence;";
                 _ = read.Parameters.AddWithValue("$session", agentSessionId);
+                _ = read.Parameters.AddWithValue("$after", historySequence);
                 using var reader = read.ExecuteReader();
                 while (reader.Read())
                 {
@@ -648,7 +656,7 @@ internal sealed partial class EventRepository : IEventRepository
                         ReadConversationItem(transaction, row.ConversationSequence))
                     : (AgentHistoryEntry)new AgentHistoryCompactionEntry(row.Sequence, row.Summary, row.Watermark))
                 .ToArray();
-            var history = IncludeRequestHistory(transaction, agentSessionId, entries);
+            var history = IncludeRequestHistory(transaction, agentSessionId, requestEventSequence, entries);
             transaction.Commit();
             return history;
         }
@@ -962,7 +970,7 @@ internal sealed partial class EventRepository : IEventRepository
             transaction.Commit();
         }
 
-        RefreshAgentHistory(destinationAgentSessionId);
+        _historyFile?.Rebuild(this, destinationAgentSessionId);
     }
 
     public void CleanupForkedAgentHistory(string agentSessionId)
@@ -987,7 +995,7 @@ internal sealed partial class EventRepository : IEventRepository
             transaction.Commit();
         }
 
-        RefreshAgentHistory(agentSessionId);
+        _historyFile?.Rebuild(this, agentSessionId);
     }
 
     public IReadOnlyList<ConversationItem> ConversationAfter(string agentSessionId, long watermark)
@@ -1029,14 +1037,14 @@ internal sealed partial class EventRepository : IEventRepository
         }
     }
 
-    public bool AppendToolSettlement(
+    public ConversationItem? AppendToolSettlement(
         Event published,
         long assistantSequence,
         ToolExecutionTerminal terminal)
     {
         ArgumentNullException.ThrowIfNull(published);
         ArgumentNullException.ThrowIfNull(terminal);
-        var changed = false;
+        ConversationItem? result = null;
         lock (_database.Gate)
         {
             _historyFile?.ValidateSession(published.AgentSessionId);
@@ -1055,19 +1063,18 @@ internal sealed partial class EventRepository : IEventRepository
 
             if (!HasToolResult(transaction, published.AgentSessionId, assistantSequence, terminal.ToolCallId))
             {
-                InsertToolResult(transaction, published.AgentSessionId, assistantSequence, terminal);
-                changed = true;
+                result = InsertToolResult(transaction, published.AgentSessionId, assistantSequence, terminal);
             }
 
             transaction.Commit();
         }
 
-        if (changed)
+        if (result is not null)
         {
             RefreshAgentHistory(published.AgentSessionId);
         }
 
-        return changed;
+        return result;
     }
 
     public IReadOnlyList<ToolExecutionTerminal> ToolTerminals(string agentSessionId)
@@ -1092,6 +1099,26 @@ internal sealed partial class EventRepository : IEventRepository
                     ParseToolExecutionStatus((string)reader["status"]),
                     ReadToolResultParts(transaction, sequence),
                     (string)reader["message"]));
+            }
+
+            transaction.Commit();
+            return terminals;
+        }
+    }
+
+    public IReadOnlyList<ToolExecutionTerminal> ToolTerminalsOfCalls(string agentSessionId, IReadOnlyCollection<string> toolCallIds)
+    {
+        ArgumentNullException.ThrowIfNull(toolCallIds);
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            var terminals = new List<ToolExecutionTerminal>(toolCallIds.Count);
+            foreach (var toolCallId in toolCallIds)
+            {
+                if (ReadToolTerminal(transaction, agentSessionId, toolCallId) is { } terminal)
+                {
+                    terminals.Add(terminal);
+                }
             }
 
             transaction.Commit();
@@ -2873,7 +2900,11 @@ internal sealed partial class EventRepository : IEventRepository
         using var insert = _database.Connection.CreateCommand();
         insert.Transaction = transaction;
         insert.CommandText =
-            "INSERT INTO event (id, agent_session, payload, created_at) VALUES ($id, $session, $payload, $at);";
+            "INSERT INTO event (id, agent_session, payload, created_at, request_id, tool_call_id) "
+            + "VALUES ($id, $session, $payload, $at, $request, $call);";
+        var (requestId, toolCallId) = SessionDatabase.ExtractUsageKeys(published);
+        _ = insert.Parameters.AddWithValue("$request", (object?)requestId ?? DBNull.Value);
+        _ = insert.Parameters.AddWithValue("$call", (object?)toolCallId ?? DBNull.Value);
         _ = insert.Parameters.AddWithValue("$id", published.Id);
         _ = insert.Parameters.AddWithValue("$session", published.AgentSessionId);
         _ = insert.Parameters.AddWithValue("$payload", published.ToByteArray());
@@ -3022,7 +3053,7 @@ internal sealed partial class EventRepository : IEventRepository
         }
     }
 
-    private void InsertToolResult(
+    private ConversationItem InsertToolResult(
         SqliteTransaction transaction,
         string agentSessionId,
         long assistantSequence,
@@ -3054,6 +3085,7 @@ internal sealed partial class EventRepository : IEventRepository
         _ = insert.Parameters.AddWithValue("$call", terminal.ToolCallId);
         _ = insert.Parameters.AddWithValue("$item", sequence);
         _ = insert.ExecuteNonQuery();
+        return new ConversationItem(sequence, ConversationOrigin.Tool, LLMRole.Tool, resultParts, [], terminal.ToolCallId);
     }
 
     private void InsertToolTerminal(

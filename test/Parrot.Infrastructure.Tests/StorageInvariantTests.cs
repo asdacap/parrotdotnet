@@ -1,3 +1,4 @@
+using Google.Protobuf;
 using Parrot.Protocol;
 using Parrot.State;
 using Parrot.Store;
@@ -344,6 +345,51 @@ internal sealed class StorageInvariantTests : IDisposable
         // Published by rename, so a reader never sees it half-written.
         var staging = Directory.EnumerateFiles(resources.Root, "*.staging").ToList();
         _ = await Assert.That(staging).IsEmpty();
+    }
+
+    [Test]
+    public async Task Opening_a_database_without_usage_key_columns_migrates_existing_usage_facts(CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(_root, "sessions", "legacy-usage", "session.db");
+        _ = Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
+        Event[] legacy =
+        [
+            new() { Id = "request", AgentSessionId = "agent", RequestUsageRecorded = new RequestUsageRecorded { RequestId = "request", Provider = "provider", Model = "model", ToolCallIds = { "call" } } },
+            new() { Id = "tool", AgentSessionId = "agent", ToolExecutionStarted = new ToolExecutionStarted { RequestId = "request", ToolCallId = "call", ToolName = "read", Provider = "provider", Model = "model" } },
+            new() { Id = "text", AgentSessionId = "agent", TextChunk = new TextChunk { Fragment = "hello" } },
+        ];
+        await using (var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False"))
+        {
+            await connection.OpenAsync(cancellationToken);
+            await using var create = connection.CreateCommand();
+            create.CommandText =
+                "CREATE TABLE event (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, "
+                + "agent_session TEXT NOT NULL, payload BLOB NOT NULL, created_at TEXT NOT NULL);";
+            _ = await create.ExecuteNonQueryAsync(cancellationToken);
+            foreach (var published in legacy)
+            {
+                await using var insert = connection.CreateCommand();
+                insert.CommandText = "INSERT INTO event (id, agent_session, payload, created_at) VALUES ($id, 'agent', $payload, '');";
+                _ = insert.Parameters.AddWithValue("$id", published.Id);
+                _ = insert.Parameters.AddWithValue("$payload", published.ToByteArray());
+                _ = await insert.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
+        using var database = SessionDatabase.Open(path);
+        await using (var read = database.Connection.CreateCommand())
+        {
+            read.CommandText = "SELECT group_concat(id || ':' || COALESCE(request_id, '-') || ':' || COALESCE(tool_call_id, '-'), ',') FROM event ORDER BY sequence;";
+            _ = await Assert.That(await read.ExecuteScalarAsync(cancellationToken) as string).IsEqualTo("request:request:-,tool:-:call,text:-:-");
+        }
+
+        var repository = new EventRepository(database);
+        var duplicate = legacy[0].Clone();
+        duplicate.Id = "duplicate-request";
+        _ = await Assert.That(() => repository.AppendUsageFact(duplicate)).Throws<InvalidOperationException>();
+        _ = await Assert.That(repository.FindRequestUsage("agent", "call")?.RequestId).IsEqualTo("request");
+        _ = await Assert.That(repository.AgentHistory("agent").OfType<AgentHistoryRequestEntry>().Single().ToolCalls).IsEqualTo(1);
+        SessionDatabase.Open(path).Dispose();
     }
 
     [Test]

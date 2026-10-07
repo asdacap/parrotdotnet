@@ -90,6 +90,7 @@ internal sealed class StatisticsHistoryTests : IDisposable
                 OutputCost = 0.25,
                 ContextSize = 100,
                 ContextLimit = 1000,
+                ToolCallIds = { "call" },
             },
         };
         if (effort is not null)

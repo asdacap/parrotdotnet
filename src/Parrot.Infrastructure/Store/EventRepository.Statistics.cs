@@ -38,15 +38,24 @@ internal sealed partial class EventRepository
                 }
             }
 
-            foreach (var (_, previous) in ReadStatisticsEvents(transaction, published.AgentSessionId))
+            using (var duplicate = _database.Connection.CreateCommand())
             {
-                var duplicateRequest = published.PayloadCase == Event.PayloadOneofCase.RequestUsageRecorded
-                    && previous.PayloadCase == Event.PayloadOneofCase.RequestUsageRecorded
-                    && string.Equals(previous.RequestUsageRecorded.RequestId, published.RequestUsageRecorded.RequestId, StringComparison.Ordinal);
-                var duplicateTool = published.PayloadCase == Event.PayloadOneofCase.ToolExecutionStarted
-                    && previous.PayloadCase == Event.PayloadOneofCase.ToolExecutionStarted
-                    && string.Equals(previous.ToolExecutionStarted.ToolCallId, published.ToolExecutionStarted.ToolCallId, StringComparison.Ordinal);
-                if (duplicateRequest || duplicateTool)
+                duplicate.Transaction = transaction;
+                if (published.PayloadCase == Event.PayloadOneofCase.RequestUsageRecorded)
+                {
+                    duplicate.CommandText =
+                        "SELECT EXISTS (SELECT 1 FROM event WHERE agent_session = $session AND request_id = $id);";
+                    _ = duplicate.Parameters.AddWithValue("$id", published.RequestUsageRecorded.RequestId);
+                }
+                else
+                {
+                    duplicate.CommandText =
+                        "SELECT EXISTS (SELECT 1 FROM event WHERE agent_session = $session AND tool_call_id = $id);";
+                    _ = duplicate.Parameters.AddWithValue("$id", published.ToolExecutionStarted.ToolCallId);
+                }
+
+                _ = duplicate.Parameters.AddWithValue("$session", published.AgentSessionId);
+                if (Convert.ToInt64(duplicate.ExecuteScalar(), CultureInfo.InvariantCulture) != 0)
                 {
                     throw new InvalidOperationException("A request or tool execution already has a usage fact with another event identity.");
                 }
@@ -78,10 +87,22 @@ internal sealed partial class EventRepository
         lock (_database.Gate)
         {
             using var transaction = _database.Begin();
-            var request = ReadStatisticsEvents(transaction, agentSessionId)
-                .Where(static fact => fact.Published.PayloadCase == Event.PayloadOneofCase.RequestUsageRecorded)
-                .Select(static fact => fact.Published.RequestUsageRecorded)
-                .LastOrDefault(request => request.ToolCallIds.Contains(toolCallId));
+            RequestUsageRecorded? request = null;
+            using (var read = _database.Connection.CreateCommand())
+            {
+                read.Transaction = transaction;
+                read.CommandText =
+                    "SELECT payload FROM event WHERE agent_session = $session AND request_id IS NOT NULL "
+                    + "ORDER BY sequence DESC;";
+                _ = read.Parameters.AddWithValue("$session", agentSessionId);
+                using var reader = read.ExecuteReader();
+                while (request is null && reader.Read())
+                {
+                    var candidate = Event.Parser.ParseFrom((byte[])reader["payload"]).RequestUsageRecorded;
+                    request = candidate.ToolCallIds.Contains(toolCallId) ? candidate : null;
+                }
+            }
+
             transaction.Commit();
             return request;
         }
@@ -292,42 +313,32 @@ internal sealed partial class EventRepository
         return facts;
     }
 
+    // Ordered by sequence, which for a request is the history entry it was
+    // anchored after, so a request lands after the entries it already saw.
     private AgentHistoryEntry[] IncludeRequestHistory(
         SqliteTransaction transaction,
         string agentSessionId,
+        long afterRequestEventSequence,
         IReadOnlyList<AgentHistoryEntry> entries)
     {
-        var facts = ReadStatisticsEvents(transaction, agentSessionId);
-        var toolCounts = facts
-            .Where(static fact => fact.Published.PayloadCase == Event.PayloadOneofCase.ToolExecutionStarted)
-            .Select(static fact => fact.Published.ToolExecutionStarted)
-            .DistinctBy(static tool => tool.ToolCallId)
-            .GroupBy(static tool => tool.RequestId, StringComparer.Ordinal)
-            .ToDictionary(static group => group.Key, static group => group.LongCount(), StringComparer.Ordinal);
-        var anchors = new Dictionary<long, long>();
+        var requests = new List<AgentHistoryEntry>();
         using (var read = _database.Connection.CreateCommand())
         {
             read.Transaction = transaction;
-            read.CommandText = "SELECT event_sequence, history_sequence FROM request_history_anchor WHERE agent_session = $session;";
+            read.CommandText =
+                "SELECT event.sequence, event.payload, COALESCE(anchor.history_sequence, 0) AS history_sequence "
+                + "FROM event LEFT JOIN request_history_anchor AS anchor ON anchor.event_sequence = event.sequence "
+                + "WHERE event.agent_session = $session AND event.request_id IS NOT NULL "
+                + "AND event.sequence > $after ORDER BY event.sequence;";
             _ = read.Parameters.AddWithValue("$session", agentSessionId);
+            _ = read.Parameters.AddWithValue("$after", afterRequestEventSequence);
             using var reader = read.ExecuteReader();
             while (reader.Read())
             {
-                anchors.Add(
-                    Convert.ToInt64(reader["event_sequence"], CultureInfo.InvariantCulture),
-                    Convert.ToInt64(reader["history_sequence"], CultureInfo.InvariantCulture));
-            }
-        }
-
-        var requests = facts
-            .Where(static fact => fact.Published.PayloadCase == Event.PayloadOneofCase.RequestUsageRecorded)
-            .DistinctBy(static fact => fact.Published.RequestUsageRecorded.RequestId)
-            .Select(fact =>
-            {
-                var request = fact.Published.RequestUsageRecorded;
-                return new AgentHistoryRequestEntry(
-                    anchors.GetValueOrDefault(fact.Revision),
-                    fact.Revision,
+                var request = Event.Parser.ParseFrom((byte[])reader["payload"]).RequestUsageRecorded;
+                requests.Add(new AgentHistoryRequestEntry(
+                    Convert.ToInt64(reader["history_sequence"], CultureInfo.InvariantCulture),
+                    Convert.ToInt64(reader["sequence"], CultureInfo.InvariantCulture),
                     request.RequestId,
                     request.Provider,
                     request.Model,
@@ -337,8 +348,10 @@ internal sealed partial class EventRepository
                     request.OutputTokens,
                     request.InputCost,
                     request.OutputCost,
-                    toolCounts.GetValueOrDefault(request.RequestId));
-            });
+                    request.ToolCallIds.Count));
+            }
+        }
+
         return [.. entries.Concat(requests).OrderBy(static entry => entry.Sequence)];
     }
 }

@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using Parrot.Protocol;
 
 namespace Parrot.Store;
 
@@ -53,7 +54,9 @@ internal sealed class SessionDatabase : IDisposable
                     id            TEXT NOT NULL UNIQUE,
                     agent_session TEXT NOT NULL,
                     payload       BLOB NOT NULL,
-                    created_at    TEXT NOT NULL
+                    created_at    TEXT NOT NULL,
+                    request_id    TEXT,
+                    tool_call_id  TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS message (
@@ -318,7 +321,35 @@ internal sealed class SessionDatabase : IDisposable
             _ = schema.ExecuteNonQuery();
         }
 
+        MigrateEventUsageKeys(connection);
+        using (var indexes = connection.CreateCommand())
+        {
+            indexes.CommandText =
+                """
+                CREATE INDEX IF NOT EXISTS event_request
+                    ON event (agent_session, request_id) WHERE request_id IS NOT NULL;
+
+                CREATE INDEX IF NOT EXISTS event_tool_call
+                    ON event (agent_session, tool_call_id) WHERE tool_call_id IS NOT NULL;
+                """;
+            _ = indexes.ExecuteNonQuery();
+        }
+
         return new SessionDatabase(connection);
+    }
+
+    // A usage fact's identity, lifted out of the payload so it can be indexed:
+    // a request carries only its request id, a tool start only its call id,
+    // and every other event neither.
+    public static (string? RequestId, string? ToolCallId) ExtractUsageKeys(Event published)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+        return published.PayloadCase switch
+        {
+            Event.PayloadOneofCase.RequestUsageRecorded => (published.RequestUsageRecorded.RequestId, null),
+            Event.PayloadOneofCase.ToolExecutionStarted => (null, published.ToolExecutionStarted.ToolCallId),
+            _ => (null, null),
+        };
     }
 
     public string JournalMode()
@@ -334,5 +365,62 @@ internal sealed class SessionDatabase : IDisposable
     {
         Connection.Close();
         Connection.Dispose();
+    }
+
+    // A database created before the usage key columns gains them, filled from
+    // every existing payload. One transaction, so a column that exists has
+    // always been filled.
+    private static void MigrateEventUsageKeys(SqliteConnection connection)
+    {
+        using (var columns = connection.CreateCommand())
+        {
+            columns.CommandText = "SELECT EXISTS (SELECT 1 FROM pragma_table_info('event') WHERE name = 'request_id');";
+            if (Convert.ToInt64(columns.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0)
+            {
+                return;
+            }
+        }
+
+        using var transaction = connection.BeginTransaction();
+        using (var alter = connection.CreateCommand())
+        {
+            alter.Transaction = transaction;
+            alter.CommandText = "ALTER TABLE event ADD COLUMN request_id TEXT; ALTER TABLE event ADD COLUMN tool_call_id TEXT;";
+            _ = alter.ExecuteNonQuery();
+        }
+
+        var keys = new List<(long Sequence, string? RequestId, string? ToolCallId)>();
+        using (var read = connection.CreateCommand())
+        {
+            read.Transaction = transaction;
+            read.CommandText = "SELECT sequence, payload FROM event;";
+            using var reader = read.ExecuteReader();
+            while (reader.Read())
+            {
+                var (requestId, toolCallId) = ExtractUsageKeys(Event.Parser.ParseFrom((byte[])reader["payload"]));
+                if (requestId is not null || toolCallId is not null)
+                {
+                    keys.Add((Convert.ToInt64(reader["sequence"], System.Globalization.CultureInfo.InvariantCulture), requestId, toolCallId));
+                }
+            }
+        }
+
+        using (var update = connection.CreateCommand())
+        {
+            update.Transaction = transaction;
+            update.CommandText = "UPDATE event SET request_id = $request, tool_call_id = $call WHERE sequence = $sequence;";
+            var request = update.Parameters.Add("$request", SqliteType.Text);
+            var call = update.Parameters.Add("$call", SqliteType.Text);
+            var sequence = update.Parameters.Add("$sequence", SqliteType.Integer);
+            foreach (var (eventSequence, requestId, toolCallId) in keys)
+            {
+                request.Value = (object?)requestId ?? DBNull.Value;
+                call.Value = (object?)toolCallId ?? DBNull.Value;
+                sequence.Value = eventSequence;
+                _ = update.ExecuteNonQuery();
+            }
+        }
+
+        transaction.Commit();
     }
 }
