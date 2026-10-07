@@ -41,7 +41,8 @@ internal interface IProcessOwner : IAsyncDisposable, IAgentWorkOwner
         ProcessEnvironmentOverrides environment,
         IAgentSession agent,
         SecurityProfile securityProfile,
-        ShellProcessTerminalMode terminalMode);
+        ShellProcessTerminalMode terminalMode,
+        IShellProcessReport report);
 
     /// <summary>Claims a named process for exclusive interaction, throwing if unavailable.</summary>
     IManagedShellProcess Claim(string name);

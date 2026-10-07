@@ -9,10 +9,16 @@ internal interface IManagedShellProcess
 
     bool Completed { get; }
 
+    /// <summary>Gets a value indicating whether this process keeps the agent's turn from ending while it runs.</summary>
+    bool BlocksTurn { get; }
+
     bool Retired { get; }
 
     /// <summary>Reserves interaction with this process, throwing if already claimed or delivered.</summary>
     void Claim();
+
+    /// <summary>Releases the interaction claim without waiting, leaving completion to asynchronous delivery.</summary>
+    YieldedShellProcess Yield();
 
     /// <summary>Waits for completion or yields available output, releasing the interaction claim.</summary>
     Task<ShellWaitResult> Wait(TimeSpan? yieldAfter, CancellationToken cancellationToken);

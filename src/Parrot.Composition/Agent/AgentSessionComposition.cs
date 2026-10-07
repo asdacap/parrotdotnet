@@ -261,6 +261,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind<ExecCommandToolFactory>().As(Lifetime.Scoped).To<ExecCommandToolFactory>()
             .Bind<WriteStdinToolFactory>().As(Lifetime.Scoped).To<WriteStdinToolFactory>()
             .Bind<InterruptProcessToolFactory>().As(Lifetime.Scoped).To<InterruptProcessToolFactory>()
+            .Bind<MonitorToolFactory>().As(Lifetime.Scoped).To<MonitorToolFactory>()
             .Bind<QuestionToolFactory>().As(Lifetime.Scoped).To<QuestionToolFactory>()
             .Bind<AnswerToolFactory>().As(Lifetime.Scoped).To<AnswerToolFactory>()
             .Bind<ReadToolFactory>().As(Lifetime.Scoped).To<ReadToolFactory>()
@@ -349,6 +350,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<ExecCommandToolFactory>(out var execCommand);
                 ctx.Inject<WriteStdinToolFactory>(out var writeStdin);
                 ctx.Inject<InterruptProcessToolFactory>(out var interruptProcess);
+                ctx.Inject<MonitorToolFactory>(out var monitor);
                 ctx.Inject<QuestionToolFactory>(out var question);
                 ctx.Inject<AnswerToolFactory>(out var answer);
                 ctx.Inject<ReadToolFactory>(out var read);
@@ -380,6 +382,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                     execCommand,
                     writeStdin,
                     interruptProcess,
+                    monitor,
                     question,
                     answer,
                     read,

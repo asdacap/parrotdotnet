@@ -377,6 +377,40 @@ tools:
           description: Process signal number from 1 through 64
       required:
       - name
+  monitor:
+    description: |-
+      Start a background monitor whose stdout lines stream to you as notifications while you keep working. Each stdout line is an event; lines arriving within 200ms are batched into one notification; exit ends the watch and reports the exit code. Unlike exec_command, a running monitor does not keep the turn open. Notifications are not replies from the user.
+      For a single notification ("tell me when the build finishes"), use exec_command with yield_after_ms instead. Use a monitor for one notification per occurrence, such as `tail -f app.log | grep --line-buffered ERROR` or a poll loop that prints one line per new item.
+      Every pipe stage must flush per line (grep --line-buffered, awk fflush()); `| head` delivers nothing until it ends. Only stdout is the event stream, so merge stderr with 2>&1 when the command's own failures matter. In poll loops tolerate transient failures (`|| true`) and poll remote APIs at 30s or slower.
+      Silence is not success: the filter must match every terminal state (for example `Traceback|Error|FAILED|Killed`), not just the happy path. Filter to the lines you would act on; a monitor that emits too many events is stopped automatically.
+      Every monitor is stopped at timeout_ms and you get one notice; start it again to keep watching. Stop it early with interrupt_process using its name.
+    parameters:
+      type: object
+      properties:
+        command:
+          type: string
+          description: Shell command or script. Each stdout line is an event; exit ends the watch.
+        description:
+          type: string
+          description: Short description of what is being monitored, shown in every notification.
+        name:
+          type: string
+          description: Name unique among running processes; completed names can be reused and omitted names are generated.
+        env:
+          type: object
+          additionalProperties:
+            type: string
+          description: Environment variables for the command. Values override the inherited environment.
+        timeout_ms:
+          type: integer
+          minimum: 1000
+          maximum: 1800000
+          default: 300000
+          description: Stop the monitor after this many milliseconds. You are notified when it stops.
+      required:
+      - command
+      - description
+      additionalProperties: false
   question:
     description: Ask ordered questions when a decision or missing information is needed. The root agent asks the user; a child agent asks its direct parent. Use this instead of asking questions in normal chat.
     parameters:

@@ -72,7 +72,8 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             firstAgent,
             security,
-            ShellProcessTerminalMode.Pipe);
+            ShellProcessTerminalMode.Pipe,
+            new ShellProcessCompletionReport());
         var secondProcess = second.Start(
             "shared",
             "sleep 30",
@@ -81,7 +82,8 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             secondAgent,
             security,
-            ShellProcessTerminalMode.Pipe);
+            ShellProcessTerminalMode.Pipe,
+            new ShellProcessCompletionReport());
         var firstOnlyProcess = first.Start(
             "first-only",
             "sleep 30",
@@ -90,7 +92,8 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             firstAgent,
             security,
-            ShellProcessTerminalMode.Pipe);
+            ShellProcessTerminalMode.Pipe,
+            new ShellProcessCompletionReport());
         _ = await firstProcess.Wait(TimeSpan.Zero, cancellationToken);
         _ = await secondProcess.Wait(TimeSpan.Zero, cancellationToken);
         _ = await firstOnlyProcess.Wait(TimeSpan.Zero, cancellationToken);
@@ -159,7 +162,8 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             agent,
             SecurityProfile.Compose(readOnly: false, [], [], []),
-            ShellProcessTerminalMode.Pipe);
+            ShellProcessTerminalMode.Pipe,
+            new ShellProcessCompletionReport());
 
         while (!process.Completed)
         {

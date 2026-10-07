@@ -46,7 +46,8 @@ internal sealed class ShellProcessOwner(
             environment,
             agent,
             securityProfile,
-            terminalMode);
+            terminalMode,
+            new ShellProcessCompletionReport());
 
     public IManagedShellProcess StartPipe(
         string? requestedName,
@@ -63,7 +64,8 @@ internal sealed class ShellProcessOwner(
             environment,
             agent,
             securityProfile,
-            ShellProcessTerminalMode.Pipe);
+            ShellProcessTerminalMode.Pipe,
+            new ShellProcessCompletionReport());
 
     public IManagedShellProcess Start(
         string? requestedName,
@@ -73,7 +75,8 @@ internal sealed class ShellProcessOwner(
         ProcessEnvironmentOverrides environment,
         IAgentSession agent,
         SecurityProfile securityProfile,
-        ShellProcessTerminalMode terminalMode)
+        ShellProcessTerminalMode terminalMode,
+        IShellProcessReport report)
     {
         lock (_gate)
         {
@@ -134,7 +137,7 @@ internal sealed class ShellProcessOwner(
                 agent.Depth,
                 Stopwatch.GetTimestamp());
 
-            var process = new ManagedShellProcess(state, agent, execution, _inventory, diagnostics, _lifetime.Token);
+            var process = new ManagedShellProcess(state, agent, execution, _inventory, report, diagnostics, _lifetime.Token);
             _processes[name] = process;
             _ownedProcesses.Add(process);
             return process;
@@ -170,7 +173,7 @@ internal sealed class ShellProcessOwner(
         lock (_gate)
         {
             return [.. _processes.Values
-                .Where(process => !process.Retired)
+                .Where(process => !process.Retired && process.BlocksTurn)
                 .Select(process => new ActiveWorkObservation(
                     $"{identity.SessionId}/{process.Name}",
                     process.Name,
