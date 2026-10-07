@@ -15,6 +15,8 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
     private readonly CancellationToken _lifetime;
     private readonly Lock _gate = new();
     private readonly Task _delivery;
+    private readonly Task _observation;
+    private readonly IShellProcessReport _report;
     private readonly YieldedShellProcess _startVisibility;
     private TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task _retirement = Task.CompletedTask;
@@ -28,6 +30,7 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
         IAgentSession agent,
         IProcessExecution execution,
         ShellProcessInventory inventory,
+        IShellProcessReport report,
         IDiagnosticLog diagnostics,
         CancellationToken lifetime)
     {
@@ -37,8 +40,10 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
         _execution = execution;
         _inventory = inventory;
         _lifetime = lifetime;
+        _report = report;
         _startVisibility = inventory.Publish(state);
         _completion = ObserveCompletion(execution.Result);
+        _observation = report.Observe(state, execution, lifetime);
         _delivery = DeliverWhenUnclaimed();
     }
 
@@ -47,6 +52,8 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
     public string Name => State.Name;
 
     public bool Completed => _completion.IsCompleted;
+
+    public bool BlocksTurn => _report.BlocksTurn;
 
     public bool Retired
     {
@@ -76,6 +83,17 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
             _claimed = true;
             _released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         }
+    }
+
+    public YieldedShellProcess Yield()
+    {
+        var yielded = _startVisibility with
+        {
+            StdoutPath = Execution().StdoutPath,
+            StderrPath = Execution().StderrPath,
+        };
+        ReleaseClaim();
+        return yielded;
     }
 
     public Task<ShellWaitResult> Wait(TimeSpan? yieldAfter, CancellationToken cancellationToken) =>
@@ -288,6 +306,8 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
             failureText = $"error: {failure.Message}";
         }
 
+        await _observation.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+
         while (true)
         {
             Task released;
@@ -331,7 +351,7 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
                 output = completed.Result.Format();
             }
 
-            var text = $"Shell process '{Name}' completed.\n{output}";
+            var text = _report.Complete(State, output);
             var messageId = Identifier.MessageId();
 
             try

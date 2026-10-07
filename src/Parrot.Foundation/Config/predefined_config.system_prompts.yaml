@@ -357,6 +357,23 @@ prompt_templates:
     template: 'No exit reminder titled {title}. Active titles: {titles}'
     allowed_arguments: [title, titles]
     required_arguments: [title, titles]
+  monitor.started:
+    template: |-
+      Monitor {name} started. Each stdout line arrives as a notification while you keep working; a running monitor does not keep this turn open. Stop it early with interrupt_process.
+      stderr does not produce events and is written to {stderr_path}
+    allowed_arguments: [name, stderr_path]
+    required_arguments: [name, stderr_path]
+  monitor.event:
+    template: |-
+      Monitor {name} ({description}):
+      {lines}
+    allowed_arguments: [name, description, lines]
+    required_arguments: [name, description, lines]
+  monitor.ended:
+    engine: scriban
+    template: 'Monitor {{ name }} ({{ description }}) {{ if reason == "exited" }}exited with code {{ exit_code }}{{ else if reason == "timed_out" }}reached its {{ timeout_ms }}ms timeout and was stopped; start it again if you still need the watch{{ else if reason == "flooded" }}produced too many events and was stopped; start it again with a tighter filter{{ else }}failed: {{ error }}{{ end }}. Events delivered: {{ events }}.'
+    allowed_arguments: [name, description, events, reason, exit_code, error, timeout_ms]
+    required_arguments: [name, description, events, reason, exit_code, error, timeout_ms]
   agent-send-tool.description-without-parent:
     template: Send a message to an agent in this user session using a direct name or a relative or absolute slash-separated agent path. Paths may traverse children, use parent segments to reach ancestors or siblings, or start with /root-name (for example child/grandchild, parent/sibling, or /root-name/child). Sending to any ancestor is disabled; report to the parent through the final message instead. Delegation to a more permissive agent is rejected.
     allowed_arguments: []

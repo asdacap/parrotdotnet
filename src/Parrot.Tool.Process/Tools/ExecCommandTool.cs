@@ -127,7 +127,8 @@ internal sealed class ExecCommandTool(
                 environment,
                 session,
                 selection.SecurityProfile,
-                terminalMode);
+                terminalMode,
+                new ShellProcessCompletionReport());
             var outcome = await process.Wait(yieldAfter, cancellationToken).ConfigureAwait(false);
 
             return new ToolExecutionResult(outcome.Format(), outcome.YieldedProcess);

@@ -197,7 +197,8 @@ internal sealed class ActiveWorkBlockerTests
             ProcessEnvironmentOverrides environment,
             IAgentSession agent,
             SecurityProfile securityProfile,
-            ShellProcessTerminalMode terminalMode) => throw new NotSupportedException();
+            ShellProcessTerminalMode terminalMode,
+            IShellProcessReport report) => throw new NotSupportedException();
 
         public IManagedShellProcess Claim(string name) => throw new NotSupportedException();
 
