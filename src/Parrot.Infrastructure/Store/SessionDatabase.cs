@@ -322,12 +322,19 @@ internal sealed class SessionDatabase : IDisposable
         }
 
         MigrateEventUsageKeys(connection);
+        MigrateAgentLineage(connection);
         using (var indexes = connection.CreateCommand())
         {
             indexes.CommandText =
                 """
+                CREATE INDEX IF NOT EXISTS event_by_session
+                    ON event (agent_session, sequence);
+
                 CREATE INDEX IF NOT EXISTS event_request
                     ON event (agent_session, request_id) WHERE request_id IS NOT NULL;
+
+                CREATE INDEX IF NOT EXISTS event_request_by_sequence
+                    ON event (agent_session, sequence) WHERE request_id IS NOT NULL;
 
                 CREATE INDEX IF NOT EXISTS event_tool_call
                     ON event (agent_session, tool_call_id) WHERE tool_call_id IS NOT NULL;
@@ -350,6 +357,33 @@ internal sealed class SessionDatabase : IDisposable
             Event.PayloadOneofCase.ToolExecutionStarted => (null, published.ToolExecutionStarted.ToolCallId),
             _ => (null, null),
         };
+    }
+
+    // An agent's first start fixes its lineage; a later start of the same
+    // agent changes nothing.
+    public static void RecordAgentStart(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        long eventSequence,
+        Event published)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(published);
+        if (published.PayloadCase != Event.PayloadOneofCase.AgentStarted)
+        {
+            return;
+        }
+
+        using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText =
+            "INSERT OR IGNORE INTO agent_lineage (agent_session, parent_agent_session, name, event_sequence) "
+            + "VALUES ($session, $parent, $name, $sequence);";
+        _ = insert.Parameters.AddWithValue("$session", published.AgentSessionId);
+        _ = insert.Parameters.AddWithValue("$parent", published.AgentStarted.ParentAgentSessionId);
+        _ = insert.Parameters.AddWithValue("$name", published.AgentStarted.Name);
+        _ = insert.Parameters.AddWithValue("$sequence", eventSequence);
+        _ = insert.ExecuteNonQuery();
     }
 
     public string JournalMode()
@@ -419,6 +453,59 @@ internal sealed class SessionDatabase : IDisposable
                 sequence.Value = eventSequence;
                 _ = update.ExecuteNonQuery();
             }
+        }
+
+        transaction.Commit();
+    }
+
+    // The lineage table is created here rather than in the schema, so that a
+    // table that exists has always been filled from every earlier start.
+    private static void MigrateAgentLineage(SqliteConnection connection)
+    {
+        using (var exists = connection.CreateCommand())
+        {
+            exists.CommandText = "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'agent_lineage');";
+            if (Convert.ToInt64(exists.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0)
+            {
+                return;
+            }
+        }
+
+        using var transaction = connection.BeginTransaction();
+        using (var create = connection.CreateCommand())
+        {
+            create.Transaction = transaction;
+            create.CommandText =
+                """
+                CREATE TABLE agent_lineage (
+                    agent_session        TEXT PRIMARY KEY,
+                    parent_agent_session TEXT NOT NULL,
+                    name                 TEXT NOT NULL,
+                    event_sequence       INTEGER NOT NULL REFERENCES event(sequence)
+                );
+                """;
+            _ = create.ExecuteNonQuery();
+        }
+
+        var starts = new List<(long Sequence, Event Published)>();
+        using (var read = connection.CreateCommand())
+        {
+            read.Transaction = transaction;
+            read.CommandText = "SELECT sequence, payload FROM event ORDER BY sequence;";
+            using var reader = read.ExecuteReader();
+            while (reader.Read())
+            {
+                var published = Event.Parser.ParseFrom((byte[])reader["payload"]);
+                if (published.PayloadCase == Event.PayloadOneofCase.AgentStarted)
+                {
+                    starts.Add((Convert.ToInt64(reader["sequence"], System.Globalization.CultureInfo.InvariantCulture), published));
+                }
+            }
+        }
+
+        foreach (var (eventSequence, published) in starts)
+        {
+            RecordAgentStart(connection, transaction, eventSequence, published);
         }
 
         transaction.Commit();

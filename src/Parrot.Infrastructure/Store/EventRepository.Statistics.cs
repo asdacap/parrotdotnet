@@ -112,16 +112,19 @@ internal sealed partial class EventRepository
     {
         lock (_database.Gate)
         {
-            using var transaction = _database.Begin();
-            var lineage = ReadStatisticsEvents(transaction, null)
-                .Where(static fact => fact.Published.PayloadCase == Event.PayloadOneofCase.AgentStarted)
-                .DistinctBy(static fact => fact.Published.AgentSessionId, StringComparer.Ordinal)
-                .Select(static fact => new AgentLineageRecord(
-                    fact.Published.AgentSessionId,
-                    fact.Published.AgentStarted.ParentAgentSessionId,
-                    fact.Published.AgentStarted.Name))
-                .ToArray();
-            transaction.Commit();
+            using var read = _database.Connection.CreateCommand();
+            read.CommandText =
+                "SELECT agent_session, parent_agent_session, name FROM agent_lineage ORDER BY event_sequence;";
+            using var reader = read.ExecuteReader();
+            var lineage = new List<AgentLineageRecord>();
+            while (reader.Read())
+            {
+                lineage.Add(new AgentLineageRecord(
+                    (string)reader["agent_session"],
+                    (string)reader["parent_agent_session"],
+                    (string)reader["name"]));
+            }
+
             return lineage;
         }
     }

@@ -348,12 +348,15 @@ internal sealed class StorageInvariantTests : IDisposable
     }
 
     [Test]
-    public async Task Opening_a_database_without_usage_key_columns_migrates_existing_usage_facts(CancellationToken cancellationToken)
+    public async Task Opening_a_legacy_database_migrates_usage_keys_and_agent_lineage(CancellationToken cancellationToken)
     {
         var path = Path.Combine(_root, "sessions", "legacy-usage", "session.db");
         _ = Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
         Event[] legacy =
         [
+            new() { Id = "agent-start", AgentSessionId = "agent", AgentStarted = new AgentStarted { Name = "main" } },
+            new() { Id = "child-start", AgentSessionId = "child", AgentStarted = new AgentStarted { ParentAgentSessionId = "agent", Name = "worker" } },
+            new() { Id = "child-restart", AgentSessionId = "child", AgentStarted = new AgentStarted { ParentAgentSessionId = "agent", Name = "renamed" } },
             new() { Id = "request", AgentSessionId = "agent", RequestUsageRecorded = new RequestUsageRecorded { RequestId = "request", Provider = "provider", Model = "model", ToolCallIds = { "call" } } },
             new() { Id = "tool", AgentSessionId = "agent", ToolExecutionStarted = new ToolExecutionStarted { RequestId = "request", ToolCallId = "call", ToolName = "read", Provider = "provider", Model = "model" } },
             new() { Id = "text", AgentSessionId = "agent", TextChunk = new TextChunk { Fragment = "hello" } },
@@ -369,8 +372,9 @@ internal sealed class StorageInvariantTests : IDisposable
             foreach (var published in legacy)
             {
                 await using var insert = connection.CreateCommand();
-                insert.CommandText = "INSERT INTO event (id, agent_session, payload, created_at) VALUES ($id, 'agent', $payload, '');";
+                insert.CommandText = "INSERT INTO event (id, agent_session, payload, created_at) VALUES ($id, $session, $payload, '');";
                 _ = insert.Parameters.AddWithValue("$id", published.Id);
+                _ = insert.Parameters.AddWithValue("$session", published.AgentSessionId);
                 _ = insert.Parameters.AddWithValue("$payload", published.ToByteArray());
                 _ = await insert.ExecuteNonQueryAsync(cancellationToken);
             }
@@ -380,15 +384,21 @@ internal sealed class StorageInvariantTests : IDisposable
         await using (var read = database.Connection.CreateCommand())
         {
             read.CommandText = "SELECT group_concat(id || ':' || COALESCE(request_id, '-') || ':' || COALESCE(tool_call_id, '-'), ',') FROM event ORDER BY sequence;";
-            _ = await Assert.That(await read.ExecuteScalarAsync(cancellationToken) as string).IsEqualTo("request:request:-,tool:-:call,text:-:-");
+            _ = await Assert.That(await read.ExecuteScalarAsync(cancellationToken) as string).IsEqualTo("agent-start:-:-,child-start:-:-,child-restart:-:-,request:request:-,tool:-:call,text:-:-");
         }
 
         var repository = new EventRepository(database);
-        var duplicate = legacy[0].Clone();
+        var duplicate = legacy.Single(published => published.Id == "request").Clone();
         duplicate.Id = "duplicate-request";
         _ = await Assert.That(() => repository.AppendUsageFact(duplicate)).Throws<InvalidOperationException>();
         _ = await Assert.That(repository.FindRequestUsage("agent", "call")?.RequestId).IsEqualTo("request");
         _ = await Assert.That(repository.AgentHistory("agent").OfType<AgentHistoryRequestEntry>().Single().ToolCalls).IsEqualTo(1);
+        _ = repository.Append(
+            new Event { Id = "late-start", AgentSessionId = "late", AgentStarted = new AgentStarted { ParentAgentSessionId = "child", Name = "late" } },
+            null,
+            null);
+        _ = await Assert.That(string.Join(",", repository.AgentLineage().Select(record => $"{record.SessionId}<{record.ParentSessionId}:{record.Name}")))
+            .IsEqualTo("agent<:main,child<agent:worker,late<child:late");
         SessionDatabase.Open(path).Dispose();
     }
 

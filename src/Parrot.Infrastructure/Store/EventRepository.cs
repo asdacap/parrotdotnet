@@ -2914,7 +2914,9 @@ internal sealed partial class EventRepository : IEventRepository
         using var sequence = _database.Connection.CreateCommand();
         sequence.Transaction = transaction;
         sequence.CommandText = "SELECT last_insert_rowid();";
-        return Convert.ToInt64(sequence.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+        var recorded = Convert.ToInt64(sequence.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+        SessionDatabase.RecordAgentStart(_database.Connection, transaction, recorded, published);
+        return recorded;
     }
 
     private long CloneConversationItem(
