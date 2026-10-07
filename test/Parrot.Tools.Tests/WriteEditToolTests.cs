@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Llm;
+using Parrot.Process;
 using Parrot.Security;
 using Parrot.Store;
 using Parrot.Tools;
@@ -454,6 +455,25 @@ internal sealed class WriteEditToolTests : IDisposable
         _ = await Assert.That(async () => (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, "cancel.txt")), new MutationTurnFixture(WritableProfile()).Selection, cancellation.Token)).Text).Throws<OperationCanceledException>();
     }
 
+    [Test]
+    [Arguments("$AGENT_SCRATCH_DIR/notes.txt")]
+    [Arguments("${AGENT_SCRATCH_DIR}/notes.txt")]
+    public async Task Read_write_and_edit_expand_agent_path_variables(string path, CancellationToken cancellationToken)
+    {
+        var scratch = Directory.CreateDirectory(Path.Combine(_root, "scratch")).FullName;
+        var workspace = new ToolWorkspace(_root, new PathEnvironmentFixture(new() { ["AGENT_SCRATCH_DIR"] = scratch }));
+        var selection = new MutationTurnFixture(WritableProfile()).Selection;
+
+        _ = await new WriteTool(workspace).Execute(new ToolInvocation("write", WriteArguments(path, "old")), selection, cancellationToken);
+        _ = await new EditTool(workspace).Execute(new ToolInvocation("edit", EditArguments(path, "old", "new", false)), selection, cancellationToken);
+        var read = (await new ReadTool(workspace).Execute(new ToolInvocation("read", $"{{\"path\":\"{Encode(path)}\"}}"), selection, cancellationToken)).Text;
+        _ = await new WriteTool(workspace).Execute(new ToolInvocation("write-unknown", WriteArguments("$UNKNOWN/literal.txt", "kept")), selection, cancellationToken);
+
+        _ = await Assert.That(await File.ReadAllTextAsync(Path.Combine(scratch, "notes.txt"), cancellationToken)).IsEqualTo("new");
+        _ = await Assert.That(read).IsEqualTo("1: new\ntotal lines in file: 1\n");
+        _ = await Assert.That(File.Exists(Path.Combine(_root, "$UNKNOWN", "literal.txt"))).IsTrue();
+    }
+
     private static void DeleteFiles(string root)
     {
         if (!Directory.Exists(root))
@@ -510,6 +530,13 @@ internal sealed class WriteEditToolTests : IDisposable
         [_root],
         _root,
         []);
+
+    private sealed class PathEnvironmentFixture(Dictionary<string, string> variables) : IAgentPathEnvironment
+    {
+        public IReadOnlyList<KeyValuePair<string, string>> Materialize() => [.. variables];
+
+        public ProcessEnvironmentOverrides Merge(ProcessEnvironmentOverrides overrides) => throw new NotSupportedException();
+    }
 
     private sealed class MutationTurnFixture
     {

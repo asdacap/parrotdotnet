@@ -52,8 +52,8 @@ internal sealed class AgentSessionFactory(
         ArgumentNullException.ThrowIfNull(parentLink);
         var scratch = owner.Resources.AgentScratch(identity.NamePath);
         eventRepository.RefreshAgentHistory(identity.SessionId);
-        var workspace = new ToolWorkspace(workingDirectory);
         IAgentPathEnvironment pathEnvironment = new AgentPathEnvironment(owner.Resources, scratch);
+        var workspace = new ToolWorkspace(workingDirectory, pathEnvironment);
         var security = new AgentSessionSecurity(
             securityProfile,
             owner.Resources.Workspace,

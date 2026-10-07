@@ -33,7 +33,7 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
         {
             var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, FileToolJsonContext.Default.ReadToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
-            path = input.Path ?? throw new FormatException("Tool arguments require a string 'path'.");
+            path = workspace.ExpandPath(input.Path ?? throw new FormatException("Tool arguments require a string 'path'."));
             offset = input.Offset ?? 1;
             limit = input.Limit ?? MaxLines;
         }

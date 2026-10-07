@@ -1,22 +1,36 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
+using Parrot.Agent;
 using Parrot.Files;
 using Parrot.Security;
 
 namespace Parrot.Tools;
 
-internal sealed partial class ToolWorkspace(string workingDirectory)
+internal sealed partial class ToolWorkspace(string workingDirectory, IAgentPathEnvironment? pathEnvironment)
 {
     private const int DarwinPathLength = 1024;
     private const int DarwinVnodePathOffset = 176;
     private const int DarwinVnodePathInfoLength = DarwinVnodePathOffset + DarwinPathLength;
     private const int DarwinVnodePathInfo = 2;
 
+    private readonly Dictionary<string, string> _pathVariables =
+        (pathEnvironment?.Materialize() ?? []).ToDictionary(StringComparer.Ordinal);
+
+    public ToolWorkspace(string workingDirectory)
+        : this(workingDirectory, null)
+    {
+    }
+
     public string Root { get; } = Canonicalize(workingDirectory);
 
     public static bool AllowsRead((string Lexical, string Physical) path, SecurityProfile security) =>
         security.AllowsRead(path.Lexical) && security.AllowsRead(path.Physical);
+
+    /// <summary>Replaces $NAME and ${NAME} references to the agent path environment, leaving unknown names as written.</summary>
+    public string ExpandPath(string path) => PathVariable().Replace(path, match =>
+        _pathVariables.TryGetValue(match.Groups["name"].Value, out var value) ? value : match.Value);
 
     public bool ResolvesToRoot(string path) =>
         string.Equals(Canonicalize(ResolveLexical(path)), Root, StringComparison.Ordinal);
@@ -225,6 +239,9 @@ internal sealed partial class ToolWorkspace(string workingDirectory)
 
         return current;
     }
+
+    [GeneratedRegex(@"\$(?:\{(?<name>[A-Za-z_][A-Za-z0-9_]*)\}|(?<name>[A-Za-z_][A-Za-z0-9_]*))", RegexOptions.CultureInvariant)]
+    private static partial Regex PathVariable();
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32 | DllImportSearchPath.SafeDirectories)]
     [LibraryImport("libproc", EntryPoint = "proc_pidfdinfo", SetLastError = true)]

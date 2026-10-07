@@ -24,7 +24,7 @@ internal sealed class WriteTool(
                 invocation.ArgumentsJson,
                 FileMutationJsonContext.Default.WriteToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
-            var path = input.Path ?? throw new FormatException("Tool arguments require a string 'path'.");
+            var path = workspace.ExpandPath(input.Path ?? throw new FormatException("Tool arguments require a string 'path'."));
             var content = input.Content ?? throw new FormatException("Tool arguments require a string 'content'.");
             if (path.Length == 0)
             {

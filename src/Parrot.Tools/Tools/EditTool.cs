@@ -26,7 +26,7 @@ internal sealed class EditTool(
                 invocation.ArgumentsJson,
                 FileMutationJsonContext.Default.EditToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
-            var path = input.Path ?? throw new FormatException("Tool arguments require a string 'path'.");
+            var path = workspace.ExpandPath(input.Path ?? throw new FormatException("Tool arguments require a string 'path'."));
             var oldString = input.OldString
                 ?? throw new FormatException("Tool arguments require a string 'old_string'.");
             var newString = input.NewString
