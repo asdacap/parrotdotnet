@@ -658,7 +658,7 @@ tools:
           type: integer
           minimum: 10000
           maximum: 4294967294
-          default: 10000
+          default: 300000
           description: Maximum time to wait in milliseconds.
       additionalProperties: false
   web_fetch:

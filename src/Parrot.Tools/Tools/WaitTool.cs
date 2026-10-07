@@ -8,7 +8,8 @@ internal sealed class WaitTool(
     IAgentSession session,
     TimeProvider timeProvider) : ITool
 {
-    internal const long DefaultDurationMilliseconds = 10_000;
+    internal const long MinimumDurationMilliseconds = 10_000;
+    internal const long DefaultDurationMilliseconds = 300_000;
     internal const long MaximumDurationMilliseconds = uint.MaxValue - 1L;
 
     public string Name => "wait";
@@ -41,10 +42,10 @@ internal sealed class WaitTool(
             {
                 if (duration.ValueKind != JsonValueKind.Number
                     || !duration.TryGetInt64(out durationMilliseconds)
-                    || durationMilliseconds < DefaultDurationMilliseconds
+                    || durationMilliseconds < MinimumDurationMilliseconds
                     || durationMilliseconds > MaximumDurationMilliseconds)
                 {
-                    return ToolResultFormatter.Error(invocation, $"Tool argument 'duration_ms' must be an integer from {DefaultDurationMilliseconds} through {MaximumDurationMilliseconds}.");
+                    return ToolResultFormatter.Error(invocation, $"Tool argument 'duration_ms' must be an integer from {MinimumDurationMilliseconds} through {MaximumDurationMilliseconds}.");
                 }
             }
         }

@@ -9,7 +9,7 @@ internal sealed class EnhancedWaitToolPresenterTests
 
     [Test]
     [Arguments("{\"duration_ms\":130000}", "⠋ Wait for incoming activity (2m 10s left)", "⠙ Wait for incoming activity (2m 00s left)")]
-    [Arguments("{}", "⠋ Wait for incoming activity (10s left)", "⠙ Wait for incoming activity (0s left)")]
+    [Arguments("{}", "⠋ Wait for incoming activity (5m 00s left)", "⠙ Wait for incoming activity (4m 50s left)")]
     public async Task Wait_counts_down_the_remaining_duration(string argumentsJson, string started, string afterTenSeconds)
     {
         var timeProvider = new ControlledTimeProvider();

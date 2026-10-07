@@ -77,10 +77,10 @@ internal sealed class WaitToolTests : IAsyncDisposable
 
         var waiting = tool.Execute(new Parrot.Tools.ToolInvocation("test-call", "{}"), selection, cancellationToken);
         await time.WaitForTimer(cancellationToken);
-        time.Advance(TimeSpan.FromSeconds(10));
+        time.Advance(TimeSpan.FromMinutes(5));
         _ = await Assert.That((await waiting).Text).IsEqualTo(
             $"""
-            Wait timed out after 10000 ms.
+            Wait timed out after 300000 ms.
             Running direct subagents:
             - {childScope.Session.SessionId} (name: worker)
             Running processes:
