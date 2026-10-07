@@ -10,8 +10,7 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
 {
     private readonly IAgentSession _agent;
     private readonly IDiagnosticLog _diagnostics;
-    private readonly Task<ProcessResult> _completion;
-    private readonly IProcessExecution _execution;
+    private readonly Task _completion;
     private readonly ShellProcessInventory _inventory;
     private readonly CancellationToken _lifetime;
     private readonly Lock _gate = new();
@@ -19,6 +18,7 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
     private readonly YieldedShellProcess _startVisibility;
     private TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task _retirement = Task.CompletedTask;
+    private IProcessExecution? _execution;
     private long _cursor;
     private bool _claimed = true;
     private bool _delivered;
@@ -88,7 +88,7 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
     {
         try
         {
-            await _execution.WriteStdin(input, cancellationToken).ConfigureAwait(false);
+            await Execution().WriteStdin(input, cancellationToken).ConfigureAwait(false);
             return await WaitForOutput(yieldAfter, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -107,7 +107,7 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
     {
         try
         {
-            _execution.SendSignal(signal, cancellationToken);
+            Execution().SendSignal(signal, cancellationToken);
             WriteDiagnostic("signal", "sent", null);
             return Task.CompletedTask;
         }
@@ -130,7 +130,17 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
         }
         finally
         {
-            await _execution.DisposeAsync().ConfigureAwait(false);
+            IProcessExecution? execution;
+            lock (_gate)
+            {
+                execution = _execution;
+            }
+
+            if (execution is not null)
+            {
+                await execution.DisposeAsync().ConfigureAwait(false);
+            }
+
             await _retirement.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }
@@ -153,14 +163,13 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
             ErrorCode = failure is null ? null : DiagnosticEvent.ClassifyFailure(failure),
         });
 
-    private async Task<ProcessResult> ObserveCompletion(Task<ProcessResult> result)
+    private async Task ObserveCompletion(Task<ProcessResult> result)
     {
         ProcessResult? completed = null;
         try
         {
             completed = await result.WaitAsync(CancellationToken.None).ConfigureAwait(false);
             WriteDiagnostic("completed", completed.ExitCode == 0 ? "succeeded" : "failed", null);
-            return completed;
         }
         catch (Exception failure)
         {
@@ -181,7 +190,7 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
         {
             if (yieldAfter is null)
             {
-                _ = await _completion.WaitAsync(cancellationToken).ConfigureAwait(false);
+                await _completion.WaitAsync(cancellationToken).ConfigureAwait(false);
                 return CommitCompleted();
             }
 
@@ -191,7 +200,7 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
 
             if (completed == resultTask)
             {
-                _ = await resultTask.ConfigureAwait(false);
+                await resultTask.ConfigureAwait(false);
                 return CommitCompleted();
             }
 
@@ -222,7 +231,7 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
                 return CommitCompletedLocked();
             }
 
-            (_cursor, output) = _execution.ReadTranscript(_cursor);
+            (_cursor, output) = Execution().ReadTranscript(_cursor);
             _claimed = false;
             released = _released;
         }
@@ -236,8 +245,8 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
             null,
             _startVisibility with
             {
-                StdoutPath = _execution.StdoutPath,
-                StderrPath = _execution.StderrPath,
+                StdoutPath = Execution().StdoutPath,
+                StderrPath = Execution().StderrPath,
             });
     }
 
@@ -251,7 +260,7 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
 
     private ShellWaitResult CommitCompletedLocked()
     {
-        var (cursor, result) = _execution.ReadResult(_cursor);
+        var (cursor, result) = Execution().ReadResult(_cursor);
         _cursor = cursor;
         RetireLocked();
         _ = _released.TrySetResult();
@@ -264,7 +273,7 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
 
         try
         {
-            _ = await _completion.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            await _completion.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
@@ -380,7 +389,7 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
         lock (_gate)
         {
             var startCursor = _cursor;
-            var (finalCursor, result) = _execution.ReadResult(startCursor);
+            var (finalCursor, result) = Execution().ReadResult(startCursor);
             return new CompletedRead(
                 startCursor,
                 finalCursor,
@@ -441,11 +450,21 @@ internal sealed class ManagedShellProcess : IManagedShellProcess
         _delivered = true;
         _claimed = false;
 
-        if (_retirement.IsCompletedSuccessfully)
+        if (_retirement.IsCompletedSuccessfully && _execution is { } execution)
         {
-            _retirement = _execution.DisposeAsync().AsTask();
+            _retirement = execution.DisposeAsync().AsTask();
+
+            // A pipe process's output is kept in its pipe files, so the
+            // delivered result need not stay in memory with the execution.
+            if (execution.StdoutPath is not null)
+            {
+                _execution = null;
+            }
         }
     }
+
+    private IProcessExecution Execution() =>
+        _execution ?? throw new InvalidOperationException($"Shell process '{Name}' has already been delivered.");
 
     private sealed record CompletedRead(long StartCursor, long FinalCursor, ShellWaitResult Result);
 }
