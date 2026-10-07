@@ -155,9 +155,9 @@ internal sealed class AgentTaskScopeTests
                     var composite = (rootScope ?? throw new InvalidOperationException("The root is not ready.")).ChildRegistry.SnapshotChildScopes().Single();
                     _ = await Assert.That(composite.GetService<IAgentTaskService>().Snapshot()).IsEmpty();
                     _ = await Assert.That(composite.ChildRegistry.SnapshotChildScopes()).IsEmpty();
-                    const string marker = "The following inner task list is supplied as prompt data, not registered in your AgentTask graph:\n";
+                    const string marker = "The following inner task list is provided:\n";
                     var start = prompt.IndexOf(marker, StringComparison.Ordinal) + marker.Length;
-                    var end = prompt.IndexOf("\nUse set_agent_tasks", start, StringComparison.Ordinal);
+                    var end = prompt.IndexOf("\nPrepare common resource or context", start, StringComparison.Ordinal);
                     Set(composite, taskRouter ?? throw new InvalidOperationException("The router is not ready."), AgentTaskParser.ParseTaskSet(prompt[start..end]));
                     await dependentArrived.Task.WaitAsync(token);
                 }

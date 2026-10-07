@@ -341,7 +341,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             .IsEqualTo("parent:False,x:True,y:True");
         var compositeConversation = AgentTaskReplyProvider.Conversation(provider.Requests.First(request => AgentTaskReplyProvider.IsTaskAgent(request) && TaskName(request) == "parent"));
         _ = await Assert.That(compositeConversation).Contains("AgentTask role: composite owner")
-            .And.Contains("Use set_agent_tasks to declare and manage this work");
+            .And.Contains("use set_agent_tasks to declare and manage this work");
         var delivered = PromptTasks(provider.Requests.First(request => AgentTaskReplyProvider.IsTaskAgent(request) && TaskName(request) == "parent"));
         _ = await Assert.That(delivered.Select(task => task.Name)).IsEquivalentTo(["x", "y"]);
         _ = await Assert.That(delivered[1].Dependencies).IsEquivalentTo(["x"]);
@@ -1056,10 +1056,10 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
 
     private static IReadOnlyList<AgentTask> PromptTasks(LLMRequest request)
     {
-        const string marker = "The following inner task list is supplied as prompt data, not registered in your AgentTask graph:\n";
+        const string marker = "The following inner task list is provided:\n";
         var prompt = AgentTaskReplyProvider.Prompt(request);
         var start = prompt.IndexOf(marker, StringComparison.Ordinal) + marker.Length;
-        var end = prompt.IndexOf("\nUse set_agent_tasks", start, StringComparison.Ordinal);
+        var end = prompt.IndexOf("\nPrepare common resource or context", start, StringComparison.Ordinal);
         return AgentTaskParser.ParseTaskSet(prompt[start..end]);
     }
 
