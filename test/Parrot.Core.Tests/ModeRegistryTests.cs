@@ -29,8 +29,8 @@ internal sealed class ModeRegistryTests : IDisposable
     {
         var registry = Registry();
 
-        _ = await Assert.That(registry.Resolve(string.Empty).Id).IsEqualTo(ModeRegistry.Build);
-        _ = await Assert.That(string.Join(" | ", registry.List())).IsEqualTo("build | plan | query");
+        _ = await Assert.That(registry.Resolve(string.Empty).Id).IsEqualTo(ModeRegistry.Coordinator);
+        _ = await Assert.That(string.Join(" | ", registry.List())).IsEqualTo("build | coordinator | plan | query");
         _ = await Assert.That(() => registry.Resolve("child")).Throws<ModeRegistryException>();
     }
 
@@ -47,7 +47,7 @@ internal sealed class ModeRegistryTests : IDisposable
             configuration.DisabledTools);
         var modes = new ModeRegistry(profiles, configuration.DefaultProfile);
 
-        _ = await Assert.That(string.Join(" | ", modes.List())).IsEqualTo("build | plan | query");
+        _ = await Assert.That(string.Join(" | ", modes.List())).IsEqualTo("build | coordinator | plan | query");
         _ = await Assert.That(string.Join(" | ", profiles.Children.Select(profile => profile.Id)))
             .IsEqualTo("agent-task-payload | explorer | review | thinker | worker");
         _ = await Assert.That(profiles.ResolveChild("explore").Id).IsEqualTo("explorer");
@@ -79,7 +79,7 @@ internal sealed class ModeRegistryTests : IDisposable
         var registry = new ProfileRegistry(profiles, configuration.SandboxRules, [], configuration.DisabledTools);
         var modes = new ModeRegistry(registry, ModeRegistry.Build);
 
-        _ = await Assert.That(string.Join(" | ", modes.List())).IsEqualTo("build | plan | query | worker");
+        _ = await Assert.That(string.Join(" | ", modes.List())).IsEqualTo("build | coordinator | plan | query | worker");
         _ = await Assert.That(string.Join(" | ", registry.Children.Select(profile => profile.Id)))
             .IsEqualTo("agent-task-payload | build | explorer | thinker | worker");
         _ = await Assert.That(modes.Resolve("worker").Id).IsEqualTo("worker");
@@ -118,6 +118,7 @@ internal sealed class ModeRegistryTests : IDisposable
     }
 
     [Test]
+    [Arguments(ModeRegistry.Coordinator, false, 1024, "coordinator mode", "authorized workspace")]
     [Arguments(ModeRegistry.Build, false, 1024, "build mode", "authorized workspace")]
     [Arguments(ModeRegistry.Plan, true, 1024, "plan mode", "provided plan directory")]
     [Arguments(ModeRegistry.Query, true, 8, "query mode", "Read-only mode")]

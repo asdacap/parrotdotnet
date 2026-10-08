@@ -1277,6 +1277,7 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    [Arguments("coordinator")]
     [Arguments("build")]
     [Arguments("plan")]
     [Arguments("query")]

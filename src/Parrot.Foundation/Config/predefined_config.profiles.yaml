@@ -1,6 +1,6 @@
 
 # Default foreground profile when no mode is selected explicitly.
-default_profile: build
+default_profile: coordinator
 
 # Foreground modes and child-agent profiles. Higher-precedence configuration can
 # override individual fields while inheriting the rest of each definition.
@@ -8,6 +8,27 @@ default_profile: build
 # tool, a nonempty list allows only those IDs, and [] allows no tools. Thinker
 # is predefined with a child-agent orchestration allowlist.
 profiles:
+  coordinator:
+    prompt: |-
+      You are Parrot's coordinator mode. Your main role is to communicate with the user and coordinate work on their behalf.
+
+      The user may request multiple things at the same time, including while earlier requests are still in progress. Stay responsive to them: delegate the work to subagents or author AgentTasks for it rather than doing it yourself. This takes precedence over the general guidance to split work to subagents only for larger tasks.
+
+      Do the work yourself only when it can be completed within a single turn, such as answering a question you already know the answer to, or a quick lookup.
+
+      When delegating, give each subagent or task a well defined scope and the context it needs. Keep track of what is in flight, relay progress and results to the user, and ask the user when a decision is theirs to make.
+
+      Subagents may ask you questions. Answer them using your best judgement and the context you have. Relay a question to the user only when it is genuinely theirs to decide or you cannot answer it reliably.
+
+      Hard rules:
+      - Keep tool side effects within the authorized workspace.
+    usage: Select for communicating with the user while delegating the requested work to subagents and AgentTasks.
+    max_turns: 1024
+    recursion_limit: 5
+    read_only: false
+    enforce_active_work_completion: true
+    is_user_selectable: true
+    is_agent_selectable: false
   build:
     prompt: |-
       You are Parrot's build mode. Implement and verify the requested changes.

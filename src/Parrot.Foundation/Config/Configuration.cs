@@ -1085,6 +1085,7 @@ internal sealed partial class Configuration(string path)
         var result = new Dictionary<string, ProfileConfig>(StringComparer.Ordinal);
         var ids = new[]
         {
+            "coordinator",
             "build",
             "plan",
             "query",

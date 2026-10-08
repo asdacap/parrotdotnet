@@ -364,8 +364,8 @@ internal sealed class ParrotServiceTests : IDisposable
             new UpdateSessionRequest { UserSessionId = created.Id }, context);
 
         _ = await Assert.That(string.Join(",", listed.Modes.Select(mode => mode.Id)))
-            .IsEqualTo("build,plan,query");
-        _ = await Assert.That(defaulted.Mode).IsEqualTo(ModeRegistry.Build);
+            .IsEqualTo("build,coordinator,plan,query");
+        _ = await Assert.That(defaulted.Mode).IsEqualTo(ModeRegistry.Coordinator);
         _ = await Assert.That(created.Mode).IsEqualTo(ModeRegistry.Plan);
         _ = await Assert.That(updated.Mode).IsEqualTo(ModeRegistry.Query);
         _ = await Assert.That(carried.Mode).IsEqualTo(ModeRegistry.Query);
@@ -391,7 +391,7 @@ internal sealed class ParrotServiceTests : IDisposable
             new InProcessServerCallContext(cancellationToken));
 
         _ = await Assert.That(string.Join(",", listed.Modes.Select(mode => mode.Id)))
-            .IsEqualTo("build,plan,query,worker");
+            .IsEqualTo("build,coordinator,plan,query,worker");
     }
 
     [Test]

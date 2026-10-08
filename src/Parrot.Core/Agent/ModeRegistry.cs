@@ -2,6 +2,7 @@ namespace Parrot.Agent;
 
 internal sealed class ModeRegistry
 {
+    public const string Coordinator = "coordinator";
     public const string Build = "build";
     public const string Plan = "plan";
     public const string Query = "query";
