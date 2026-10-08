@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using Parrot.Files;
 
 namespace Parrot.Process;
 
@@ -308,7 +309,7 @@ internal sealed class ShellProcessExecution : IProcessExecution
                     continue;
                 }
 
-                ProcessOutputBlobStore.EnsureDirectory(blobDirectory);
+                PrivateFile.EnsureDirectory(blobDirectory);
                 var temporaryPath = Path.Combine(blobDirectory, $".process-{Guid.NewGuid():n}.tmp");
 
                 try
@@ -336,19 +337,7 @@ internal sealed class ShellProcessExecution : IProcessExecution
         string path,
         Func<ReadOnlyMemory<char>, Task> append)
     {
-        var fileOptions = new FileStreamOptions
-        {
-            Access = FileAccess.Write,
-            Mode = FileMode.CreateNew,
-            Options = FileOptions.Asynchronous,
-        };
-
-        if (!OperatingSystem.IsWindows())
-        {
-            fileOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        }
-
-        await using var stream = new FileStream(path, fileOptions);
+        await using var stream = PrivateFile.CreateNew(path, FileShare.Read, FileOptions.Asynchronous);
         await using var writer = new StreamWriter(stream);
         await writer.WriteAsync(initial.ToString()).ConfigureAwait(false);
         await writer.WriteAsync(firstOverflow).ConfigureAwait(false);

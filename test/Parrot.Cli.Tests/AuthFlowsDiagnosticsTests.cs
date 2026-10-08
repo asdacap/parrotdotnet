@@ -63,7 +63,7 @@ internal sealed class AuthFlowsDiagnosticsTests
             using var diagnostics = new DiagnosticLogs(paths, "oauth-test", TextWriter.Null, TimeProvider.System);
             using var credentials = new FileCredentialStore(Path.Combine(directory, "credentials.json"));
             using var output = new StringWriter();
-            IOAuthClient oauth = new DiagnosticOAuthClient(fail);
+            IOAuthClient oauth = new DiagnosticOAuthClient(fail ? new InvalidOperationException("sentinel-failure") : null);
             if (fail)
             {
                 _ = await Assert.That(async () => await AuthFlows.OAuthLogin(
@@ -92,32 +92,5 @@ internal sealed class AuthFlowsDiagnosticsTests
                 Directory.Delete(directory, recursive: true);
             }
         }
-    }
-
-    private sealed class DiagnosticOAuthClient(bool fail) : IOAuthClient
-    {
-        public string AuthorizationUrl(string redirect, string challenge, string state) =>
-            throw new NotSupportedException();
-
-        public Task<OAuthCredential> BrowserLogin(CancellationToken cancellationToken) => CompleteLogin();
-
-        public Task<DeviceAuthorization> StartDeviceAuthorization(CancellationToken cancellationToken) =>
-            Task.FromResult(new DeviceAuthorization
-            {
-                VerificationUrl = "https://sentinel.invalid/?secret=sentinel-query",
-                UserCode = new Secret("sentinel-code"),
-            });
-
-        public Task<OAuthCredential> AwaitDeviceAuthorization(DeviceAuthorization device, CancellationToken cancellationToken) =>
-            CompleteLogin();
-
-        public Task<OAuthCredential> Refresh(OAuthCredential current, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public DateTimeOffset Now() => throw new NotSupportedException();
-
-        private Task<OAuthCredential> CompleteLogin() => fail
-            ? Task.FromException<OAuthCredential>(new InvalidOperationException("sentinel-failure"))
-            : Task.FromResult(OAuthCredential.Create("sentinel-access", "sentinel-refresh", DateTimeOffset.MaxValue, "sentinel-account"));
     }
 }

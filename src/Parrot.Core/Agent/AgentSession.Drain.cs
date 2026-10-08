@@ -33,34 +33,26 @@ internal sealed partial class AgentSession
         CancellationToken cancellationToken)
     {
         var requestHistory = HistoryWithNextPromotion();
-        var context = EstimateContextForHistory(selection, _systemPrompt.Build(selection), tools, requestHistory);
+        var instructions = _systemPrompt.Build(selection);
+        var context = EstimateContextForHistory(selection, instructions, tools, requestHistory);
         var content = await status.ObserveWithContext(
             this,
             selection,
             profile,
             context,
             cancellationToken).ConfigureAwait(false);
+        var renderedContext = EstimateContextForHistory(selection, instructions, tools, [.. requestHistory, LLMMessage.System(content)]);
         const int maximumStatusConvergenceAttempts = 8;
         for (var attempt = 0; attempt < maximumStatusConvergenceAttempts; attempt++)
         {
-            var candidateHistory = new List<LLMMessage>(requestHistory) { LLMMessage.System(content) };
-            var candidateContext = EstimateContextForHistory(
-                selection,
-                _systemPrompt.Build(selection),
-                tools,
-                candidateHistory);
+            var candidateContext = renderedContext;
             var contextContent = await status.ObserveContext(
                 this,
                 selection,
                 candidateContext,
                 cancellationToken).ConfigureAwait(false);
-            var rendered = ReplaceContextStatus(content, contextContent);
-            var renderedContext = EstimateContextForHistory(
-                selection,
-                _systemPrompt.Build(selection),
-                tools,
-                [.. requestHistory, LLMMessage.System(rendered)]);
-            content = rendered;
+            content = ReplaceContextStatus(content, contextContent);
+            renderedContext = EstimateContextForHistory(selection, instructions, tools, [.. requestHistory, LLMMessage.System(content)]);
             if (candidateContext == renderedContext)
             {
                 break;
@@ -74,6 +66,13 @@ internal sealed partial class AgentSession
     {
         var selected = ResolvePolicySelection();
         return selected with { SecurityProfile = security.Capture(selected.SecurityProfile) };
+    }
+
+    private AgentTurnSelection CaptureTurnSelection()
+    {
+        var captured = CaptureSelection();
+        var resolved = ResolveModel(captured);
+        return new AgentTurnSelection(resolved.RequestedSelector, resolved, captured.Profile, captured.SecurityProfile);
     }
 
     private ResolvedModelSelection ResolveModel(AgentSelection selection)
@@ -100,34 +99,16 @@ internal sealed partial class AgentSession
         return await draining.WaitAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
-    private WaitAgentResult Terminal(AgentExecution completed, long elapsedMilliseconds) =>
-        completed.Status switch
+    private WaitAgentResult Terminal(AgentExecution completed, long elapsedMilliseconds)
+    {
+        var status = completed.Status switch
         {
-            AgentExecutionStatus.Succeeded => new WaitAgentResult(
-                SessionId,
-                Name,
-                AgentTaskStatus.Succeeded,
-                Yielded: false,
-                elapsedMilliseconds,
-                completed.Output,
-                completed.Error),
-            AgentExecutionStatus.Failed => new WaitAgentResult(
-                SessionId,
-                Name,
-                AgentTaskStatus.Failed,
-                Yielded: false,
-                elapsedMilliseconds,
-                completed.Output,
-                completed.Error),
-            _ => new WaitAgentResult(
-                SessionId,
-                Name,
-                AgentTaskStatus.Canceled,
-                Yielded: false,
-                elapsedMilliseconds,
-                completed.Output,
-                completed.Error),
+            AgentExecutionStatus.Succeeded => AgentTaskStatus.Succeeded,
+            AgentExecutionStatus.Failed => AgentTaskStatus.Failed,
+            _ => AgentTaskStatus.Canceled,
         };
+        return new WaitAgentResult(SessionId, Name, status, Yielded: false, elapsedMilliseconds, completed.Output, completed.Error);
+    }
 
     private async Task<(AgentSendResult Result, Task<AgentExecution> Execution)> SendAndSelectExecution(
         string message,
@@ -713,13 +694,8 @@ internal sealed partial class AgentSession
                 if (!turnOpen)
                 {
                     _skills.EndTurn();
-                    var captured = CaptureSelection();
-                    var resolved = ResolveModel(captured);
-                    activeSelection = new AgentTurnSelection(
-                        resolved.RequestedSelector,
-                        resolved,
-                        captured.Profile,
-                        captured.SecurityProfile);
+                    activeSelection = CaptureTurnSelection();
+                    var resolved = activeSelection.ResolvedModel;
                     providerRequests = 0;
                     turnOpen = true;
                     _providerSessions.BeginTurn();
@@ -760,16 +736,10 @@ internal sealed partial class AgentSession
                         CorrelationId = turnId,
                     });
                     await EmitEvent(started, null, null, cancellationToken).ConfigureAwait(false);
-                    if (!_epochContext.EpochInitialized)
-                    {
-                        _systemPrompt.RenewEpoch();
-                        _epochContext.EpochInitialized = true;
-                    }
-
+                    EnsureEpoch();
                     activeSelection = await InjectStatus(activeSelection, cancellationToken).ConfigureAwait(false);
                     _skills.BeginTurn();
-                    activeTools = MaterializeTools()
-                        .PermittedBy(activeSelection.Profile);
+                    activeTools = PermittedTools(activeSelection);
                     await RestoreToolAvailability(cancellationToken).ConfigureAwait(false);
                 }
 
@@ -818,44 +788,14 @@ internal sealed partial class AgentSession
 
                 if (completed.FinishReason == "length" && completed.ToolCalls.Count > 0)
                 {
-                    var published = new Event
-                    {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                        RetryNotice = new RetryNotice
-                        {
-                            Attempt = providerRequests,
-                            Reason = _truncatedToolCallPrompt,
-                        },
-                    };
-                    _ = eventRepository.AppendMessage(
-                        published,
-                        LLMMessage.System(_truncatedToolCallPrompt),
-                        ConversationOrigin.System);
-                    _history.Add(LLMMessage.System(_truncatedToolCallPrompt));
-                    await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
+                    await RecordRetryNotice(_truncatedToolCallPrompt, providerRequests, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
                 if (completed.ToolCalls.Count > 0
                     && completed.ToolCalls.Any(call => !IsValidToolCallArguments(call.ArgumentsJson)))
                 {
-                    var published = new Event
-                    {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                        RetryNotice = new RetryNotice
-                        {
-                            Attempt = providerRequests,
-                            Reason = _invalidToolCallPrompt,
-                        },
-                    };
-                    _ = eventRepository.AppendMessage(
-                        published,
-                        LLMMessage.System(_invalidToolCallPrompt),
-                        ConversationOrigin.System);
-                    _history.Add(LLMMessage.System(_invalidToolCallPrompt));
-                    await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
+                    await RecordRetryNotice(_invalidToolCallPrompt, providerRequests, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
@@ -951,14 +891,9 @@ internal sealed partial class AgentSession
                         }
 
                         _history.Add(LLMMessage.System(systemMessage));
-                        if (retryOutcome.RecordAssistantActivity)
+                        if (retryOutcome.RetainCandidateAssistant)
                         {
                             Activity.RecordAssistantMessage(completed.AssistantText);
-                        }
-
-                        if (retryOutcome.SelectCandidateAnswer)
-                        {
-                            answer = completed.AssistantText;
                         }
 
                         if (retryOutcome.CompletionRetryPending is { } retryPending)
@@ -1173,16 +1108,37 @@ internal sealed partial class AgentSession
 
     private async Task ReconcileToolBatchesUsingCurrentConfiguration(CancellationToken cancellationToken)
     {
-        var captured = CaptureSelection();
-        var resolved = ResolveModel(captured);
-        var selection = new AgentTurnSelection(
-            resolved.RequestedSelector,
-            resolved,
-            captured.Profile,
-            captured.SecurityProfile);
-        var tools = MaterializeTools()
-            .PermittedBy(captured.Profile);
-        await ReconcileToolBatches(selection, tools, cancellationToken).ConfigureAwait(false);
+        var selection = CaptureTurnSelection();
+        await ReconcileToolBatches(selection, PermittedTools(selection), cancellationToken).ConfigureAwait(false);
+    }
+
+    private ToolSnapshot PermittedTools(AgentTurnSelection selection) =>
+        MaterializeTools().PermittedBy(selection.Profile);
+
+    private void EnsureEpoch()
+    {
+        if (!_epochContext.EpochInitialized)
+        {
+            _systemPrompt.RenewEpoch();
+            _epochContext.EpochInitialized = true;
+        }
+    }
+
+    private async Task RecordRetryNotice(string notice, int attempt, CancellationToken cancellationToken)
+    {
+        var published = new Event
+        {
+            Id = Identifier.EventId(),
+            AgentSessionId = SessionId,
+            RetryNotice = new RetryNotice
+            {
+                Attempt = attempt,
+                Reason = notice,
+            },
+        };
+        _ = eventRepository.AppendMessage(published, LLMMessage.System(notice), ConversationOrigin.System);
+        _history.Add(LLMMessage.System(notice));
+        await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task ReconcileToolBatches(

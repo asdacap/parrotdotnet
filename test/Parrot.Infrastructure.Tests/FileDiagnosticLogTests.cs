@@ -11,10 +11,9 @@ internal sealed class FileDiagnosticLogTests
     [Test]
     public async Task Session_records_are_bounded_escaped_correlated_and_appended()
     {
-        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var directory = Directory.CreateTempSubdirectory().FullName;
         try
         {
-            _ = Directory.CreateDirectory(directory);
             var paths = new StatePaths(directory, directory, directory);
             var resources = new UserSessionResources(paths, UserSessionId.Parse("session-test"), ProjectWorkspace.FromLaunchDirectory(directory));
             using var error = new StringWriter(CultureInfo.InvariantCulture);
@@ -61,10 +60,9 @@ internal sealed class FileDiagnosticLogTests
     [Test]
     public async Task Byte_counts_preserve_zero_and_large_values_and_omit_unknown_sizes()
     {
-        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var directory = Directory.CreateTempSubdirectory().FullName;
         try
         {
-            _ = Directory.CreateDirectory(directory);
             var resources = new UserSessionResources(
                 new StatePaths(directory, directory, directory),
                 UserSessionId.Parse("byte-counts"),
@@ -98,10 +96,9 @@ internal sealed class FileDiagnosticLogTests
     [Test]
     public async Task Concurrent_global_writers_have_distinct_files_and_intact_lines()
     {
-        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var directory = Directory.CreateTempSubdirectory().FullName;
         try
         {
-            _ = Directory.CreateDirectory(directory);
             var paths = new StatePaths(directory, directory, directory);
             using var error = new StringWriter(CultureInfo.InvariantCulture);
             var firstId = FileDiagnosticLog.CreateInstanceId();
@@ -140,10 +137,9 @@ internal sealed class FileDiagnosticLogTests
     [Arguments(true)]
     public async Task Rotation_preserves_order_and_disables_nonfatally_on_failure(bool obstructRotation)
     {
-        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var directory = Directory.CreateTempSubdirectory().FullName;
         try
         {
-            _ = Directory.CreateDirectory(directory);
             var paths = new StatePaths(directory, directory, directory);
             var resources = new UserSessionResources(paths, UserSessionId.Parse("rotation"), ProjectWorkspace.FromLaunchDirectory(directory));
             _ = Directory.CreateDirectory(resources.Root);
@@ -193,10 +189,9 @@ internal sealed class FileDiagnosticLogTests
     [Arguments(true)]
     public async Task Open_and_write_failures_do_not_escape_or_repeat_warnings(bool failDuringWrite)
     {
-        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var directory = Directory.CreateTempSubdirectory().FullName;
         try
         {
-            _ = Directory.CreateDirectory(directory);
             var paths = new StatePaths(directory, directory, directory);
             var resources = new UserSessionResources(paths, UserSessionId.Parse("failure"), ProjectWorkspace.FromLaunchDirectory(directory));
             _ = Directory.CreateDirectory(resources.Root);

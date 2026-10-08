@@ -34,11 +34,7 @@ internal sealed class UserSessionId : IEquatable<UserSessionId>
 
         foreach (var character in value)
         {
-            if (character is '/' or '\\' || char.IsControl(character)
-                || !(character is >= 'a' and <= 'z'
-                    || character is >= 'A' and <= 'Z'
-                    || character is >= '0' and <= '9'
-                    || character is '-' or '_' or '.'))
+            if (!(char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '.'))
             {
                 return false;
             }

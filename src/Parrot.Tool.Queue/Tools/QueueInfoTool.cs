@@ -10,7 +10,7 @@ internal sealed class QueueInfoTool(IAgentQueues queues, IAgentResolver resolver
 
     public Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken) => QueueToolExecution.Execute(invocation, () =>
     {
-        var input = QueueToolExecution.Deserialize(invocation.ArgumentsJson, QueueToolJsonContext.Default.QueueInfoToolInput);
+        var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, QueueToolJsonContext.Default.QueueInfoToolInput);
         var name = QueueToolExecution.RequireName(input.Name);
         if (name.Contains('/', StringComparison.Ordinal))
         {

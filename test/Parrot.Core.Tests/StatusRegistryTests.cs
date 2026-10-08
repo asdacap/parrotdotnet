@@ -256,10 +256,9 @@ internal sealed class StatusRegistryTests
     [Arguments("runtime:bad\nkey")]
     public async Task Register_rejects_unstable_keys(string key)
     {
-        var registry = new StatusRegistry();
         IStatusProvider provider = new ScriptedStatusProvider(key, static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("status")));
 
-        _ = await Assert.That(() => registry.Register(provider)).Throws<StatusRegistryException>();
+        _ = await Assert.That(() => new StatusRegistry(provider)).Throws<StatusRegistryException>();
     }
 
     [Test]
@@ -273,7 +272,7 @@ internal sealed class StatusRegistryTests
         await using var fixture = new RuntimeTreeFixture();
         fixture.EnableProcesses();
         var root = fixture.Build(AgentIdentity.Main("root", "main", TestModels.PromptTemplates), AgentSessionParentLink.Root());
-        var child = fixture.Build(AgentIdentity.Child("child", AgentIdentity.Main("root", "main", TestModels.PromptTemplates), "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(root, AgentCompletionDeliveryPolicy.RetainedOnly, fixture.Registry.ReserveRetainedAgent()));
+        var child = fixture.Build(AgentIdentity.Child("child", AgentIdentity.Main("root", "main", TestModels.PromptTemplates), "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), AgentPolicyLineage.Root(), TestModels.PromptTemplates), AgentSessionParentLink.Child(root, AgentCompletionDeliveryPolicy.RetainedOnly, fixture.Registry.ReserveRetainedAgent()));
         _ = await child.Session.SendTextMessage("work", cancellationToken);
         await fixture.Provider.Arrived(cancellationToken);
         _ = root.GetService<IAgentQueues>().Create("work", "queued work\n{{ hostile }}");
@@ -328,9 +327,10 @@ internal sealed class StatusRegistryTests
     [Test]
     public async Task Register_and_profile_reject_duplicate_keys()
     {
-        var registry = new StatusRegistry(new ScriptedStatusProvider("runtime:selection", static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("first"))));
+        IStatusProvider first = new ScriptedStatusProvider("runtime:selection", static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("first")));
+        var registry = new StatusRegistry(first);
 
-        _ = await Assert.That(() => registry.Register(new ScriptedStatusProvider("runtime:selection", static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("second")))))
+        _ = await Assert.That(() => new StatusRegistry(first, new ScriptedStatusProvider("runtime:selection", static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("second")))))
             .Throws<StatusRegistryException>();
         _ = await Assert.That(async () => await registry.Observe(
                 new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"),
@@ -366,7 +366,7 @@ internal sealed class StatusRegistryTests
         private readonly IEventRepository _repository;
         private readonly IModelRouter _router;
         private readonly UserSessionResources _resources;
-        private ProcessRunner _runner = new(string.Empty);
+        private ProcessRunner _runner = TestModels.Runner(string.Empty);
 
         public RuntimeTreeFixture()
         {
@@ -410,17 +410,7 @@ internal sealed class StatusRegistryTests
         }
 
         [SupportedOSPlatform("linux")]
-        public void EnableProcesses()
-        {
-            var path = Path.Combine(_root, "sandbox");
-            var script = "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do\n"
-                + "  if [ \"$1\" = \"--chdir\" ]; then shift; cd \"$1\" || exit; "
-                + "elif [ \"$1\" = \"--setenv\" ]; then export \"$2=$3\"; shift 2; fi\n"
-                + "  shift\ndone\nshift\nexec \"$@\"\n";
-            File.WriteAllText(path, script);
-            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            _runner = new ProcessRunner(path);
-        }
+        public void EnableProcesses() => _runner = TestModels.Runner(SandboxPassThrough.Write(_root));
 
         public async ValueTask DisposeAsync()
         {

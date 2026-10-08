@@ -36,22 +36,11 @@ internal sealed class PromptTemplateCatalog : IPromptTemplateCatalog
 
     public string Render(string id, IReadOnlyList<PromptTemplateArgument> arguments)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentNullException.ThrowIfNull(arguments);
-        if (!_templates.TryGetValue(id, out var template))
-        {
-            throw new InvalidDataException($"prompt_templates.{id} is not defined");
-        }
-
         var values = new ScriptObject();
         foreach (var argument in arguments)
         {
             ArgumentNullException.ThrowIfNull(argument);
-            if (!template.Allowed.Contains(argument.Name))
-            {
-                throw new InvalidDataException($"prompt_templates.{id} does not allow argument '{argument.Name}'");
-            }
-
             if (!values.TryAdd(argument.Name, argument.Value))
             {
                 throw new InvalidDataException($"prompt_templates.{id} received duplicate argument '{argument.Name}'");

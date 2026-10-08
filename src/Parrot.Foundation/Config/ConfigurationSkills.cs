@@ -88,8 +88,7 @@ internal sealed partial class Configuration
     {
         try
         {
-            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-            return string.Equals(CanonicalPath(configured, $"{SkillsKey}.entries.path"), canonical, comparison);
+            return string.Equals(CanonicalPath(configured, $"{SkillsKey}.entries.path"), canonical, PlatformPath.Comparison);
         }
         catch (InvalidDataException)
         {

@@ -1,8 +1,11 @@
 using Parrot.Agent;
+using Parrot.Context;
 using Parrot.Events;
+using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Questions;
 using Parrot.Queues;
+using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
 
@@ -47,6 +50,42 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
     public IAgentRegistry Registry { get; }
 
     public IAgentQueues Queues { get; }
+
+    public AgentSession CreateRootSession(
+        AgentIdentity identity,
+        ProviderModel model,
+        IEventBroker eventBroker,
+        IEventRepository eventRepository,
+        string promptDirectory,
+        string blobDirectory,
+        CompactionGroupBlobStore compactionGroupBlobs,
+        Compactor compactor,
+        CancellationToken lifetime) =>
+        new(
+            identity,
+            AgentSessionParentScope.Root(),
+            new ModelSelector(model.Selector),
+            TestModels.Route(model),
+            eventBroker,
+            eventRepository,
+            [],
+            TestModels.MaterializePrompt(identity, promptDirectory, promptDirectory),
+            new ToolOutputBlobStore(blobDirectory),
+            new AgentOutputFile(blobDirectory),
+            compactionGroupBlobs,
+            compactor,
+            new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null),
+            new ContextCadence(),
+            TestModels.PromptTemplates,
+            ChildQuestions,
+            ExitReminder,
+            Profile,
+            new TestCompletionCallbacksFixture(ChildQuestions, ActiveWorkReminder, ExitReminder, eventRepository, eventBroker).Callbacks,
+            new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security,
+            Status,
+            new AgentSessionActivity(TimeProvider.System),
+            TestDiagnosticLog.Instance,
+            lifetime);
 
     public void Dispose() => ChildQuestions.Dispose();
 

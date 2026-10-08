@@ -34,10 +34,11 @@ internal sealed class StatePaths(string state, string config, string data)
             Path.Combine(Fallback(Lookup(environment, "XDG_DATA_HOME"), home, ".local", "share"), "parrotdotnet"));
     }
 
-    public static StatePaths ResolveFromEnvironment()
+    public static StatePaths ResolveFromEnvironment() => Resolve(CaptureEnvironment());
+
+    internal static Dictionary<string, string> CaptureEnvironment()
     {
         var environment = new Dictionary<string, string>(StringComparer.Ordinal);
-
         foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
         {
             if (entry.Key is string key && entry.Value is string value)
@@ -46,7 +47,7 @@ internal sealed class StatePaths(string state, string config, string data)
             }
         }
 
-        return Resolve(environment);
+        return environment;
     }
 
     private static string Lookup(IReadOnlyDictionary<string, string> environment, string name) =>

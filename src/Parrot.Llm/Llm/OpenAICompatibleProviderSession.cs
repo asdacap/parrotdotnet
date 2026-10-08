@@ -169,10 +169,6 @@ internal sealed class OpenAICompatibleProviderSession(
 
     private static bool Unsupported(int statusCode) => statusCode is 404 or 405 or 426;
 
-    private static bool IsVisible(LLMEvent published) =>
-        published.Kind is LLMEventKind.TextDelta or LLMEventKind.ReasoningDelta
-            or LLMEventKind.ToolCallDelta or LLMEventKind.Completed;
-
     // Settings and items are kept as hashes so no request body, and no Base64 image, outlives its call.
     private static string Settings(ResponsesAdapter.PreparedRequest prepared) =>
         Convert.ToHexStringLower(SHA256.HashData(prepared.EncodeWebSocket(string.Empty, [], string.Empty)));
@@ -191,7 +187,7 @@ internal sealed class OpenAICompatibleProviderSession(
             if (await attempt.MoveNext(cancellationToken).ConfigureAwait(false))
             {
                 var published = attempt.Current;
-                attempt.Visible |= IsVisible(published);
+                attempt.Visible |= published.IsVisibleOutput;
                 if (published.Kind == LLMEventKind.Completed)
                 {
                     StoreCompletion(attempt);

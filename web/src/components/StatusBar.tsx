@@ -1,9 +1,9 @@
 import { Loader2Icon } from "lucide-react"
-import { useEffect, useState } from "react"
 
 import { TurnModelAliasIconColor, type SessionUsageSnapshot, type TurnModelAliasIcon, type UserSession } from "@/gen/parrot_pb"
 import { Button } from "@/components/ui/button"
 import { formatDuration } from "@/lib/duration"
+import { useElapsedSince } from "@/lib/useElapsedSince"
 import { cn } from "@/lib/utils"
 import type { Activity } from "@/session/timeline"
 import { formatContext, formatCost, formatRate, formatTokenCount, formatTokens, type TokenRate } from "@/session/usageFormat"
@@ -34,23 +34,6 @@ function activityLabel(activity: Activity, busy: boolean): string {
   return busy ? "Working…" : ""
 }
 
-// Time since the main turn started here, counted locally.
-function useTurnElapsed(busy: boolean) {
-  const [elapsed, setElapsed] = useState(0)
-  useEffect(() => {
-    if (!busy) return
-    const started = Date.now()
-    const tick = () => { setElapsed(Date.now() - started) }
-    const reset = setTimeout(tick, 0)
-    const timer = setInterval(tick, 1000)
-    return () => {
-      clearTimeout(reset)
-      clearInterval(timer)
-    }
-  }, [busy])
-  return elapsed
-}
-
 interface StatusBarProps {
   session: UserSession
   modelIcon: TurnModelAliasIcon | undefined
@@ -63,7 +46,8 @@ interface StatusBarProps {
 }
 
 export function StatusBar({ session, modelIcon, activity, busy, usage, tokenRate, connected, onCycleMode }: StatusBarProps) {
-  const elapsed = useTurnElapsed(busy)
+  // Time since the main turn started here, counted locally.
+  const elapsed = useElapsedSince(busy, busy)
   const label = activityLabel(activity, busy)
   const context = usage ? formatContext(usage) : ""
   const contextLimit = Number(usage?.contextLimit ?? 0n)

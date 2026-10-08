@@ -5,12 +5,9 @@ namespace Parrot.Core.Tests;
 
 internal sealed class LastRequestDumperTests : IDisposable
 {
-    private readonly string _root = Path.Combine(
-        Path.GetTempPath(), "parrot-last-request-dumper-tests", Guid.NewGuid().ToString("n"));
+    private readonly string _root = Directory.CreateTempSubdirectory("parrot-last-request-dumper-tests-").FullName;
 
     private readonly RecordingDiagnosticLog _diagnostics = new();
-
-    public LastRequestDumperTests() => _ = Directory.CreateDirectory(_root);
 
     public void Dispose()
     {

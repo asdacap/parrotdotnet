@@ -117,31 +117,24 @@ internal sealed class AgentSessionHierarchy
         return IsRoot(targetSessionId) ? "main" : reference;
     }
 
-    public void Observe(ActiveShellProcess process)
+    public void ObserveOwner(string ownerSessionId, string ownerName, string parentSessionId, string parentName)
     {
-        ArgumentNullException.ThrowIfNull(process);
-        Observe(
-            process.OwnerAgentSessionId,
-            process.OwnerAgentName,
-            process.ParentAgentSessionId,
-            process.ParentAgentName);
-    }
+        if (ownerSessionId.Length == 0)
+        {
+            return;
+        }
 
-    public void Observe(QueueState queue)
-    {
-        ArgumentNullException.ThrowIfNull(queue);
-        Observe(
-            queue.OwnerAgentSessionId,
-            queue.OwnerAgentName,
-            queue.ParentAgentSessionId,
-            queue.ParentAgentName);
+        Update(ownerSessionId, parentSessionId, ownerName);
+        if (parentSessionId.Length > 0 && parentName.Length > 0)
+        {
+            Update(parentSessionId, string.Empty, parentName);
+        }
     }
 
     public bool IsDescendant(string agentSessionId, string ancestorSessionId)
     {
         var current = agentSessionId;
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        while (seen.Add(current) && _sessions.TryGetValue(current, out var node))
+        for (var steps = 0; steps < _sessions.Count && _sessions.TryGetValue(current, out var node); steps++)
         {
             if (string.Equals(node.ParentSessionId, ancestorSessionId, StringComparison.Ordinal))
             {
@@ -241,20 +234,6 @@ internal sealed class AgentSessionHierarchy
 
     private bool IsKnownChild(string agentSessionId) =>
         _sessions.TryGetValue(agentSessionId, out var node) && node.ParentSessionId.Length > 0;
-
-    private void Observe(string ownerSessionId, string ownerName, string parentSessionId, string parentName)
-    {
-        if (ownerSessionId.Length == 0)
-        {
-            return;
-        }
-
-        Update(ownerSessionId, parentSessionId, ownerName);
-        if (parentSessionId.Length > 0 && parentName.Length > 0)
-        {
-            Update(parentSessionId, string.Empty, parentName);
-        }
-    }
 
     private SessionNode Get(string agentSessionId)
     {

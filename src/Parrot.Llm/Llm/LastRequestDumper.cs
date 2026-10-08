@@ -21,12 +21,14 @@ internal sealed class LastRequestDumper(string path, IDiagnosticLog diagnostics)
                     File.WriteAllBytes(tempPath, body);
                     File.Move(tempPath, path, overwrite: true);
                 }
-                finally
+                catch
                 {
                     if (File.Exists(tempPath))
                     {
                         File.Delete(tempPath);
                     }
+
+                    throw;
                 }
             }
         }

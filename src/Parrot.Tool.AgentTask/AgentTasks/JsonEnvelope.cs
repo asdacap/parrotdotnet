@@ -4,8 +4,6 @@ namespace Parrot.AgentTasks;
 
 internal static class JsonEnvelope
 {
-    private const int MinimumFenceLength = 3;
-
     internal static string Extract(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -85,23 +83,8 @@ internal static class JsonEnvelope
         return blocks;
     }
 
-    private static bool StartsFence(string text, int lineStart, int lineEnd)
-    {
-        var index = lineStart;
-        while (index < lineEnd && char.IsWhiteSpace(text[index]))
-        {
-            index++;
-        }
-
-        var backticks = 0;
-        while (index < lineEnd && text[index] == '`')
-        {
-            backticks++;
-            index++;
-        }
-
-        return backticks >= MinimumFenceLength;
-    }
+    private static bool StartsFence(string text, int lineStart, int lineEnd) =>
+        text.AsSpan(lineStart, lineEnd - lineStart).TrimStart().StartsWith("```", StringComparison.Ordinal);
 
     private static bool IsEnvelope(string text)
     {

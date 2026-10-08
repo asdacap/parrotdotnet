@@ -1,3 +1,5 @@
+using Parrot.Files;
+
 namespace Parrot.Process;
 
 internal sealed class PipeProcessOutputFiles : IAsyncDisposable
@@ -50,7 +52,7 @@ internal sealed class PipeProcessOutputFiles : IAsyncDisposable
     internal static PipeProcessOutputFiles Open(string directory, Func<string> nextName)
     {
         ArgumentNullException.ThrowIfNull(nextName);
-        ProcessOutputBlobStore.EnsureDirectory(directory);
+        PrivateFile.EnsureDirectory(directory);
         var fullDirectory = Path.GetFullPath(directory);
 
         for (var attempt = 0; attempt < MaximumNameAttempts; attempt++)

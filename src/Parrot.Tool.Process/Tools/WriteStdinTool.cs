@@ -17,10 +17,7 @@ internal sealed class WriteStdinTool(IProcessOwner processes, IAgentResolver res
         try
         {
             ToolInputConversion.RequireObject(invocation.ArgumentsJson, "name");
-            var input = JsonSerializer.Deserialize(
-                invocation.ArgumentsJson,
-                OmittedAgentProcessToolJsonContext.Default.WriteStdinToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, OmittedAgentProcessToolJsonContext.Default.WriteStdinToolInput);
             var name = (input.Name ?? throw new FormatException("Tool arguments require a string 'name'.")).Trim();
             var text = input.Text ?? throw new FormatException("Tool arguments require a string 'input'.");
             var yieldAfter = ToolInputConversion.ConvertDelay(input.YieldAfterMilliseconds, "yield_after_ms")

@@ -28,8 +28,7 @@ internal sealed class AgentSendTool(
 
         try
         {
-            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, AgentProcessToolJsonContext.Default.AgentSendToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, AgentProcessToolJsonContext.Default.AgentSendToolInput);
             name = input.Name ?? throw new FormatException("Tool arguments require a string 'name'.");
             message = input.Message ?? throw new FormatException("Tool arguments require a string 'message'.");
 

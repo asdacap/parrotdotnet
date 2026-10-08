@@ -335,19 +335,7 @@ internal sealed class OpenAiOAuthClient(HttpClient client, IBrowserOpener browse
         await using (stream.ConfigureAwait(false))
         {
             var buffer = new byte[(1 << 20) + 1];
-            var total = 0;
-
-            while (total < buffer.Length)
-            {
-                var read = await stream.ReadAsync(buffer.AsMemory(total), cancellationToken).ConfigureAwait(false);
-
-                if (read == 0)
-                {
-                    break;
-                }
-
-                total += read;
-            }
+            var total = await stream.ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false, cancellationToken).ConfigureAwait(false);
 
             if (total > 1 << 20)
             {

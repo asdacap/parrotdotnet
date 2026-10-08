@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using Parrot.Cli.Enhanced.Tools;
 
 namespace Parrot.Cli.Enhanced;
 
@@ -36,7 +37,7 @@ internal sealed class DiffScrollbackValue(string status, string diff) : IScrollb
             output.AddRange(TerminalText.LayoutWords(cleanStatus, context.Columns).Select(context.Palette.Muted.Apply));
         }
 
-        var (source, sourceOmitted) = BoundSource(diff);
+        var source = ToolDisplayText.TruncateUtf8(diff, MaximumSourceCharacters, out var sourceOmitted);
         var clean = TerminalText.Sanitize(source).TrimEnd('\r', '\n');
         if (clean.Trim().Length == 0)
         {
@@ -64,24 +65,6 @@ internal sealed class DiffScrollbackValue(string status, string diff) : IScrollb
         }
 
         return output;
-    }
-
-    private static (string Source, bool Omitted) BoundSource(string value)
-    {
-        var source = new StringBuilder(Math.Min(value.Length, MaximumSourceCharacters));
-        var bytes = 0;
-        foreach (var rune in value.EnumerateRunes())
-        {
-            if (bytes + rune.Utf8SequenceLength > MaximumSourceCharacters)
-            {
-                return (source.ToString(), true);
-            }
-
-            _ = source.Append(rune);
-            bytes += rune.Utf8SequenceLength;
-        }
-
-        return (source.ToString(), false);
     }
 
     private static List<RenderedRow> RenderDiff(string raw, int columns, bool inlineDiff)
@@ -350,7 +333,7 @@ internal sealed class DiffScrollbackValue(string status, string diff) : IScrollb
 
     private static string ExpandTabs(string value)
     {
-        var output = new System.Text.StringBuilder(value.Length);
+        var output = new StringBuilder(value.Length);
         var column = 0;
         foreach (var rune in value.EnumerateRunes())
         {

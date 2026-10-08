@@ -6,7 +6,6 @@ namespace Parrot.Llm;
 
 internal sealed class OpenCodeGoUsageReporter(OpenAICompatibleOptions options, HttpClient client) : IUsageReporter
 {
-    private readonly HttpClient _client = client;
     private readonly Uri _usageEndpoint = HttpStreaming.EndpointUrl(
         options.BaseUrl, "usage", options.AllowInsecureLocalhost, options.AllowInsecureRemote);
 
@@ -15,11 +14,13 @@ internal sealed class OpenCodeGoUsageReporter(OpenAICompatibleOptions options, H
 
     public async Task<SubscriptionUsage> Usage(CancellationToken cancellationToken)
     {
+        var headers = await HttpStreaming.ResolveBearerHeaders(_apiKeySource, _providerId, cancellationToken).ConfigureAwait(false);
+        headers["User-Agent"] = $"{BuildInfo.ProductName}/{BuildInfo.Version}";
         var body = await HttpStreaming
             .Get(
-                _client,
+                client,
                 _usageEndpoint,
-                await AuthHeaders(cancellationToken).ConfigureAwait(false),
+                headers,
                 HttpStreaming.RequestTimeout,
                 HttpStreaming.MaxErrorBytes,
                 cancellationToken)
@@ -33,43 +34,10 @@ internal sealed class OpenCodeGoUsageReporter(OpenAICompatibleOptions options, H
             ? usageElement
             : root;
 
-        var primary = Window(usage, "rolling");
-        UsageWindow? secondary = null;
-
-        if (Window(usage, "weekly") is { } weekly)
-        {
-            if (primary is null)
-            {
-                primary = weekly;
-            }
-            else
-            {
-                secondary = weekly;
-            }
-        }
-
-        primary ??= Window(usage, "monthly");
-
+        var (primary, secondary) = Windows(usage, "rolling", "weekly", "monthly");
         if (primary is null)
         {
-            var legacyPrimary = Window(root, "rollingUsage");
-            UsageWindow? legacySecondary = null;
-
-            if (Window(root, "weeklyUsage") is { } legacyWeekly)
-            {
-                if (legacyPrimary is null)
-                {
-                    legacyPrimary = legacyWeekly;
-                }
-                else
-                {
-                    legacySecondary = legacyWeekly;
-                }
-            }
-
-            legacyPrimary ??= Window(root, "monthlyUsage");
-            primary = legacyPrimary;
-            secondary = legacySecondary;
+            (primary, secondary) = Windows(root, "rollingUsage", "weeklyUsage", "monthlyUsage");
         }
 
         UsageCredits? credits = null;
@@ -81,6 +49,30 @@ internal sealed class OpenCodeGoUsageReporter(OpenAICompatibleOptions options, H
         }
 
         return new SubscriptionUsage { PrimaryWindow = primary, SecondaryWindow = secondary, Credits = credits };
+    }
+
+    private static (UsageWindow? Primary, UsageWindow? Secondary) Windows(
+        JsonElement scope,
+        string rollingName,
+        string weeklyName,
+        string monthlyName)
+    {
+        var primary = Window(scope, rollingName);
+        UsageWindow? secondary = null;
+
+        if (Window(scope, weeklyName) is { } weekly)
+        {
+            if (primary is null)
+            {
+                primary = weekly;
+            }
+            else
+            {
+                secondary = weekly;
+            }
+        }
+
+        return (primary ?? Window(scope, monthlyName), secondary);
     }
 
     private static UsageWindow? Window(JsonElement root, string name)
@@ -131,21 +123,5 @@ internal sealed class OpenCodeGoUsageReporter(OpenAICompatibleOptions options, H
             value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed)
             ? parsed
             : null;
-    }
-
-    private async Task<Dictionary<string, string>> AuthHeaders(CancellationToken cancellationToken)
-    {
-        var apiKey = await _apiKeySource.ApiKey(cancellationToken).ConfigureAwait(false);
-
-        if (apiKey.Length == 0)
-        {
-            throw new LLMProviderException($"provider: \"{_providerId}\" has no API key");
-        }
-
-        return new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["Authorization"] = "Bearer " + apiKey,
-            ["User-Agent"] = $"{BuildInfo.ProductName}/{BuildInfo.Version}",
-        };
     }
 }

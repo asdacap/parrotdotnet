@@ -62,7 +62,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
                 diagnostics,
                 cancellationToken);
             var identity = AgentIdentity.Child(
-                "agent-child", AgentIdentity.Main(runtime.Parent.SessionId, "secret-parent", TestModels.PromptTemplates), "secret-child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates);
+                "agent-child", AgentIdentity.Main(runtime.Parent.SessionId, "secret-parent", TestModels.PromptTemplates), "secret-child", 1, AgentScope.Empty(TestModels.PromptTemplates), AgentPolicyLineage.Root(), TestModels.PromptTemplates);
             using var dependencies = TestModels.Dependencies(runtime.Parent.Identity, _broker, _repository, cancellationToken);
             IAgentSessionScope CreateChild() => registry.CreateChildScope(
                 identity,
@@ -1095,16 +1095,8 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
         Func<IReadOnlyList<AgentTask>, bool> condition,
         CancellationToken cancellationToken)
     {
-        while (true)
-        {
-            var tasks = service.Snapshot();
-            if (condition(tasks))
-            {
-                return tasks;
-            }
-
-            await Task.Delay(10, cancellationToken);
-        }
+        await TestPolling.Until(() => condition(service.Snapshot()), cancellationToken);
+        return service.Snapshot();
     }
 
     private async Task<string> WaitForAdmitted(string agentSessionId, string expected, CancellationToken cancellationToken)

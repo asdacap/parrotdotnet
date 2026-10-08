@@ -4,7 +4,6 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
-using Parrot.Security;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -755,7 +754,7 @@ internal sealed class EventPayloadTests
         using var dependencies = TestModels.Dependencies(identity, events, repository, cancellationToken);
         using var subscription = events.Subscribe();
         using var turns = events.Subscribe();
-        await using IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new AgentOutputFile(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
+        await using IAgentSession session = dependencies.CreateRootSession(identity, model, events, repository, ".", Path.GetTempPath(), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), CancellationToken.None);
 
         _ = await session.Send(
             [ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);

@@ -25,9 +25,6 @@ internal sealed partial class ToolWorkspace(string workingDirectory, IAgentPathE
 
     public string Root { get; } = Canonicalize(workingDirectory);
 
-    public static bool AllowsRead((string Lexical, string Physical) path, SecurityProfile security) =>
-        security.AllowsRead(path.Lexical) && security.AllowsRead(path.Physical);
-
     /// <summary>Replaces $NAME and ${NAME} references to the agent path environment, leaving unknown names as written.</summary>
     public string ExpandPath(string path) => PathVariable().Replace(path, match =>
         _pathVariables.TryGetValue(match.Groups["name"].Value, out var value) ? value : match.Value);
@@ -40,6 +37,12 @@ internal sealed partial class ToolWorkspace(string workingDirectory, IAgentPathE
         var lexical = ResolveLexical(path);
         var physical = ResolveLinks(lexical);
         return (lexical, physical);
+    }
+
+    public (string Lexical, string Physical) ResolveAllowedRead(string path, SecurityProfile security)
+    {
+        var resolved = ResolveRead(path);
+        return AllowsRead(resolved, security) ? resolved : throw new InvalidOperationException("access denied");
     }
 
     public FileStream OpenRegularReadWithoutLinks(string path, SecurityProfile security)
@@ -94,6 +97,9 @@ internal sealed partial class ToolWorkspace(string workingDirectory, IAgentPathE
 
         return new ToolMutationPath(physical, DisplayPath(physical));
     }
+
+    private static bool AllowsRead((string Lexical, string Physical) path, SecurityProfile security) =>
+        security.AllowsRead(path.Lexical) && security.AllowsRead(path.Physical);
 
     private static void ValidateRegularReadWithoutLinks(string lexical, string requested)
     {

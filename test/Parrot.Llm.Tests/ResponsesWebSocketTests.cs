@@ -280,7 +280,10 @@ internal sealed class ResponsesWebSocketTests
         bool accepted,
         CancellationToken cancellationToken)
     {
-        using var handler = new RecordingHttpHandler();
+        using var handler = new RecordingHttpHandler(_ => new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent(string.Empty),
+        });
         using var client = new HttpClient(handler, disposeHandler: false);
 
         async Task Send()
@@ -306,21 +309,7 @@ internal sealed class ResponsesWebSocketTests
             _ = await Assert.That(Send).Throws<ProviderHttpException>().WithMessageContaining("exceeds 3 bytes");
         }
 
-        _ = await Assert.That(handler.Calls).IsEqualTo(accepted ? 1 : 0);
-    }
-
-    private sealed class RecordingHttpHandler : HttpMessageHandler
-    {
-        public int Calls { get; private set; }
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            Calls++;
-            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-            {
-                Content = new StringContent(string.Empty),
-            });
-        }
+        _ = await Assert.That(handler.Requests.Count).IsEqualTo(accepted ? 1 : 0);
     }
 
     private sealed class RecordingConnector(WebSocket socket) : IResponsesWebSocketConnector

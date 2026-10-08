@@ -27,21 +27,13 @@ internal sealed class ExecCommandTool(
 
         try
         {
-            ToolInputConversion.RequireObject(invocation.ArgumentsJson, "command");
-            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, ExecCommandToolJsonContext.Default.ExecCommandToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
-            var command = input.Command ?? input.Cmd
-                ?? throw new FormatException("Tool arguments require a string 'command'.");
-            _ = input.Environment is null
-                ? ProcessEnvironmentOverrides.Empty
-                : new ProcessEnvironmentOverrides(input.Environment);
-            _ = ToolInputConversion.ConvertDelay(input.YieldAfterMilliseconds, "yield_after_ms");
+            var input = Input.Parse(invocation.ArgumentsJson);
             if (input.Name is { } name && name.Trim().Length == 0)
             {
                 return false;
             }
 
-            return command.Length > 0 && _readOnlyCommandClassifier.IsMatch(command);
+            return input.Command.Length > 0 && _readOnlyCommandClassifier.IsMatch(input.Command);
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
@@ -54,7 +46,6 @@ internal sealed class ExecCommandTool(
         AgentTurnSelection selection,
         CancellationToken cancellationToken)
     {
-        var argumentsJson = invocation.ArgumentsJson;
         string command;
         ProcessEnvironmentOverrides environment;
         string? name;
@@ -64,18 +55,7 @@ internal sealed class ExecCommandTool(
 
         try
         {
-            ToolInputConversion.RequireObject(argumentsJson, "command");
-            var input = JsonSerializer.Deserialize(argumentsJson, ExecCommandToolJsonContext.Default.ExecCommandToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
-            command = input.Command ?? input.Cmd
-                ?? throw new FormatException("Tool arguments require a string 'command'.");
-            environment = input.Environment is null
-                ? ProcessEnvironmentOverrides.Empty
-                : new ProcessEnvironmentOverrides(input.Environment);
-            name = input.Name;
-            description = input.Description;
-            yieldAfter = ToolInputConversion.ConvertDelay(input.YieldAfterMilliseconds, "yield_after_ms");
-            terminalMode = input.Terminal ? ShellProcessTerminalMode.PseudoTerminal : ShellProcessTerminalMode.Pipe;
+            (command, environment, name, description, yieldAfter, terminalMode) = Input.Parse(invocation.ArgumentsJson);
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
@@ -252,5 +232,18 @@ internal sealed class ExecCommandTool(
 
         [JsonPropertyName("tty")]
         public bool Terminal { get; init; }
+
+        public static (string Command, ProcessEnvironmentOverrides Environment, string? Name, string? Description, TimeSpan? YieldAfter, ShellProcessTerminalMode TerminalMode) Parse(string json)
+        {
+            ToolInputConversion.RequireObject(json, "command");
+            var input = ToolInputConversion.Deserialize(json, ExecCommandToolJsonContext.Default.ExecCommandToolInput);
+            return (
+                input.Command ?? input.Cmd ?? throw new FormatException("Tool arguments require a string 'command'."),
+                input.Environment is null ? ProcessEnvironmentOverrides.Empty : new ProcessEnvironmentOverrides(input.Environment),
+                input.Name,
+                input.Description,
+                ToolInputConversion.ConvertDelay(input.YieldAfterMilliseconds, "yield_after_ms"),
+                input.Terminal ? ShellProcessTerminalMode.PseudoTerminal : ShellProcessTerminalMode.Pipe);
+        }
     }
 }

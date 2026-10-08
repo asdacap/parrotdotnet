@@ -1353,15 +1353,10 @@ internal sealed class ParrotServiceTests : IDisposable
         return inputs;
     }
 
-    private static async Task WaitForPermission(
+    private static Task WaitForPermission(
         Agent.IUserSession session,
-        CancellationToken cancellationToken)
-    {
-        while (session.Permissions.Pending().Count == 0)
-        {
-            await Task.Delay(10, cancellationToken);
-        }
-    }
+        CancellationToken cancellationToken) =>
+        TestPolling.Until(() => session.Permissions.Pending().Count > 0, cancellationToken);
 
     private static ProviderRegistry Registry()
     {

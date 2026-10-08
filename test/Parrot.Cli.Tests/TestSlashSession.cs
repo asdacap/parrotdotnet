@@ -44,8 +44,6 @@ internal sealed class TestSlashSession(string model) : ISlashSession
 
     public List<ModelPreset> ModelPresets { get; set; } = [];
 
-    public int ListedModelPresets { get; private set; }
-
     public Task SelectModel(string model, CancellationToken cancellationToken)
     {
         Model = model;
@@ -71,7 +69,6 @@ internal sealed class TestSlashSession(string model) : ISlashSession
     public Task<IReadOnlyList<ModelPreset>> ListModelPresets(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        ListedModelPresets++;
         return Task.FromResult<IReadOnlyList<ModelPreset>>(ModelPresets);
     }
 

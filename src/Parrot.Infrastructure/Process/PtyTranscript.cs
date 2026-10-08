@@ -1,4 +1,5 @@
 using System.Text;
+using Parrot.Files;
 
 namespace Parrot.Process;
 
@@ -214,23 +215,11 @@ internal sealed class PtyTranscript(string directory) : IDisposable
             return _stream;
         }
 
-        ProcessOutputBlobStore.EnsureDirectory(_directory);
+        PrivateFile.EnsureDirectory(_directory);
         _temporaryPath = Path.Combine(_directory, $".process-{Guid.NewGuid():n}.tmp");
-        var options = new FileStreamOptions
-        {
-            Access = FileAccess.Write,
-            Mode = FileMode.CreateNew,
-            Share = FileShare.Read | FileShare.Delete,
-        };
-
-        if (!OperatingSystem.IsWindows())
-        {
-            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        }
-
         try
         {
-            _stream = new FileStream(_temporaryPath, options);
+            _stream = PrivateFile.CreateNew(_temporaryPath, FileShare.Read | FileShare.Delete, FileOptions.None);
             return _stream;
         }
         catch

@@ -3,7 +3,6 @@ namespace Parrot.Agent;
 internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionScope> validateChildAdmission) : IChildRegistry, IAsyncDisposable
 {
     private readonly Dictionary<string, IAgentSessionScope> _childrenByName = new(StringComparer.Ordinal);
-    private bool _accepting = true;
     private Task? _shutdown;
 
     public Lock Gate { get; } = new();
@@ -14,7 +13,7 @@ internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionSco
         {
             lock (Gate)
             {
-                return _accepting;
+                return _shutdown is null;
             }
         }
     }
@@ -31,7 +30,7 @@ internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionSco
                 return scope;
             }
 
-            if (!_accepting && _shutdown is not null)
+            if (_shutdown is not null)
             {
                 return null;
             }
@@ -51,7 +50,6 @@ internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionSco
         {
             if (_shutdown is null)
             {
-                _accepting = false;
                 children = [.. _childrenByName.Values];
                 _childrenByName.Clear();
                 completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -117,7 +115,7 @@ internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionSco
     {
         lock (Gate)
         {
-            return _accepting && _childrenByName.TryGetValue(name, out var child)
+            return _shutdown is null && _childrenByName.TryGetValue(name, out var child)
                 ? child
                 : null;
         }
@@ -129,7 +127,7 @@ internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionSco
 
         lock (Gate)
         {
-            if (!_accepting)
+            if (_shutdown is not null)
             {
                 return false;
             }
@@ -164,7 +162,7 @@ internal sealed class ChildRegistry(AgentIdentity owner, Action<IAgentSessionSco
     {
         lock (Gate)
         {
-            return _accepting ? [.. _childrenByName.Values] : [];
+            return _shutdown is null ? [.. _childrenByName.Values] : [];
         }
     }
 }

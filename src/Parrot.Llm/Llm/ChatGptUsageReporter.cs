@@ -1,20 +1,19 @@
 using System.Text.Json;
-using Parrot.Auth;
 using Parrot.Llm.Wire;
 
 namespace Parrot.Llm;
 
-internal sealed class ChatGptUsageReporter(IOAuthTokenSource tokens, HttpClient client) : IUsageReporter
+internal sealed class ChatGptUsageReporter(
+    Func<CancellationToken, Task<IReadOnlyDictionary<string, string>>> resolveHeaders,
+    HttpClient client) : IUsageReporter
 {
     private const string UsageEndpoint = "https://chatgpt.com/backend-api/wham/usage";
 
     public async Task<SubscriptionUsage> Usage(CancellationToken cancellationToken)
     {
-        var access = await tokens.Token(cancellationToken).ConfigureAwait(false);
-        RequireToken(access);
-
+        var headers = await resolveHeaders(cancellationToken).ConfigureAwait(false);
         var body = await HttpStreaming
-            .Get(client, new Uri(UsageEndpoint), Headers(access), HttpStreaming.RequestTimeout, HttpStreaming.MaxErrorBytes, cancellationToken)
+            .Get(client, new Uri(UsageEndpoint), headers, HttpStreaming.RequestTimeout, HttpStreaming.MaxErrorBytes, cancellationToken)
             .ConfigureAwait(false);
 
         using var document = JsonDocument.Parse(body);
@@ -56,30 +55,5 @@ internal sealed class ChatGptUsageReporter(IOAuthTokenSource tokens, HttpClient 
 
         var resetAt = DateTimeOffset.FromUnixTimeSeconds(JsonRead.Long(window, "reset_at"));
         return new UsageWindow(JsonRead.Number(window, "used_percent"), resetAt, JsonRead.Long(window, "limit_window_seconds"));
-    }
-
-    private static void RequireToken(OAuthAccess access)
-    {
-        if (access.AccessToken.Length == 0)
-        {
-            throw new LLMProviderException("provider: ChatGPT credential requires an access token");
-        }
-    }
-
-    private static Dictionary<string, string> Headers(OAuthAccess access)
-    {
-        var headers = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["Authorization"] = "Bearer " + access.AccessToken,
-            ["originator"] = "parrot",
-            ["User-Agent"] = "parrot",
-        };
-
-        if (access.AccountId.Length > 0)
-        {
-            headers["ChatGPT-Account-Id"] = access.AccountId;
-        }
-
-        return headers;
     }
 }

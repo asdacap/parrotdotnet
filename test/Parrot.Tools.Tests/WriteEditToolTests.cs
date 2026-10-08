@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Parrot.Agent;
-using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Security;
 using Parrot.Store;
@@ -12,17 +11,8 @@ namespace Parrot.Core.Tests;
 
 internal sealed class WriteEditToolTests : IDisposable
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), "parrot-write-edit-tests", Guid.NewGuid().ToString("n"));
-    private readonly string _externalRoot = Path.Combine(
-        Path.GetTempPath(),
-        "parrot-write-edit-external-tests",
-        Guid.NewGuid().ToString("n"));
-
-    public WriteEditToolTests()
-    {
-        _ = Directory.CreateDirectory(_root);
-        _ = Directory.CreateDirectory(_externalRoot);
-    }
+    private readonly string _root = Directory.CreateTempSubdirectory("parrot-write-edit-tests-").FullName;
+    private readonly string _externalRoot = Directory.CreateTempSubdirectory("parrot-write-edit-external-tests-").FullName;
 
     public void Dispose()
     {
@@ -47,7 +37,7 @@ internal sealed class WriteEditToolTests : IDisposable
     [Arguments("edit", "{\"path\":\"x\",\"old_string\":\"x\",\"new_string\":\"y\",\"replace_all\":\"false\"}")]
     public async Task Invalid_runtime_arguments_return_errors(string toolName, string arguments, CancellationToken cancellationToken)
     {
-        var result = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", arguments), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
+        var result = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", arguments), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
         _ = await Assert.That(result).StartsWith("error: ");
     }
 
@@ -66,7 +56,7 @@ internal sealed class WriteEditToolTests : IDisposable
     {
         var path = Path.Combine(_root, "untouched.txt");
         await File.WriteAllTextAsync(path, "old", cancellationToken);
-        var result = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", arguments), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
+        var result = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", arguments), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
         _ = await Assert.That(result).StartsWith("error: ");
         _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo("old");
         _ = await Assert.That(Directory.GetFileSystemEntries(_root)).HasSingleItem();
@@ -78,8 +68,8 @@ internal sealed class WriteEditToolTests : IDisposable
         var writePath = Path.Combine(_root, "empty.txt");
         var editPath = Path.Combine(_root, "delete.txt");
         await File.WriteAllTextAsync(editPath, "before-middle-after", cancellationToken);
-        var written = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments("empty.txt", string.Empty)), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
-        var edited = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArguments("delete.txt", "middle", string.Empty, false)), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
+        var written = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments("empty.txt", string.Empty)), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
+        var edited = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArguments("delete.txt", "middle", string.Empty, false)), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
         _ = await Assert.That(written).DoesNotStartWith("error: ");
         _ = await Assert.That(edited).DoesNotStartWith("error: ");
         _ = await Assert.That(new FileInfo(writePath).Length).IsEqualTo(0);
@@ -91,7 +81,7 @@ internal sealed class WriteEditToolTests : IDisposable
     {
         var path = Path.Combine(_root, "nested", "unicode.txt");
         const string content = "héllo\r\n世界\n";
-        var result = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments("nested/unicode.txt", content)), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
+        var result = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments("nested/unicode.txt", content)), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
         _ = await Assert.That(result).Contains("+++ b/nested/unicode.txt");
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
         _ = await Assert.That(bytes.AsSpan().SequenceEqual(Encoding.UTF8.GetBytes(content))).IsTrue();
@@ -109,8 +99,8 @@ internal sealed class WriteEditToolTests : IDisposable
     {
         var path = Path.Combine(_root, "file.txt");
         await File.WriteAllTextAsync(path, "before\n", cancellationToken);
-        var changed = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments("file.txt", "after\n")), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
-        var unchanged = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments("file.txt", "after\n")), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
+        var changed = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments("file.txt", "after\n")), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
+        var unchanged = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments("file.txt", "after\n")), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
         _ = await Assert.That(changed).Contains("-before");
         _ = await Assert.That(changed).Contains("+after");
         _ = await Assert.That(unchanged).IsEqualTo("No changes made.");
@@ -123,7 +113,7 @@ internal sealed class WriteEditToolTests : IDisposable
         var path = Path.Combine(_root, "endings.txt");
         byte[] original = [0xef, 0xbb, 0xbf, (byte)'a', 0x0d, 0x0a, (byte)'b', 0x0d, 0x0a];
         await File.WriteAllBytesAsync(path, original, cancellationToken);
-        _ = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments("endings.txt", "a\nb")), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
+        _ = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments("endings.txt", "a\nb")), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
         _ = await Assert.That((await File.ReadAllBytesAsync(path, cancellationToken)).AsSpan()
             .SequenceEqual(Encoding.UTF8.GetBytes("a\nb"))).IsTrue();
     }
@@ -142,7 +132,7 @@ internal sealed class WriteEditToolTests : IDisposable
             File.SetUnixFileMode(path, mode);
         }
 
-        var result = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments("stable.txt", "stable")), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
+        var result = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments("stable.txt", "stable")), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
         _ = await Assert.That(result).IsEqualTo("No changes made.");
         _ = await Assert.That(File.GetLastWriteTimeUtc(path)).IsEqualTo(timestamp);
         if (!OperatingSystem.IsWindows())
@@ -156,9 +146,9 @@ internal sealed class WriteEditToolTests : IDisposable
     {
         var path = Path.Combine(_root, "matches.txt");
         await File.WriteAllTextAsync(path, "one one", cancellationToken);
-        var multiple = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArgumentsWithoutReplaceAll("matches.txt", "one", "two")), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
-        var zero = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArgumentsWithoutReplaceAll("matches.txt", "missing", "two")), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
-        var allZero = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArguments("matches.txt", "missing", "two", true)), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
+        var multiple = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArgumentsWithoutReplaceAll("matches.txt", "one", "two")), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
+        var zero = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArgumentsWithoutReplaceAll("matches.txt", "missing", "two")), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
+        var allZero = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArguments("matches.txt", "missing", "two", true)), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
         _ = await Assert.That(multiple).StartsWith("error: ");
         _ = await Assert.That(multiple).Contains("2");
         _ = await Assert.That(zero).StartsWith("error: ");
@@ -172,8 +162,8 @@ internal sealed class WriteEditToolTests : IDisposable
     {
         var path = Path.Combine(_root, "ordinal.txt");
         await File.WriteAllTextAsync(path, "aaaa A", cancellationToken);
-        var changed = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArguments("ordinal.txt", "aa", "b", true)), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
-        var identical = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArguments("ordinal.txt", "bb", "bb", false)), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
+        var changed = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArguments("ordinal.txt", "aa", "b", true)), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
+        var identical = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArguments("ordinal.txt", "bb", "bb", false)), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
         _ = await Assert.That(changed).Contains("+bb A");
         _ = await Assert.That(identical).IsEqualTo("No changes made.");
         _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo("bb A");
@@ -189,7 +179,7 @@ internal sealed class WriteEditToolTests : IDisposable
             new ToolInvocation(
                 "test-call",
                 EditArguments("multiline.txt", "first\nsecond", "ONE\r\nTWO", false)),
-            new MutationTurnFixture(WritableProfile()).Selection,
+            TestTurnSelection.Create(WritableProfile()),
             cancellationToken)).Text;
         _ = await Assert.That(result).DoesNotStartWith("error: ");
         _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken))
@@ -202,7 +192,7 @@ internal sealed class WriteEditToolTests : IDisposable
         var path = Path.Combine(_root, "mixed.txt");
         byte[] original = [0xef, 0xbb, 0xbf, (byte)'a', 0x0d, 0x0a, (byte)'b', 0x0d, (byte)'c', 0x0a];
         await File.WriteAllBytesAsync(path, original, cancellationToken);
-        _ = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArguments("mixed.txt", "b", "β", false)), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
+        _ = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArguments("mixed.txt", "b", "β", false)), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
         byte[] expected = [0xef, 0xbb, 0xbf, (byte)'a', 0x0d, 0x0a, 0xce, 0xb2, 0x0d, (byte)'c', 0x0a];
         _ = await Assert.That((await File.ReadAllBytesAsync(path, cancellationToken)).AsSpan().SequenceEqual(expected)).IsTrue();
     }
@@ -214,7 +204,7 @@ internal sealed class WriteEditToolTests : IDisposable
     {
         var path = Path.Combine(_root, "bad.txt");
         await File.WriteAllBytesAsync(path, bytes, cancellationToken);
-        var result = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArguments("bad.txt", "a", "x", true)), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
+        var result = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArguments("bad.txt", "a", "x", true)), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
         _ = await Assert.That(result).StartsWith("error: ");
         _ = await Assert.That((await File.ReadAllBytesAsync(path, cancellationToken)).AsSpan().SequenceEqual(bytes)).IsTrue();
     }
@@ -237,7 +227,7 @@ internal sealed class WriteEditToolTests : IDisposable
         }) ?? throw new InvalidOperationException("Could not start mkfifo.");
         await process.WaitForExitAsync(cancellationToken);
         _ = await Assert.That(process.ExitCode).IsEqualTo(0);
-        var mutation = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, fifo)), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
+        var mutation = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, fifo)), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
         _ = await Assert.That(mutation).StartsWith("error: ");
     }
 
@@ -249,9 +239,9 @@ internal sealed class WriteEditToolTests : IDisposable
         var target = Directory.CreateDirectory(Path.Combine(_root, "target")).FullName;
         await File.WriteAllTextAsync(Path.Combine(target, "file.txt"), "old", cancellationToken);
         _ = Directory.CreateSymbolicLink(Path.Combine(_root, "alias"), target);
-        var escape = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, "../escape.txt")), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
-        var denied = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, "denied.txt")), new MutationTurnFixture(SecurityProfile.Compose(true, [], [], [])).Selection, cancellationToken)).Text;
-        var linked = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, "alias/file.txt")), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
+        var escape = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, "../escape.txt")), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
+        var denied = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, "denied.txt")), TestTurnSelection.Create(SecurityProfile.Compose(true, [], [], [])), cancellationToken)).Text;
+        var linked = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, "alias/file.txt")), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
         _ = await Assert.That(escape).StartsWith("error: ");
         _ = await Assert.That(denied).StartsWith("error: ");
         _ = await Assert.That(linked).StartsWith("error: ");
@@ -276,7 +266,7 @@ internal sealed class WriteEditToolTests : IDisposable
 
         foreach (var path in new[] { directory.FullName, Path.Combine(regularParent, "child.txt"), fileLink, danglingLink })
         {
-            var result = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, path)), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
+            var result = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, path)), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
             _ = await Assert.That(result).StartsWith("error: ");
         }
 
@@ -296,7 +286,7 @@ internal sealed class WriteEditToolTests : IDisposable
                 [],
                 [],
                 [new SandboxRule(externalDirectory.FullName, SandboxRuleAction.AllowWrite)]);
-            var created = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments(external, "new")), new MutationTurnFixture(allowed).Selection, cancellationToken)).Text;
+            var created = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments(external, "new")), TestTurnSelection.Create(allowed), cancellationToken)).Text;
             _ = await Assert.That(created).DoesNotStartWith("error: ");
 
             var denied = SecurityProfile.Compose(
@@ -307,7 +297,7 @@ internal sealed class WriteEditToolTests : IDisposable
                     new SandboxRule(externalDirectory.FullName, SandboxRuleAction.AllowWrite),
                     new SandboxRule(external, SandboxRuleAction.DenyWrite),
                 ]);
-            var result = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments(external, "changed")), new MutationTurnFixture(denied).Selection, cancellationToken)).Text;
+            var result = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments(external, "changed")), TestTurnSelection.Create(denied), cancellationToken)).Text;
             _ = await Assert.That(result).StartsWith("error: ");
             _ = await Assert.That(await File.ReadAllTextAsync(external, cancellationToken)).IsEqualTo("new");
         }
@@ -327,8 +317,8 @@ internal sealed class WriteEditToolTests : IDisposable
         ITool write = new WriteTool(workspace);
         ITool edit = new EditTool(workspace);
 
-        var written = (await write.Execute(new ToolInvocation("test-call", WriteArguments("file.txt", "old")), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
-        var edited = (await edit.Execute(new ToolInvocation("test-call", EditArguments("file.txt", "old", "new", false)), new MutationTurnFixture(WritableProfile()).Selection, cancellationToken)).Text;
+        var written = (await write.Execute(new ToolInvocation("test-call", WriteArguments("file.txt", "old")), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
+        var edited = (await edit.Execute(new ToolInvocation("test-call", EditArguments("file.txt", "old", "new", false)), TestTurnSelection.Create(WritableProfile()), cancellationToken)).Text;
 
         _ = await Assert.That(written).DoesNotStartWith("error: ");
         _ = await Assert.That(edited).DoesNotStartWith("error: ");
@@ -346,7 +336,7 @@ internal sealed class WriteEditToolTests : IDisposable
         try
         {
             var profile = SecurityProfile.Compose(true, [], [], [new SandboxRule(external, SandboxRuleAction.AllowWrite)]);
-            var result = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, external)), new MutationTurnFixture(profile).Selection, cancellationToken)).Text;
+            var result = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, external)), TestTurnSelection.Create(profile), cancellationToken)).Text;
             _ = await Assert.That(result).DoesNotStartWith("error: ");
             _ = await Assert.That(await File.ReadAllTextAsync(external, cancellationToken)).IsEqualTo("new");
         }
@@ -370,8 +360,8 @@ internal sealed class WriteEditToolTests : IDisposable
         await File.WriteAllTextAsync(denied, "old", cancellationToken);
         var profile = SecurityProfile.Compose(true, [], [], [new SandboxRule(allowed, SandboxRuleAction.AllowWrite)]);
 
-        var allowedResult = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, allowed)), new MutationTurnFixture(profile).Selection, cancellationToken)).Text;
-        var deniedResult = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, denied)), new MutationTurnFixture(profile).Selection, cancellationToken)).Text;
+        var allowedResult = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, allowed)), TestTurnSelection.Create(profile), cancellationToken)).Text;
+        var deniedResult = (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, denied)), TestTurnSelection.Create(profile), cancellationToken)).Text;
 
         _ = await Assert.That(allowedResult).DoesNotStartWith("error: ");
         _ = await Assert.That(deniedResult).StartsWith("error: ");
@@ -390,8 +380,8 @@ internal sealed class WriteEditToolTests : IDisposable
         await File.WriteAllTextAsync(existing, "old", cancellationToken);
         var profile = SecurityProfile.Compose(true, [], [], [new SandboxRule(directory.FullName, SandboxRuleAction.AllowWrite)]);
 
-        var edited = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArguments(existing, "old", "new", false)), new MutationTurnFixture(profile).Selection, cancellationToken)).Text;
-        var written = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments(created, "created")), new MutationTurnFixture(profile).Selection, cancellationToken)).Text;
+        var edited = (await new MutationToolFixture(_root, "edit").Tool.Execute(new ToolInvocation("test-call", EditArguments(existing, "old", "new", false)), TestTurnSelection.Create(profile), cancellationToken)).Text;
+        var written = (await new MutationToolFixture(_root, "write").Tool.Execute(new ToolInvocation("test-call", WriteArguments(created, "created")), TestTurnSelection.Create(profile), cancellationToken)).Text;
 
         _ = await Assert.That(edited).DoesNotStartWith("error: ");
         _ = await Assert.That(written).DoesNotStartWith("error: ");
@@ -422,15 +412,15 @@ internal sealed class WriteEditToolTests : IDisposable
 
         var written = (await write.Execute(
             new ToolInvocation("write-sibling", WriteArguments(siblingFile, "old")),
-            new MutationTurnFixture(profile).Selection,
+            TestTurnSelection.Create(profile),
             cancellationToken)).Text;
         var edited = (await edit.Execute(
             new ToolInvocation("edit-sibling", EditArguments(siblingFile, "old", "new", false)),
-            new MutationTurnFixture(profile).Selection,
+            TestTurnSelection.Create(profile),
             cancellationToken)).Text;
         var denied = (await write.Execute(
             new ToolInvocation("write-other-session", WriteArguments(deniedFile, "denied")),
-            new MutationTurnFixture(profile).Selection,
+            TestTurnSelection.Create(profile),
             cancellationToken)).Text;
 
         _ = await Assert.That(written).DoesNotStartWith("error: ");
@@ -452,7 +442,7 @@ internal sealed class WriteEditToolTests : IDisposable
 
         using var cancellation = new CancellationTokenSource();
         await cancellation.CancelAsync();
-        _ = await Assert.That(async () => (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, "cancel.txt")), new MutationTurnFixture(WritableProfile()).Selection, cancellation.Token)).Text).Throws<OperationCanceledException>();
+        _ = await Assert.That(async () => (await new MutationToolFixture(_root, toolName).Tool.Execute(new ToolInvocation("test-call", Arguments(toolName, "cancel.txt")), TestTurnSelection.Create(WritableProfile()), cancellation.Token)).Text).Throws<OperationCanceledException>();
     }
 
     [Test]
@@ -462,7 +452,7 @@ internal sealed class WriteEditToolTests : IDisposable
     {
         var scratch = Directory.CreateDirectory(Path.Combine(_root, "scratch")).FullName;
         var workspace = new ToolWorkspace(_root, new PathEnvironmentFixture(new() { ["AGENT_SCRATCH_DIR"] = scratch }));
-        var selection = new MutationTurnFixture(WritableProfile()).Selection;
+        var selection = TestTurnSelection.Create(WritableProfile());
 
         _ = await new WriteTool(workspace).Execute(new ToolInvocation("write", WriteArguments(path, "old")), selection, cancellationToken);
         _ = await new EditTool(workspace).Execute(new ToolInvocation("edit", EditArguments(path, "old", "new", false)), selection, cancellationToken);
@@ -536,21 +526,6 @@ internal sealed class WriteEditToolTests : IDisposable
         public IReadOnlyList<KeyValuePair<string, string>> Materialize() => [.. variables];
 
         public ProcessEnvironmentOverrides Merge(ProcessEnvironmentOverrides overrides) => throw new NotSupportedException();
-    }
-
-    private sealed class MutationTurnFixture
-    {
-        public MutationTurnFixture(SecurityProfile securityProfile)
-        {
-            var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
-            Selection = new AgentTurnSelection(
-                new ModelSelector(model.Selector),
-                TestModels.Resolve(model),
-                new TestProfileFixture().Profile,
-                securityProfile);
-        }
-
-        public AgentTurnSelection Selection { get; }
     }
 
     private sealed class MutationToolFixture

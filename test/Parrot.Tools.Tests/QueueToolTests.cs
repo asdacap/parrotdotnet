@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Parrot.Agent;
-using Parrot.Llm;
 using Parrot.Queues;
 using Parrot.Security;
 using Parrot.Tools;
@@ -18,7 +17,7 @@ internal sealed class QueueToolTests
         ITool tool = new QueueTakeTool(queues, new ResourceResolverFixture(null, null), TestDiagnosticLog.Instance);
         var result = await tool.Execute(
             new ToolInvocation("call", "{\"name\":\"work\",\"yield_after_ms\":20}"),
-            new SelectionFixture().Selection,
+            TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             cancellationToken);
 
         using var document = JsonDocument.Parse(result.Text);
@@ -35,13 +34,13 @@ internal sealed class QueueToolTests
         ITool takeTool = new QueueTakeTool(queues, new ResourceResolverFixture(null, null), TestDiagnosticLog.Instance);
         var waiting = takeTool.Execute(
             new ToolInvocation("take", "{\"name\":\"work\",\"yield_after_ms\":30000}"),
-            new SelectionFixture().Selection,
+            TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             cancellationToken);
 
         ITool pushTool = new QueuePushTool(queues, new ResourceResolverFixture(null, null), new ToolWorkspace(Environment.CurrentDirectory), TestDiagnosticLog.Instance);
         _ = await pushTool.Execute(
             new ToolInvocation("close", "{\"name\":\"work\",\"items\":[],\"close\":true}"),
-            new SelectionFixture().Selection,
+            TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             cancellationToken);
         var completed = await Task.WhenAny(waiting, Task.Delay(TimeSpan.FromSeconds(1), cancellationToken));
         _ = await Assert.That(completed).IsSameReferenceAs(waiting);
@@ -63,15 +62,15 @@ internal sealed class QueueToolTests
 
         var closed = await tool.Execute(
             new ToolInvocation("close", "{\"name\":\"work\",\"items\":[\"final\"],\"close\":true}"),
-            new SelectionFixture().Selection,
+            TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             cancellationToken);
         var closedAgain = await tool.Execute(
             new ToolInvocation("close-again", "{\"name\":\"work\",\"items\":[],\"close\":true}"),
-            new SelectionFixture().Selection,
+            TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             cancellationToken);
         var late = await tool.Execute(
             new ToolInvocation("late", "{\"name\":\"work\",\"items\":[\"late\"]}"),
-            new SelectionFixture().Selection,
+            TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             cancellationToken);
         var taken = queues.TryTake("work", 1, Parrot.Queues.QueueDirection.Front);
 
@@ -94,13 +93,13 @@ internal sealed class QueueToolTests
 
         var neither = await tool.Execute(
             new ToolInvocation("neither", "{\"name\":\"work\"}"),
-            new SelectionFixture().Selection,
+            TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             cancellationToken);
         var both = await tool.Execute(
             new ToolInvocation(
                 "both",
                 "{\"name\":\"work\",\"items\":[],\"source_file\":\"items.txt\"}"),
-            new SelectionFixture().Selection,
+            TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             cancellationToken);
 
         _ = await Assert.That(neither.Text)
@@ -140,7 +139,7 @@ internal sealed class QueueToolTests
         _ = local.Create("local-only", string.Empty);
         _ = target.Local.Create("work", "target");
         var resolver = new ResourceResolverFixture(target, null);
-        var selection = new SelectionFixture().Selection;
+        var selection = TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], []));
         ITool info = new QueueInfoTool(local, resolver);
         ITool push = new QueuePushTool(local, resolver, new ToolWorkspace(Environment.CurrentDirectory), TestDiagnosticLog.Instance);
         ITool take = new QueueTakeTool(local, resolver, TestDiagnosticLog.Instance);
@@ -166,7 +165,7 @@ internal sealed class QueueToolTests
     {
         await using var fixture = TestModels.Queues(AgentIdentity.Main("path-error", "main", TestModels.PromptTemplates));
         var resolver = new ResourceResolverFixture(null, null);
-        var selection = new SelectionFixture().Selection;
+        var selection = TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], []));
         ITool[] tools =
         [
             new QueueInfoTool(fixture.Queues, resolver),
@@ -179,25 +178,5 @@ internal sealed class QueueToolTests
             var result = await tools[index].Execute(new ToolInvocation("call", arguments[index]), selection, cancellationToken);
             _ = await Assert.That(result.Text).IsEqualTo("error: resource owner unavailable");
         }
-    }
-
-    private sealed class SelectionFixture
-    {
-        public SelectionFixture()
-        {
-            ILLMProvider provider = new UnusedProvider();
-            var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-            Selection = new AgentTurnSelection(
-                new ModelSelector(model.Selector),
-                new ResolvedModelSelection(
-                    new ModelSelector(model.Selector),
-                    null,
-                    model,
-                    new ModelRoutingSnapshot(model.Selector, new ModelAliasSnapshot([]), 0)),
-                new TestProfileFixture().Profile,
-                SecurityProfile.Compose(readOnly: false, [], [], []));
-        }
-
-        public AgentTurnSelection Selection { get; }
     }
 }

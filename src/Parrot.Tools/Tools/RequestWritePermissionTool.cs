@@ -20,10 +20,7 @@ internal sealed class RequestWritePermissionTool(
     {
         try
         {
-            var input = JsonSerializer.Deserialize(
-                invocation.ArgumentsJson,
-                RequestWritePermissionJsonContext.Default.RequestWritePermissionToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, RequestWritePermissionJsonContext.Default.RequestWritePermissionToolInput);
             var paths = input.Paths ?? throw new FormatException("Tool arguments require an array 'paths'.");
             var reason = input.Reason?.Trim() ?? throw new FormatException("Tool arguments require a string 'reason'.");
             if (paths.Length == 0)

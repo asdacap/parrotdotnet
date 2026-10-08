@@ -36,11 +36,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new ShellProcessOwner(arguments.Identity, arguments.Resources, arguments.PathEnvironment, arguments.ProcessRunner, arguments.Diagnostics, arguments.Lifetime);
             })
-            .Bind<AgentIdentity>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.Identity;
-            })
+            .Bind<AgentIdentity>().To((AgentSessionScopeArguments arguments) => arguments.Identity)
             .Bind<ChildRegistry>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
@@ -72,67 +68,23 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             })
             .Bind<IChildQuestion>().As(Lifetime.Scoped).To<ChildQuestion>()
             .Bind<IChildQuestionCoordinator>().As(Lifetime.Scoped).To<ChildQuestionCoordinator>()
-            .Bind<ModelSelector>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.Model;
-            })
-            .Bind<IModelRouter>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.Router;
-            })
-            .Bind<IEventBroker>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.EventBroker;
-            })
-            .Bind<IUserSessionStatistics>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.EventRepository.GetRuntimeStatistics();
-            })
+            .Bind<ModelSelector>().To((AgentSessionScopeArguments arguments) => arguments.Model)
+            .Bind<IModelRouter>().To((AgentSessionScopeArguments arguments) => arguments.Router)
+            .Bind<IEventBroker>().To((AgentSessionScopeArguments arguments) => arguments.EventBroker)
+            .Bind<IUserSessionStatistics>().To((AgentSessionScopeArguments arguments) => arguments.EventRepository.GetRuntimeStatistics())
             .Bind<AgentSessionStatistics>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<IUserSessionStatistics>(out var userStatistics);
                 return userStatistics.GetAgentStatistics(arguments.Identity.SessionId);
             })
-            .Bind<IEventRepository>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.EventRepository;
-            })
-            .Bind<ToolDefinitionCatalog>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.ToolDefinitions;
-            })
-            .Bind<ToolWorkspace>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.Workspace;
-            })
-            .Bind<IImageArtifactRepository>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.Images;
-            })
-            .Bind<WebFetcher>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.WebFetcher;
-            })
-            .Bind<RequestLimitsConfig>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.RequestLimits;
-            })
-            .Bind<AgentSendConfig>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.AgentSend;
-            })
+            .Bind<IEventRepository>().To((AgentSessionScopeArguments arguments) => arguments.EventRepository)
+            .Bind<ToolDefinitionCatalog>().To((AgentSessionScopeArguments arguments) => arguments.ToolDefinitions)
+            .Bind<ToolWorkspace>().To((AgentSessionScopeArguments arguments) => arguments.Workspace)
+            .Bind<IImageArtifactRepository>().To((AgentSessionScopeArguments arguments) => arguments.Images)
+            .Bind<WebFetcher>().To((AgentSessionScopeArguments arguments) => arguments.WebFetcher)
+            .Bind<RequestLimitsConfig>().To((AgentSessionScopeArguments arguments) => arguments.RequestLimits)
+            .Bind<AgentSendConfig>().To((AgentSessionScopeArguments arguments) => arguments.AgentSend)
             .Bind<IAgentTaskService>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
@@ -149,36 +101,16 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                     arguments.Diagnostics,
                     arguments.Lifetime);
             })
-            .Bind<IReadOnlyList<string>>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.ReadOnlyExecCommandPrefixes;
-            })
-            .Bind<IQuestionBroker>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.UserQuestions;
-            })
+            .Bind<IReadOnlyList<string>>().To((AgentSessionScopeArguments arguments) => arguments.ReadOnlyExecCommandPrefixes)
+            .Bind<IQuestionBroker>().To((AgentSessionScopeArguments arguments) => arguments.UserQuestions)
             .Bind<CompactionGroupBlobStore>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new CompactionGroupBlobStore(arguments.Scratch);
             })
-            .Bind<Compactor>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.Compactor;
-            })
-            .Bind<IPromptTemplateCatalog>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.PromptTemplates;
-            })
-            .Bind<IAgentProfile>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.Profile;
-            })
+            .Bind<Compactor>().To((AgentSessionScopeArguments arguments) => arguments.Compactor)
+            .Bind<IPromptTemplateCatalog>().To((AgentSessionScopeArguments arguments) => arguments.PromptTemplates)
+            .Bind<IAgentProfile>().To((AgentSessionScopeArguments arguments) => arguments.Profile)
             .Bind<IRuntimeStatus>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
@@ -191,27 +123,11 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                         new AgentTaskStatusProvider(agentTasks, arguments.PromptTemplates),
                     ]);
             })
-            .Bind<TimeProvider>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.TimeProvider;
-            })
-            .Bind<AgentSessionSecurity>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.Security;
-            })
-            .Bind<AgentSkills>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.Skills;
-            })
+            .Bind<TimeProvider>().To((AgentSessionScopeArguments arguments) => arguments.TimeProvider)
+            .Bind<AgentSessionSecurity>().To((AgentSessionScopeArguments arguments) => arguments.Security)
+            .Bind<AgentSkills>().To((AgentSessionScopeArguments arguments) => arguments.Skills)
             .Bind<ContextCadence>().As(Lifetime.Scoped).To<ContextCadence>()
-            .Bind<IDiagnosticLog>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.Diagnostics;
-            })
+            .Bind<IDiagnosticLog>().To((AgentSessionScopeArguments arguments) => arguments.Diagnostics)
             .Bind<ProviderSessions>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
@@ -222,11 +138,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                         Path.Combine(arguments.Scratch.Root, "last_request.json"),
                         arguments.Diagnostics));
             })
-            .Bind<IPermissionBroker>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.Permissions;
-            })
+            .Bind<IPermissionBroker>().To((AgentSessionScopeArguments arguments) => arguments.Permissions)
             .Bind<IAgentQueues>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);

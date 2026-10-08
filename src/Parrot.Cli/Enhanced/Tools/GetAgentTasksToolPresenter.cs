@@ -157,11 +157,11 @@ internal sealed class GetAgentTasksToolPresenter(IToolPresenter generic) : ITool
 
     private static string Icon(string state) => state switch
     {
-        "pending" => "○",
-        "running" => "◐",
-        "succeeded" => "✓",
-        "failed" => "✗",
-        "canceled" => "■",
+        "pending" => TerminalIcons.Pending,
+        "running" => TerminalIcons.Running,
+        "succeeded" => TerminalIcons.Success,
+        "failed" => TerminalIcons.Failure,
+        "canceled" => TerminalIcons.Interrupted,
         _ => throw new FormatException("Unsupported task execution state."),
     };
 }

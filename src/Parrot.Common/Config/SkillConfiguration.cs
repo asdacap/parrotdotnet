@@ -12,10 +12,9 @@ internal sealed record SkillConfiguration(bool Enabled, IReadOnlyList<SkillConfi
             return false;
         }
 
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         var normalized = PlatformPath.Normalize(canonicalPath);
         var match = Entries.LastOrDefault(entry =>
-            string.Equals(PlatformPath.Normalize(entry.Path), normalized, comparison));
+            string.Equals(PlatformPath.Normalize(entry.Path), normalized, PlatformPath.Comparison));
         return match is null || match.Enabled;
     }
 }

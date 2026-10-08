@@ -1,12 +1,12 @@
 using System.Text.Json;
+using Parrot.Files;
+using Parrot.Llm;
 
 namespace Parrot.Cli.Enhanced.Tools;
 
-internal sealed class EditToolPresenter : IToolPresenter
+internal sealed class FileMutationToolPresenter(string toolName) : IToolPresenter
 {
-    private const string NoChanges = "No changes made.";
-
-    public string ToolName => "edit";
+    public string ToolName => toolName;
 
     public ToolPresentationMetadata Metadata => ToolPresentationMetadata.Default;
 
@@ -31,7 +31,7 @@ internal sealed class EditToolPresenter : IToolPresenter
         }
 
         if (!terminal.ResultPresent || terminal.Result.Length == 0
-            || string.Equals(terminal.Result, NoChanges, StringComparison.Ordinal))
+            || string.Equals(terminal.Result, FileMutation.NoChanges, StringComparison.Ordinal))
         {
             return ToolBlock.Empty;
         }
@@ -52,16 +52,12 @@ internal sealed class EditToolPresenter : IToolPresenter
         return result.AsSpan(firstLineEnd + 1).StartsWith("+++ ", StringComparison.Ordinal);
     }
 
-    private static string Label(string path) => $"edit {path}";
-
     private static string Path(string argumentsJson)
     {
         using var document = JsonDocument.Parse(argumentsJson);
         var root = document.RootElement;
-        return root.ValueKind == JsonValueKind.Object
-            && root.TryGetProperty("path", out var path)
-            && path.ValueKind == JsonValueKind.String
-                ? path.GetString() ?? string.Empty
-                : string.Empty;
+        return root.ValueKind == JsonValueKind.Object ? JsonRead.String(root, "path") : string.Empty;
     }
+
+    private string Label(string path) => $"{toolName} {path}";
 }

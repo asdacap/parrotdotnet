@@ -1,4 +1,5 @@
 using Parrot.Cli.Enhanced;
+using Parrot.Core.Tests;
 
 namespace Parrot.Cli.Tests;
 
@@ -12,7 +13,7 @@ internal sealed class QuestionCountdownTests
     public async Task Countdown_rounds_clamps_refreshes_and_omits_unknown_timing(
         long milliseconds, long afterOneSecond, string label)
     {
-        var time = new CountdownTimeProvider();
+        var time = new ControlledTimeProvider();
         var countdown = new QuestionCountdown(time);
         _ = await Assert.That(countdown.GetRemainingSeconds()).IsNull();
         countdown.Update(milliseconds);
@@ -30,16 +31,5 @@ internal sealed class QuestionCountdownTests
         _ = await Assert.That(countdown.GetRemainingSeconds()).IsEqualTo(2);
         countdown.Update(null);
         _ = await Assert.That(countdown.GetRemainingSeconds()).IsNull();
-    }
-
-    private sealed class CountdownTimeProvider : TimeProvider
-    {
-        private long _timestamp;
-
-        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
-
-        public override long GetTimestamp() => _timestamp;
-
-        public void Advance(TimeSpan elapsed) => _timestamp += elapsed.Ticks;
     }
 }

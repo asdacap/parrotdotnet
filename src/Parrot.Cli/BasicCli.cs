@@ -83,8 +83,8 @@ internal sealed class BasicCli(
         }
 
         return text.Length > 0
-            ? await Once(session.Id, text, output, error, cancellationToken).ConfigureAwait(false)
-            : await Loop(session, input, output, error, cancellationToken).ConfigureAwait(false);
+            ? await Once(session.Id, text, cancellationToken).ConfigureAwait(false)
+            : await Loop(session, cancellationToken).ConfigureAwait(false);
     }
 
     internal static async Task WritePlanReport(
@@ -373,8 +373,6 @@ internal sealed class BasicCli(
     private async Task<int> Once(
         string userSessionId,
         string prompt,
-        TextWriter output,
-        TextWriter error,
         CancellationToken cancellationToken)
     {
         using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -396,12 +394,7 @@ internal sealed class BasicCli(
         return completed ? CommandDispatcher.ExitSuccess : CommandDispatcher.ExitFailure;
     }
 
-    private async Task<int> Loop(
-        UserSession initialSession,
-        TextReader input,
-        TextWriter output,
-        TextWriter error,
-        CancellationToken cancellationToken)
+    private async Task<int> Loop(UserSession initialSession, CancellationToken cancellationToken)
     {
         if (initialSession.Loaded && InitialSession is null)
         {
@@ -414,8 +407,7 @@ internal sealed class BasicCli(
             .ConfigureAwait(false);
 
         using var application = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        await using var binding = new BasicSlashSessionBinding(
-            client, initialSession.Id, this, output, error, application.Token);
+        await using var binding = new BasicSlashSessionBinding(client, initialSession.Id, this, application.Token);
         var session = SlashSession.Create(
             client, initialSession, configuration, true, new CliSlashSessionBinding(binding.Replace));
         _session = session;
@@ -444,27 +436,22 @@ internal sealed class BasicCli(
 
         try
         {
-            await Ready(output, application.Token).ConfigureAwait(false);
+            await Ready(application.Token).ConfigureAwait(false);
 
             while (!application.IsCancellationRequested)
             {
                 if (_permissions.Read() is { } permissionRequest)
                 {
                     await _permissions.Present(permissionRequest, dialog, application.Token).ConfigureAwait(false);
-                    await Ready(output, application.Token).ConfigureAwait(false);
+                    await Ready(application.Token).ConfigureAwait(false);
                     continue;
                 }
 
                 if (_questions.Read() is { } question)
                 {
-                    await CompleteQuestion(
-                        question.Session.UserSessionId,
-                        question.Pending,
-                        input,
-                        output,
-                        error,
-                        application.Token).ConfigureAwait(false);
-                    await Ready(output, application.Token).ConfigureAwait(false);
+                    await CompleteQuestion(question.Session.UserSessionId, question.Pending, application.Token)
+                        .ConfigureAwait(false);
+                    await Ready(application.Token).ConfigureAwait(false);
                     continue;
                 }
 
@@ -484,7 +471,7 @@ internal sealed class BasicCli(
                 var entered = line.Trim();
                 if (entered.Length == 0)
                 {
-                    await Ready(output, application.Token).ConfigureAwait(false);
+                    await Ready(application.Token).ConfigureAwait(false);
                     continue;
                 }
 
@@ -496,7 +483,7 @@ internal sealed class BasicCli(
                         break;
                     }
 
-                    await Ready(output, application.Token).ConfigureAwait(false);
+                    await Ready(application.Token).ConfigureAwait(false);
                     continue;
                 }
 
@@ -504,7 +491,7 @@ internal sealed class BasicCli(
                     .ConfigureAwait(false);
                 if (message is null)
                 {
-                    await Ready(output, application.Token).ConfigureAwait(false);
+                    await Ready(application.Token).ConfigureAwait(false);
                     continue;
                 }
 
@@ -518,23 +505,16 @@ internal sealed class BasicCli(
             interrupts.Remove();
             _ = _interrupts.Writer.TryComplete();
             await application.CancelAsync().ConfigureAwait(false);
-            if (_questionReconciliationCancellation is { } questionCancellation)
-            {
-                await questionCancellation.CancelAsync().ConfigureAwait(false);
-                await Task.WhenAll(interrupting, reconcilingPermissions, _reconcilingQuestions).ConfigureAwait(false);
-                questionCancellation.Dispose();
-            }
-            else
-            {
-                await Task.WhenAll(interrupting, reconcilingPermissions).ConfigureAwait(false);
-            }
+            var questionCancellation = _questionReconciliationCancellation;
+            await questionCancellation.CancelAsync().ConfigureAwait(false);
+            await Task.WhenAll(interrupting, reconcilingPermissions, _reconcilingQuestions).ConfigureAwait(false);
+            questionCancellation.Dispose();
         }
 
         return CommandDispatcher.ExitSuccess;
     }
 
-    private async Task Render(
-        IAsyncStreamReader<Event> stream, TextWriter output, TextWriter error, CancellationToken cancellationToken)
+    private async Task Render(IAsyncStreamReader<Event> stream, CancellationToken cancellationToken)
     {
         PlanCompleted? plan = null;
 
@@ -563,29 +543,25 @@ internal sealed class BasicCli(
                     return Task.CompletedTask;
                 },
                 cancellationToken).ConfigureAwait(false);
+            _busy = false;
+            _interruptRequested = false;
             if (!completed)
             {
-                _busy = false;
-                _interruptRequested = false;
-                await Ready(output, cancellationToken).ConfigureAwait(false);
+                await Ready(cancellationToken).ConfigureAwait(false);
                 return;
             }
 
-            _busy = false;
-            _interruptRequested = false;
-
             if (plan is not null)
             {
-                await CompletePlan(plan, output, error, cancellationToken).ConfigureAwait(false);
+                await CompletePlan(plan, cancellationToken).ConfigureAwait(false);
                 plan = null;
             }
 
-            await Ready(output, cancellationToken).ConfigureAwait(false);
+            await Ready(cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private async Task CompletePlan(
-        PlanCompleted completed, TextWriter output, TextWriter error, CancellationToken cancellationToken)
+    private async Task CompletePlan(PlanCompleted completed, CancellationToken cancellationToken)
     {
         if (completed.Dialog is null || _session is null)
         {
@@ -628,13 +604,7 @@ internal sealed class BasicCli(
         _ = await client.SendMessageAsync(new SendMessageRequest { UserSessionId = _session.Id, Text = selected, Delivery = Delivery.Queue }, cancellationToken: cancellationToken);
     }
 
-    private async Task CompleteQuestion(
-        string userSessionId,
-        PendingQuestion pending,
-        TextReader input,
-        TextWriter output,
-        TextWriter error,
-        CancellationToken cancellationToken)
+    private async Task CompleteQuestion(string userSessionId, PendingQuestion pending, CancellationToken cancellationToken)
     {
         var reply = new ReplyQuestionRequest
         {
@@ -729,7 +699,7 @@ internal sealed class BasicCli(
         }
     }
 
-    private async Task Ready(TextWriter output, CancellationToken cancellationToken)
+    private async Task Ready(CancellationToken cancellationToken)
     {
         if (_busy || cancellationToken.IsCancellationRequested)
         {
@@ -744,8 +714,6 @@ internal sealed class BasicCli(
         GeneratedParrot.ParrotClient client,
         string initialSessionId,
         BasicCli cli,
-        TextWriter output,
-        TextWriter error,
         CancellationToken lifetimeToken) : IAsyncDisposable
     {
         private (CancellationTokenSource Cancellation, AsyncServerStreamingCall<Event> Call) _stream =
@@ -770,7 +738,7 @@ internal sealed class BasicCli(
         {
             if (_rendering.IsCompleted)
             {
-                _rendering = cli.Render(_stream.Call.ResponseStream, output, error, _stream.Cancellation.Token);
+                _rendering = cli.Render(_stream.Call.ResponseStream, _stream.Cancellation.Token);
             }
         }
 

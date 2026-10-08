@@ -44,8 +44,8 @@ internal sealed class ChatGptProvider : ILLMProvider
             client,
             new Uri("https://chatgpt.com/backend-api/codex/images/generations"),
             new Uri("https://chatgpt.com/backend-api/codex/images/edits"),
-            ImageHeaders);
-        UsageReporter = new ChatGptUsageReporter(tokens, client);
+            ResolveHeaders);
+        UsageReporter = new ChatGptUsageReporter(ResolveHeaders, client);
         _client = client;
         _declared = declared;
         _defaults = defaults;
@@ -98,12 +98,10 @@ internal sealed class ChatGptProvider : ILLMProvider
 
     public async Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken)
     {
-        var access = await _tokens.Token(cancellationToken).ConfigureAwait(false);
-        RequireToken(access);
-
+        var headers = await ResolveHeaders(cancellationToken).ConfigureAwait(false);
         var uri = new Uri($"{ModelsEndpoint}?client_version={ModelsClientVersion}");
         var body = await HttpStreaming
-            .Get(_client, uri, Headers(access), HttpStreaming.ModelsRefreshTimeout, 16 << 20, cancellationToken)
+            .Get(_client, uri, headers, HttpStreaming.ModelsRefreshTimeout, 16 << 20, cancellationToken)
             .ConfigureAwait(false);
 
         return ModelCatalogue.Merge(DecodeModels(body), _declared, _defaults, _external);
@@ -209,7 +207,7 @@ internal sealed class ChatGptProvider : ILLMProvider
         return headers;
     }
 
-    private async Task<IReadOnlyDictionary<string, string>> ImageHeaders(CancellationToken cancellationToken)
+    private async Task<IReadOnlyDictionary<string, string>> ResolveHeaders(CancellationToken cancellationToken)
     {
         var access = await _tokens.Token(cancellationToken).ConfigureAwait(false);
         RequireToken(access);
@@ -236,48 +234,22 @@ internal sealed class ChatGptProvider : ILLMProvider
             headers["x-codex-turn-state"] = turnState;
         }
 
-        if (body.Length > MaximumRequestBytes)
-        {
-            throw new ProviderHttpException($"provider: request exceeds {MaximumRequestBytes} bytes");
-        }
-
-        var events = Send(null, cancellationToken);
-        if (request.Diagnostics is { } diagnostics)
-        {
-            events = diagnostics.Trace(Send, "http_sse", cancellationToken);
-        }
-
-        await foreach (var published in events.ConfigureAwait(false))
+        await foreach (var published in HttpStreaming
+            .StreamEvents(
+                _client,
+                _endpoint,
+                body,
+                headers,
+                HeaderTimeout,
+                StreamIdleTimeout,
+                MaximumRequestBytes,
+                request,
+                captureTurnState,
+                ResponsesAdapter.Parse,
+                cancellationToken)
+            .ConfigureAwait(false))
         {
             yield return published;
-        }
-
-        async IAsyncEnumerable<LLMEvent> Send(IProviderAttemptDiagnostics? attempt, [EnumeratorCancellation] CancellationToken sendCancellationToken)
-        {
-            attempt?.RecordRequestBytes(body.Length);
-            request.Diagnostics?.DumpRequest(body);
-            yield return LLMEvent.HttpRequestStarted();
-            var response = await HttpStreaming
-                .OpenStream(_client, _endpoint, body, headers, HeaderTimeout, StreamIdleTimeout, MaximumRequestBytes, attempt, sendCancellationToken)
-                .ConfigureAwait(false);
-            foreach (var header in response.Headers)
-            {
-                if (header.Key.Equals("x-codex-turn-state", StringComparison.OrdinalIgnoreCase))
-                {
-                    captureTurnState(header.Value);
-                    break;
-                }
-            }
-
-            await using (response.ConfigureAwait(false))
-            {
-                yield return LLMEvent.HttpResponseHeadersReceived();
-                await foreach (var published in
-                    ResponsesAdapter.Parse(response.Content, HttpStreaming.MaxEventBytes, sendCancellationToken).ConfigureAwait(false))
-                {
-                    yield return published;
-                }
-            }
         }
     }
 

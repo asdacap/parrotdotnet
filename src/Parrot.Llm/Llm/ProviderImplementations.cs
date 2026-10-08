@@ -27,7 +27,8 @@ internal static class ProviderImplementations
             ["opencode-go"] = new CompatibleProviderImplementation(
                 StandardModelDecoder.Instance,
                 supportsProviderPreferences: false,
-                static (options, client) => new OpenCodeGoProvider(options, client)),
+                static (options, client) => new UsageReportingProvider(
+                    new OpenAICompatibleProvider(options, client), new OpenCodeGoUsageReporter(options, client))),
             ["kimi-code"] = new CompatibleProviderImplementation(
                 KimiModelDecoder.Instance,
                 supportsProviderPreferences: false,
@@ -35,7 +36,8 @@ internal static class ProviderImplementations
             ["kimi-api"] = new CompatibleProviderImplementation(
                 StandardModelDecoder.Instance,
                 supportsProviderPreferences: false,
-                static (options, client) => new KimiProvider(options, client)),
+                static (options, client) => new UsageReportingProvider(
+                    new OpenAICompatibleProvider(options, client), new KimiUsageReporter(options, client))),
         };
 
     public static IProviderImplementation Resolve(string id) => Known.GetValueOrDefault(id) ?? Compatible;

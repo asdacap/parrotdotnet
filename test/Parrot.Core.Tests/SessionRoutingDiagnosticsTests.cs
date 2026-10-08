@@ -1,15 +1,7 @@
 using Parrot.Agent;
-using Parrot.AgentTasks;
-using Parrot.Config;
-using Parrot.Context;
-using Parrot.Diagnostics;
 using Parrot.Llm;
-using Parrot.Process;
 using Parrot.Protocol;
-using Parrot.Skills;
-using Parrot.State;
 using Parrot.Store;
-using Parrot.Web;
 
 namespace Parrot.Core.Tests;
 
@@ -25,41 +17,12 @@ internal sealed class SessionRoutingDiagnosticsTests
         _ = Directory.CreateDirectory(root);
         try
         {
-            var paths = new StatePaths(Path.Combine(root, "state"), Path.Combine(root, "config"), Path.Combine(root, "data"));
-            using var diagnostics = new DiagnosticLogs(paths, FileDiagnosticLog.CreateInstanceId(), TextWriter.Null, TimeProvider.System);
             using var provider = new SteppedProvider(
                 LLMEvent.Completed("stop", 1, 0, 1, "private-root-response-sentinel", []),
                 LLMEvent.Completed("stop", 1, 0, 1, "private-other-response-sentinel", []),
                 LLMEvent.Completed("stop", 1, 0, 1, "private-child-response-sentinel", []));
-            var configuration = Configuration.Load(paths.ConfigFile, paths.PredefinedConfigFile);
             var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 100_000 });
-            var router = TestModels.Route(model);
-            var profiles = new ProfileRegistry(configuration.Profiles, configuration.SandboxRules, [], configuration.DisabledTools);
-            var modes = new ModeRegistry(profiles, configuration.DefaultProfile);
-            var web = WebFetcher.Create(new PublicWebAddressPolicy());
-            var source = new AgentSessionFactorySource(
-                ProcessRunner.Locate(ExecutableLocator.Capture()),
-                new Compactor(90, 30, 60_000, 1024, configuration.PromptTemplates),
-                web,
-                configuration.ToolDefinitions,
-                configuration.AgentTasks,
-                configuration.AgentSend,
-                configuration.RequestLimits,
-                configuration.ReadOnlyExecCommandPrefixes,
-                router,
-                [],
-                configuration.PromptTemplates,
-                static (arguments, scope) => new AgentSessionComposition(arguments, scope));
-            var factory = new UserSessionFactory(
-                source,
-                modes,
-                configuration.PromptTemplates,
-                profiles,
-                new SkillCatalogFactory(configuration, root, Path.Combine(root, "skills")),
-                TimeSpan.FromSeconds(30),
-                TimeProvider.System,
-                AgentTaskParser.ParseArtifact);
-            var store = new SessionStore(paths, root, "host", factory, router, modes, diagnostics);
+            using var fixture = new ProductionSessionStoreFixture(root, model, passThroughSandbox: false);
             string firstId;
             string secondId;
             string firstLogPath;
@@ -67,8 +30,8 @@ internal sealed class SessionRoutingDiagnosticsTests
             string firstAgentId;
             string secondAgentId;
             const string childId = "agent-routing-child";
-            await using (var first = await store.CreateFresh(router.Resolve(model.Selector), modes.Default, false))
-            await using (var second = await store.CreateFresh(router.Resolve(model.Selector), modes.Default, false))
+            await using (var first = await fixture.Store.CreateFresh(fixture.Router.Resolve(model.Selector), fixture.Modes.Default, false))
+            await using (var second = await fixture.Store.CreateFresh(fixture.Router.Resolve(model.Selector), fixture.Modes.Default, false))
             {
                 firstId = first.Id;
                 secondId = second.Id;
@@ -83,8 +46,9 @@ internal sealed class SessionRoutingDiagnosticsTests
                     firstScope.Session.Identity,
                     "child",
                     1,
-                    AgentScope.Empty(configuration.PromptTemplates),
-                    configuration.PromptTemplates);
+                    AgentScope.Empty(fixture.Configuration.PromptTemplates),
+                    AgentPolicyLineage.Root(),
+                    fixture.Configuration.PromptTemplates);
                 await using var child = first.Registry.CreateChildScope(
                     childIdentity,
                     AgentSessionParentLink.Child(firstScope, AgentCompletionDeliveryPolicy.RetainedOnly, first.Registry.ReserveRetainedAgent()),
@@ -135,7 +99,7 @@ internal sealed class SessionRoutingDiagnosticsTests
             _ = await Assert.That(beforeResume).Contains("category=\"session\" event=\"closed\"");
             _ = await Assert.That(beforeResume.IndexOf("category=\"agent\" event=\"closed\"", StringComparison.Ordinal)
                 < beforeResume.IndexOf("event=\"producers_stopped\"", StringComparison.Ordinal)).IsTrue();
-            await using (var resumed = (await store.Resume(UserSessionId.Parse(firstId), false)).Session)
+            await using (var resumed = (await fixture.Store.Resume(UserSessionId.Parse(firstId), false)).Session)
             {
                 _ = await Assert.That(resumed.Id).IsEqualTo(firstId);
                 var resumedLog = await File.ReadAllTextAsync(firstLogPath, cancellationToken);
@@ -143,7 +107,7 @@ internal sealed class SessionRoutingDiagnosticsTests
                 _ = await Assert.That(resumedLog).Contains("category=\"session\" event=\"resume\"");
             }
 
-            foreach (var logPath in Directory.GetFiles(paths.State, "*.log", SearchOption.AllDirectories))
+            foreach (var logPath in Directory.GetFiles(fixture.Paths.State, "*.log", SearchOption.AllDirectories))
             {
                 var log = await File.ReadAllTextAsync(logPath, cancellationToken);
                 _ = await Assert.That(log).DoesNotContain("private-").And.DoesNotContain("https://example.invalid");

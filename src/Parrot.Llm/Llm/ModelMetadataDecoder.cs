@@ -16,8 +16,8 @@ internal static class ModelMetadataDecoder
         var name = string.Empty;
         var hasName = readName && JsonRead.TryReadString(metadata, "name", out name);
         var hasContext = TryReadFirstNonNegativeInt(metadata, contextFields, out var contextWindow);
-        var hasMaxTokens = TryReadNonNegativeInt(metadata, "max_output_tokens", out var maxOutputTokens);
-        var hasMaxInputTokens = TryReadNonNegativeInt(metadata, "max_input_tokens", out var maxInputTokens);
+        var hasMaxTokens = JsonRead.TryReadNonNegativeInt(metadata, "max_output_tokens", out var maxOutputTokens);
+        var hasMaxInputTokens = JsonRead.TryReadNonNegativeInt(metadata, "max_input_tokens", out var maxInputTokens);
         var hasInputPrice = JsonRead.TryReadNonNegativeNumber(metadata, "input_cost_per_token", out var inputPrice);
         var hasCachedInputPrice = JsonRead.TryReadNonNegativeNumber(
             metadata, "cache_read_input_token_cost", out var cachedInputPrice);
@@ -85,21 +85,10 @@ internal static class ModelMetadataDecoder
     {
         foreach (var name in names)
         {
-            if (TryReadNonNegativeInt(metadata, name, out result))
+            if (JsonRead.TryReadNonNegativeInt(metadata, name, out result))
             {
                 return true;
             }
-        }
-
-        result = 0;
-        return false;
-    }
-
-    private static bool TryReadNonNegativeInt(JsonElement metadata, string name, out int result)
-    {
-        if (JsonRead.TryReadInt(metadata, name, out result) && result >= 0)
-        {
-            return true;
         }
 
         result = 0;

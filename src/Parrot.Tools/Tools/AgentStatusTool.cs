@@ -5,7 +5,6 @@ using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Process;
-using Parrot.Statuses;
 
 namespace Parrot.Tools;
 
@@ -28,10 +27,7 @@ internal sealed class AgentStatusTool(IAgentResolver resolver) : ITool
         string name;
         try
         {
-            var input = JsonSerializer.Deserialize(
-                invocation.ArgumentsJson,
-                AgentProcessToolJsonContext.Default.AgentStatusToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, AgentProcessToolJsonContext.Default.AgentStatusToolInput);
             name = input.Name ?? throw new FormatException("Tool arguments require a string 'name'.");
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
@@ -168,11 +164,8 @@ internal sealed class AgentStatusTool(IAgentResolver resolver) : ITool
         var activeChildren = childScope.ChildRegistry.SnapshotDescendants()
             .Where(session => session.IsActive()
                 && string.Equals(session.ParentSessionId, childScope.Session.SessionId, StringComparison.Ordinal))
-            .Select(static session => new ActiveWorkObservation(
-                session.SessionId,
-                session.Name,
-                ActiveWorkState.Running))
-            .OrderBy(static observation => observation.Id, StringComparer.Ordinal)
+            .OrderBy(static session => session.SessionId, StringComparer.Ordinal)
+            .Select(static session => session.Name)
             .ToArray();
         _ = report.Append("\nActive direct subagents:");
         if (activeChildren.Length == 0)
@@ -181,22 +174,20 @@ internal sealed class AgentStatusTool(IAgentResolver resolver) : ITool
         }
         else
         {
-            foreach (var child in activeChildren)
+            foreach (var childName in activeChildren)
             {
-                _ = report.Append("\n- ").Append(child.Name);
+                _ = report.Append("\n- ").Append(childName);
             }
         }
 
         var activeProcesses = childScope.GetService<IProcessOwner>().Snapshot();
         _ = report.Append("\nActive processes:");
-        var count = 0;
         foreach (var process in activeProcesses)
         {
             _ = report.Append("\n- ").Append(process.Name).Append(" (").Append(process.Id).Append(", shell, running)");
-            count++;
         }
 
-        if (count == 0)
+        if (activeProcesses.Count == 0)
         {
             _ = report.Append(" none");
         }

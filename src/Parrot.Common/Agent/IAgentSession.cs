@@ -111,10 +111,6 @@ internal interface IAgentSession : IAsyncDisposable
     /// <summary>Materializes tools allowed by the captured selection.</summary>
     IReadOnlyList<LLMToolDefinition> AdvertisedToolDefinitions(AgentTurnSelection selection);
 
-    ContextSnapshot EstimateContextForTools(
-        AgentTurnSelection selection,
-        IReadOnlyList<LLMToolDefinition> tools);
-
     /// <summary>Estimates context with a prospective tool result without persisting that result.</summary>
     ContextSnapshot EstimateContextAfterToolResult(
         AgentTurnSelection selection,

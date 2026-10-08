@@ -52,14 +52,14 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             AgentIdentity.Main(firstAgent.SessionId, firstAgent.Name, TestModels.PromptTemplates),
             resources,
             new AgentPathEnvironment(resources, resources.AgentScratch(firstAgent.Identity.NamePath)),
-            new ProcessRunner(CreateSandboxPassThrough()),
+            TestModels.Runner(SandboxPassThrough.Write(_workspace)),
             TestDiagnosticLog.Instance,
             lifetime.Token);
         await using var second = new ShellProcessOwner(
             AgentIdentity.Main(secondAgent.SessionId, secondAgent.Name, TestModels.PromptTemplates),
             resources,
             new AgentPathEnvironment(resources, resources.AgentScratch(secondAgent.Identity.NamePath)),
-            new ProcessRunner(CreateSandboxPassThrough()),
+            TestModels.Runner(SandboxPassThrough.Write(_workspace)),
             TestDiagnosticLog.Instance,
             lifetime.Token);
         var security = SecurityProfile.Compose(readOnly: false, [], [], []);
@@ -151,7 +151,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
             new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
-            new ProcessRunner(CreateSandboxPassThrough()),
+            TestModels.Runner(SandboxPassThrough.Write(_workspace)),
             TestDiagnosticLog.Instance,
             lifetime.Token);
         var process = owner.Start(
@@ -165,10 +165,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             ShellProcessTerminalMode.Pipe,
             new ShellProcessCompletionReport());
 
-        while (!process.Completed)
-        {
-            await Task.Delay(10, cancellationToken);
-        }
+        await TestPolling.Until(() => process.Completed, cancellationToken);
 
         _ = await Assert.That(owner.Active()).HasSingleItem();
         if (commitResult)
@@ -208,7 +205,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
             new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
-            new ProcessRunner(CreateSandboxPassThrough()),
+            TestModels.Runner(SandboxPassThrough.Write(_workspace)),
             TestDiagnosticLog.Instance,
             lifetime.Token);
         var marker = Path.Combine(_workspace, "allow-completion");
@@ -226,10 +223,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
 
         database.Dispose();
         await File.WriteAllTextAsync(marker, string.Empty, cancellationToken);
-        while (!process.Completed)
-        {
-            await Task.Delay(10, cancellationToken);
-        }
+        await TestPolling.Until(() => process.Completed, cancellationToken);
 
         await owner.Settle().WaitAsync(cancellationToken);
 
@@ -264,7 +258,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
             new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
-            new ProcessRunner(CreateSandboxPassThrough()),
+            TestModels.Runner(SandboxPassThrough.Write(_workspace)),
             TestDiagnosticLog.Instance,
             lifetime.Token);
         var completionMarker = Path.Combine(_workspace, "complete");
@@ -346,7 +340,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
             new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
-            new ProcessRunner(CreateSandboxPassThrough()),
+            TestModels.Runner(SandboxPassThrough.Write(_workspace)),
             TestDiagnosticLog.Instance,
             lifetime.Token);
         var completionMarker = Path.Combine(_workspace, "fault");
@@ -465,7 +459,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
             new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
-            new ProcessRunner(exitCode == -3 ? string.Empty : CreateSandboxPassThrough()),
+            TestModels.Runner(exitCode == -3 ? string.Empty : SandboxPassThrough.Write(_workspace)),
             diagnostics,
             lifetime.Token);
         if (exitCode == -3)
@@ -503,10 +497,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             await owner.Claim(process.Name).SendSignal(new ProcessSignal(15), cancellationToken);
         }
 
-        while (!process.Completed)
-        {
-            await Task.Delay(10, cancellationToken);
-        }
+        await TestPolling.Until(() => process.Completed, cancellationToken);
 
         await lifetime.CancelAsync();
         await owner.Settle();
@@ -533,25 +524,6 @@ internal sealed class ShellProcessOwnersTests : IDisposable
     {
         var identity = AgentIdentity.Main(sessionId, sessionId, TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, events, repository, lifetime);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(blobDirectory), new AgentOutputFile(blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
-    }
-
-    private string CreateSandboxPassThrough()
-    {
-        if (!OperatingSystem.IsLinux())
-        {
-            throw new PlatformNotSupportedException();
-        }
-
-        var path = Path.Combine(_workspace, $"sandbox-{Guid.NewGuid():n}");
-        var script = "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do\n"
-            + "  if [ \"$1\" = \"--chdir\" ]; then shift; cd \"$1\" || exit; "
-            + "elif [ \"$1\" = \"--setenv\" ]; then export \"$2=$3\"; shift 2; fi\n"
-            + "  shift\ndone\nshift\nexec \"$@\"\n";
-        File.WriteAllText(path, script);
-        File.SetUnixFileMode(
-            path,
-            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        return path;
+        return dependencies.CreateRootSession(identity, model, events, repository, _workspace, blobDirectory, TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), lifetime);
     }
 }

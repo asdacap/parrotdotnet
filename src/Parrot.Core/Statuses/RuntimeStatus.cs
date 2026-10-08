@@ -1,7 +1,6 @@
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Context;
-using Parrot.Llm;
 
 namespace Parrot.Statuses;
 
@@ -22,30 +21,6 @@ internal sealed class RuntimeStatus : IRuntimeStatus
         _full = new StatusRegistry([new GeneratedTimeStatusProvider(timeProvider, templates), new SelectionStatusProvider(templates), .. runtimeProviders]);
     }
 
-    public Task<string> ObserveWithTools(
-        IAgentSession session,
-        AgentTurnSelection selection,
-        IAgentProfile profile,
-        IReadOnlyList<LLMToolDefinition> tools,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(session);
-        ArgumentNullException.ThrowIfNull(selection);
-        ArgumentNullException.ThrowIfNull(profile);
-        ArgumentNullException.ThrowIfNull(tools);
-        IStatusProvider contextStatus = new ContextStatusProvider(session.EstimateContextForTools(selection, tools), _templates);
-        return _full.ObserveWithProvider(
-            new StatusQuery(
-                session.SessionId,
-                session.ParentSessionId,
-                session.ParentSessionName,
-                profile.Id,
-                selection.RequestedModel.Value),
-            new ProfileStatusProvider($"profile:{profile.Id}", profile.Prompt),
-            contextStatus,
-            cancellationToken);
-    }
-
     public Task<string> ObserveRuntime(
         IAgentSession session,
         AgentTurnSelection selection,
@@ -55,12 +30,7 @@ internal sealed class RuntimeStatus : IRuntimeStatus
         ArgumentNullException.ThrowIfNull(selection);
         IStatusProvider contextStatus = new ContextStatusProvider(session.EstimateContext(selection), _templates);
         return _activity.ObserveWithProvider(
-            new StatusQuery(
-                session.SessionId,
-                session.ParentSessionId,
-                session.ParentSessionName,
-                selection.Profile.Id,
-                selection.RequestedModel.Value),
+            StatusQuery.Create(session, selection.Profile.Id, selection.RequestedModel.Value),
             null,
             contextStatus,
             cancellationToken);
@@ -75,12 +45,7 @@ internal sealed class RuntimeStatus : IRuntimeStatus
         ArgumentNullException.ThrowIfNull(selection);
         var statistics = new StatusRegistry(new StatisticsStatusProvider(session.CaptureStatistics(), _templates));
         return statistics.Observe(
-            new StatusQuery(
-                session.SessionId,
-                session.ParentSessionId,
-                session.ParentSessionName,
-                selection.Profile.Id,
-                selection.RequestedModel.Value),
+            StatusQuery.Create(session, selection.Profile.Id, selection.RequestedModel.Value),
             null,
             cancellationToken);
     }
@@ -97,12 +62,7 @@ internal sealed class RuntimeStatus : IRuntimeStatus
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(contextSnapshot);
         return _full.ObserveWithProvider(
-            new StatusQuery(
-                session.SessionId,
-                session.ParentSessionId,
-                session.ParentSessionName,
-                profile.Id,
-                selection.RequestedModel.Value),
+            StatusQuery.Create(session, profile.Id, selection.RequestedModel.Value),
             new ProfileStatusProvider($"profile:{profile.Id}", profile.Prompt),
             new ContextStatusProvider(contextSnapshot, _templates),
             cancellationToken);
@@ -119,12 +79,7 @@ internal sealed class RuntimeStatus : IRuntimeStatus
         ArgumentNullException.ThrowIfNull(contextSnapshot);
         var contextStatus = ContextStatusProvider.Create(contextSnapshot, _templates);
         var observation = await contextStatus.Observe(
-            new StatusQuery(
-                session.SessionId,
-                session.ParentSessionId,
-                session.ParentSessionName,
-                selection.Profile.Id,
-                selection.RequestedModel.Value),
+            StatusQuery.Create(session, selection.Profile.Id, selection.RequestedModel.Value),
             cancellationToken)
             .ConfigureAwait(false);
         return observation.Available ? observation.Text : string.Empty;

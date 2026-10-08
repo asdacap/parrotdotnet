@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Parrot.Llm;
 using Parrot.Tools;
 
 namespace Parrot.Cli.Enhanced.Tools;
@@ -15,13 +16,13 @@ internal sealed class ExecCommandToolPresenter(
 
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {
-        var command = Command(call.ArgumentsJson);
-        var isReadOnly = IsReadOnlyCommand(command);
+        var arguments = ExecCommandArguments.Parse(call.ArgumentsJson);
+        var isReadOnly = IsReadOnlyCommand(arguments.Command);
         var metadata = MetadataFor(isReadOnly);
         return isReadOnly
-            ? new ToolLiveValue(Label(call.ArgumentsJson, command), ToolBlock.Empty, metadata, frame)
+            ? new ToolLiveValue(arguments.Label, ToolBlock.Empty, metadata, frame)
             : new ToolLiveValue(
-                Label(call.ArgumentsJson, command),
+                arguments.Label,
                 [],
                 metadata,
                 frame,
@@ -30,13 +31,13 @@ internal sealed class ExecCommandToolPresenter(
 
     public IScrollbackItem? PresentStarted(ToolCallPresentation call)
     {
-        var command = Command(call.ArgumentsJson);
-        return IsNamedLongCall(call.ArgumentsJson, command)
+        var arguments = ExecCommandArguments.Parse(call.ArgumentsJson);
+        return IsNamedLongCommand(arguments.Name, arguments.Description, arguments.Command)
             ? new ToolScrollbackValue(
-                LabelWithCommand(call.ArgumentsJson, command),
+                arguments.LabelWithCommand,
                 ToolBlock.Empty,
                 ToolTerminalStatus.Succeeded,
-                MetadataFor(IsReadOnlyCommand(command)) with { SuccessIcon = TerminalIcons.Pending })
+                MetadataFor(IsReadOnlyCommand(arguments.Command)) with { SuccessIcon = TerminalIcons.Pending })
             : null;
     }
 
@@ -47,9 +48,9 @@ internal sealed class ExecCommandToolPresenter(
             return null;
         }
 
-        var command = Command(call.ArgumentsJson);
-        var isReadOnly = IsReadOnlyCommand(command);
-        var label = terminal.StartOmitted ? LabelWithCommand(call.ArgumentsJson, command) : Label(call.ArgumentsJson, command);
+        var arguments = ExecCommandArguments.Parse(call.ArgumentsJson);
+        var isReadOnly = IsReadOnlyCommand(arguments.Command);
+        var label = terminal.StartOmitted ? arguments.LabelWithCommand : arguments.Label;
         var status = terminal.ResolveProcessStatus();
         var block = status is ToolTerminalStatus.Errored or ToolTerminalStatus.ReportedFailure
             ? ToolBlock.FromOutput(ToolOutputText.Tail(terminal.ResultPresent ? WithoutLoneStdoutLabel(terminal.Result) : terminal.Error, 10))
@@ -67,46 +68,10 @@ internal sealed class ExecCommandToolPresenter(
     private static Func<string> RunningTimer(RunningDuration runningDuration) =>
         () => $"running {runningDuration.Format()}";
 
-    private static string Command(string argumentsJson)
-    {
-        using var document = JsonDocument.Parse(argumentsJson);
-        var root = document.RootElement;
-        return root.ValueKind == JsonValueKind.Object
-            && root.TryGetProperty("command", out var command)
-            && command.ValueKind == JsonValueKind.String
-                ? command.GetString() ?? string.Empty
-                : root.TryGetProperty("cmd", out var aliased)
-                    && aliased.ValueKind == JsonValueKind.String
-                        ? aliased.GetString() ?? string.Empty
-                        : throw new FormatException("exec_command requires a string command.");
-    }
-
-    private static string Label(string argumentsJson, string command)
-    {
-        using var document = JsonDocument.Parse(argumentsJson);
-        var root = document.RootElement;
-        return $"$ {Summarize(OptionalString(root, "name"), OptionalString(root, "description"), command)}";
-    }
-
-    private static bool IsNamedLongCall(string argumentsJson, string command)
-    {
-        using var document = JsonDocument.Parse(argumentsJson);
-        var root = document.RootElement;
-        return IsNamedLongCommand(OptionalString(root, "name"), OptionalString(root, "description"), command);
-    }
-
     private static bool IsNamedLongCommand(string? name, string? description, string command) =>
         command.Length > ExecCommandTool.LongCommandLength
         && name is not null
         && !string.IsNullOrWhiteSpace(description);
-
-    private static string LabelWithCommand(string argumentsJson, string command) =>
-        $"{Label(argumentsJson, command)}\n{command}";
-
-    private static string? OptionalString(JsonElement root, string propertyName) =>
-        root.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString()
-            : null;
 
     private static string WithoutLoneStdoutLabel(string result)
     {
@@ -121,4 +86,28 @@ internal sealed class ExecCommandToolPresenter(
         isReadOnly ? Metadata with { Style = ToolPresentationStyle.Muted } : Metadata;
 
     private bool IsReadOnlyCommand(string command) => _readOnlyCommandClassifier.IsMatch(command);
+
+    private readonly record struct ExecCommandArguments(string Command, string? Name, string? Description)
+    {
+        public string Label => $"$ {Summarize(Name, Description, Command)}";
+
+        public string LabelWithCommand => $"{Label}\n{Command}";
+
+        public static ExecCommandArguments Parse(string argumentsJson)
+        {
+            using var document = JsonDocument.Parse(argumentsJson);
+            var root = document.RootElement;
+            return new(
+                root.ValueKind == JsonValueKind.Object && JsonRead.TryReadString(root, "command", out var command)
+                    ? command
+                    : JsonRead.TryReadString(root, "cmd", out var aliased)
+                        ? aliased
+                        : throw new FormatException("exec_command requires a string command."),
+                OptionalString(root, "name"),
+                OptionalString(root, "description"));
+        }
+
+        private static string? OptionalString(JsonElement root, string propertyName) =>
+            JsonRead.TryReadString(root, propertyName, out var value) ? value : null;
+    }
 }

@@ -330,45 +330,37 @@ internal sealed class CommandDispatcher(
     {
         var started = Stopwatch.GetTimestamp();
         var correlationId = Guid.NewGuid().ToString("N");
-        try
-        {
-            diagnostics.Global.Write(new DiagnosticEvent("startup", "provider_catalog_start", DiagnosticSeverity.Information)
+        void Record(string operation, Exception? failure) =>
+            diagnostics.Global.Write(new DiagnosticEvent(
+                "startup",
+                operation,
+                failure is null or OperationCanceledException ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
             {
                 CorrelationId = correlationId,
                 DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                ErrorCode = failure is null ? null : DiagnosticEvent.ClassifyFailure(failure),
             });
+
+        try
+        {
+            Record("provider_catalog_start", null);
             var registry = await new ProviderRegistryBuilder(configuration, credentials, httpClients, browserOpener, modelsDev)
                 .Build(cancellationToken).ConfigureAwait(false);
 
-            diagnostics.Global.Write(new DiagnosticEvent("startup", "provider_catalog_complete", DiagnosticSeverity.Information)
-            {
-                CorrelationId = correlationId,
-                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-            });
+            Record("provider_catalog_complete", null);
             return new Composition(
                 registry, configuration, Directory.GetCurrentDirectory(), Environment.MachineName, sessionHost, diagnostics);
         }
         catch (LLMProviderException failure)
         {
-            diagnostics.Global.Write(new DiagnosticEvent("startup", "provider_catalog_failure", DiagnosticSeverity.Error)
-            {
-                CorrelationId = correlationId,
-                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
-            });
+            Record("provider_catalog_failure", failure);
             await error.WriteLineAsync($"parrot: {failure.Message}".AsMemory(), cancellationToken)
                 .ConfigureAwait(false);
             return null;
         }
         catch (Exception failure)
         {
-            diagnostics.Global.Write(new DiagnosticEvent(
-                "startup", "provider_catalog_failure", failure is OperationCanceledException ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
-            {
-                CorrelationId = correlationId,
-                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
-            });
+            Record("provider_catalog_failure", failure);
             throw;
         }
     }
@@ -547,43 +539,35 @@ internal sealed class CommandDispatcher(
     {
         var started = Stopwatch.GetTimestamp();
         var correlationId = Guid.NewGuid().ToString("N");
+        void Record(string operation, Exception? failure) =>
+            diagnostics.Global.Write(new DiagnosticEvent(
+                "startup",
+                operation,
+                failure is null or OperationCanceledException ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+            {
+                CorrelationId = correlationId,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                ErrorCode = failure is null ? null : DiagnosticEvent.ClassifyFailure(failure),
+            });
+
         try
         {
             var paths = StatePaths.ResolveFromEnvironment();
-            diagnostics.Global.Write(new DiagnosticEvent("startup", "configuration_start", DiagnosticSeverity.Information)
-            {
-                CorrelationId = correlationId,
-                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-            });
+            Record("configuration_start", null);
             var configuration = Configuration.Load(paths.ConfigFile, paths.PredefinedConfigFile);
-            diagnostics.Global.Write(new DiagnosticEvent("startup", "configuration_complete", DiagnosticSeverity.Information)
-            {
-                CorrelationId = correlationId,
-                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-            });
+            Record("configuration_complete", null);
             return configuration;
         }
         catch (Exception failure) when (failure is InvalidDataException or YamlException)
         {
-            diagnostics.Global.Write(new DiagnosticEvent("startup", "configuration_failure", DiagnosticSeverity.Error)
-            {
-                CorrelationId = correlationId,
-                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
-            });
+            Record("configuration_failure", failure);
             await error.WriteLineAsync($"parrot: invalid configuration: {failure.Message}".AsMemory(), cancellationToken)
                 .ConfigureAwait(false);
             return null;
         }
         catch (Exception failure)
         {
-            diagnostics.Global.Write(new DiagnosticEvent(
-                "startup", "configuration_failure", failure is OperationCanceledException ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
-            {
-                CorrelationId = correlationId,
-                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
-            });
+            Record("configuration_failure", failure);
             throw;
         }
     }
@@ -704,29 +688,7 @@ internal sealed class CommandDispatcher(
             var remoteCredentialPresets = new CredentialPresets(paths.CredentialPresetDirectory);
             var remoteProviderIds = ProviderRegistryBuilder.BuildableProviderIds(configuration);
 
-            if (basic || Console.IsOutputRedirected)
-            {
-                var cli = new BasicCli(
-                    remote,
-                    interrupts,
-                    remoteCredentials,
-                    remoteCredentialPresets,
-                    oauthClient,
-                    configuration,
-                    remoteProviderIds,
-                    model,
-                    mode,
-                    prompt,
-                    Console.IsInputRedirected,
-                    Console.In,
-                    output,
-                    error,
-                    attachments,
-                    diagnostics.Global);
-                return await cli.Run(cancellationToken).ConfigureAwait(false);
-            }
-
-            using var remoteRawTerminal = UnixRawTerminal.Open();
+            using var remoteRawTerminal = basic || Console.IsOutputRedirected ? null : UnixRawTerminal.Open();
             if (remoteRawTerminal is null)
             {
                 var cli = new BasicCli(
@@ -808,30 +770,7 @@ internal sealed class CommandDispatcher(
             mode = initialSession.Mode;
             var providerIds = ProviderRegistryBuilder.BuildableProviderIds(configuration);
 
-            if (basic || Console.IsOutputRedirected)
-            {
-                var cli = new BasicCli(
-                    client,
-                    interrupts,
-                    credentials,
-                    credentialPresets,
-                    oauthClient,
-                    configuration,
-                    providerIds,
-                    model,
-                    mode,
-                    prompt,
-                    Console.IsInputRedirected,
-                    Console.In,
-                    output,
-                    error,
-                    attachments,
-                    diagnostics.Global)
-                { InitialSession = initialSession };
-                return await cli.Run(cancellationToken).ConfigureAwait(false);
-            }
-
-            using var rawTerminal = UnixRawTerminal.Open();
+            using var rawTerminal = basic || Console.IsOutputRedirected ? null : UnixRawTerminal.Open();
             if (rawTerminal is null)
             {
                 var cli = new BasicCli(

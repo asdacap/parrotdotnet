@@ -5,8 +5,8 @@ internal readonly record struct PickerOptionValue(string Label, string Descripti
     public MultiLine Render(LiveBufferRenderContext context)
     {
         var marker = Selected ? "> " : "  ";
-        var label = TerminalText.Sanitize(Label).Replace("\n", " ", StringComparison.Ordinal);
-        var description = TerminalText.Sanitize(Description).Replace("\n", " ", StringComparison.Ordinal);
+        var label = TerminalText.SanitizeLine(Label);
+        var description = TerminalText.SanitizeLine(Description);
         var text = description.Length == 0 ? marker + label : $"{marker}{label} — {description}";
         var clipped = string.Concat(text.EnumerateRunes().Take(Math.Max(1, context.Columns)));
         var style = Selected ? context.Palette.Selection : context.Palette.LiveSurface;

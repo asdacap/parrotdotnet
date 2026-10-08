@@ -52,12 +52,12 @@ internal sealed class SeatbeltPolicy
         foreach (var denied in transitions.Where(path => !select(states[path])))
         {
             var exceptions = transitions
-                .Where(path => select(states[path]) && Contains(denied, path))
+                .Where(path => select(states[path]) && PlatformPath.Contains(denied, path))
                 .Where(path => !transitions.Any(parent =>
                     !string.Equals(parent, denied, StringComparison.Ordinal)
                     && !string.Equals(parent, path, StringComparison.Ordinal)
-                    && Contains(denied, parent)
-                    && Contains(parent, path)))
+                    && PlatformPath.Contains(denied, parent)
+                    && PlatformPath.Contains(parent, path)))
                 .ToArray();
             _ = text.Append("(deny ").Append(operation);
             AppendDeniedFilter(text, denied, exceptions);
@@ -72,7 +72,7 @@ internal sealed class SeatbeltPolicy
         Func<Access, bool> select)
     {
         var parent = paths
-            .Where(candidate => !string.Equals(candidate, path, StringComparison.Ordinal) && Contains(candidate, path))
+            .Where(candidate => !string.Equals(candidate, path, StringComparison.Ordinal) && PlatformPath.Contains(candidate, path))
             .MaxBy(candidate => candidate.Length);
         return parent is null || select(states[parent]) != select(states[path]);
     }
@@ -149,18 +149,10 @@ internal sealed class SeatbeltPolicy
     private static string Normalize(string path) =>
         Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 
-    private static bool Contains(string root, string path)
-    {
-        var relative = Path.GetRelativePath(root, path);
-        return relative == "." || (!Path.IsPathRooted(relative) && relative != ".."
-            && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
-            && !relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal));
-    }
-
     private Access Evaluate(string path)
     {
         var canonical = Normalize(path);
-        return _rules.Last(rule => Contains(rule.Path, canonical)).Access;
+        return _rules.Last(rule => PlatformPath.Contains(rule.Path, canonical)).Access;
     }
 
     private void Set(string path, bool read, bool write)

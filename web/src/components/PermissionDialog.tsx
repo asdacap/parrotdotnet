@@ -1,5 +1,5 @@
 import { Code, ConnectError } from "@connectrpc/connect"
-import { useEffect, useState } from "react"
+import { useCallback, useState } from "react"
 
 import {
   PermissionAction,
@@ -11,11 +11,9 @@ import {
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { usePoll } from "@/lib/usePoll"
 import { parrot } from "@/rpc/client"
 import type { AgentInfo } from "@/session/timeline"
-
-// Polled, as the terminal CLI does, so a permission answered elsewhere or timed out closes here too.
-const pollMilliseconds = 250
 
 interface PermissionDialogProps {
   userSessionId: string
@@ -28,23 +26,16 @@ export function PermissionDialog({ userSessionId, agents, onFailure }: Permissio
   const [reasonChoice, setReasonChoice] = useState<PermissionChoice | null>(null)
   const [reason, setReason] = useState("")
 
-  useEffect(() => {
-    let polling = false
-    const poll = () => {
-      if (polling) return
-      polling = true
-      parrot
-        .listPendingPermissions({ userSessionId })
-        .then((response) => { setPending(response.permissions) }, () => undefined)
-        .finally(() => { polling = false })
-    }
-    poll()
-    const timer = setInterval(poll, pollMilliseconds)
-    return () => { clearInterval(timer) }
-  }, [userSessionId])
+  // Polled, as the terminal CLI does, so a permission answered elsewhere or timed out closes here too.
+  const poll = useCallback(
+    () => parrot.listPendingPermissions({ userSessionId }).then((response) => { setPending(response.permissions) }),
+    [userSessionId],
+  )
+  usePoll(poll, true)
 
   const permission = pending[0]
   if (!permission) return null
+  const agent = agents.get(permission.agentSessionId)
   const plainReject = permission.choices.find((choice) => choice.action === PermissionAction.DENY && !choice.requiresReason)
 
   async function reply(choice: PermissionChoice | undefined, withReason = "") {
@@ -73,7 +64,7 @@ export function PermissionDialog({ userSessionId, agents, onFailure }: Permissio
           <DialogTitle>Permission requested</DialogTitle>
           <DialogDescription>
             {permission.reason}
-            {agents.has(permission.agentSessionId) && ` (from subagent ${agents.get(permission.agentSessionId)?.name ?? ""})`}
+            {agent && ` (from subagent ${agent.name})`}
           </DialogDescription>
         </DialogHeader>
         <ul className="flex flex-col gap-1 font-mono text-xs">

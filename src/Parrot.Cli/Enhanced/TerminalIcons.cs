@@ -9,6 +9,7 @@ internal static class TerminalIcons
     public const string Failure = "✗";
     public const string Interrupted = "■";
     public const string Pending = "○";
+    public const string Running = "◐";
     public const string Activity = "•";
     public const string Agent = "♟";
     public const string Reasoning = "✦";

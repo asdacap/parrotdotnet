@@ -1,16 +1,10 @@
 using Parrot.Agent;
 using Parrot.AgentTasks;
-using Parrot.Config;
-using Parrot.Context;
-using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Queues;
-using Parrot.Skills;
-using Parrot.State;
 using Parrot.Statuses;
 using Parrot.Store;
-using Parrot.Web;
 
 namespace Parrot.Core.Tests;
 
@@ -24,40 +18,12 @@ internal sealed class AgentTaskScopeTests
         _ = Directory.CreateDirectory(directory);
         try
         {
-            var paths = new StatePaths(Path.Combine(directory, "state"), Path.Combine(directory, "config"), Path.Combine(directory, "data"));
-            using var diagnostics = new DiagnosticLogs(paths, FileDiagnosticLog.CreateInstanceId(), TextWriter.Null, TimeProvider.System);
-            var configuration = Configuration.Load(paths.ConfigFile, paths.PredefinedConfigFile);
             using var provider = new SteppedProvider();
             var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-            var router = TestModels.Route(model);
-            var profiles = new ProfileRegistry(configuration.Profiles, configuration.SandboxRules, [], configuration.DisabledTools);
-            var modes = new ModeRegistry(profiles, configuration.DefaultProfile);
-            var source = new AgentSessionFactorySource(
-                ProcessRunner.Locate(ExecutableLocator.Capture()),
-                new Compactor(90, 30, 60_000, 1024, configuration.PromptTemplates),
-                WebFetcher.Create(new PublicWebAddressPolicy()),
-                configuration.ToolDefinitions,
-                configuration.AgentTasks,
-                configuration.AgentSend,
-                configuration.RequestLimits,
-                configuration.ReadOnlyExecCommandPrefixes,
-                router,
-                [],
-                configuration.PromptTemplates,
-                static (arguments, scope) => new AgentSessionComposition(arguments, scope));
-            var factory = new UserSessionFactory(
-                source,
-                modes,
-                configuration.PromptTemplates,
-                profiles,
-                new SkillCatalogFactory(configuration, directory, Path.Combine(directory, "skills")),
-                TimeSpan.FromSeconds(30),
-                TimeProvider.System,
-                AgentTaskParser.ParseArtifact);
-            var store = new SessionStore(paths, directory, "host", factory, router, modes, diagnostics);
-            await using var session = await store.Open(router.Resolve(model.Selector));
+            using var fixture = new ProductionSessionStoreFixture(directory, model, passThroughSandbox: false);
+            await using var session = await fixture.Store.Open(fixture.Router.Resolve(model.Selector));
             var root = session.Registry.SnapshotScopes().Single();
-            var rejectedIdentity = AgentIdentity.Child("rejected-owner", root.Session.Identity, "rejected", 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates);
+            var rejectedIdentity = AgentIdentity.Child("rejected-owner", root.Session.Identity, "rejected", 1, AgentScope.Empty(fixture.Configuration.PromptTemplates), AgentPolicyLineage.Root(), fixture.Configuration.PromptTemplates);
             var rejectedHistory = session.Registry.InitializeChildHistory(rejectedIdentity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty"), new AgentHistorySource.Parent());
             _ = await Assert.That(() => session.Registry.CreateChildScope(
                 rejectedIdentity,
@@ -71,7 +37,7 @@ internal sealed class AgentTaskScopeTests
             var scopes = new List<IAgentSessionScope>();
             foreach (var name in new[] { "first-owner", "second-owner" })
             {
-                var identity = AgentIdentity.Child(name, root.Session.Identity, name, 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates);
+                var identity = AgentIdentity.Child(name, root.Session.Identity, name, 1, AgentScope.Empty(fixture.Configuration.PromptTemplates), AgentPolicyLineage.Root(), fixture.Configuration.PromptTemplates);
                 var child = session.Registry.CreateChildScope(
                     identity,
                     AgentSessionParentLink.Child(root, AgentCompletionDeliveryPolicy.RetainedOnly, session.Registry.ReserveRetainedAgent()),
@@ -91,7 +57,7 @@ internal sealed class AgentTaskScopeTests
                 """);
             foreach (var scope in scopes)
             {
-                Set(scope, router, tasks);
+                Set(scope, fixture.Router, tasks);
                 await provider.Arrived(cancellationToken);
             }
 
@@ -99,9 +65,9 @@ internal sealed class AgentTaskScopeTests
             {
                 var agentTasks = scope.GetService<IAgentTaskService>();
                 _ = await Assert.That(States(agentTasks)).IsEqualTo("worker:Running");
-                var reminder = new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(scope.ChildRegistry, scope.Session.Identity), new ProcessActiveWorkBlocker(scope.GetService<IProcessOwner>()), new AgentTaskActiveWorkBlocker(agentTasks, configuration.PromptTemplates), new QueueActiveWorkBlocker(scope.GetService<IAgentQueues>(), configuration.PromptTemplates)], configuration.PromptTemplates).Build();
+                var reminder = new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(scope.ChildRegistry, scope.Session.Identity), new ProcessActiveWorkBlocker(scope.GetService<IProcessOwner>()), new AgentTaskActiveWorkBlocker(agentTasks, fixture.Configuration.PromptTemplates), new QueueActiveWorkBlocker(scope.GetService<IAgentQueues>(), fixture.Configuration.PromptTemplates)], fixture.Configuration.PromptTemplates).Build();
                 _ = await Assert.That(reminder).Contains("- worker [running] (name: Run work)");
-                var status = await new AgentTaskStatusProvider(agentTasks, configuration.PromptTemplates).Observe(
+                var status = await new AgentTaskStatusProvider(agentTasks, fixture.Configuration.PromptTemplates).Observe(
                     new StatusQuery(scope.Session.SessionId, root.Session.SessionId, root.Session.Name, "profile", "model"), cancellationToken);
                 _ = await Assert.That(status.Available).IsTrue();
                 _ = await Assert.That(status.Text).Contains($"AgentTask graph: {scope.Session.SessionId}");
@@ -114,10 +80,10 @@ internal sealed class AgentTaskScopeTests
             await detached.DisposeAsync();
             _ = await Assert.That(States(scopes[0].GetService<IAgentTaskService>())).IsEqualTo("worker:Canceled");
             _ = await Assert.That(States(scopes[1].GetService<IAgentTaskService>())).IsEqualTo("worker:Running");
-            _ = await Assert.That(() => Set(scopes[0], router, tasks)).Throws<InvalidOperationException>();
+            _ = await Assert.That(() => Set(scopes[0], fixture.Router, tasks)).Throws<InvalidOperationException>();
 
             var nestedOwner = scopes[1].ChildRegistry.SnapshotChildScopes().Single();
-            Set(nestedOwner, router, tasks);
+            Set(nestedOwner, fixture.Router, tasks);
             await provider.Arrived(cancellationToken);
             _ = await Assert.That(States(nestedOwner.GetService<IAgentTaskService>())).IsEqualTo("worker:Running");
             await session.DisposeAsync();
@@ -172,41 +138,13 @@ internal sealed class AgentTaskScopeTests
 
                 return """{"result":"nested done","verdict":"accept"}""";
             });
-            var paths = new StatePaths(Path.Combine(directory, "state"), Path.Combine(directory, "config"), Path.Combine(directory, "data"));
-            using var diagnostics = new DiagnosticLogs(paths, FileDiagnosticLog.CreateInstanceId(), TextWriter.Null, TimeProvider.System);
-            var configuration = Configuration.Load(paths.ConfigFile, paths.PredefinedConfigFile);
             var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-            var router = TestModels.Route(model);
-            var profiles = new ProfileRegistry(configuration.Profiles, configuration.SandboxRules, [], configuration.DisabledTools);
-            var modes = new ModeRegistry(profiles, configuration.DefaultProfile);
-            var source = new AgentSessionFactorySource(
-                ProcessRunner.Locate(ExecutableLocator.Capture()),
-                new Compactor(90, 30, 60_000, 1024, configuration.PromptTemplates),
-                WebFetcher.Create(new PublicWebAddressPolicy()),
-                configuration.ToolDefinitions,
-                configuration.AgentTasks,
-                configuration.AgentSend,
-                configuration.RequestLimits,
-                configuration.ReadOnlyExecCommandPrefixes,
-                router,
-                [],
-                configuration.PromptTemplates,
-                static (arguments, scope) => new AgentSessionComposition(arguments, scope));
-            var factory = new UserSessionFactory(
-                source,
-                modes,
-                configuration.PromptTemplates,
-                profiles,
-                new SkillCatalogFactory(configuration, directory, Path.Combine(directory, "skills")),
-                TimeSpan.FromSeconds(30),
-                TimeProvider.System,
-                AgentTaskParser.ParseArtifact);
-            var store = new SessionStore(paths, directory, "host", factory, router, modes, diagnostics);
-            await using var session = await store.Open(router.Resolve(model.Selector));
+            using var fixture = new ProductionSessionStoreFixture(directory, model, passThroughSandbox: false);
+            await using var session = await fixture.Store.Open(fixture.Router.Resolve(model.Selector));
             var root = session.Registry.SnapshotScopes().Single();
             rootScope = root;
-            taskRouter = router;
-            Set(root, router, AgentTaskParser.ParseTaskSet("""
+            taskRouter = fixture.Router;
+            Set(root, fixture.Router, AgentTaskParser.ParseTaskSet("""
                 [{"name":"composite","description":"Own nested work","payload":[
                   {"name":"dependent","description":"Continue work","payload":"dependent work","dependencies":["source"],"acceptance_criteria":"Done"},
                   {"name":"source","description":"Prepare work","payload":"source work","acceptance_criteria":"Done"}
@@ -222,11 +160,10 @@ internal sealed class AgentTaskScopeTests
             var nestedScopes = compositeScope.ChildRegistry.SnapshotChildScopes();
             _ = await Assert.That(nestedScopes.Select(scope => scope.Session.Name)).IsEquivalentTo(["source", "dependent"]);
             _ = await Assert.That(nestedScopes.All(scope => scope.Session.ParentSessionId == compositeScope.Session.SessionId)).IsTrue();
-            while (root.GetService<IAgentTaskService>().Snapshot().Single().State != AgentTaskExecutionStatus.Succeeded
-                || compositeScope.GetService<IAgentTaskService>().Snapshot().Any(task => task.State != AgentTaskExecutionStatus.Succeeded))
-            {
-                await Task.Delay(10, cancellationToken);
-            }
+            await TestPolling.Until(
+                () => root.GetService<IAgentTaskService>().Snapshot().Single().State == AgentTaskExecutionStatus.Succeeded
+                    && compositeScope.GetService<IAgentTaskService>().Snapshot().All(task => task.State == AgentTaskExecutionStatus.Succeeded),
+                cancellationToken);
         }
         finally
         {

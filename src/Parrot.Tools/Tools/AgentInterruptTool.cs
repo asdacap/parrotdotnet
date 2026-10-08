@@ -20,8 +20,7 @@ internal sealed class AgentInterruptTool(IChildRegistry registry) : ITool
         string name;
         try
         {
-            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, AgentInterruptToolJsonContext.Default.AgentInterruptToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, AgentInterruptToolJsonContext.Default.AgentInterruptToolInput);
             name = (input.Name ?? throw new FormatException("Tool arguments require a string 'name'.")).Trim();
         }
         catch (Exception failure) when (failure is JsonException or FormatException)

@@ -15,7 +15,6 @@ internal sealed class AgentSpawner : IAgentSpawner
     private readonly Lock _gate = new();
     private readonly Lock _spawnGate = new();
     private readonly List<Task> _rejectedScopeDisposals = [];
-    private bool _accepting = true;
     private int _pendingConstructions;
     private TaskCompletionSource? _constructionsSettled;
     private Task? _shutdown;
@@ -109,11 +108,7 @@ internal sealed class AgentSpawner : IAgentSpawner
     {
         lock (_gate)
         {
-            if (_shutdown is null)
-            {
-                _accepting = false;
-                _shutdown = ShutDown();
-            }
+            _shutdown ??= ShutDown();
 
             return new ValueTask(_shutdown);
         }
@@ -161,6 +156,17 @@ internal sealed class AgentSpawner : IAgentSpawner
         return conflictingNames == 0 ? basis : $"{basis}-{conflictingNames + 1}";
     }
 
+    private static AgentSelection SelectChild(AgentPolicyLineage lineage, IAgentProfile profile, Llm.ModelSelector model)
+    {
+        if (lineage.CountProfile(profile.Id) >= profile.RecursionLimit)
+        {
+            throw new AgentRegistryException("subagent profile recursion limit reached");
+        }
+
+        var securityProfile = lineage.Resolve(profile.SecurityProfile);
+        return new AgentSelection(model, new SessionModeProfile(profile, () => profile.Prompt, securityProfile), securityProfile);
+    }
+
     private IAgentSessionScope ResumeOrReject(IAgentSessionScope scope, AgentLaunchRequest request)
     {
         if (scope.Session.IsActive())
@@ -169,18 +175,10 @@ internal sealed class AgentSpawner : IAgentSpawner
                 $"child agent '{scope.Session.Name}' is busy; wait for it to finish or use agent_send");
         }
 
-        var profile = _authority.ResolveChildProfile(request.RequestedProfile);
-        var lineage = scope.Session.ResolvePolicyLineage();
-        if (lineage.CountProfile(profile.Id) >= profile.RecursionLimit)
-        {
-            throw new AgentRegistryException("subagent profile recursion limit reached");
-        }
-
-        var securityProfile = lineage.Resolve(profile.SecurityProfile);
-        scope.Session.UpdateSelection(new AgentSelection(
-            request.Model,
-            new SessionModeProfile(profile, () => profile.Prompt, securityProfile),
-            securityProfile));
+        scope.Session.UpdateSelection(SelectChild(
+            scope.Session.ResolvePolicyLineage(),
+            _authority.ResolveChildProfile(request.RequestedProfile),
+            request.Model));
         return scope;
     }
 
@@ -208,6 +206,7 @@ internal sealed class AgentSpawner : IAgentSpawner
         var retainedReservation = _authority.ReserveRetainedAgent();
         AgentIdentity childIdentity;
         AgentSessionParentLink childParentLink;
+        AgentSelection childSelection;
 
         try
         {
@@ -215,10 +214,7 @@ internal sealed class AgentSpawner : IAgentSpawner
             {
                 EnsureAccepting();
                 childParentLink = AgentSessionParentLink.Child(registeredOwnerScope, request.DeliveryPolicy, retainedReservation);
-                if (childParentLink.PolicyLineage.CountProfile(profile.Id) >= profile.RecursionLimit)
-                {
-                    throw new AgentRegistryException("subagent profile recursion limit reached");
-                }
+                childSelection = SelectChild(childParentLink.PolicyLineage, profile, request.Model);
 
                 var sessionId = Identifier.AgentSession();
                 var name = SelectName(request.RequestedName, sessionId, conflictingNames);
@@ -233,7 +229,7 @@ internal sealed class AgentSpawner : IAgentSpawner
                 }
 
                 var scope = _owner.Scope.DeriveChild(name, depth, request.RequestedScope);
-                childIdentity = AgentIdentity.ChildWithPolicyLineage(
+                childIdentity = AgentIdentity.Child(
                     sessionId,
                     _owner,
                     name,
@@ -259,13 +255,12 @@ internal sealed class AgentSpawner : IAgentSpawner
                 request.Boundary,
                 request.Fork,
                 request.HistorySource);
-            var securityProfile = childParentLink.PolicyLineage.Resolve(profile.SecurityProfile);
             constructedScope = _authority.CreateChildScope(
                 childIdentity,
                 childParentLink,
-                request.Model,
-                new SessionModeProfile(profile, () => profile.Prompt, securityProfile),
-                securityProfile,
+                childSelection.RequestedModel,
+                childSelection.Profile,
+                childSelection.SecurityProfile,
                 childHistory,
                 _lifetime.Token);
             lock (_gate)
@@ -372,7 +367,7 @@ internal sealed class AgentSpawner : IAgentSpawner
 
     private void EnsureAccepting()
     {
-        if (!_accepting || !_authority.IsAccepting || !_children.IsAccepting)
+        if (_shutdown is not null || !_authority.IsAccepting || !_children.IsAccepting)
         {
             throw new AgentRegistryException("the user session is shutting down");
         }

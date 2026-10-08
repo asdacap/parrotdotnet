@@ -15,25 +15,19 @@ internal static class WirePreferences
             return null;
         }
 
-        JsonDocument document;
+        JsonElement element;
 
         try
         {
-            document = JsonDocument.Parse(preferences);
+            element = JsonElement.Parse(preferences);
         }
         catch (JsonException failure)
         {
             throw new WireProtocolException("provider preferences are not valid JSON", failure);
         }
 
-        using (document)
-        {
-            if (document.RootElement.ValueKind != JsonValueKind.Object)
-            {
-                throw new WireProtocolException("provider preferences must be a JSON object");
-            }
-
-            return document.RootElement.Clone();
-        }
+        return element.ValueKind == JsonValueKind.Object
+            ? element
+            : throw new WireProtocolException("provider preferences must be a JSON object");
     }
 }

@@ -4,16 +4,13 @@ internal readonly record struct StreamedResponseValue(string Marker, string Text
 {
     public MultiLine Render(LiveBufferRenderContext context)
     {
-        var viewport = Viewport(SingleLine(Text), context.Decoration.ContentColumns(context.Columns));
+        var viewport = Viewport(Text.Replace('\n', ' '), context.Decoration.ContentColumns(context.Columns));
         return new MultiLine(
             [.. context.Decoration.Apply(Marker, [viewport])
                 .Select(line => new TerminalLine(line, context.Palette.LiveSurface))],
             null,
             LiveBufferRetention.Tail);
     }
-
-    private static string SingleLine(string value) => TerminalText.Sanitize(value)
-        .Replace("\n", " ", StringComparison.Ordinal);
 
     private static string Viewport(string text, int width)
     {

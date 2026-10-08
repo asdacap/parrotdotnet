@@ -5,7 +5,7 @@ import { useEffect, useState } from "react"
 import { SessionState, type SessionSummary } from "@/gen/parrot_pb"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { navigateToSession } from "@/lib/router"
+import { navigateToSession, sessionHash } from "@/lib/router"
 import { describeHost, parrot } from "@/rpc/client"
 
 export function SessionPicker() {
@@ -52,7 +52,7 @@ export function SessionPicker() {
         {sessions.map((session) => (
           <li key={session.userSessionId}>
             <a
-              href={`#/s/${encodeURIComponent(session.userSessionId)}`}
+              href={sessionHash(session.userSessionId)}
               className="flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent"
             >
               <span className="truncate font-mono">{session.userSessionId}</span>

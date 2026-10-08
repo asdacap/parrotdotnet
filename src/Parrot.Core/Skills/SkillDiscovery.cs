@@ -19,7 +19,7 @@ internal sealed class SkillDiscovery
 
         var discovered = new List<SkillMetadata>();
         var errors = new List<SkillLoadError>();
-        var canonicalPaths = new HashSet<string>(PathComparer());
+        var canonicalPaths = new HashSet<string>(PlatformPath.Comparer);
         foreach (var root in roots)
         {
             DiscoverRoot(root, configuration, discovered, errors, canonicalPaths);
@@ -73,9 +73,6 @@ internal sealed class SkillDiscovery
 
         return Path.TrimEndingDirectorySeparator(PlatformPath.Normalize(current));
     }
-
-    private static StringComparer PathComparer() =>
-        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
     private static void AddError(List<SkillLoadError> errors, string path, string message)
     {
@@ -261,7 +258,7 @@ internal sealed class SkillDiscovery
             return;
         }
 
-        var visited = new HashSet<string>(PathComparer());
+        var visited = new HashSet<string>(PlatformPath.Comparer);
         var pending = new Queue<DirectoryVisit>();
         pending.Enqueue(new(logicalRoot, physicalRoot, 0));
         var directoryCount = 0;

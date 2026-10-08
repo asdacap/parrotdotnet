@@ -144,9 +144,8 @@ internal sealed class CompactionGroupBlobStoreTests : IDisposable
         }
 
         var group = new CompactionGroup([LLMMessage.User("secret")], 1, false, true);
-        var outside = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("n"));
+        var outside = Directory.CreateTempSubdirectory().FullName;
         var movedBlobs = _scratch.BlobDirectory + ".moved";
-        _ = Directory.CreateDirectory(outside);
         try
         {
             var blobStore = new CompactionGroupBlobStore(
@@ -217,9 +216,8 @@ internal sealed class CompactionGroupBlobStoreTests : IDisposable
             return;
         }
 
-        var outside = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("n"));
+        var outside = Directory.CreateTempSubdirectory().FullName;
         var movedBlobs = _scratch.BlobDirectory + ".moved";
-        _ = Directory.CreateDirectory(outside);
         var outsideArtifact = Path.Combine(outside, "escape.json");
         await File.WriteAllTextAsync(outsideArtifact, "outside");
         try

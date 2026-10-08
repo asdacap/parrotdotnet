@@ -114,52 +114,34 @@ internal sealed class EnhancedHierarchyTests
     [Test]
     public async Task Agent_notices_are_committed_at_the_owning_agent_level(CancellationToken cancellationToken)
     {
-        var committed = new List<string>();
-        var liveContext = new LiveBufferRenderContext(120, new TerminalPalette(false));
-        var scrollbackContext = new ScrollbackRenderContext(120, liveContext.Palette);
-
-        Task Commit(
-            IScrollbackItem item,
-            IReadOnlyList<ILiveBufferItem> items,
-            CancellationToken token)
-        {
-            token.ThrowIfCancellationRequested();
-            committed.Add(string.Join('|', item.Render(scrollbackContext)));
-            return Task.CompletedTask;
-        }
-
-        await using var view = new RawActivityView(
-            static (_, _) => Task.CompletedTask,
-            Commit,
-            new ToolPresenterRegistry([], new GenericToolPresenter()),
-            static (_, _) => Task.CompletedTask);
-        await view.Render(
+        await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);
+        await fixture.View.Render(
             new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
                 AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" },
             },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event { AgentSessionId = "child", ActiveWorkReminderInjected = new ActiveWorkReminderInjected() },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event { AgentSessionId = "child", ExitReminderInjected = new ExitReminderInjected() },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
                 ExitReminderChanged = new ExitReminderChanged { Title = "port", Description = "finish the port" },
             },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event { AgentSessionId = "child", ExitReminderChanged = new ExitReminderChanged { Title = "port", Cleared = true } },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
@@ -190,10 +172,10 @@ internal sealed class EnhancedHierarchyTests
             new() { AgentSessionId = "root", StatusInjected = new StatusInjected() },
         })
         {
-            await view.Render(published, cancellationToken);
+            await fixture.View.Render(published, cancellationToken);
         }
 
-        _ = await Assert.That(string.Join('|', committed)).IsEqualTo(
+        _ = await Assert.That(string.Join('|', fixture.Committed)).IsEqualTo(
             "  ↻ [worker] Active work reminder injected" +
             "|  ↻ [worker] Exit reminder injected" +
             "|  ↻ [worker] Exit reminder set: port: finish the port" +
@@ -212,65 +194,38 @@ internal sealed class EnhancedHierarchyTests
     public async Task Agent_completions_are_committed_immediately(
         CancellationToken cancellationToken)
     {
-        var drawn = new List<string>();
-        var committed = new List<string>();
-        var liveContext = new LiveBufferRenderContext(120, new TerminalPalette(false));
-        var scrollbackContext = new ScrollbackRenderContext(120, liveContext.Palette);
-
-        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
-        {
-            token.ThrowIfCancellationRequested();
-            drawn.Add(string.Join('|', items.SelectMany(item => item.Render(liveContext).Lines).Select(line => line.Text)));
-            return Task.CompletedTask;
-        }
-
-        Task Commit(
-            IScrollbackItem item,
-            IReadOnlyList<ILiveBufferItem> items,
-            CancellationToken token)
-        {
-            token.ThrowIfCancellationRequested();
-            committed.Add(string.Join('|', item.Render(scrollbackContext)));
-            drawn.Add(string.Join('|', items.SelectMany(value => value.Render(liveContext).Lines).Select(line => line.Text)));
-            return Task.CompletedTask;
-        }
-
-        await using var view = new RawActivityView(
-            Draw,
-            Commit,
-            new ToolPresenterRegistry([], new GenericToolPresenter()),
-            static (_, _) => Task.CompletedTask);
-        await view.Render(
+        await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);
+        await fixture.View.Render(
             new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "parent",
                 AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "parent" },
             },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event { AgentSessionId = "parent", TurnStarted = new TurnStarted { Model = "model" } },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
                 AgentStarted = new AgentStarted { ParentAgentSessionId = "parent", Name = "child" },
             },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "model" } },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event { AgentSessionId = "parent", TextChunk = new TextChunk { Fragment = "parent response" } },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = "child\nresponse" } },
             cancellationToken);
 
-        var live = drawn[^1];
+        var live = fixture.Drawn[^1];
         var liveRows = live.Split('|');
         var childRow = liveRows.Single(static row => row.Contains("[child]", StringComparison.Ordinal));
         var parentRow = liveRows.Single(static row => row.Contains("[parent]", StringComparison.Ordinal));
@@ -282,18 +237,18 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(parentPosition).IsGreaterThan(childPosition);
         _ = await Assert.That(live).DoesNotContain("    [child] response");
 
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
                 ToolStarted = new ToolStarted { ToolCallId = "tool", ToolName = "read" },
             },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event { AgentSessionId = "parent", TurnEnded = new TurnEnded { FinishReason = "stop" } },
             cancellationToken);
-        _ = await Assert.That(string.Join('|', committed)).IsEqualTo("  ● [parent] parent response");
-        await view.Render(
+        _ = await Assert.That(string.Join('|', fixture.Committed)).IsEqualTo("  ● [parent] parent response");
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "parent",
@@ -305,26 +260,26 @@ internal sealed class EnhancedHierarchyTests
                 },
             },
             cancellationToken);
-        _ = await Assert.That(string.Join('|', committed))
+        _ = await Assert.That(string.Join('|', fixture.Committed))
             .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished after 1m 05s");
-        _ = await Assert.That(drawn[^1]).DoesNotContain("[parent] agent finished");
+        _ = await Assert.That(fixture.Drawn[^1]).DoesNotContain("[parent] agent finished");
 
-        await view.Render(
+        await fixture.View.Render(
             new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } },
             cancellationToken);
-        _ = await Assert.That(string.Join('|', committed))
+        _ = await Assert.That(string.Join('|', fixture.Committed))
             .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished after 1m 05s|    ● [child] child|      [child] response");
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
                 ToolFinished = new ToolFinished { ToolCallId = "tool", ToolName = "read" },
             },
             cancellationToken);
-        _ = await Assert.That(string.Join('|', committed))
+        _ = await Assert.That(string.Join('|', fixture.Committed))
             .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished after 1m 05s|    ● [child] child|      [child] response|    ✓ [child] tool call read");
 
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
@@ -336,7 +291,7 @@ internal sealed class EnhancedHierarchyTests
                 },
             },
             cancellationToken);
-        _ = await Assert.That(string.Join('|', committed))
+        _ = await Assert.That(string.Join('|', fixture.Committed))
             .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished after 1m 05s|    ● [child] child|      [child] response|    ✓ [child] tool call read|    ♟ [child] agent finished after 7s");
     }
 
@@ -344,42 +299,18 @@ internal sealed class EnhancedHierarchyTests
     public async Task Child_agent_task_progress_renders_without_an_active_tool_and_ignores_stale_revisions(
         CancellationToken cancellationToken)
     {
-        var committed = new List<string>();
-        var drawn = new List<string>();
-        var context = new ScrollbackRenderContext(80, new TerminalPalette(false));
-        var liveContext = new LiveBufferRenderContext(80, context.Palette);
-
-        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
-        {
-            token.ThrowIfCancellationRequested();
-            drawn.Add(string.Join('|', items.SelectMany(item => item.Render(liveContext).Lines).Select(line => line.Text)));
-            return Task.CompletedTask;
-        }
-
-        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
-        {
-            token.ThrowIfCancellationRequested();
-            committed.Add(string.Join('|', item.Render(context)));
-            drawn.Add(string.Join('|', items.SelectMany(value => value.Render(liveContext).Lines).Select(line => line.Text)));
-            return Task.CompletedTask;
-        }
-
-        await using var view = new RawActivityView(
-            Draw,
-            Commit,
-            new ToolPresenterRegistry([], new GenericToolPresenter()),
-            static (_, _) => Task.CompletedTask);
-        await view.Render(
+        await using var fixture = new RawActivityRecorder(80, new ToolPresenterRegistry([], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);
+        await fixture.View.Render(
             new Event { AgentSessionId = "main", TurnStarted = new TurnStarted { Model = "model" } },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
                 AgentStarted = new AgentStarted { ParentAgentSessionId = "main", Name = "worker" },
             },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
@@ -402,7 +333,7 @@ internal sealed class EnhancedHierarchyTests
                 },
             },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
@@ -426,7 +357,7 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
 
-        _ = await Assert.That(drawn[^1]).Contains("Agent tasks:")
+        _ = await Assert.That(fixture.Drawn[^1]).Contains("Agent tasks:")
             .And.Contains("◐ root")
             .And.DoesNotContain("✓ root");
     }
@@ -534,51 +465,32 @@ internal sealed class EnhancedHierarchyTests
         string? expected,
         CancellationToken cancellationToken)
     {
-        var committed = new List<string>();
-        var liveContext = new LiveBufferRenderContext(80, new TerminalPalette(false));
-        var scrollbackContext = new ScrollbackRenderContext(80, liveContext.Palette);
-
-        Task Commit(
-            IScrollbackItem item,
-            IReadOnlyList<ILiveBufferItem> items,
-            CancellationToken token)
-        {
-            token.ThrowIfCancellationRequested();
-            _ = items;
-            committed.Add(string.Join('|', item.Render(scrollbackContext)));
-            return Task.CompletedTask;
-        }
-
-        await using var view = new RawActivityView(
-            static (_, _) => Task.CompletedTask,
-            Commit,
-            new ToolPresenterRegistry([], new GenericToolPresenter()),
-            static (_, _) => Task.CompletedTask);
-        await view.Render(
+        await using var fixture = new RawActivityRecorder(80, new ToolPresenterRegistry([], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);
+        await fixture.View.Render(
             new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
                 AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" },
             },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = ownerAgentSessionId,
                 ToolRequestReceived = new ToolRequestReceived { ToolCallCount = toolCallCount },
             },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = ownerAgentSessionId,
                 ToolStarted = new ToolStarted { ToolCallId = "tool", ToolName = "read" },
             },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = ownerAgentSessionId,
@@ -586,18 +498,18 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
 
-        // The tool line is committed either way; only the count notice is conditional.
-        _ = await Assert.That(committed).Contains(value => value.Contains("read", StringComparison.Ordinal));
+        // The tool line is fixture.Committed either way; only the count notice is conditional.
+        _ = await Assert.That(fixture.Committed).Contains(value => value.Contains("read", StringComparison.Ordinal));
         if (expected is null)
         {
-            _ = await Assert.That(committed).DoesNotContain(value => value.Contains('⚙'));
+            _ = await Assert.That(fixture.Committed).DoesNotContain(value => value.Contains('⚙'));
             return;
         }
 
-        _ = await Assert.That(committed).Count().IsEqualTo(2);
-        _ = await Assert.That(committed[0]).IsEqualTo(expected);
-        _ = await Assert.That(committed[0]).DoesNotContain("\u001b");
-        _ = await Assert.That(committed[1]).Contains("read");
+        _ = await Assert.That(fixture.Committed).Count().IsEqualTo(2);
+        _ = await Assert.That(fixture.Committed[0]).IsEqualTo(expected);
+        _ = await Assert.That(fixture.Committed[0]).DoesNotContain("\u001b");
+        _ = await Assert.That(fixture.Committed[1]).Contains("read");
     }
 
     [Test]
@@ -848,7 +760,7 @@ internal sealed class EnhancedHierarchyTests
         Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
-            drawn.Enqueue(Render(items, context));
+            drawn.Enqueue(RawActivityRecorder.Render(items, context));
             return Task.CompletedTask;
         }
 
@@ -928,36 +840,23 @@ internal sealed class EnhancedHierarchyTests
     public async Task Child_question_is_committed_when_asked_and_root_question_is_not(CancellationToken cancellationToken)
     {
         const string arguments = """{"questions":[{"header":"h","prompt":"Continue?","options":[{"label":"Yes","description":""},{"label":"No","description":""}],"multiple":false,"custom":false}]}""";
-        var committed = new List<string>();
-        var scrollbackContext = new ScrollbackRenderContext(120, new TerminalPalette(false));
-
-        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
-        {
-            committed.Add(string.Join('|', item.Render(scrollbackContext)));
-            return Task.CompletedTask;
-        }
-
-        await using var view = new RawActivityView(
-            static (_, _) => Task.CompletedTask,
-            Commit,
-            new ToolPresenterRegistry([new QuestionToolPresenter()], new GenericToolPresenter()),
-            static (_, _) => Task.CompletedTask);
-        await view.Render(new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } }, cancellationToken);
-        await view.Render(new Event { AgentSessionId = "child", AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" } }, cancellationToken);
-        await view.Render(new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "model" } }, cancellationToken);
+        await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([new QuestionToolPresenter()], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);
+        await fixture.View.Render(new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } }, cancellationToken);
+        await fixture.View.Render(new Event { AgentSessionId = "child", AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" } }, cancellationToken);
+        await fixture.View.Render(new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "model" } }, cancellationToken);
         foreach (var agentSessionId in new[] { "root", "child" })
         {
-            await view.Render(new Event { AgentSessionId = agentSessionId, ToolCallChunk = new ToolCallChunk { ToolCallId = "call", ToolName = "question", ArgumentsFragment = arguments } }, cancellationToken);
-            await view.Render(new Event { AgentSessionId = agentSessionId, ToolStarted = new ToolStarted { ToolCallId = "call", ToolName = "question" } }, cancellationToken);
+            await fixture.View.Render(new Event { AgentSessionId = agentSessionId, ToolCallChunk = new ToolCallChunk { ToolCallId = "call", ToolName = "question", ArgumentsFragment = arguments } }, cancellationToken);
+            await fixture.View.Render(new Event { AgentSessionId = agentSessionId, ToolStarted = new ToolStarted { ToolCallId = "call", ToolName = "question" } }, cancellationToken);
         }
 
-        _ = await Assert.That(string.Join("||", committed))
+        _ = await Assert.That(string.Join("||", fixture.Committed))
             .IsEqualTo("  ○ [worker] Question · 1 item|    [worker] Continue?|    [worker]   - Yes|    [worker]   - No");
 
-        await view.Render(new Event { AgentSessionId = "child", ToolFinished = new ToolFinished { ToolCallId = "call", ToolName = "question", Result = "Yes" } }, cancellationToken);
+        await fixture.View.Render(new Event { AgentSessionId = "child", ToolFinished = new ToolFinished { ToolCallId = "call", ToolName = "question", Result = "Yes" } }, cancellationToken);
 
-        _ = await Assert.That(committed.Count).IsEqualTo(2);
-        _ = await Assert.That(committed[1]).StartsWith("  ✓ [worker] Question · 1 item");
+        _ = await Assert.That(fixture.Committed.Count).IsEqualTo(2);
+        _ = await Assert.That(fixture.Committed[1]).StartsWith("  ✓ [worker] Question · 1 item");
     }
 
     [Test]
@@ -1126,40 +1025,21 @@ internal sealed class EnhancedHierarchyTests
     [Test]
     public async Task Failed_parent_turn_flushes_while_a_child_is_running(CancellationToken cancellationToken)
     {
-        var committed = new List<string>();
-        var context = new ScrollbackRenderContext(120, new TerminalPalette(false));
-
-        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token) => Task.CompletedTask;
-
-        Task Commit(
-            IScrollbackItem item,
-            IReadOnlyList<ILiveBufferItem> items,
-            CancellationToken token)
-        {
-            token.ThrowIfCancellationRequested();
-            committed.Add(string.Join('|', item.Render(context)));
-            return Task.CompletedTask;
-        }
-
-        await using var view = new RawActivityView(
-            Draw,
-            Commit,
-            new ToolPresenterRegistry([], new GenericToolPresenter()),
-            static (_, _) => Task.CompletedTask);
-        await view.Render(
+        await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);
+        await fixture.View.Render(
             new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
                 AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" },
             },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "model" } },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "root",
@@ -1167,8 +1047,8 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
 
-        _ = await Assert.That(committed.Count).IsEqualTo(1);
-        _ = await Assert.That(committed[0]).IsEqualTo("✗ agent: the turn exceeded its tool-call limit");
+        _ = await Assert.That(fixture.Committed.Count).IsEqualTo(1);
+        _ = await Assert.That(fixture.Committed[0]).IsEqualTo("✗ agent: the turn exceeded its tool-call limit");
     }
 
     [Test]
@@ -1250,38 +1130,18 @@ internal sealed class EnhancedHierarchyTests
     [Test]
     public async Task Summary_reasoning_chunks_are_committed_as_one_block(CancellationToken cancellationToken)
     {
-        var committed = new List<string>();
-        var context = new ScrollbackRenderContext(120, new TerminalPalette(false));
-
-        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
-        {
-            token.ThrowIfCancellationRequested();
-            return Task.CompletedTask;
-        }
-
-        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
-        {
-            token.ThrowIfCancellationRequested();
-            committed.Add(string.Join('|', item.Render(context)));
-            return Task.CompletedTask;
-        }
-
-        await using var view = new RawActivityView(
-            Draw,
-            Commit,
-            new ToolPresenterRegistry([], new GenericToolPresenter()),
-            static (_, _) => Task.CompletedTask);
-        await view.Render(
+        await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);
+        await fixture.View.Render(
             new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "root",
                 ReasoningChunk = new ReasoningChunk { Fragment = "# fi", Kind = ReasoningKind.Summary },
             },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "root",
@@ -1292,9 +1152,9 @@ internal sealed class EnhancedHierarchyTests
                 },
             },
             cancellationToken);
-        _ = await Assert.That(committed).IsEmpty();
+        _ = await Assert.That(fixture.Committed).IsEmpty();
 
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "root",
@@ -1307,8 +1167,8 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
 
-        _ = await Assert.That(committed.Count).IsEqualTo(1);
-        _ = await Assert.That(committed[0]).IsEqualTo("✦ first|  • bold");
+        _ = await Assert.That(fixture.Committed.Count).IsEqualTo(1);
+        _ = await Assert.That(fixture.Committed[0]).IsEqualTo("✦ first|  • bold");
     }
 
     [Test]
@@ -1324,7 +1184,7 @@ internal sealed class EnhancedHierarchyTests
         Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
-            drawn.Add(Render(items, liveContext));
+            drawn.Add(RawActivityRecorder.Render(items, liveContext));
             return Task.CompletedTask;
         }
 
@@ -1339,7 +1199,7 @@ internal sealed class EnhancedHierarchyTests
             }
 
             committed.Add(rendered);
-            drawn.Add(Render(items, liveContext));
+            drawn.Add(RawActivityRecorder.Render(items, liveContext));
             return Task.CompletedTask;
         }
 
@@ -1499,10 +1359,10 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
 
-        var spinner = Render(drawn[^1], context);
+        var spinner = RawActivityRecorder.Render(drawn[^1], context);
         var spinnerRow = spinner.Split('|').Single(static row => row.Contains("[worker]", StringComparison.Ordinal));
         _ = await Assert.That(spinnerRow).IsEqualTo("  ⠋ [worker] ◆");
-        _ = await Assert.That(Count(spinner, "◆")).IsEqualTo(1);
+        _ = await Assert.That(spinner.AsSpan().Count("◆")).IsEqualTo(1);
         _ = await Assert.That(spinner).DoesNotContain("R");
         _ = await Assert.That(spinner).Contains("existing content");
 
@@ -1513,17 +1373,17 @@ internal sealed class EnhancedHierarchyTests
                 ToolStarted = new ToolStarted { ToolCallId = "tool", ToolName = "read" },
             },
             cancellationToken);
-        var withTool = Render(drawn[^1], context);
+        var withTool = RawActivityRecorder.Render(drawn[^1], context);
         _ = await Assert.That(withTool).Contains("read");
-        _ = await Assert.That(Count(withTool, "◆")).IsEqualTo(1);
+        _ = await Assert.That(withTool.AsSpan().Count("◆")).IsEqualTo(1);
 
         await view.Render(
             new Event { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = "first response" } },
             cancellationToken);
-        var response = Render(drawn[^1], context);
+        var response = RawActivityRecorder.Render(drawn[^1], context);
         var responseRow = response.Split('|').Single(static row => row.Contains("first response", StringComparison.Ordinal));
         _ = await Assert.That(responseRow).IsEqualTo("  ● [worker] ◆ first response");
-        _ = await Assert.That(Count(response, "◆")).IsEqualTo(1);
+        _ = await Assert.That(response.AsSpan().Count("◆")).IsEqualTo(1);
 
         await view.Render(
             new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } },
@@ -1561,7 +1421,7 @@ internal sealed class EnhancedHierarchyTests
                 },
             },
             cancellationToken);
-        var nextSpinner = Render(drawn[^1], context);
+        var nextSpinner = RawActivityRecorder.Render(drawn[^1], context);
         _ = await Assert.That(nextSpinner).Contains("[worker] ◇");
         _ = await Assert.That(nextSpinner).DoesNotContain("◆");
         _ = await Assert.That(nextSpinner).DoesNotContain("△");
@@ -1569,7 +1429,7 @@ internal sealed class EnhancedHierarchyTests
         await view.Render(
             new Event { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = "replacement" } },
             cancellationToken);
-        var nextResponse = Render(drawn[^1], context);
+        var nextResponse = RawActivityRecorder.Render(drawn[^1], context);
         _ = await Assert.That(nextResponse).Contains("[worker] ◇ replacement");
         _ = await Assert.That(nextResponse).DoesNotContain("first response");
 
@@ -1579,7 +1439,7 @@ internal sealed class EnhancedHierarchyTests
         await view.Render(
             new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "unaliased" } },
             cancellationToken);
-        var clearedSpinner = Render(drawn[^1], context);
+        var clearedSpinner = RawActivityRecorder.Render(drawn[^1], context);
         _ = await Assert.That(clearedSpinner).Contains("[worker]");
         _ = await Assert.That(clearedSpinner).DoesNotContain("◇");
         _ = await Assert.That(clearedSpinner).DoesNotContain("replacement");
@@ -1643,7 +1503,7 @@ internal sealed class EnhancedHierarchyTests
             (items, token) =>
             {
                 token.ThrowIfCancellationRequested();
-                draws.Add(Render(items, context));
+                draws.Add(RawActivityRecorder.Render(items, context));
                 return Task.CompletedTask;
             },
             static (_, _, token) =>
@@ -1719,10 +1579,10 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(child).IsGreaterThan(a);
         _ = await Assert.That(z).IsGreaterThan(child);
         _ = await Assert.That(root).IsGreaterThan(z);
-        _ = await Assert.That(Count(rendered, "queue: work")).IsEqualTo(3);
+        _ = await Assert.That(rendered.AsSpan().Count("queue: work")).IsEqualTo(3);
         _ = await Assert.That(rendered).DoesNotContain("[root]");
-        _ = await Assert.That(Count(rendered, "agent child")).IsEqualTo(1);
-        _ = await Assert.That(Count(rendered, "agent z-parent")).IsEqualTo(1);
+        _ = await Assert.That(rendered.AsSpan().Count("agent child")).IsEqualTo(1);
+        _ = await Assert.That(rendered.AsSpan().Count("agent z-parent")).IsEqualTo(1);
 
         await view.ReplaceQueues(
             new QueueSnapshot
@@ -1782,7 +1642,7 @@ internal sealed class EnhancedHierarchyTests
         await using var view = new RawActivityView(
             (items, _) =>
             {
-                draws.Add(Render(items, context));
+                draws.Add(RawActivityRecorder.Render(items, context));
                 return Task.CompletedTask;
             },
             static (_, _, _) => Task.CompletedTask,
@@ -1827,7 +1687,7 @@ internal sealed class EnhancedHierarchyTests
             (items, token) =>
             {
                 token.ThrowIfCancellationRequested();
-                drawn.Add(Render(items, liveContext));
+                drawn.Add(RawActivityRecorder.Render(items, liveContext));
                 return Task.CompletedTask;
             },
             (item, _, token) =>
@@ -1903,7 +1763,7 @@ internal sealed class EnhancedHierarchyTests
             (items, token) =>
             {
                 token.ThrowIfCancellationRequested();
-                drawn.Add(Render(items, context));
+                drawn.Add(RawActivityRecorder.Render(items, context));
                 return Task.CompletedTask;
             },
             static (_, _, token) =>
@@ -1956,7 +1816,7 @@ internal sealed class EnhancedHierarchyTests
         Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
-            drawn.Add(Render(items, liveContext));
+            drawn.Add(RawActivityRecorder.Render(items, liveContext));
             return Task.CompletedTask;
         }
 
@@ -2044,38 +1904,11 @@ internal sealed class EnhancedHierarchyTests
     public async Task Active_agent_task_progress_debounces_commits_and_preserves_live_hierarchy(
         CancellationToken cancellationToken)
     {
-        var drawn = new List<string>();
-        var committed = new List<string>();
         var progressDelay = new ControlledProgressDelay();
-        var liveContext = new LiveBufferRenderContext(120, new TerminalPalette(false));
-        var scrollbackContext = new ScrollbackRenderContext(120, liveContext.Palette);
+        await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([new SetAgentTasksToolPresenter(new GenericToolPresenter())], new GenericToolPresenter()), progressDelay.Delay);
+        await StartChildAgentTask(fixture.View, "call", cancellationToken);
 
-        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
-        {
-            token.ThrowIfCancellationRequested();
-            drawn.Add(Render(items, liveContext));
-            return Task.CompletedTask;
-        }
-
-        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
-        {
-            token.ThrowIfCancellationRequested();
-            committed.Add(string.Join('|', item.Render(scrollbackContext)));
-            drawn.Add(Render(items, liveContext));
-            return Task.CompletedTask;
-        }
-
-        var presenters = new ToolPresenterRegistry([new SetAgentTasksToolPresenter(new GenericToolPresenter())], new GenericToolPresenter());
-        await using var view = new RawActivityView(
-            Draw,
-            Commit,
-            static token => Task.Delay(Timeout.InfiniteTimeSpan, token),
-            progressDelay.Delay,
-            presenters,
-            static (_, _) => Task.CompletedTask);
-        await StartChildAgentTask(view, "call", cancellationToken);
-
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
@@ -2097,8 +1930,8 @@ internal sealed class EnhancedHierarchyTests
                 },
             },
             cancellationToken);
-        _ = await Assert.That(drawn[^1]).Contains("◐ first");
-        await view.Render(
+        _ = await Assert.That(fixture.Drawn[^1]).Contains("◐ first");
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
@@ -2120,12 +1953,12 @@ internal sealed class EnhancedHierarchyTests
                 },
             },
             cancellationToken);
-        _ = await Assert.That(drawn[^1]).Contains("◐ higher");
-        _ = await Assert.That(drawn[^1]).DoesNotContain("◐ first");
+        _ = await Assert.That(fixture.Drawn[^1]).Contains("◐ higher");
+        _ = await Assert.That(fixture.Drawn[^1]).DoesNotContain("◐ first");
         _ = await Assert.That(progressDelay.Count).IsEqualTo(2);
 
-        var drawCount = drawn.Count;
-        await view.Render(
+        var drawCount = fixture.Drawn.Count;
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
@@ -2147,15 +1980,15 @@ internal sealed class EnhancedHierarchyTests
                 },
             },
             cancellationToken);
-        _ = await Assert.That(drawn).Count().IsEqualTo(drawCount);
+        _ = await Assert.That(fixture.Drawn).Count().IsEqualTo(drawCount);
         _ = await Assert.That(progressDelay.Count).IsEqualTo(2);
 
         progressDelay.Release(1);
-        await WaitForCount(committed, 1, cancellationToken);
-        _ = await Assert.That(committed[0]).Contains("  • [worker] Agent tasks:|    [worker] ◐ higher|    [worker] └── ○ nested");
-        _ = await Assert.That(drawn[^1]).Contains("◐ higher");
+        await WaitForCount(fixture.Committed, 1, cancellationToken);
+        _ = await Assert.That(fixture.Committed[0]).Contains("  • [worker] Agent tasks:|    [worker] ◐ higher|    [worker] └── ○ nested");
+        _ = await Assert.That(fixture.Drawn[^1]).Contains("◐ higher");
 
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
@@ -2178,20 +2011,20 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
         progressDelay.Release(2);
-        await WaitForCount(committed, 2, cancellationToken);
-        _ = await Assert.That(committed[1]).Contains("◐ newer");
+        await WaitForCount(fixture.Committed, 2, cancellationToken);
+        _ = await Assert.That(fixture.Committed[1]).Contains("◐ newer");
 
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
                 ToolFinished = new ToolFinished { ToolCallId = "call", ToolName = "set_agent_tasks" },
             },
             cancellationToken);
-        _ = await Assert.That(committed).Count().IsEqualTo(3);
-        _ = await Assert.That(committed[2]).DoesNotContain("Agent tasks:");
-        _ = await Assert.That(drawn[^1]).Contains("Agent tasks:");
-        await view.Render(
+        _ = await Assert.That(fixture.Committed).Count().IsEqualTo(3);
+        _ = await Assert.That(fixture.Committed[2]).DoesNotContain("Agent tasks:");
+        _ = await Assert.That(fixture.Drawn[^1]).Contains("Agent tasks:");
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
@@ -2215,43 +2048,26 @@ internal sealed class EnhancedHierarchyTests
             cancellationToken);
         _ = await Assert.That(progressDelay.Count).IsEqualTo(4);
         progressDelay.Release(3);
-        await WaitForCount(committed, 4, cancellationToken);
-        _ = await Assert.That(committed[^1]).Contains("late");
-        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("stale");
+        await WaitForCount(fixture.Committed, 4, cancellationToken);
+        _ = await Assert.That(fixture.Committed[^1]).Contains("late");
+        _ = await Assert.That(string.Join('|', fixture.Committed)).DoesNotContain("stale");
     }
 
     [Test]
     public async Task Agent_task_progress_of_each_agent_debounces_independently_and_shutdown_flushes_pending(
         CancellationToken cancellationToken)
     {
-        var committed = new List<string>();
         var progressDelay = new ControlledProgressDelay();
-        var context = new ScrollbackRenderContext(120, new TerminalPalette(false));
-
-        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
-        {
-            token.ThrowIfCancellationRequested();
-            _ = items;
-            committed.Add(string.Join('|', item.Render(context)));
-            return Task.CompletedTask;
-        }
-
-        await using var view = new RawActivityView(
-            static (_, _) => Task.CompletedTask,
-            Commit,
-            static token => Task.Delay(Timeout.InfiniteTimeSpan, token),
-            progressDelay.Delay,
-            new ToolPresenterRegistry([new SetAgentTasksToolPresenter(new GenericToolPresenter())], new GenericToolPresenter()),
-            static (_, _) => Task.CompletedTask);
-        await StartChildAgentTask(view, "call", cancellationToken);
-        await view.Render(
+        await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([new SetAgentTasksToolPresenter(new GenericToolPresenter())], new GenericToolPresenter()), progressDelay.Delay);
+        await StartChildAgentTask(fixture.View, "call", cancellationToken);
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "sibling",
                 AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "other" },
             },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
@@ -2273,7 +2089,7 @@ internal sealed class EnhancedHierarchyTests
                 },
             },
             cancellationToken);
-        await view.Render(
+        await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "sibling",
@@ -2297,13 +2113,13 @@ internal sealed class EnhancedHierarchyTests
             cancellationToken);
 
         progressDelay.Release(0);
-        await WaitForCount(committed, 1, cancellationToken);
-        _ = await Assert.That(committed[0]).Contains("child-tree");
-        _ = await Assert.That(committed[0]).DoesNotContain("sibling-tree");
+        await WaitForCount(fixture.Committed, 1, cancellationToken);
+        _ = await Assert.That(fixture.Committed[0]).Contains("child-tree");
+        _ = await Assert.That(fixture.Committed[0]).DoesNotContain("sibling-tree");
 
-        await view.Shutdown();
-        _ = await Assert.That(committed).Count().IsEqualTo(2);
-        _ = await Assert.That(committed[1]).Contains("sibling-tree");
+        await fixture.View.Shutdown();
+        _ = await Assert.That(fixture.Committed).Count().IsEqualTo(2);
+        _ = await Assert.That(fixture.Committed[1]).Contains("sibling-tree");
         _ = await Assert.That(progressDelay.CancelledCount).IsGreaterThanOrEqualTo(1);
     }
 
@@ -2436,7 +2252,7 @@ internal sealed class EnhancedHierarchyTests
         Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
-            drawn.Add(Render(items, liveContext));
+            drawn.Add(RawActivityRecorder.Render(items, liveContext));
             return Task.CompletedTask;
         }
 
@@ -2496,7 +2312,7 @@ internal sealed class EnhancedHierarchyTests
             "  • [worker] Agent tasks:|" +
             "    [worker] ⠋ [higher] ◆ Implement the higher thing|" +
             "    [worker] ○ later");
-        _ = await Assert.That(Count(drawn[^1], "[higher]")).IsEqualTo(1);
+        _ = await Assert.That(drawn[^1].AsSpan().Count("[higher]")).IsEqualTo(1);
 
         await view.Render(
             new Event { AgentSessionId = "task-agent", TextChunk = new TextChunk { Fragment = "streamed text" } },
@@ -2515,7 +2331,7 @@ internal sealed class EnhancedHierarchyTests
         Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
-            drawn.Add(Render(items, liveContext));
+            drawn.Add(RawActivityRecorder.Render(items, liveContext));
             return Task.CompletedTask;
         }
 
@@ -2572,7 +2388,7 @@ internal sealed class EnhancedHierarchyTests
             "    [worker] ◐ composite|" +
             "    [worker] ├── ◐ inner-first|" +
             "    [worker] └── ○ inner-second");
-        _ = await Assert.That(Count(drawn[^1], "Agent tasks:")).IsEqualTo(1);
+        _ = await Assert.That(drawn[^1].AsSpan().Count("Agent tasks:")).IsEqualTo(1);
     }
 
     private static async Task StartChildAgentTask(
@@ -2615,12 +2431,6 @@ internal sealed class EnhancedHierarchyTests
             await Task.Delay(1, cancellationToken);
         }
     }
-
-    private static string Render(IReadOnlyList<ILiveBufferItem> items, LiveBufferRenderContext context) =>
-        string.Join('|', items.SelectMany(item => item.Render(context).Lines).Select(static line => line.Text));
-
-    private static int Count(string value, string fragment) =>
-        value.Split(fragment, StringSplitOptions.None).Length - 1;
 
     private sealed class ControlledProgressDelay
     {

@@ -4,7 +4,6 @@ using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Diagnostics;
 using Parrot.Llm;
-using Parrot.Skills;
 using Parrot.State;
 using Parrot.Store;
 
@@ -104,7 +103,7 @@ internal sealed class SessionStoreTests : IDisposable
         var router = TestModels.Route(model);
         sessions.Use(router);
         var factory = new ObservingUserSessions(
-            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, new TestProfileFixture().Registry, SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System, AgentTaskParser.ParseArtifact),
+            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, new TestProfileFixture().Registry, TestModels.SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System, AgentTaskParser.ParseArtifact),
             logPath,
             fail);
         var store = new SessionStore(paths, workingDirectory, "host", factory, router, Modes(), diagnostics);
@@ -183,7 +182,7 @@ internal sealed class SessionStoreTests : IDisposable
             Modes(),
             TestModels.PromptTemplates,
             new TestProfileFixture().Registry,
-            SkillCatalogFactory(),
+            TestModels.SkillCatalogFactory(),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             AgentTaskParser.ParseArtifact));
@@ -449,7 +448,7 @@ internal sealed class SessionStoreTests : IDisposable
             new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")),
             workingDirectory,
             "host",
-            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, new TestProfileFixture().Registry, SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System, AgentTaskParser.ParseArtifact),
+            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, new TestProfileFixture().Registry, TestModels.SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System, AgentTaskParser.ParseArtifact),
             router,
             Modes(),
             Diagnostics());
@@ -493,14 +492,6 @@ internal sealed class SessionStoreTests : IDisposable
         _ = await Assert.That(globalLog).Contains("event=\"acquire\"").And.Contains("outcome=\"failed\"");
     }
 
-    private static SkillCatalogFactory SkillCatalogFactory()
-    {
-        var configuration = Configuration.Load(
-            Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"), "config.yaml"),
-            Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"), "predefined.yaml"));
-        return new SkillCatalogFactory(configuration, Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "packaged-skills"));
-    }
-
     private Task<IUserSession> Open(string workingDirectory)
     {
         var sessions = new DirectAgentSessions();
@@ -512,7 +503,7 @@ internal sealed class SessionStoreTests : IDisposable
             new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")),
             workingDirectory,
             "host",
-            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, new TestProfileFixture().Registry, SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System, AgentTaskParser.ParseArtifact),
+            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, new TestProfileFixture().Registry, TestModels.SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System, AgentTaskParser.ParseArtifact),
             router,
             Modes(),
             Diagnostics());

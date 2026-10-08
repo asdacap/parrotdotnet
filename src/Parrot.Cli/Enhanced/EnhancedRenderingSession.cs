@@ -112,7 +112,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
         _completePlan = completePlan;
         _exitOnFirstCompletion = exitOnFirstCompletion;
         _timeProvider = timeProvider;
-        _updates = new LiveUpdateScheduler(DrawScheduled);
+        _updates = new LiveUpdateScheduler(Refresh);
         _rates = new RollingTokenRateWindow(timeProvider);
         _rateRefresh = new RollingTokenRateRefreshLifecycle(
             _rates,
@@ -143,49 +143,28 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(items);
 
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            _input = [.. items];
-            await DrawFrame(CancellationToken.None).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _composing.Release();
-        }
+        using var composingLock = await _composing.Lock(cancellationToken).ConfigureAwait(false);
+        _input = [.. items];
+        await DrawFrame(CancellationToken.None).ConfigureAwait(false);
     }
 
     internal async Task SetAwaitingQuestionAnswer(bool awaitingAnswer, CancellationToken cancellationToken)
     {
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            _awaitingQuestionAnswer = awaitingAnswer;
-            await DrawFrame(CancellationToken.None).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _composing.Release();
-        }
+        using var composingLock = await _composing.Lock(cancellationToken).ConfigureAwait(false);
+        _awaitingQuestionAnswer = awaitingAnswer;
+        await DrawFrame(CancellationToken.None).ConfigureAwait(false);
     }
 
     internal async Task UpdateQuestionCountdown(long? remainingSeconds, CancellationToken cancellationToken)
     {
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var composingLock = await _composing.Lock(cancellationToken).ConfigureAwait(false);
+        if (_questionRemainingSeconds == remainingSeconds)
         {
-            if (_questionRemainingSeconds == remainingSeconds)
-            {
-                return;
-            }
+            return;
+        }
 
-            _questionRemainingSeconds = remainingSeconds;
-            _ = _updates.Invalidate();
-        }
-        finally
-        {
-            _ = _composing.Release();
-        }
+        _questionRemainingSeconds = remainingSeconds;
+        _ = _updates.Invalidate();
     }
 
     internal async Task BeginTurn(
@@ -197,18 +176,13 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(scrollback);
         ArgumentNullException.ThrowIfNull(input);
 
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using (await _composing.Lock(cancellationToken).ConfigureAwait(false))
         {
             _requestAttempt = 0;
             _waitingForFirstToken = false;
             _modelineActivity = "Preparing turn…";
             _input = [.. input];
             await _renderer.Commit(scrollback, Snapshot(), CancellationToken.None).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _composing.Release();
         }
 
         await StartSpinner(spinnerToken).ConfigureAwait(false);
@@ -218,15 +192,8 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(scrollback);
 
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await _renderer.Commit(scrollback, Snapshot(), CancellationToken.None).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _composing.Release();
-        }
+        using var composingLock = await _composing.Lock(cancellationToken).ConfigureAwait(false);
+        await _renderer.Commit(scrollback, Snapshot(), CancellationToken.None).ConfigureAwait(false);
     }
 
     internal async Task RefreshReady(CancellationToken cancellationToken)
@@ -236,44 +203,29 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
             return;
         }
 
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var composingLock = await _composing.Lock(cancellationToken).ConfigureAwait(false);
+        if (_isBusy())
         {
-            if (_isBusy())
-            {
-                return;
-            }
+            return;
+        }
 
-            _mainAgentActivity = string.Empty;
-            _requestAttempt = 0;
-            _waitingForFirstToken = false;
-            _modelineActivity = string.Empty;
-            await DrawFrame(CancellationToken.None).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _composing.Release();
-        }
+        _mainAgentActivity = string.Empty;
+        _requestAttempt = 0;
+        _waitingForFirstToken = false;
+        _modelineActivity = string.Empty;
+        await DrawFrame(CancellationToken.None).ConfigureAwait(false);
     }
 
     internal async Task Refresh(CancellationToken cancellationToken)
     {
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await DrawFrame(CancellationToken.None).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _composing.Release();
-        }
+        using var composingLock = await _composing.Lock(cancellationToken).ConfigureAwait(false);
+        await DrawFrame(CancellationToken.None).ConfigureAwait(false);
     }
 
     internal async Task ResetForSession(CancellationToken cancellationToken)
     {
         Task rateRefreshReset;
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using (await _composing.Lock(cancellationToken).ConfigureAwait(false))
         {
             rateRefreshReset = _rateRefresh.ResetAsync();
             _body = [];
@@ -287,10 +239,6 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
             _rootTurnDuration = null;
             _modelineFrame = 0;
         }
-        finally
-        {
-            _ = _composing.Release();
-        }
 
         await rateRefreshReset.ConfigureAwait(false);
         _ = _updates.Invalidate();
@@ -298,37 +246,24 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
 
     internal async Task StopSpinner()
     {
-        await _spinnerLifecycle.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-        try
-        {
-            _ = _spinnerStop?.TrySetResult();
-            await _spinnerRendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-            _spinnerStop = null;
-            _spinnerRendering = Task.CompletedTask;
-        }
-        finally
-        {
-            _ = _spinnerLifecycle.Release();
-        }
+        using var spinnerLifecycleLock = await _spinnerLifecycle.Lock(CancellationToken.None).ConfigureAwait(false);
+        _ = _spinnerStop?.TrySetResult();
+        await _spinnerRendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        _spinnerStop = null;
+        _spinnerRendering = Task.CompletedTask;
     }
 
     internal async Task Clear(CancellationToken cancellationToken)
     {
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await _renderer.Clear(CancellationToken.None).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _composing.Release();
-        }
+        using var composingLock = await _composing.Lock(cancellationToken).ConfigureAwait(false);
+        await _renderer.Clear(CancellationToken.None).ConfigureAwait(false);
     }
 
     private Task InvalidateRate(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return _updates.Invalidate() ? Task.CompletedTask : Task.CompletedTask;
+        _ = _updates.Invalidate();
+        return Task.CompletedTask;
     }
 
     private IReadOnlyList<ILiveBufferItem> Snapshot() =>
@@ -494,65 +429,37 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
             await animating.CancelAsync().ConfigureAwait(false);
             await animation.ConfigureAwait(false);
             await activity.ResetRequests(CancellationToken.None).ConfigureAwait(false);
-            await _composing.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-            try
-            {
-                _requestAttempt = 0;
-                _waitingForFirstToken = false;
-                _ = _updates.Invalidate();
-            }
-            finally
-            {
-                _ = _composing.Release();
-            }
+            using var composingLock = await _composing.Lock(CancellationToken.None).ConfigureAwait(false);
+            _requestAttempt = 0;
+            _waitingForFirstToken = false;
+            _ = _updates.Invalidate();
         }
     }
 
     private async Task ObserveRenderingEvent(Event published, CancellationToken cancellationToken)
     {
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            ObserveModelineActivity(published);
-        }
-        finally
-        {
-            _ = _composing.Release();
-        }
+        using var composingLock = await _composing.Lock(cancellationToken).ConfigureAwait(false);
+        ObserveModelineActivity(published);
     }
 
     private async Task ObserveProviderCallUsage(
         ProviderCallUsage usage,
         CancellationToken cancellationToken)
     {
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            _rates.Observe(usage.InputTokens, usage.OutputTokens);
-            _rateRefresh.EnsureRefreshing(cancellationToken);
-            _ = _updates.Invalidate();
-        }
-        finally
-        {
-            _ = _composing.Release();
-        }
+        using var composingLock = await _composing.Lock(cancellationToken).ConfigureAwait(false);
+        _rates.Observe(usage.InputTokens, usage.OutputTokens);
+        _rateRefresh.EnsureRefreshing(cancellationToken);
+        _ = _updates.Invalidate();
     }
 
     private async Task ObserveSessionUsage(
         SessionUsageSnapshot snapshot,
         CancellationToken cancellationToken)
     {
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var composingLock = await _composing.Lock(cancellationToken).ConfigureAwait(false);
+        if (_usage.Observe(snapshot))
         {
-            if (_usage.Observe(snapshot))
-            {
-                _ = _updates.Invalidate();
-            }
-        }
-        finally
-        {
-            _ = _composing.Release();
+            _ = _updates.Invalidate();
         }
     }
 
@@ -594,13 +501,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
                  or Event.PayloadOneofCase.ToolCancelled
                  or Event.PayloadOneofCase.ToolError)
         {
-            var toolCallId = published.PayloadCase switch
-            {
-                Event.PayloadOneofCase.ToolFinished => published.ToolFinished.ToolCallId,
-                Event.PayloadOneofCase.ToolCancelled => published.ToolCancelled.ToolCallId,
-                _ => published.ToolError.ToolCallId,
-            };
-            if (_modelineTools.Remove(toolCallId) && _modelineTools.Count == 0)
+            if (_modelineTools.Remove(TerminalToolEvent.ReadTool(published).ToolCallId) && _modelineTools.Count == 0)
             {
                 _modelineActivity = string.Empty;
             }
@@ -609,30 +510,18 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
 
     private async Task UpdateMainAgentActivity(string activity, CancellationToken cancellationToken)
     {
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            _mainAgentActivity = activity;
-        }
-        finally
-        {
-            _ = _composing.Release();
-        }
+        using var composingLock = await _composing.Lock(cancellationToken).ConfigureAwait(false);
+        _mainAgentActivity = activity;
     }
 
     private async Task ReplaceBody(
         IReadOnlyList<ILiveBufferItem> items,
         CancellationToken cancellationToken)
     {
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using (await _composing.Lock(cancellationToken).ConfigureAwait(false))
         {
-            _body = [.. items];
+            _body = items;
             _modelineFrame++;
-        }
-        finally
-        {
-            _ = _composing.Release();
         }
 
         _ = _updates.Invalidate();
@@ -642,17 +531,10 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
         IReadOnlyList<ILiveBufferItem> items,
         CancellationToken cancellationToken)
     {
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            _body = [.. items];
-            _modelineFrame++;
-            await DrawFrame(CancellationToken.None).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _composing.Release();
-        }
+        using var composingLock = await _composing.Lock(cancellationToken).ConfigureAwait(false);
+        _body = items;
+        _modelineFrame++;
+        await DrawFrame(CancellationToken.None).ConfigureAwait(false);
     }
 
     private async Task CommitBody(
@@ -660,29 +542,9 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
         IReadOnlyList<ILiveBufferItem> items,
         CancellationToken cancellationToken)
     {
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            _body = [.. items];
-            await _renderer.Commit(scrollback, Snapshot(), CancellationToken.None).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _composing.Release();
-        }
-    }
-
-    private async Task DrawScheduled(CancellationToken cancellationToken)
-    {
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await DrawFrame(CancellationToken.None).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _composing.Release();
-        }
+        using var composingLock = await _composing.Lock(cancellationToken).ConfigureAwait(false);
+        _body = items;
+        await _renderer.Commit(scrollback, Snapshot(), CancellationToken.None).ConfigureAwait(false);
     }
 
     private Task DrawFrame(CancellationToken cancellationToken) =>
@@ -690,25 +552,18 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
 
     private async Task StartSpinner(CancellationToken cancellationToken)
     {
-        await _spinnerLifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            _ = _spinnerStop?.TrySetResult();
-            await _spinnerRendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-            _spinnerStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            var stop = _spinnerStop;
-            _spinnerRendering = _spinner.Run(
-                static index => new SpinnerValue("preparing turn", index),
-                async (preserve, lifetimeToken) =>
-                {
-                    await stop.Task.WaitAsync(lifetimeToken).ConfigureAwait(false);
-                    await preserve().ConfigureAwait(false);
-                },
-                cancellationToken);
-        }
-        finally
-        {
-            _ = _spinnerLifecycle.Release();
-        }
+        using var spinnerLifecycleLock = await _spinnerLifecycle.Lock(cancellationToken).ConfigureAwait(false);
+        _ = _spinnerStop?.TrySetResult();
+        await _spinnerRendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        _spinnerStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stop = _spinnerStop;
+        _spinnerRendering = _spinner.Run(
+            static index => new SpinnerValue("preparing turn", index),
+            async (preserve, lifetimeToken) =>
+            {
+                await stop.Task.WaitAsync(lifetimeToken).ConfigureAwait(false);
+                await preserve().ConfigureAwait(false);
+            },
+            cancellationToken);
     }
 }

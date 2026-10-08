@@ -14,6 +14,7 @@ internal sealed class FileCredentialStore(string path) : ICredentialStore, IDisp
     private const UnixFileMode FilePermissions = UnixFileMode.UserRead | UnixFileMode.UserWrite;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private ParsedStore? _parsed;
 
     public void Dispose() => _gate.Dispose();
 
@@ -99,6 +100,8 @@ internal sealed class FileCredentialStore(string path) : ICredentialStore, IDisp
             var values = await Read(cancellationToken).ConfigureAwait(false);
             change(values);
             await Write(values, cancellationToken).ConfigureAwait(false);
+            var written = new FileInfo(path);
+            _parsed = new ParsedStore(written.LastWriteTimeUtc, written.Length, values);
         }
         finally
         {
@@ -108,16 +111,20 @@ internal sealed class FileCredentialStore(string path) : ICredentialStore, IDisp
 
     private async ValueTask<Dictionary<string, JsonElement>> Read(CancellationToken cancellationToken)
     {
-        if (!File.Exists(path))
+        var info = new FileInfo(path);
+        if (!info.Exists)
         {
             return new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         }
 
-        var info = new FileInfo(path);
-
         if (info.Length > MaxStoreBytes)
         {
             throw new AuthException("auth: credential store exceeds byte limit");
+        }
+
+        if (_parsed is { } parsed && parsed.LastWriteTimeUtc == info.LastWriteTimeUtc && parsed.Length == info.Length)
+        {
+            return new Dictionary<string, JsonElement>(parsed.Credentials, StringComparer.Ordinal);
         }
 
         var text = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
@@ -138,6 +145,7 @@ internal sealed class FileCredentialStore(string path) : ICredentialStore, IDisp
             throw new AuthException("auth: malformed credential store");
         }
 
+        _parsed = new ParsedStore(info.LastWriteTimeUtc, info.Length, file.Credentials);
         return new Dictionary<string, JsonElement>(file.Credentials, StringComparer.Ordinal);
     }
 
@@ -187,4 +195,6 @@ internal sealed class FileCredentialStore(string path) : ICredentialStore, IDisp
             File.SetUnixFileMode(path, FilePermissions);
         }
     }
+
+    private sealed record ParsedStore(DateTime LastWriteTimeUtc, long Length, IReadOnlyDictionary<string, JsonElement> Credentials);
 }

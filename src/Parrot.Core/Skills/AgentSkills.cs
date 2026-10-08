@@ -13,8 +13,9 @@ internal sealed class AgentSkills(
     private const int MaximumTurnBytes = 1024 * 1024;
     private const int MaximumDiagnosticLength = 1024;
     private readonly List<SelectedSkill> _selected = [];
-    private readonly HashSet<string> _selectedPaths = new(PathComparer());
+    private readonly HashSet<string> _selectedPaths = new(PlatformPath.Comparer);
     private SkillSnapshot _snapshot = SkillSnapshot.Empty;
+    private RenderedCatalog? _catalog;
     private bool _turnActive;
 
     public void BeginTurn()
@@ -28,7 +29,13 @@ internal sealed class AgentSkills(
     public string BuildCatalog()
     {
         var snapshot = _turnActive ? _snapshot : catalog.Capture();
-        return AgentSkillPromptProvider.Render(snapshot.Skills, promptTemplates);
+        if (_catalog is not { } rendered || !ReferenceEquals(rendered.Snapshot, snapshot))
+        {
+            rendered = new RenderedCatalog(snapshot, AgentSkillPromptProvider.Render(snapshot.Skills, promptTemplates));
+            _catalog = rendered;
+        }
+
+        return rendered.Text;
     }
 
     public void Select(IReadOnlyList<ConversationPart> parts)
@@ -98,16 +105,13 @@ internal sealed class AgentSkills(
 
         try
         {
-            return PathComparer().Equals(PlatformPath.Normalize(left), PlatformPath.Normalize(right));
+            return PlatformPath.Comparer.Equals(PlatformPath.Normalize(left), PlatformPath.Normalize(right));
         }
         catch (Exception failure) when (failure is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return false;
         }
     }
-
-    private static StringComparer PathComparer() =>
-        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
     private static string Escape(string value) => value
         .Replace("&", "&amp;", StringComparison.Ordinal)
@@ -166,7 +170,7 @@ internal sealed class AgentSkills(
 
         foreach (var selection in _selected
                      .OrderBy(item => item.Position)
-                     .ThenBy(item => item.Skill.Path, PathComparer()))
+                     .ThenBy(item => item.Skill.Path, PlatformPath.Comparer))
         {
             string content;
             try
@@ -273,4 +277,6 @@ internal sealed class AgentSkills(
     public sealed record SkillRendering(string Content, IReadOnlyList<string> LoadedPaths);
 
     private sealed record SelectedSkill(SkillMetadata Skill, int Position);
+
+    private sealed record RenderedCatalog(SkillSnapshot Snapshot, string Text);
 }

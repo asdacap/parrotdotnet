@@ -50,7 +50,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         _ = await queues.Push("work", ["item"], QueueDirection.Back, false, cancellationToken);
         _ = scope.GetService<IProcessOwner>().StartUnattributed("process", "sleep 60", ProcessEnvironmentOverrides.Empty, session, SecurityProfile.Compose(readOnly: false, [], [], []), ShellProcessTerminalMode.Pipe);
         using var childProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
-        await using var childScope = BuildSession(childProvider, [], new EventRepository(_database), registry, AgentIdentity.Child("child", AgentIdentity.Main("agent", "main", TestModels.PromptTemplates), "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates), AgentSessionParentLink.Child(scope, AgentCompletionDeliveryPolicy.RetainedOnly, registry.ReserveRetainedAgent()), QueueResources("agent"), TestDiagnosticLog.Instance);
+        await using var childScope = BuildSession(childProvider, [], new EventRepository(_database), registry, AgentIdentity.Child("child", AgentIdentity.Main("agent", "main", TestModels.PromptTemplates), "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), AgentPolicyLineage.Root(), TestModels.PromptTemplates), AgentSessionParentLink.Child(scope, AgentCompletionDeliveryPolicy.RetainedOnly, registry.ReserveRetainedAgent()), QueueResources("agent"), TestDiagnosticLog.Instance);
         _ = await childScope.Session.Send([ConversationPart.TextPart("work")], "child-message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await childProvider.Arrived(cancellationToken);
         var selection = new SelectionFixture(provider).Selection;
@@ -260,7 +260,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             [ConversationPart.TextPart("first")], "message-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
-        await WaitUntil(() => IsWaiting(session), cancellationToken);
+        await TestPolling.Until(() => IsWaiting(session), cancellationToken);
         _ = await session.Send(
             [ConversationPart.TextPart("first")], "message-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await Task.Delay(20, cancellationToken);
@@ -284,33 +284,6 @@ internal sealed class WaitToolTests : IAsyncDisposable
     }
 
     private static bool IsWaiting(IAgentSession session) => session.Activity.Capture().State != DrainState.Idle;
-
-    private static async Task WaitUntil(Func<bool> predicate, CancellationToken cancellationToken)
-    {
-        while (!predicate())
-        {
-            await Task.Delay(1, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private string CreateSandboxPassThrough()
-    {
-        if (!OperatingSystem.IsLinux())
-        {
-            throw new PlatformNotSupportedException();
-        }
-
-        var path = Path.Combine(_root, $"sandbox-{Guid.NewGuid():n}");
-        var script = "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do\n"
-            + "  if [ \"$1\" = \"--chdir\" ]; then shift; cd \"$1\" || exit; "
-            + "elif [ \"$1\" = \"--setenv\" ]; then export \"$2=$3\"; shift 2; fi\n"
-            + "  shift\ndone\nshift\nexec \"$@\"\n";
-        File.WriteAllText(path, script);
-        File.SetUnixFileMode(
-            path,
-            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        return path;
-    }
 
     private UserSessionResources QueueResources(string sessionId) => new(
         new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
@@ -341,7 +314,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             registry,
             TestModels.PromptTemplates,
             resources,
-            new ProcessRunner(CreateSandboxPassThrough()),
+            TestModels.Runner(SandboxPassThrough.Write(_root)),
             diagnostics,
             (sessionParentScope, owningScope, children, childQuestions) =>
             {

@@ -1,5 +1,3 @@
-using Parrot.Agent;
-using Parrot.Llm;
 using Parrot.Security;
 using Parrot.Tools;
 
@@ -8,10 +6,7 @@ namespace Parrot.Core.Tests;
 internal sealed class GlobToolTests : IDisposable
 {
     private const int ResultLimit = 1000;
-    private readonly string _workspace = Path.Combine(
-        Path.GetTempPath(), "parrot-glob-tool-tests", Guid.NewGuid().ToString("n"));
-
-    public GlobToolTests() => Directory.CreateDirectory(_workspace);
+    private readonly string _workspace = Directory.CreateTempSubdirectory("parrot-glob-tool-tests-").FullName;
 
     public void Dispose()
     {
@@ -53,14 +48,9 @@ internal sealed class GlobToolTests : IDisposable
     private async Task<string> Execute(CancellationToken cancellationToken)
     {
         ITool tool = new GlobTool(new ToolWorkspace(_workspace));
-        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
         return (await tool.Execute(
             new ToolInvocation("test-call", "{\"pattern\":\"*.txt\"}"),
-            new AgentTurnSelection(
-                new ModelSelector(model.Selector),
-                TestModels.Resolve(model),
-                new TestProfileFixture().Profile,
-                SecurityProfile.Compose(readOnly: false, [], [], [])),
+            TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             cancellationToken)).Text;
     }
 }

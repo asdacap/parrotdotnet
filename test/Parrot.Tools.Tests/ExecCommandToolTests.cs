@@ -13,10 +13,7 @@ namespace Parrot.Core.Tests;
 
 internal sealed class ExecCommandToolTests : IDisposable
 {
-    private readonly string _workspace = Path.Combine(
-        Path.GetTempPath(), "parrot-exec-tool-tests", Guid.NewGuid().ToString("n"));
-
-    public ExecCommandToolTests() => Directory.CreateDirectory(_workspace);
+    private readonly string _workspace = Directory.CreateTempSubdirectory("parrot-exec-tool-tests-").FullName;
 
     public void Dispose()
     {
@@ -64,7 +61,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             identity,
             resources,
             new AgentPathEnvironment(resources, scratch),
-            new ProcessRunner(CreateSandboxPassThrough(_workspace)),
+            TestModels.Runner(CreateSandboxPassThrough(_workspace)),
             TestDiagnosticLog.Instance,
             CancellationToken.None);
         var securityProfile = SecurityProfile.Compose(readOnly: false, [], [], []);
@@ -73,11 +70,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             session,
             new ToolWorkspace(_workspace),
             new ReadOnlyExecCommandClassifier([]));
-        var selection = new AgentTurnSelection(
-            new ModelSelector(model.Selector),
-            TestModels.Resolve(model),
-            new TestProfileFixture().Profile,
-            securityProfile);
+        var selection = TestTurnSelection.Create(securityProfile);
         var factoryTool = new ExecCommandToolFactory(
             processes,
             new ToolWorkspace(_workspace),
@@ -219,7 +212,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             identity,
             resources,
             new AgentPathEnvironment(resources, scratch),
-            new ProcessRunner(CreateSandboxPassThrough(_workspace)),
+            TestModels.Runner(CreateSandboxPassThrough(_workspace)),
             TestDiagnosticLog.Instance,
             CancellationToken.None);
         var resourceResolver = new ResourceResolverFixture(resourceQueues.Queues, processes);

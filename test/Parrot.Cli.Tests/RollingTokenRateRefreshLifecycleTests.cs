@@ -1,4 +1,5 @@
 using Parrot.Cli.Enhanced;
+using Parrot.Core.Tests;
 
 namespace Parrot.Cli.Tests;
 
@@ -7,7 +8,7 @@ internal sealed class RollingTokenRateRefreshLifecycleTests
     [Test]
     public async Task Reset_cancels_pending_refresh_before_replacement_can_be_invalidated()
     {
-        var time = new RateTimeProvider();
+        var time = new ControlledTimeProvider();
         var window = new RollingTokenRateWindow(time);
         var waiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var invalidations = 0;
@@ -38,7 +39,7 @@ internal sealed class RollingTokenRateRefreshLifecycleTests
     [Test]
     public async Task Sample_observed_after_reset_boundary_survives_joining_old_refresh()
     {
-        var window = new RollingTokenRateWindow(new RateTimeProvider());
+        var window = new RollingTokenRateWindow(new ControlledTimeProvider());
         var cancellationReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseCancellation = new SemaphoreSlim(0, 1);
         var lifecycle = new RollingTokenRateRefreshLifecycle(
@@ -74,7 +75,7 @@ internal sealed class RollingTokenRateRefreshLifecycleTests
     [Test]
     public async Task Shutdown_cancels_and_joins_outstanding_refresh()
     {
-        var window = new RollingTokenRateWindow(new RateTimeProvider());
+        var window = new RollingTokenRateWindow(new ControlledTimeProvider());
         var cancellationReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseCancellation = new SemaphoreSlim(0, 1);
         var lifecycle = new RollingTokenRateRefreshLifecycle(
@@ -103,16 +104,5 @@ internal sealed class RollingTokenRateRefreshLifecycleTests
         _ = releaseCancellation.Release();
         await shuttingDown;
         _ = await Assert.That(shuttingDown.IsCompletedSuccessfully).IsTrue();
-    }
-
-    private sealed class RateTimeProvider : TimeProvider
-    {
-        private long _timestamp;
-
-        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
-
-        public override long GetTimestamp() => _timestamp;
-
-        public void Advance(TimeSpan elapsed) => _timestamp += elapsed.Ticks;
     }
 }

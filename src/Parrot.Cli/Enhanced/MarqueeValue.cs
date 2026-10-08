@@ -14,8 +14,8 @@ internal readonly record struct MarqueeValue(string Prefix, string Text, int Fra
 
     public MultiLine Render(LiveBufferRenderContext context)
     {
-        var prefix = SingleLine(Prefix);
-        var text = SingleLine(Text);
+        var prefix = TerminalText.SanitizeLine(Prefix);
+        var text = TerminalText.SanitizeLine(Text);
         var prefixWidth = TerminalText.Width(prefix);
         var available = Math.Max(0, context.Columns - prefixWidth);
         var rendered = available == 0
@@ -26,9 +26,6 @@ internal readonly record struct MarqueeValue(string Prefix, string Text, int Fra
             null,
             LiveBufferRetention.Tail);
     }
-
-    private static string SingleLine(string value) => TerminalText.Sanitize(value)
-        .Replace("\n", " ", StringComparison.Ordinal);
 
     private string Viewport(string text, int width)
     {

@@ -27,7 +27,8 @@ export function useSessionEvents(userSessionId: string) {
     const rateTimer = setInterval(() => {
       if (samples.length === 0) return
       samples = retainedSamples(samples, Date.now())
-      setTokenRate(rollingRate(samples, Date.now()))
+      const next = rollingRate(samples)
+      setTokenRate((previous) => (previous.input === next.input && previous.output === next.output ? previous : next))
     }, 1000)
     void (async () => {
       let retryMilliseconds = initialRetryMilliseconds

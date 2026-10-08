@@ -4,11 +4,14 @@ namespace Parrot.Core.Tests;
 
 internal sealed class QuestionBrokerTests
 {
+    private static readonly QuestionDefinition[] Colour =
+        [new QuestionDefinition("colour", "Pick a colour", [new QuestionOption("Blue", string.Empty), new QuestionOption("Green", string.Empty)], false, false)];
+
     [Test]
     public async Task A_valid_reply_settles_the_waiter_and_is_removed(CancellationToken cancellationToken)
     {
         using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System, TestDiagnosticLog.Instance);
-        var asking = broker.Ask([new QuestionDefinition("colour", "Pick a colour", [new QuestionOption("Blue", string.Empty), new QuestionOption("Green", string.Empty)], false, false)], cancellationToken);
+        var asking = broker.Ask(Colour, cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
 
         broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("blue")]));
@@ -22,7 +25,7 @@ internal sealed class QuestionBrokerTests
     public async Task An_invalid_reply_leaves_the_request_pending(CancellationToken cancellationToken)
     {
         using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System, TestDiagnosticLog.Instance);
-        var asking = broker.Ask([new QuestionDefinition("colour", "Pick a colour", [new QuestionOption("Blue", string.Empty), new QuestionOption("Green", string.Empty)], false, false)], cancellationToken);
+        var asking = broker.Ask(Colour, cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
 
         _ = await Assert.That(() => broker.Reply(
@@ -39,7 +42,7 @@ internal sealed class QuestionBrokerTests
     public async Task Multiple_and_custom_answers_are_validated(CancellationToken cancellationToken)
     {
         using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System, TestDiagnosticLog.Instance);
-        var asking = broker.Ask([new QuestionDefinition("colour", "Pick a colour", [new QuestionOption("Blue", string.Empty), new QuestionOption("Green", string.Empty)], true, true)], cancellationToken);
+        var asking = broker.Ask([Colour[0] with { Multiple = true, Custom = true }], cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
 
         broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("blue, green, violet")]));
@@ -53,7 +56,7 @@ internal sealed class QuestionBrokerTests
     {
         var time = new ControlledTimeProvider();
         using var broker = new QuestionBroker(TimeSpan.FromMinutes(20), time, TestDiagnosticLog.Instance);
-        var asking = broker.Ask([new QuestionDefinition("colour", "Pick a colour", [new QuestionOption("Blue", string.Empty), new QuestionOption("Green", string.Empty)], false, false)], cancellationToken);
+        var asking = broker.Ask(Colour, cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
         await time.WaitForTimer(cancellationToken);
 
@@ -64,7 +67,7 @@ internal sealed class QuestionBrokerTests
         _ = await Assert.That(() => broker.Reply(
             pending.Id,
             new QuestionReply([new QuestionAnswer("blue")])))
-            .Throws<QuestionException>();
+            .Throws<QuestionNotFoundException>();
     }
 
     [Test]
@@ -72,7 +75,7 @@ internal sealed class QuestionBrokerTests
     {
         var time = new ControlledTimeProvider();
         using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, time, TestDiagnosticLog.Instance);
-        var asking = broker.Ask([new QuestionDefinition("colour", "Pick a colour", [new QuestionOption("Blue", string.Empty), new QuestionOption("Green", string.Empty)], false, false)], cancellationToken);
+        var asking = broker.Ask(Colour, cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
 
         time.Advance(TimeSpan.FromDays(1));
@@ -87,7 +90,7 @@ internal sealed class QuestionBrokerTests
     {
         var time = new ControlledTimeProvider();
         using var broker = new QuestionBroker(TimeSpan.FromMinutes(20), time, TestDiagnosticLog.Instance);
-        var asking = broker.Ask([new QuestionDefinition("colour", "Pick a colour", [new QuestionOption("Blue", string.Empty), new QuestionOption("Green", string.Empty)], false, false)], cancellationToken);
+        var asking = broker.Ask(Colour, cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
         await time.WaitForTimer(cancellationToken);
 
@@ -104,7 +107,7 @@ internal sealed class QuestionBrokerTests
     {
         using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System, TestDiagnosticLog.Instance);
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var asking = broker.Ask([new QuestionDefinition("colour", "Pick a colour", [new QuestionOption("Blue", string.Empty), new QuestionOption("Green", string.Empty)], false, false)], stopping.Token);
+        var asking = broker.Ask(Colour, stopping.Token);
         var pending = await WaitForPending(broker, cancellationToken);
 
         broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("blue")]));
@@ -118,7 +121,7 @@ internal sealed class QuestionBrokerTests
     {
         using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System, TestDiagnosticLog.Instance);
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var asking = broker.Ask([new QuestionDefinition("colour", "Pick a colour", [new QuestionOption("Blue", string.Empty), new QuestionOption("Green", string.Empty)], false, false)], stopping.Token);
+        var asking = broker.Ask(Colour, stopping.Token);
         var pending = await WaitForPending(broker, cancellationToken);
 
         await stopping.CancelAsync();
@@ -135,28 +138,28 @@ internal sealed class QuestionBrokerTests
         _ = await Assert.That(() => broker.Reply(
             pending.Id,
             new QuestionReply([new QuestionAnswer("blue")])))
-            .Throws<QuestionException>();
+            .Throws<QuestionNotFoundException>();
     }
 
     [Test]
     public async Task Rejection_removes_request_and_faults_waiter(CancellationToken cancellationToken)
     {
         using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System, TestDiagnosticLog.Instance);
-        var asking = broker.Ask([new QuestionDefinition("colour", "Pick a colour", [new QuestionOption("Blue", string.Empty), new QuestionOption("Green", string.Empty)], false, false)], cancellationToken);
+        var asking = broker.Ask(Colour, cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
 
         broker.Reject(pending.Id);
 
         _ = await Assert.That(asking).Throws<QuestionRejectedException>();
         _ = await Assert.That(broker.Pending()).IsEmpty();
-        _ = await Assert.That(() => broker.Reject(pending.Id)).Throws<QuestionException>();
+        _ = await Assert.That(() => broker.Reject(pending.Id)).Throws<QuestionNotFoundException>();
     }
 
     [Test]
     public async Task Disposal_rejects_pending_and_future_requests(CancellationToken cancellationToken)
     {
         var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System, TestDiagnosticLog.Instance);
-        var asking = broker.Ask([new QuestionDefinition("colour", "Pick a colour", [new QuestionOption("Blue", string.Empty), new QuestionOption("Green", string.Empty)], false, false)], cancellationToken);
+        var asking = broker.Ask(Colour, cancellationToken);
         _ = await WaitForPending(broker, cancellationToken);
 
         broker.Dispose();
@@ -164,7 +167,7 @@ internal sealed class QuestionBrokerTests
 
         _ = await Assert.That(asking).Throws<QuestionRejectedException>();
         _ = await Assert.That(broker.Pending()).IsEmpty();
-        _ = await Assert.That(async () => await broker.Ask([new QuestionDefinition("colour", "Pick a colour", [new QuestionOption("Blue", string.Empty), new QuestionOption("Green", string.Empty)], false, false)], cancellationToken))
+        _ = await Assert.That(async () => await broker.Ask(Colour, cancellationToken))
             .Throws<ObjectDisposedException>();
     }
 
@@ -179,7 +182,7 @@ internal sealed class QuestionBrokerTests
     {
         var time = new ControlledTimeProvider();
         using var broker = new QuestionBroker(TimeSpan.FromMilliseconds(timeoutMilliseconds), time, TestDiagnosticLog.Instance);
-        var asking = broker.Ask([new QuestionDefinition("colour", "Pick a colour", [new QuestionOption("Blue", string.Empty)], false, false)], cancellationToken);
+        var asking = broker.Ask(Colour, cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
         _ = await Assert.That(pending.RemainingTimeoutMilliseconds)
             .IsEqualTo(timeoutMilliseconds == -1 ? null : (long?)timeoutMilliseconds);
@@ -207,15 +210,7 @@ internal sealed class QuestionBrokerTests
         QuestionBroker broker,
         CancellationToken cancellationToken)
     {
-        while (true)
-        {
-            var pending = broker.Pending();
-            if (pending.Count == 1)
-            {
-                return pending[0];
-            }
-
-            await Task.Delay(1, cancellationToken).ConfigureAwait(false);
-        }
+        await TestPolling.Until(() => broker.Pending().Count == 1, cancellationToken);
+        return broker.Pending()[0];
     }
 }

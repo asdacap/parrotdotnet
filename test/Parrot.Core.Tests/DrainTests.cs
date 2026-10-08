@@ -280,8 +280,6 @@ internal sealed class DrainTests : IDisposable
                 ? AgentTurnCompletionOutcome.Retry(
                     "retry",
                     false,
-                    false,
-                    false,
                     null)
                 : AgentTurnCompletionOutcome.Continue(null);
         });
@@ -369,8 +367,6 @@ internal sealed class DrainTests : IDisposable
         var retry = new RecordingCompletionCallback((candidate, invocation) => invocation == 1
             ? AgentTurnCompletionOutcome.Retry(
                 "keep going",
-                false,
-                false,
                 false,
                 null)
             : AgentTurnCompletionOutcome.Continue(null));
@@ -995,7 +991,7 @@ internal sealed class DrainTests : IDisposable
         var delta = dataKind switch
         {
             "text" => LLMEvent.TextDelta(" "),
-            "reasoning" => LLMEvent.ReasoningDelta(" "),
+            "reasoning" => LLMEvent.ReasoningDelta(" ", LLMReasoningKind.Raw, string.Empty, completed: false),
             "tool-id" => LLMEvent.ToolCallDelta("call", string.Empty, string.Empty),
             "tool-name" => LLMEvent.ToolCallDelta(string.Empty, "tool", string.Empty),
             "tool-arguments" => LLMEvent.ToolCallDelta(string.Empty, string.Empty, "{"),
@@ -2370,7 +2366,7 @@ internal sealed class DrainTests : IDisposable
         var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
         _dependencies.Add(dependencies);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), new AgentOutputFile(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
+        return dependencies.CreateRootSession(identity, model, _broker, repository, ".", _blobDirectory, TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), lifetime);
     }
 
     private IAgentSession SessionWithSkills(
@@ -2559,8 +2555,6 @@ internal sealed class DrainTests : IDisposable
                 await _released.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
                 return AgentTurnCompletionOutcome.Retry(
                     "retry first turn",
-                    false,
-                    false,
                     false,
                     null);
             }

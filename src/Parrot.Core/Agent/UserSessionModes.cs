@@ -11,23 +11,10 @@ internal sealed class UserSessionModes(
     Func<string, AgentTaskArtifact> parseTaskArtifact)
 {
     private readonly Lock _planGate = new();
-    private readonly ModeRegistry _modes = modes ?? throw new ArgumentNullException(nameof(modes));
-    private readonly IPromptTemplateCatalog _promptTemplates = promptTemplates
-        ?? throw new ArgumentNullException(nameof(promptTemplates));
 
     private AgentScratchDirectory? _mainScratch;
     private string _planArtifact = string.Empty;
     private string _taskArtifact = string.Empty;
-
-    internal UserSessionModes(
-        ModeRegistry modes,
-        IPromptTemplateCatalog promptTemplates,
-        string planDirectory,
-        Func<string, AgentTaskArtifact> parseTaskArtifact)
-        : this(modes, promptTemplates, parseTaskArtifact) =>
-        _mainScratch = new AgentScratchDirectory(
-            Path.GetDirectoryName(planDirectory)
-            ?? throw new ArgumentException("A plan directory must have a parent.", nameof(planDirectory)));
 
     public void Attach(AgentScratchDirectory mainScratch)
     {
@@ -42,12 +29,12 @@ internal sealed class UserSessionModes(
 
     public IUserMode Resolve(string id)
     {
-        var profile = _modes.Resolve(id);
+        var profile = modes.Resolve(id);
 
         return string.Equals(profile.Id, ModeRegistry.Plan, StringComparison.Ordinal)
             ? new SessionMode(
                 profile,
-                () => _promptTemplates.Render(
+                () => promptTemplates.Render(
                     "mode.plan-workflow",
                     [
                         new("profile_prompt", profile.Prompt),
@@ -182,7 +169,7 @@ internal sealed class UserSessionModes(
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {
-                return ModeCompletionOutcome.Repair(_promptTemplates.Render(
+                return ModeCompletionOutcome.Repair(promptTemplates.Render(
                     "mode.plan-repair-read",
                     [
                         new("plan_artifact", artifact),
@@ -194,14 +181,14 @@ internal sealed class UserSessionModes(
 
         if (plan.Length == 0)
         {
-            return ModeCompletionOutcome.Repair(_promptTemplates.Render(
+            return ModeCompletionOutcome.Repair(promptTemplates.Render(
                 "mode.plan-repair-blank-plan",
                 [new("plan_artifact", artifact)]));
         }
 
         if (taskJson.Length == 0)
         {
-            return ModeCompletionOutcome.Repair(_promptTemplates.Render(
+            return ModeCompletionOutcome.Repair(promptTemplates.Render(
                 "mode.plan-repair-blank-task",
                 [new("task_artifact", taskArtifact)]));
         }
@@ -213,7 +200,7 @@ internal sealed class UserSessionModes(
         }
         catch (ArgumentException failure)
         {
-            return ModeCompletionOutcome.Repair(_promptTemplates.Render(
+            return ModeCompletionOutcome.Repair(promptTemplates.Render(
                 "mode.plan-repair-invalid-task",
                 [
                     new("task_artifact", taskArtifact),
@@ -240,7 +227,7 @@ internal sealed class UserSessionModes(
                         Action = new ChoiceAction
                         {
                             Mode = ModeRegistry.Build,
-                            Prompt = _promptTemplates.Render(
+                            Prompt = promptTemplates.Render(
                                 "mode.plan-implementation",
                                 [
                                     new("plan_artifact", artifact),

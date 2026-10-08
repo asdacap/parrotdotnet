@@ -1,30 +1,25 @@
+using System.Collections.Immutable;
+
 namespace Parrot.Statuses;
 
 internal sealed class StatusRegistry
 {
-    private readonly Lock _gate = new();
-    private readonly Dictionary<string, IStatusProvider> _providers = new(StringComparer.Ordinal);
+    private readonly ImmutableArray<IStatusProvider> _providers;
 
     public StatusRegistry(params IStatusProvider[] providers)
     {
+        var keys = new HashSet<string>(StringComparer.Ordinal);
         foreach (var provider in providers)
         {
-            Register(provider);
-        }
-    }
-
-    public void Register(IStatusProvider provider)
-    {
-        ArgumentNullException.ThrowIfNull(provider);
-        ValidateKey(provider.Key, "provider");
-
-        lock (_gate)
-        {
-            if (!_providers.TryAdd(provider.Key, provider))
+            ArgumentNullException.ThrowIfNull(provider);
+            ValidateKey(provider.Key, "provider");
+            if (!keys.Add(provider.Key))
             {
                 throw new StatusRegistryException($"status: duplicate provider '{provider.Key}'");
             }
         }
+
+        _providers = [.. providers.OrderBy(static provider => provider.Key, StringComparer.Ordinal)];
     }
 
     public Task<string> Observe(
@@ -41,37 +36,23 @@ internal sealed class StatusRegistry
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        KeyValuePair<string, IStatusProvider>[] providers;
-
-        lock (_gate)
+        var providers = _providers;
+        foreach (var (extra, subject) in new (IStatusProvider? Provider, string Subject)[] { (profile, "profile provider"), (additional, "additional provider") })
         {
-            providers = [.. _providers];
-        }
-
-        if (profile is not null)
-        {
-            ValidateKey(profile.Key, "profile provider");
-
-            if (providers.Any(item => string.Equals(item.Key, profile.Key, StringComparison.Ordinal)))
+            if (extra is null)
             {
-                throw new StatusRegistryException($"status: duplicate provider '{profile.Key}'");
+                continue;
             }
 
-            providers = [.. providers, new KeyValuePair<string, IStatusProvider>(profile.Key, profile)];
-        }
-
-        if (additional is not null)
-        {
-            ValidateKey(additional.Key, "additional provider");
-            if (providers.Any(item => string.Equals(item.Key, additional.Key, StringComparison.Ordinal)))
+            ValidateKey(extra.Key, subject);
+            if (providers.Any(item => string.Equals(item.Key, extra.Key, StringComparison.Ordinal)))
             {
-                throw new StatusRegistryException($"status: duplicate provider '{additional.Key}'");
+                throw new StatusRegistryException($"status: duplicate provider '{extra.Key}'");
             }
 
-            providers = [.. providers, new KeyValuePair<string, IStatusProvider>(additional.Key, additional)];
+            providers = [.. providers.Append(extra).OrderBy(static provider => provider.Key, StringComparer.Ordinal)];
         }
 
-        Array.Sort(providers, static (left, right) => StringComparer.Ordinal.Compare(left.Key, right.Key));
         var observations = providers.Select(provider => Observe(provider, query, cancellationToken)).ToArray();
         var sections = await Task.WhenAll(observations).ConfigureAwait(false);
 
@@ -95,13 +76,13 @@ internal sealed class StatusRegistry
     }
 
     private static async Task<StatusObservation> Observe(
-        KeyValuePair<string, IStatusProvider> provider,
+        IStatusProvider provider,
         StatusQuery query,
         CancellationToken cancellationToken)
     {
         try
         {
-            return await provider.Value.Observe(query, cancellationToken).ConfigureAwait(false);
+            return await provider.Observe(query, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

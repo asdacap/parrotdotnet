@@ -27,8 +27,7 @@ internal sealed class InterruptProcessTool(IProcessOwner processes, IAgentResolv
                 throw new FormatException("Tool argument 'signal' must be an integer.");
             }
 
-            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, OmittedAgentProcessToolJsonContext.Default.InterruptProcessToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, OmittedAgentProcessToolJsonContext.Default.InterruptProcessToolInput);
             var name = (input.Name ?? throw new FormatException("Tool arguments require a string 'name'.")).Trim();
             var signalValue = input.Signal ?? 2;
 

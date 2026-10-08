@@ -4,6 +4,46 @@ namespace Parrot.Cli.Tests;
 
 internal sealed class BasicCliTests
 {
+    public static IEnumerable<Func<object?[]>> Notifications()
+    {
+        yield return () => [new Event[] { new() { StatusInjected = new StatusInjected() } }, "↻ Status prompt injected"];
+        yield return () =>
+        [
+            new Event[] { Draft(), new() { ActiveWorkReminderInjected = new ActiveWorkReminderInjected() } },
+            "draft\n↻ Active work reminder injected",
+        ];
+        yield return () =>
+        [
+            new Event[]
+            {
+                Draft(),
+                new() { ExitReminderChanged = new ExitReminderChanged { Title = "port", Description = "finish the port" } },
+            },
+            "draft\n↻ Exit reminder set: port: finish the port",
+        ];
+        yield return () =>
+        [
+            new Event[] { Draft(), new() { ExitReminderChanged = new ExitReminderChanged { Title = "port", Cleared = true } } },
+            "draft\n↻ Exit reminder cleared: port",
+        ];
+        yield return () =>
+        [
+            new Event[] { Draft(), new() { ContextReminderInjected = new ContextReminderInjected { UsagePercent = 27 } } },
+            "draft\n↻ Context reminder injected (27% context used)",
+        ];
+        yield return () =>
+        [
+            new Event[]
+            {
+                Draft(),
+                new() { FinalProviderRequestPromptInjected = new FinalProviderRequestPromptInjected() },
+                new() { ToolAvailabilityRestoredPromptInjected = new ToolAvailabilityRestoredPromptInjected() },
+                new() { SkillLoaded = new SkillLoadedEvent { Path = "/skills/example/SKILL.md" } },
+            },
+            "draft\n↻ Final provider request prompt injected\n↻ Tool availability restored prompt injected\n↻ Skill loaded: /skills/example/SKILL.md",
+        ];
+    }
+
     [Test]
     public async Task Provider_request_phases_do_not_interrupt_partial_text(CancellationToken cancellationToken)
     {
@@ -426,21 +466,22 @@ internal sealed class BasicCliTests
     }
 
     [Test]
-    public async Task Turn_completion_reports_cumulative_token_totals(CancellationToken cancellationToken)
+    [Arguments("stop", 1234, 567)]
+    [Arguments("length", 100, 1)]
+    public async Task Completion_reports_cumulative_token_totals(
+        string finishReason,
+        long inputTokens,
+        long outputTokens,
+        CancellationToken cancellationToken)
     {
         var stream = new ChannelStreamWriter<Event>();
         await stream.WriteAsync(
             new Event
             {
-                TurnEnded = new TurnEnded { FinishReason = "stop", InputTokens = 1234, OutputTokens = 567 },
+                TurnEnded = new TurnEnded { FinishReason = finishReason, InputTokens = inputTokens, OutputTokens = outputTokens },
             },
             cancellationToken);
-        await stream.WriteAsync(
-            new Event
-            {
-                ModeTurnCompleted = new ModeTurnCompleted(),
-            },
-            cancellationToken);
+        await stream.WriteAsync(new Event { ModeTurnCompleted = new ModeTurnCompleted() }, cancellationToken);
         stream.Complete();
 
         using var output = new StringWriter();
@@ -448,7 +489,7 @@ internal sealed class BasicCliTests
         var completed = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
-        _ = await Assert.That(output.ToString()).Contains("stop, 1234 total in / 567 total out");
+        _ = await Assert.That(output.ToString()).Contains($"{finishReason}, {inputTokens} total in / {outputTokens} total out");
         _ = await Assert.That(error.ToString()).IsEmpty();
     }
 
@@ -478,102 +519,20 @@ internal sealed class BasicCliTests
     }
 
     [Test]
-    public async Task Length_completion_reports_cumulative_token_totals(CancellationToken cancellationToken)
-    {
-        var stream = new ChannelStreamWriter<Event>();
-        await stream.WriteAsync(
-            new Event { TurnEnded = new TurnEnded { FinishReason = "length", InputTokens = 100, OutputTokens = 1 } },
-            cancellationToken);
-        await stream.WriteAsync(
-            new Event { ModeTurnCompleted = new ModeTurnCompleted() },
-            cancellationToken);
-        stream.Complete();
-
-        using var output = new StringWriter();
-        using var error = new StringWriter();
-        var completed = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
-
-        _ = await Assert.That(completed).IsTrue();
-        _ = await Assert.That(output.ToString()).Contains("length, 100 total in / 1 total out");
-        _ = await Assert.That(error.ToString()).IsEmpty();
-    }
-
-    [Test]
-    public async Task Status_injection_renders_as_its_own_notification(CancellationToken cancellationToken)
-    {
-        var stream = new ChannelStreamWriter<Event>();
-        await stream.WriteAsync(new Event { Id = "status", StatusInjected = new StatusInjected() }, cancellationToken);
-        await stream.WriteAsync(
-            new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
-        await stream.WriteAsync(
-            new Event { Id = "ended-mode", ModeTurnCompleted = new ModeTurnCompleted() }, cancellationToken);
-        stream.Complete();
-
-        using var output = new StringWriter();
-        using var error = new StringWriter();
-        var completed = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
-
-        _ = await Assert.That(completed).IsTrue();
-        _ = await Assert.That(output.ToString()).Contains("↻ Status prompt injected");
-        _ = await Assert.That(output.ToString()).DoesNotContain("  ↻ Status prompt injected");
-        _ = await Assert.That(error.ToString()).IsEmpty();
-    }
-
-    [Test]
-    public async Task Active_work_reminder_renders_as_its_own_notification(CancellationToken cancellationToken)
-    {
-        var stream = new ChannelStreamWriter<Event>();
-        await stream.WriteAsync(
-            new Event { Id = "text", TextChunk = new TextChunk { Fragment = "draft" } },
-            cancellationToken);
-        await stream.WriteAsync(
-            new Event
-            {
-                Id = "reminder",
-                ActiveWorkReminderInjected = new ActiveWorkReminderInjected(),
-            },
-            cancellationToken);
-        await stream.WriteAsync(
-            new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
-        await stream.WriteAsync(
-            new Event { Id = "ended-mode", ModeTurnCompleted = new ModeTurnCompleted() }, cancellationToken);
-        stream.Complete();
-
-        using var output = new StringWriter();
-        using var error = new StringWriter();
-        var completed = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
-
-        _ = await Assert.That(completed).IsTrue();
-        _ = await Assert.That(output.ToString()).Contains("draft\n↻ Active work reminder injected");
-        _ = await Assert.That(output.ToString()).DoesNotContain("  ↻ Active work reminder injected");
-        _ = await Assert.That(error.ToString()).IsEmpty();
-    }
-
-    [Test]
-    [Arguments("finish the port", "↻ Exit reminder set: port: finish the port")]
-    [Arguments(null, "↻ Exit reminder cleared: port")]
-    public async Task Exit_reminder_changes_render_as_their_own_notification(
-        string? reminder,
+    [MethodDataSource(nameof(Notifications))]
+    public async Task Notices_render_as_their_own_notifications(
+        Event[] notices,
         string expected,
         CancellationToken cancellationToken)
     {
         var stream = new ChannelStreamWriter<Event>();
-        await stream.WriteAsync(
-            new Event { Id = "text", TextChunk = new TextChunk { Fragment = "draft" } },
-            cancellationToken);
-        await stream.WriteAsync(
-            new Event
-            {
-                Id = "goal",
-                ExitReminderChanged = reminder is null
-                    ? new ExitReminderChanged { Title = "port", Cleared = true }
-                    : new ExitReminderChanged { Title = "port", Description = reminder },
-            },
-            cancellationToken);
-        await stream.WriteAsync(
-            new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
-        await stream.WriteAsync(
-            new Event { Id = "ended-mode", ModeTurnCompleted = new ModeTurnCompleted() }, cancellationToken);
+        foreach (var notice in notices)
+        {
+            await stream.WriteAsync(notice, cancellationToken);
+        }
+
+        await stream.WriteAsync(new Event { TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
+        await stream.WriteAsync(new Event { ModeTurnCompleted = new ModeTurnCompleted() }, cancellationToken);
         stream.Complete();
 
         using var output = new StringWriter();
@@ -581,82 +540,8 @@ internal sealed class BasicCliTests
         var completed = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
-        _ = await Assert.That(output.ToString()).Contains($"draft\n{expected}");
-        _ = await Assert.That(output.ToString()).DoesNotContain($"  {expected}");
-        _ = await Assert.That(error.ToString()).IsEmpty();
-    }
-
-    [Test]
-    public async Task Context_reminder_renders_as_its_own_notification(CancellationToken cancellationToken)
-    {
-        var stream = new ChannelStreamWriter<Event>();
-        await stream.WriteAsync(
-            new Event { Id = "text", TextChunk = new TextChunk { Fragment = "draft" } },
-            cancellationToken);
-        await stream.WriteAsync(
-            new Event { Id = "reminder", ContextReminderInjected = new ContextReminderInjected { UsagePercent = 27 } },
-            cancellationToken);
-        await stream.WriteAsync(
-            new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
-        await stream.WriteAsync(
-            new Event { Id = "ended-mode", ModeTurnCompleted = new ModeTurnCompleted() }, cancellationToken);
-        stream.Complete();
-
-        using var output = new StringWriter();
-        using var error = new StringWriter();
-        var completed = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
-
-        _ = await Assert.That(completed).IsTrue();
-        _ = await Assert.That(output.ToString()).Contains("draft\n↻ Context reminder injected (27% context used)");
-        _ = await Assert.That(output.ToString()).DoesNotContain("  ↻ Context reminder injected");
-        _ = await Assert.That(error.ToString()).IsEmpty();
-    }
-
-    [Test]
-    public async Task Provider_request_limit_prompts_render_as_their_own_notifications(CancellationToken cancellationToken)
-    {
-        var stream = new ChannelStreamWriter<Event>();
-        await stream.WriteAsync(
-            new Event { Id = "text", TextChunk = new TextChunk { Fragment = "draft" } },
-            cancellationToken);
-        await stream.WriteAsync(
-            new Event
-            {
-                Id = "final-provider-request",
-                FinalProviderRequestPromptInjected = new FinalProviderRequestPromptInjected(),
-            },
-            cancellationToken);
-        await stream.WriteAsync(
-            new Event
-            {
-                Id = "tool-availability-restored",
-                ToolAvailabilityRestoredPromptInjected = new ToolAvailabilityRestoredPromptInjected(),
-            },
-            cancellationToken);
-        await stream.WriteAsync(
-            new Event
-            {
-                Id = "skill-loaded",
-                SkillLoaded = new SkillLoadedEvent { Path = "/skills/example/SKILL.md" },
-            },
-            cancellationToken);
-        await stream.WriteAsync(
-            new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
-        await stream.WriteAsync(
-            new Event { Id = "ended-mode", ModeTurnCompleted = new ModeTurnCompleted() }, cancellationToken);
-        stream.Complete();
-
-        using var output = new StringWriter();
-        using var error = new StringWriter();
-        var completed = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
-
-        _ = await Assert.That(completed).IsTrue();
-        _ = await Assert.That(output.ToString()).Contains("draft\n↻ Final provider request prompt injected");
-        _ = await Assert.That(output.ToString()).Contains("↻ Tool availability restored prompt injected");
-        _ = await Assert.That(output.ToString()).Contains("↻ Skill loaded: /skills/example/SKILL.md");
-        _ = await Assert.That(output.ToString()).DoesNotContain("  ↻ Final provider request prompt injected");
-        _ = await Assert.That(output.ToString()).DoesNotContain("  ↻ Tool availability restored prompt injected");
-        _ = await Assert.That(output.ToString()).DoesNotContain("  ↻ Skill loaded:");
+        _ = await Assert.That(output.ToString()).Contains(expected);
+        _ = await Assert.That(output.ToString()).DoesNotContain("  ↻");
         _ = await Assert.That(error.ToString()).IsEmpty();
     }
 
@@ -827,7 +712,7 @@ internal sealed class BasicCliTests
 
         var rendered = output.ToString();
         _ = await Assert.That(rendered).Contains("partial" + Environment.NewLine + "Agent tasks:");
-        _ = await Assert.That(Count(rendered, "Agent tasks:")).IsEqualTo(2);
+        _ = await Assert.That(rendered.AsSpan().Count("Agent tasks:")).IsEqualTo(2);
         _ = await Assert.That(rendered).Contains("◐ root[2J    日本");
         _ = await Assert.That(rendered).Contains("├── ○ pending");
         _ = await Assert.That(rendered).Contains("├── ✓ succeeded");
@@ -910,18 +795,7 @@ internal sealed class BasicCliTests
         _ = await Assert.That(output.ToString()).IsEqualTo("# Plan" + Environment.NewLine);
     }
 
-    private static int Count(string value, string part)
-    {
-        var count = 0;
-        var start = 0;
-        while ((start = value.IndexOf(part, start, StringComparison.Ordinal)) >= 0)
-        {
-            count++;
-            start += part.Length;
-        }
-
-        return count;
-    }
+    private static Event Draft() => new() { TextChunk = new TextChunk { Fragment = "draft" } };
 
     private sealed class ProgressFixture
     {

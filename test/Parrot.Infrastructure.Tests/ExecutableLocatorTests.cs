@@ -138,7 +138,7 @@ internal sealed class ExecutableLocatorTests : IDisposable
         var candidates = new CliUtilityCandidates(["git"], ["jq"]);
         var locator = new ExecutableLocator(_workspace, ".EXE");
         var availability = CliUtilityAvailability.Inspect(candidates, locator);
-        var runner = ProcessRunner.Locate(locator);
+        var runner = ProcessRunner.LocateConfigured(locator, new SandboxGate(enabled: true), []);
 
         _ = await Assert.That(availability.AvailableExpected).IsEmpty();
         _ = await Assert.That(string.Join(',', availability.MissingExpected)).IsEqualTo("git");

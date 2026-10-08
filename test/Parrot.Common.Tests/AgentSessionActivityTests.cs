@@ -22,7 +22,7 @@ internal sealed class AgentSessionActivityTests
 
         activity.ObserveProviderEvent(LLMEvent.TextDelta("text"));
         time.Advance(TimeSpan.FromSeconds(1));
-        activity.ObserveProviderEvent(LLMEvent.ReasoningDelta("reasoning"));
+        activity.ObserveProviderEvent(LLMEvent.ReasoningDelta("reasoning", LLMReasoningKind.Raw, string.Empty, completed: false));
         time.Advance(TimeSpan.FromSeconds(2));
         activity.ObserveProviderEvent(LLMEvent.ToolCallDelta("call", "tool", "{}"));
         time.Advance(TimeSpan.FromSeconds(3));

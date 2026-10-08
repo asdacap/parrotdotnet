@@ -30,13 +30,7 @@ internal sealed class AgentScratchDirectory
 
     public string PlanDirectory { get; }
 
-    public bool Contains(string path)
-    {
-        var relative = Path.GetRelativePath(Root, PlatformPath.Normalize(path));
-        return relative == "." || (!Path.IsPathRooted(relative) && relative != ".."
-            && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
-            && !relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal));
-    }
+    public bool Contains(string path) => PlatformPath.Contains(Root, PlatformPath.Normalize(path));
 
     public void Provision()
     {
@@ -47,24 +41,8 @@ internal sealed class AgentScratchDirectory
 
     public void ProvisionPlanDirectory() => ProvisionDirectory(PlanDirectory);
 
-    private string Contain(string name)
+    private static void ProvisionDirectory(string path)
     {
-        var path = PlatformPath.Normalize(Path.Combine(Root, name));
-        if (!Contains(path))
-        {
-            throw new InvalidOperationException("An agent scratch resource escaped its root.");
-        }
-
-        return path;
-    }
-
-    private void ProvisionDirectory(string path)
-    {
-        if (!Contains(path))
-        {
-            throw new InvalidOperationException("An agent scratch resource escaped its root.");
-        }
-
         if (Path.Exists(path) && !Directory.Exists(path))
         {
             throw new InvalidOperationException($"Agent scratch path is not a directory: {path}");
@@ -80,5 +58,16 @@ internal sealed class AgentScratchDirectory
         {
             File.SetUnixFileMode(path, DirectoryMode);
         }
+    }
+
+    private string Contain(string name)
+    {
+        var path = PlatformPath.Normalize(Path.Combine(Root, name));
+        if (!Contains(path))
+        {
+            throw new InvalidOperationException("An agent scratch resource escaped its root.");
+        }
+
+        return path;
     }
 }

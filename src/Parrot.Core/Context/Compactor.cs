@@ -315,27 +315,29 @@ internal sealed class Compactor(
         var inputTokenLimit = selectedModel.Model.InputTokenLimit;
         var keepGroupFrom = groups.Count - 1;
         var retained = groups[^1].Messages.ToList();
-        var naturalRequiredExceedsTarget = EstimateRetained(selectedModel, instructions, tools, fixedMessage, retained) + 1
-            > targetBudget;
+        var fixedTokens = EstimateRetained(selectedModel, instructions, tools, fixedMessage, []);
+        var suffixTokens = new long[groups.Count + 1];
+        for (var index = groups.Count - 1; index >= 0; index--)
+        {
+            suffixTokens[index] = suffixTokens[index + 1] + EstimateTokens(selectedModel, groups[index].Messages);
+        }
+
+        var naturalRequiredExceedsTarget = fixedTokens + suffixTokens[groups.Count - 1] + 1 > targetBudget;
         var checkpointCut = Enumerable.Range(0, groups.Count)
             .Where(index => groups[index].HasCheckpointBefore)
-            .Select(index => new
+            .Where(index =>
             {
-                Index = index,
-                Retained = groups.Skip(index).SelectMany(group => group.Messages).ToList(),
-            })
-            .Where(candidate =>
-            {
-                var estimate = EstimateRetained(selectedModel, instructions, tools, fixedMessage, candidate.Retained) + 1;
+                var estimate = fixedTokens + suffixTokens[index] + 1;
                 return estimate <= targetBudget || (naturalRequiredExceedsTarget && estimate <= inputTokenLimit);
             })
-            .OrderBy(candidate => Math.Abs(candidate.Index - keepGroupFrom))
-            .ThenBy(candidate => candidate.Index)
+            .OrderBy(index => Math.Abs(index - keepGroupFrom))
+            .ThenBy(index => index)
+            .Select(index => (int?)index)
             .FirstOrDefault();
-        if (checkpointCut is not null)
+        if (checkpointCut is { } cut)
         {
-            keepGroupFrom = checkpointCut.Index;
-            retained = checkpointCut.Retained;
+            keepGroupFrom = cut;
+            retained = [.. groups.Skip(cut).SelectMany(group => group.Messages)];
         }
 
         var incompleteGroup = groups.Take(keepGroupFrom).Select((group, index) => new { Group = group, Index = index })
@@ -364,7 +366,7 @@ internal sealed class Compactor(
         foreach (var group in toSummarise)
         {
             var providerGroup = group.Messages;
-            if (EstimateRequestTokens(selectedModel, string.Empty, [], providerGroup) > inputBudget)
+            if (EstimateRequestTokens(selectedModel, string.Empty, 0, providerGroup) > inputBudget)
             {
                 if (!IsEligibleForSpill(group))
                 {
@@ -377,7 +379,7 @@ internal sealed class Compactor(
                     [new PromptTemplateArgument("path", path)]));
                 substitutions.Add(group, notice);
                 providerGroup = [notice];
-                if (EstimateRequestTokens(selectedModel, string.Empty, [], providerGroup) > inputBudget)
+                if (EstimateRequestTokens(selectedModel, string.Empty, 0, providerGroup) > inputBudget)
                 {
                     throw new InvalidOperationException("A complete conversation group exceeds the compaction input budget.");
                 }
@@ -388,11 +390,12 @@ internal sealed class Compactor(
 
         var summary = string.Empty;
         var chunk = new List<IReadOnlyList<LLMMessage>>();
+        long chunkTokens = 0;
         foreach (var group in toSummarise)
         {
             var providerGroup = providerGroups[group];
             if (chunk.Count > 0
-                && EstimateRequestTokens(selectedModel, summary, MessagesOf(chunk), providerGroup) > inputBudget)
+                && EstimateRequestTokens(selectedModel, summary, chunkTokens, providerGroup) > inputBudget)
             {
                 summary = await FoldGroups(
                     selectedModel,
@@ -403,9 +406,10 @@ internal sealed class Compactor(
                     emitRetry,
                     cancellationToken);
                 chunk = [];
+                chunkTokens = 0;
             }
 
-            if (EstimateRequestTokens(selectedModel, summary, MessagesOf(chunk), providerGroup) > inputBudget)
+            if (EstimateRequestTokens(selectedModel, summary, chunkTokens, providerGroup) > inputBudget)
             {
                 if (!IsEligibleForSpill(group) || substitutions.ContainsKey(group))
                 {
@@ -418,13 +422,14 @@ internal sealed class Compactor(
                     [new PromptTemplateArgument("path", path)]));
                 substitutions.Add(group, notice);
                 providerGroup = [notice];
-                if (EstimateRequestTokens(selectedModel, summary, MessagesOf(chunk), providerGroup) > inputBudget)
+                if (EstimateRequestTokens(selectedModel, summary, chunkTokens, providerGroup) > inputBudget)
                 {
                     throw new InvalidOperationException("A complete conversation group exceeds the compaction input budget.");
                 }
             }
 
             chunk.Add(providerGroup);
+            chunkTokens += EstimateTokens(selectedModel, providerGroup);
         }
 
         if (chunk.Count > 0)
@@ -454,12 +459,9 @@ internal sealed class Compactor(
     private long EstimateRequestTokens(
         ProviderModel selectedModel,
         string precedingSummary,
-        IReadOnlyList<LLMMessage> chunk,
-        IReadOnlyList<LLMMessage> nextGroup)
-    {
-        var messages = RequestMessages(precedingSummary, chunk, nextGroup);
-        return EstimateTokens(selectedModel, messages);
-    }
+        long chunkTokens,
+        IReadOnlyList<LLMMessage> nextGroup) =>
+        EstimateTokens(selectedModel, RequestMessages(precedingSummary, [], nextGroup)) + chunkTokens;
 
     private List<LLMMessage> RequestMessages(
         string precedingSummary,

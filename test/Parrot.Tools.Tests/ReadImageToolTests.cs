@@ -1,7 +1,5 @@
-using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Diagnostics;
-using Parrot.Llm;
 using Parrot.Security;
 using Parrot.State;
 using Parrot.Store;
@@ -11,7 +9,7 @@ namespace Parrot.Core.Tests;
 
 internal sealed class ReadImageToolTests : IDisposable
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), "parrot-read-image-tool-tests", Guid.NewGuid().ToString("n"));
+    private readonly string _root = Directory.CreateTempSubdirectory("parrot-read-image-tool-tests-").FullName;
     private readonly SessionDatabase _database;
     private readonly IDiagnosticLog _diagnostics;
     private readonly SessionResourceLease _resources;
@@ -19,7 +17,6 @@ internal sealed class ReadImageToolTests : IDisposable
 
     public ReadImageToolTests()
     {
-        _ = Directory.CreateDirectory(_root);
         _sessionResources = new UserSessionResources(
             new StatePaths(_root, _root, _root),
             UserSessionId.Parse("images"),
@@ -48,7 +45,7 @@ internal sealed class ReadImageToolTests : IDisposable
         ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images, new RequestLimitsConfig());
         var result = await tool.Execute(
             new ToolInvocation("test-call", "{\"path\":\"pixel.png\"}"),
-            new SelectionFixture(SecurityProfile.Compose(false, [], [], [])).Selection,
+            TestTurnSelection.Create(SecurityProfile.Compose(false, [], [], [])),
             cancellationToken);
 
         _ = await Assert.That(result.Text).IsEqualTo("image read");
@@ -68,7 +65,7 @@ internal sealed class ReadImageToolTests : IDisposable
         ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images, new RequestLimitsConfig { ImageBytesPerRead = limit });
         var result = await tool.Execute(
             new ToolInvocation("test-call", "{\"path\":\"pixel.png\"}"),
-            new SelectionFixture(SecurityProfile.Compose(false, [], [], [])).Selection,
+            TestTurnSelection.Create(SecurityProfile.Compose(false, [], [], [])),
             cancellationToken);
 
         var withinLimit = limitDelta == 0;
@@ -83,7 +80,7 @@ internal sealed class ReadImageToolTests : IDisposable
         await File.WriteAllBytesAsync(Path.Combine(_root, "pixel.png"), imageBytes, cancellationToken);
         await File.WriteAllBytesAsync(Path.Combine(_root, "renamed.png"), imageBytes, cancellationToken);
         ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images, new RequestLimitsConfig());
-        var selection = new SelectionFixture(SecurityProfile.Compose(false, [], [], [])).Selection;
+        var selection = TestTurnSelection.Create(SecurityProfile.Compose(false, [], [], []));
         var originalResult = await tool.Execute(
             new ToolInvocation("original-call", "{\"path\":\"pixel.png\"}"),
             selection,
@@ -122,7 +119,7 @@ internal sealed class ReadImageToolTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(_root, "invalid.txt"), "not an image", cancellationToken);
         var budget = new ToolCycleImageBudget((imageBytes.Length * 2) + extraBytes, TestModels.PromptTemplates);
         ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images, new RequestLimitsConfig());
-        var selection = new SelectionFixture(SecurityProfile.Compose(false, [], [], [])).Selection;
+        var selection = TestTurnSelection.Create(SecurityProfile.Compose(false, [], [], []));
         var invalid = await tool.Execute(
             new ToolInvocation("invalid", "{\"path\":\"invalid.txt\"}") { ImageBudget = budget },
             selection,
@@ -175,7 +172,7 @@ internal sealed class ReadImageToolTests : IDisposable
         ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images, new RequestLimitsConfig());
         var result = await tool.Execute(
             new ToolInvocation("test-call", "{\"path\":\"alias.png\"}"),
-            new SelectionFixture(security).Selection,
+            TestTurnSelection.Create(security),
             cancellationToken);
 
         _ = await Assert.That(result.Text).IsEqualTo("error: access denied");
@@ -190,7 +187,7 @@ internal sealed class ReadImageToolTests : IDisposable
         ITool tool = new ReadImageTool(new ToolWorkspace(_root), _resources.Images, new RequestLimitsConfig());
         var result = await tool.Execute(
             new ToolInvocation("test-call", "{\"path\":\"not-image.txt\"}"),
-            new SelectionFixture(SecurityProfile.Compose(false, [], [], [])).Selection,
+            TestTurnSelection.Create(SecurityProfile.Compose(false, [], [], [])),
             cancellationToken);
 
         _ = await Assert.That(result.Text).StartsWith("error: The image content is invalid or unsupported.");
@@ -199,19 +196,4 @@ internal sealed class ReadImageToolTests : IDisposable
 
     private static byte[] Png() => Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==");
-
-    private sealed class SelectionFixture
-    {
-        public SelectionFixture(SecurityProfile securityProfile)
-        {
-            var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
-            Selection = new AgentTurnSelection(
-                new ModelSelector(model.Selector),
-                TestModels.Resolve(model),
-                new TestProfileFixture().Profile,
-                securityProfile);
-        }
-
-        public AgentTurnSelection Selection { get; }
-    }
 }

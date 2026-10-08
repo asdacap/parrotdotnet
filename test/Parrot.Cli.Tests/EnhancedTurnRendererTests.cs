@@ -1,6 +1,5 @@
 using System.Text.RegularExpressions;
 using Parrot.Cli.Enhanced;
-using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
 using Parrot.Protocol;
 
@@ -137,8 +136,6 @@ internal sealed class EnhancedTurnRendererTests
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(error).IsEmpty();
-        _ = await Assert.That(output).Contains("  input admitted: already visible");
-        _ = await Assert.That(output).Contains("  turn started: model");
         _ = await Assert.That(output).Contains("↻ Status prompt injected");
         _ = await Assert.That(output).DoesNotContain("  ↻ Status prompt injected");
         _ = await Assert.That(output).Contains("↻ Active work reminder injected");
@@ -155,59 +152,12 @@ internal sealed class EnhancedTurnRendererTests
         _ = await Assert.That(output).DoesNotContain("  ↻ Tool availability restored prompt injected");
         _ = await Assert.That(output).Contains("↻ Skill loaded: /skills/example[2J/SKILL.md");
         _ = await Assert.That(output).DoesNotContain("  ↻ Skill loaded:");
-        _ = await Assert.That(output).Contains("  queued: next[2J    line");
         _ = await Assert.That(output).DoesNotContain("think]0;title");
         _ = await Assert.That(output).Contains("● abcdef\r\n  ghij\r\n");
-        _ = await Assert.That(output).Contains("  tool call unrendered:");
-        _ = await Assert.That(output).Contains("  * shell[31m started");
-        _ = await Assert.That(output).Contains("  + shell[31m finished");
-        _ = await Assert.That(output).Contains("  - read[2J cancelled");
-        _ = await Assert.That(output).Contains("  ! write[31m: denied[2J");
-        _ = await Assert.That(output).Contains("  * agent explorer[31m started");
-        _ = await Assert.That(output).Contains("  + agent explorer[31m finished (7s)");
-        _ = await Assert.That(output).Contains("  ! agent reviewer[31m: boom[2J");
-        _ = await Assert.That(output).Contains("  * compaction started");
-        _ = await Assert.That(output).Contains("  + compaction finished");
-        _ = await Assert.That(output).Contains("  ! compaction failed: boom[2J");
         _ = await Assert.That(output).Contains("● tail\r\n");
-        _ = await Assert.That(output).Contains("  stop[2J - 3 total in / 4 total out");
-        _ = await Assert.That(Count(output, "● abcdef\r\n")).IsEqualTo(1);
+        _ = await Assert.That(output.AsSpan().Count("● abcdef\r\n")).IsEqualTo(1);
         _ = await Assert.That(UntrustedEscape(output)).IsFalse();
         _ = await Assert.That(output).DoesNotContain("\u001b[?1049");
-    }
-
-    [Test]
-    public async Task Summary_reasoning_chunks_are_committed_as_one_block(CancellationToken cancellationToken)
-    {
-        var (completed, output, error) = await Render(
-            [
-                new Event { Id = "start", TurnStarted = new TurnStarted { Model = "model" } },
-                new Event
-                {
-                    Id = "summary-1",
-                    ReasoningChunk = new ReasoningChunk { Fragment = "# fi", Kind = ReasoningKind.Summary },
-                },
-                new Event
-                {
-                    Id = "summary-2",
-                    ReasoningChunk = new ReasoningChunk
-                    {
-                        Fragment = "rst\n- **bold**\u001b[2J",
-                        Kind = ReasoningKind.Summary,
-                    },
-                },
-                new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } },
-                new Event { Id = "ended-mode", ModeTurnCompleted = new ModeTurnCompleted() },
-            ],
-            cancellationToken);
-
-        _ = await Assert.That(completed).IsTrue();
-        _ = await Assert.That(error).IsEmpty();
-        _ = await Assert.That(output).Contains("✦ first\r\n  • bold");
-        _ = await Assert.That(Count(output, "✦")).IsEqualTo(1);
-        _ = await Assert.That(output).DoesNotContain("# first");
-        _ = await Assert.That(output).DoesNotContain("**bold**");
-        _ = await Assert.That(output).DoesNotContain("\u001b[2J");
     }
 
     [Test]
@@ -231,18 +181,14 @@ internal sealed class EnhancedTurnRendererTests
         stream.Complete();
         using var output = new StringWriter();
         using var error = new StringWriter();
-
-        using var driver = new CliLifecycleDriver(enhanced: true);
-        var terminal = new TestTerminal(driver.Input, output, error, 80);
-        var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
-        var completed = await new EnhancedTurnRenderer(terminal, configuration, new ToolPresenterRegistry([], new GenericToolPresenter())).RenderTurn(stream.Reader, cancellationToken);
+        var completed = await RenderTurn(stream, output, error, 80, static (_, _) => Task.CompletedTask, cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(error.ToString()).IsEmpty();
         _ = await Assert.That(output.ToString()).Contains("Heading\r\n");
         _ = await Assert.That(output.ToString()).Contains("bold\r\n");
-        _ = await Assert.That(Count(output.ToString(), "Heading\r\n")).IsEqualTo(1);
-        _ = await Assert.That(Count(output.ToString(), "bold\r\n")).IsEqualTo(1);
+        _ = await Assert.That(output.ToString().AsSpan().Count("Heading\r\n")).IsEqualTo(1);
+        _ = await Assert.That(output.ToString().AsSpan().Count("bold\r\n")).IsEqualTo(1);
     }
 
     [Test]
@@ -311,8 +257,7 @@ internal sealed class EnhancedTurnRendererTests
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
         var committed = new List<string>();
         var context = new ScrollbackRenderContext(80, new TerminalPalette(false), configuration.InlineDiff);
-        var completed = await new EnhancedTurnRenderer(
-            terminal, configuration, new ToolPresenterRegistry([], new GenericToolPresenter())).RenderSessionTurn(
+        var completed = await new EnhancedTurnRenderer(terminal).RenderSessionTurn(
                 stream.Reader,
                 static (_, _) => Task.CompletedTask,
                 static (_, _) => Task.CompletedTask,
@@ -370,21 +315,13 @@ internal sealed class EnhancedTurnRendererTests
             await output.WriteAsync($"before:{published.Id}|".AsMemory(), token);
         }
 
-        using var driver = new CliLifecycleDriver(enhanced: true);
-        var terminal = new TestTerminal(driver.Input, output, error, 80);
-        var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
-        var completed = await new EnhancedTurnRenderer(terminal, configuration, new ToolPresenterRegistry([], new GenericToolPresenter())).RenderTurn(stream.Reader, BeforeRender, cancellationToken);
+        var completed = await RenderTurn(stream, output, error, 80, BeforeRender, cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(string.Join(',', callbackIds))
             .IsEqualTo("none,admitted-before-turn,promoted,retry,started,tool-chunk,first-visible,later-visible,ended,ended-mode");
         _ = await Assert.That(output.ToString()).StartsWith("before:none|");
-        _ = await Assert.That(output.ToString()).Contains("event none has no payload");
-        _ = await Assert.That(output.ToString()).Contains("input admitted: sent");
-        _ = await Assert.That(output.ToString()).Contains("input promoted: input");
         _ = await Assert.That(output.ToString()).Contains("retry 1 in 0 ms:");
-        _ = await Assert.That(output.ToString()).Contains("turn started: model");
-        _ = await Assert.That(output.ToString()).Contains("tool call shell:");
     }
 
     [Test]
@@ -420,7 +357,6 @@ internal sealed class EnhancedTurnRendererTests
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(output).DoesNotContain("AgentStatisticsUpdated");
-        _ = await Assert.That(output).Contains("stop - 10 total in / 2 total out");
         _ = await Assert.That(error).IsEmpty();
     }
 
@@ -481,12 +417,8 @@ internal sealed class EnhancedTurnRendererTests
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(error).IsEmpty();
-        var childEnded = output.IndexOf("child-stop", StringComparison.Ordinal);
-        var mainContinued = output.IndexOf("● main c", StringComparison.Ordinal);
-        var mainEnded = output.IndexOf("main-stop", StringComparison.Ordinal);
-        _ = await Assert.That(childEnded).IsEqualTo(-1);
-        _ = await Assert.That(mainContinued).IsGreaterThanOrEqualTo(0);
-        _ = await Assert.That(mainEnded).IsGreaterThan(mainContinued);
+        _ = await Assert.That(output).DoesNotContain("child-stop");
+        _ = await Assert.That(output).Contains("● main c");
     }
 
     [Test]
@@ -638,11 +570,35 @@ internal sealed class EnhancedTurnRendererTests
 
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var driver = new CliLifecycleDriver(enhanced: true);
-        var terminal = new TestTerminal(driver.Input, output, error, 8);
-        var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
-        var completed = await new EnhancedTurnRenderer(terminal, configuration, new ToolPresenterRegistry([], new GenericToolPresenter())).RenderTurn(stream.Reader, cancellationToken);
+        var completed = await RenderTurn(stream, output, error, 8, static (_, _) => Task.CompletedTask, cancellationToken);
         return (completed, output.ToString(), error.ToString());
+    }
+
+    private static async Task<bool> RenderTurn(
+        ChannelStreamWriter<Event> stream,
+        StringWriter output,
+        StringWriter error,
+        int columns,
+        Func<Event, CancellationToken, Task> beforeRender,
+        CancellationToken cancellationToken)
+    {
+        async Task Commit(IScrollbackItem scrollback, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            foreach (var line in scrollback.Render(new ScrollbackRenderContext(columns, new TerminalPalette(false))))
+            {
+                await output.WriteAsync($"{line}\r\n".AsMemory(), token);
+            }
+        }
+
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        return await new EnhancedTurnRenderer(new TestTerminal(driver.Input, output, error, columns)).RenderSessionTurn(
+            stream.Reader,
+            beforeRender,
+            static (_, _) => Task.CompletedTask,
+            static (_, _) => Task.CompletedTask,
+            Commit,
+            new ForegroundTurn(),
+            cancellationToken);
     }
 
     private static bool UntrustedEscape(string output)
@@ -654,18 +610,5 @@ internal sealed class EnhancedTurnRendererTests
             RegexOptions.CultureInvariant,
             TimeSpan.FromSeconds(1));
         return withoutOwnedAnsi.Contains('\u001b', StringComparison.Ordinal);
-    }
-
-    private static int Count(string value, string part)
-    {
-        var count = 0;
-        var start = 0;
-        while ((start = value.IndexOf(part, start, StringComparison.Ordinal)) >= 0)
-        {
-            count++;
-            start += part.Length;
-        }
-
-        return count;
     }
 }

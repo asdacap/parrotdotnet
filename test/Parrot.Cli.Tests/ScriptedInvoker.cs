@@ -13,7 +13,6 @@ internal sealed class ScriptedInvoker : CallInvoker
     private readonly Dictionary<string, ChannelStreamWriter<Event>> _activeEvents = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<Event>> _eventsAwaitingListeners = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<QueueState>> _initialQueues = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, SessionUsageSnapshot> _initialUsage = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<PendingQuestion>> _pendingQuestions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<PendingPermission>> _pendingPermissions = new(StringComparer.Ordinal);
     private readonly List<string> _sent = [];
@@ -196,11 +195,7 @@ internal sealed class ScriptedInvoker : CallInvoker
 
     public bool ReplyQuestionNotFound { get; set; }
 
-    public StatusCode? ReplyPermissionFailure { get; set; }
-
     public bool SessionLoaded { get; set; }
-
-    public StatusCode? SkillFailure { get; set; }
 
     public StatusCode? ModelPresetFailure { get; set; }
 
@@ -365,16 +360,6 @@ internal sealed class ScriptedInvoker : CallInvoker
         lock (_gate)
         {
             _initialQueues[userSessionId] = [.. queues.Select(queue => queue.Clone())];
-        }
-    }
-
-    public void SetInitialUsage(string userSessionId, SessionUsageSnapshot usage)
-    {
-        ArgumentNullException.ThrowIfNull(usage);
-
-        lock (_gate)
-        {
-            _initialUsage[userSessionId] = usage.Clone();
         }
     }
 
@@ -560,11 +545,6 @@ internal sealed class ScriptedInvoker : CallInvoker
                 }
 
                 answered = new ReplyPermissionResponse();
-                if (ReplyPermissionFailure is { } permissionFailure)
-                {
-                    return Failed<TResponse>(permissionFailure, "scripted permission failure");
-                }
-
                 break;
             case ReplyQuestionRequest reply:
                 lock (_gate)
@@ -595,11 +575,6 @@ internal sealed class ScriptedInvoker : CallInvoker
                 answered = listedModes;
                 break;
             case ListSkillsRequest listSkills:
-                if (SkillFailure is { } listSkillFailure)
-                {
-                    return Failed<TResponse>(listSkillFailure, "scripted skill failure");
-                }
-
                 var listedSkills = new ListSkillsResponse();
                 lock (_gate)
                 {
@@ -613,11 +588,6 @@ internal sealed class ScriptedInvoker : CallInvoker
                 answered = listedSkills;
                 break;
             case ConfigureSkillRequest configureSkill:
-                if (SkillFailure is { } configureSkillFailure)
-                {
-                    return Failed<TResponse>(configureSkillFailure, "scripted skill failure");
-                }
-
                 Skill configuredSkill;
                 lock (_gate)
                 {
@@ -723,10 +693,7 @@ internal sealed class ScriptedInvoker : CallInvoker
                 throw new InvalidOperationException("the scripted stream rejected its initial queue snapshot");
             }
 
-            var usage = _initialUsage.TryGetValue(listen.UserSessionId, out var initialUsage)
-                ? initialUsage.Clone()
-                : new SessionUsageSnapshot();
-            if (!events.TryWrite(new Event { SessionUsageSnapshot = usage }))
+            if (!events.TryWrite(new Event { SessionUsageSnapshot = new SessionUsageSnapshot() }))
             {
                 throw new InvalidOperationException("the scripted stream rejected its initial usage snapshot");
             }

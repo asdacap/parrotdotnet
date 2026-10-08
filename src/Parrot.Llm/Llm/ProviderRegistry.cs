@@ -42,33 +42,21 @@ internal sealed class ProviderRegistry
 
     public async Task<IReadOnlyList<ProviderModel>> AvailableModels(CancellationToken cancellationToken)
     {
+        var refreshes = await Task
+            .WhenAll(_ordered.Select(provider => Refresh(provider, cancellationToken)))
+            .ConfigureAwait(false);
         var available = new List<ProviderModel>();
 
-        foreach (var provider in _ordered)
+        foreach (var (provider, refresh) in _ordered.Zip(refreshes))
         {
-            bool hasCredential;
-
-            try
-            {
-                hasCredential = await provider.HasCredential(cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception failure) when (IsRefreshFailure(failure))
+            if (!refresh.HasCredential)
             {
                 continue;
             }
 
-            if (!hasCredential)
+            if (refresh.Models is { } models)
             {
-                continue;
-            }
-
-            try
-            {
-                _catalogues[provider.Id] = await provider.ListModels(cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception failure) when (IsRefreshFailure(failure))
-            {
-                // A refresh failure is not fatal; the seeded catalogue stands in.
+                _catalogues[provider.Id] = models;
             }
 
             available.AddRange(Models(provider.Id).Select(model => new ProviderModel(provider, model)));
@@ -155,6 +143,33 @@ internal sealed class ProviderRegistry
         }
 
         return ResolveDefaultForProvider(_ordered[0]);
+    }
+
+    private static async Task<(bool HasCredential, IReadOnlyList<LLMModel>? Models)> Refresh(
+        ILLMProvider provider,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!await provider.HasCredential(cancellationToken).ConfigureAwait(false))
+            {
+                return (false, null);
+            }
+        }
+        catch (Exception failure) when (IsRefreshFailure(failure))
+        {
+            return (false, null);
+        }
+
+        try
+        {
+            return (true, await provider.ListModels(cancellationToken).ConfigureAwait(false));
+        }
+        catch (Exception failure) when (IsRefreshFailure(failure))
+        {
+            // A refresh failure is not fatal; the seeded catalogue stands in.
+            return (true, null);
+        }
     }
 
     private static bool IsRefreshFailure(Exception failure) =>

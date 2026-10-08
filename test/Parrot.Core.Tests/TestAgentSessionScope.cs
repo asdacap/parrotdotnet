@@ -106,7 +106,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         AgentSessionParentLink parentLink,
         IAgentRegistry registry,
         IPromptTemplateCatalog promptTemplates,
-        Func<IAgentParentScope, IAgentSessionScope, IChildRegistry, IChildQuestionCoordinator, IAgentSession> buildSession) => BuildWithResources(owner, parentLink, registry, promptTemplates, TestModels.Resources(), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, buildSession, CancellationToken.None);
+        Func<IAgentParentScope, IAgentSessionScope, IChildRegistry, IChildQuestionCoordinator, IAgentSession> buildSession) => BuildWithResources(owner, parentLink, registry, promptTemplates, TestModels.Resources(), TestModels.Runner(string.Empty), TestDiagnosticLog.Instance, buildSession, CancellationToken.None);
 
     public static TestAgentSessionScope BuildWithResources(
         AgentIdentity owner,

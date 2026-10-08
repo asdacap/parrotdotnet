@@ -1,17 +1,10 @@
 using Parrot.Agent;
-using Parrot.AgentTasks;
-using Parrot.Config;
-using Parrot.Context;
-using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Queues;
-using Parrot.Skills;
-using Parrot.State;
 using Parrot.Store;
-using Parrot.Web;
 
 namespace Parrot.Core.Tests;
 
@@ -33,8 +26,7 @@ internal sealed class AgentInventoryStreamTests
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
         var directory = Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"));
-        using var diagnostics = InventoryFixture.CreateDiagnostics(directory);
-        await using var fixture = await InventoryFixture.Create(directory, diagnostics, true);
+        await using var fixture = await InventoryFixture.Create(directory, true);
         var root = fixture.Session.Registry.SnapshotScopes().Single();
         using var broker = new EventBroker();
         using var listener = broker.Subscribe();
@@ -112,8 +104,7 @@ internal sealed class AgentInventoryStreamTests
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
         var directory = Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"));
-        using var diagnostics = InventoryFixture.CreateDiagnostics(directory);
-        await using var fixture = await InventoryFixture.Create(directory, diagnostics, false);
+        await using var fixture = await InventoryFixture.Create(directory, false);
         var session = fixture.Session;
         var root = session.Registry.SnapshotScopes().Single();
         await using var rejected = fixture.CreateChild(root, "rejected");
@@ -163,8 +154,7 @@ internal sealed class AgentInventoryStreamTests
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
         var directory = Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"));
-        using var diagnostics = InventoryFixture.CreateDiagnostics(directory);
-        await using var fixture = await InventoryFixture.Create(directory, diagnostics, false);
+        await using var fixture = await InventoryFixture.Create(directory, false);
         var session = fixture.Session;
         var root = session.Registry.SnapshotScopes().Single();
         root.PublishSnapshots();
@@ -262,8 +252,7 @@ internal sealed class AgentInventoryStreamTests
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
         var directory = Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"));
-        using var diagnostics = InventoryFixture.CreateDiagnostics(directory);
-        await using var fixture = await InventoryFixture.Create(directory, diagnostics, true);
+        await using var fixture = await InventoryFixture.Create(directory, true);
         var root = fixture.Session.Registry.SnapshotScopes().Single();
         await using var child = fixture.CreateChild(root, "held-claim");
         _ = await Assert.That(root.ChildRegistry.TryAdd(child)).IsTrue();
@@ -379,89 +368,57 @@ internal sealed class AgentInventoryStreamTests
         throw new InvalidOperationException("Listener ended before both owner inventories arrived.");
     }
 
-    private sealed class InventoryFixture(
-        string directory,
-        Configuration configuration,
-        ProviderModel model,
-        IUserSession session) : IAsyncDisposable
+    private sealed class InventoryFixture(string directory, ProviderModel model, bool passThroughSandbox) : IAsyncDisposable
     {
-        public IUserSession Session { get; } = session;
+        private readonly string _directory = directory;
+        private readonly ProviderModel _model = model;
+        private readonly ProductionSessionStoreFixture _production = new(directory, model, passThroughSandbox);
+        private IUserSession? _session;
 
-        public static DiagnosticLogs CreateDiagnostics(string directory) => new(
-            new StatePaths(Path.Combine(directory, "state"), Path.Combine(directory, "config"), Path.Combine(directory, "data")),
-            FileDiagnosticLog.CreateInstanceId(),
-            TextWriter.Null,
-            TimeProvider.System);
+        public IUserSession Session => _session ?? throw new InvalidOperationException("The inventory session is not open.");
 
-        public static async Task<InventoryFixture> Create(string directory, DiagnosticLogs diagnostics, bool passThroughSandbox)
+        public static async Task<InventoryFixture> Create(string directory, bool passThroughSandbox)
         {
             _ = Directory.CreateDirectory(directory);
-            var paths = new StatePaths(Path.Combine(directory, "state"), Path.Combine(directory, "config"), Path.Combine(directory, "data"));
+            ILLMProvider provider = new UnusedProvider();
+            var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+            var fixture = new InventoryFixture(directory, model, passThroughSandbox);
             try
             {
-                var configuration = Configuration.Load(paths.ConfigFile, paths.PredefinedConfigFile);
-                ILLMProvider provider = new UnusedProvider();
-                var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-                var router = TestModels.Route(model);
-                var profiles = new ProfileRegistry(configuration.Profiles, configuration.SandboxRules, [], configuration.DisabledTools);
-                var modes = new ModeRegistry(profiles, configuration.DefaultProfile);
-                var runner = ProcessRunner.Locate(ExecutableLocator.Capture());
-                if (passThroughSandbox && OperatingSystem.IsLinux())
-                {
-                    var sandboxPath = Path.Combine(directory, "sandbox");
-                    var script = "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do\n"
-                        + "  if [ \"$1\" = \"--chdir\" ]; then shift; cd \"$1\" || exit; "
-                        + "elif [ \"$1\" = \"--setenv\" ]; then export \"$2=$3\"; shift 2; fi\n"
-                        + "  shift\ndone\nshift\nexec \"$@\"\n";
-                    await File.WriteAllTextAsync(sandboxPath, script);
-                    File.SetUnixFileMode(sandboxPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-                    runner = new ProcessRunner(sandboxPath);
-                }
-
-                var source = new AgentSessionFactorySource(
-                    runner,
-                    new Compactor(90, 30, 60_000, 1024, configuration.PromptTemplates),
-                    WebFetcher.Create(new PublicWebAddressPolicy()),
-                    configuration.ToolDefinitions,
-                    configuration.AgentTasks,
-                    configuration.AgentSend,
-                    configuration.RequestLimits,
-                    configuration.ReadOnlyExecCommandPrefixes,
-                    router,
-                    [],
-                    configuration.PromptTemplates,
-                    static (arguments, scope) => new AgentSessionComposition(arguments, scope));
-                var factory = new UserSessionFactory(source, modes, configuration.PromptTemplates, profiles, new SkillCatalogFactory(configuration, directory, Path.Combine(directory, "skills")), TimeSpan.FromSeconds(30), TimeProvider.System, AgentTaskParser.ParseArtifact);
-                var store = new SessionStore(paths, directory, "host", factory, router, modes, diagnostics);
-                return new InventoryFixture(directory, configuration, model, await store.Open(router.Resolve(model.Selector)));
+                fixture._session = await fixture._production.Store.Open(fixture._production.Router.Resolve(model.Selector));
+                return fixture;
             }
             catch
             {
-                Directory.Delete(directory, recursive: true);
+                await fixture.DisposeAsync();
                 throw;
             }
         }
 
         public IAgentSessionScope CreateChild(IAgentSessionScope parent, string name) => CreateIdentifiedChild(
             parent,
-            AgentIdentity.Child(name, parent.Session.Identity, name, 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates));
+            AgentIdentity.Child(name, parent.Session.Identity, name, 1, AgentScope.Empty(_production.Configuration.PromptTemplates), AgentPolicyLineage.Root(), _production.Configuration.PromptTemplates));
 
         public async ValueTask DisposeAsync()
         {
             try
             {
-                await Session.DisposeAsync();
+                if (_session is not null)
+                {
+                    await _session.DisposeAsync();
+                }
             }
             finally
             {
-                Directory.Delete(directory, recursive: true);
+                _production.Dispose();
+                Directory.Delete(_directory, recursive: true);
             }
         }
 
         private IAgentSessionScope CreateIdentifiedChild(IAgentSessionScope parent, AgentIdentity identity) => Session.Registry.CreateChildScope(
             identity,
             AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly, Session.Registry.ReserveRetainedAgent()),
-            new ModelSelector(model.Selector),
+            new ModelSelector(_model.Selector),
             Session.Mode.Profile,
             Session.Mode.Profile.SecurityProfile,
             Session.Registry.InitializeChildHistory(identity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty"), new AgentHistorySource.Parent()),

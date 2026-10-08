@@ -29,7 +29,7 @@ internal static class ResponsesAdapter
                 {
                     Name = tool.Name,
                     Description = tool.Description.Length > 0 ? tool.Description : null,
-                    Parameters = ParseSchema(tool.ParametersJson),
+                    Parameters = WireEncoding.ParseSchema(tool.ParametersJson),
                 })
                 .ToList();
 
@@ -114,7 +114,7 @@ internal static class ResponsesAdapter
                 content.Add(new ContentPart
                 {
                     Type = "input_image",
-                    ImageUrl = ImageReference(part),
+                    ImageUrl = WireEncoding.ImageReference(part),
                 });
             }
             else if (part.Text.Length > 0)
@@ -151,7 +151,7 @@ internal static class ResponsesAdapter
             yield break;
         }
 
-        var type = ReadString(root, "type");
+        var type = JsonRead.String(root, "type");
         state.ValidateLifecycle(root, type);
         if (type == "response.metadata"
             && root.TryGetProperty("headers", out var headers)
@@ -173,7 +173,7 @@ internal static class ResponsesAdapter
         {
             case "response.output_text.delta":
             {
-                var delta = ReadString(root, "delta");
+                var delta = JsonRead.String(root, "delta");
 
                 if (delta.Length > 0)
                 {
@@ -190,7 +190,7 @@ internal static class ResponsesAdapter
             case "response.reasoning_summary_text.done":
             case "response.reasoning_text.done":
             {
-                var delta = ReadString(root, "delta");
+                var delta = JsonRead.String(root, "delta");
                 var completed = type.EndsWith(".done", StringComparison.Ordinal);
                 var reasoningKind = type is "response.reasoning_summary_text.delta"
                     or "response.reasoning_summary_text.done"
@@ -220,12 +220,11 @@ internal static class ResponsesAdapter
 
             case "response.function_call_arguments.delta":
             {
-                var itemId = ReadString(root, "item_id");
-                var callId = ReadString(root, "call_id");
+                var itemId = JsonRead.String(root, "item_id");
+                var callId = JsonRead.String(root, "call_id");
                 var accumulator = state.FindTool(itemId, callId)
-                    ?? state.AddTool(itemId, callId, ReadString(root, "name"), string.Empty);
-                var delta = ReadString(root, "delta");
-                accumulator.Arguments += delta;
+                    ?? state.AddTool(itemId, callId, JsonRead.String(root, "name"), string.Empty);
+                _ = accumulator.Arguments.Append(JsonRead.String(root, "delta"));
                 break;
             }
 
@@ -234,10 +233,10 @@ internal static class ResponsesAdapter
             {
                 var isItemDone = type == "response.output_item.done";
                 var item = isItemDone ? Item(root) : default;
-                var itemId = isItemDone ? item.Id : ReadString(root, "item_id");
-                var callId = isItemDone ? item.CallId : ReadString(root, "call_id");
-                var name = isItemDone ? item.Name : ReadString(root, "name");
-                var arguments = isItemDone ? item.Arguments : ReadString(root, "arguments");
+                var itemId = isItemDone ? item.Id : JsonRead.String(root, "item_id");
+                var callId = isItemDone ? item.CallId : JsonRead.String(root, "call_id");
+                var name = isItemDone ? item.Name : JsonRead.String(root, "name");
+                var arguments = isItemDone ? item.Arguments : JsonRead.String(root, "arguments");
 
                 if (isItemDone)
                 {
@@ -257,7 +256,7 @@ internal static class ResponsesAdapter
                 }
                 else if (arguments.Length > 0)
                 {
-                    accumulator.Arguments = arguments;
+                    _ = accumulator.Arguments.Clear().Append(arguments);
                 }
 
                 break;
@@ -271,6 +270,7 @@ internal static class ResponsesAdapter
                     ? (state.HasTools ? "tool_calls" : "stop")
                     : IncompleteReason(root);
                 state.Done = true;
+                state.CaptureCompletion(root);
                 break;
             }
 
@@ -285,9 +285,9 @@ internal static class ResponsesAdapter
                         : root;
 
                 throw new ProviderResponseException(
-                    ReadString(failure, "type"),
-                    ReadString(failure, "code"),
-                    ReadString(failure, "message"),
+                    JsonRead.String(failure, "type"),
+                    JsonRead.String(failure, "code"),
+                    JsonRead.String(failure, "message"),
                     ProviderErrors.BoundResponseBody(data));
             }
 
@@ -318,11 +318,11 @@ internal static class ResponsesAdapter
         }
 
         return new ItemFields(
-            ReadString(item, "id"),
-            ReadString(item, "type"),
-            ReadString(item, "call_id"),
-            ReadString(item, "name"),
-            ReadString(item, "arguments"));
+            JsonRead.String(item, "id"),
+            JsonRead.String(item, "type"),
+            JsonRead.String(item, "call_id"),
+            JsonRead.String(item, "name"),
+            JsonRead.String(item, "arguments"));
     }
 
     private static string IncompleteReason(JsonElement root)
@@ -330,7 +330,7 @@ internal static class ResponsesAdapter
         if (root.TryGetProperty("response", out var response)
             && response.TryGetProperty("incomplete_details", out var details))
         {
-            return ReadString(details, "reason") switch
+            return JsonRead.String(details, "reason") switch
             {
                 "max_output_tokens" or "max_tokens" => "length",
                 "content_filter" => "content_filter",
@@ -341,24 +341,8 @@ internal static class ResponsesAdapter
         return "incomplete";
     }
 
-    private static string ImageReference(LLMContent content) =>
-        content.ImageUrl.Length > 0
-            ? content.ImageUrl
-            : $"data:{content.MediaType};base64,{Convert.ToBase64String(content.ReadImage())}";
-
-    private static JsonElement ParseSchema(string schema)
-    {
-        using var document = JsonDocument.Parse(schema.Length > 0 ? schema : "{}");
-        return document.RootElement.Clone();
-    }
-
     private static string RoleName(LLMRole role) =>
         role == LLMRole.Assistant ? "assistant" : "user";
-
-    private static string ReadString(JsonElement scope, string name) =>
-        scope.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString() ?? string.Empty
-            : string.Empty;
 
     private static int ReadInt(JsonElement scope, string name) =>
         scope.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number
@@ -367,7 +351,7 @@ internal static class ResponsesAdapter
 
     private static string ReadReasoningPartId(JsonElement root, string type)
     {
-        var itemId = ReadString(root, "item_id");
+        var itemId = JsonRead.String(root, "item_id");
         var indexName = type switch
         {
             "response.reasoning_summary_text.delta" or "response.reasoning_summary_text.done" => "summary_index",
@@ -573,7 +557,7 @@ internal static class ResponsesAdapter
 
         public string Name { get; set; } = string.Empty;
 
-        public string Arguments { get; set; } = string.Empty;
+        public StringBuilder Arguments { get; } = new();
 
         public string ToolId() => CallId.Length > 0 ? CallId : ItemId;
     }
@@ -619,11 +603,6 @@ internal static class ResponsesAdapter
             {
                 yield return published;
             }
-
-            if (Done)
-            {
-                CaptureCompletion(data);
-            }
         }
 
         public IEnumerable<LLMEvent> CompleteEvents()
@@ -658,8 +637,8 @@ internal static class ResponsesAdapter
                     ItemId = itemId,
                     CallId = callId,
                     Name = name,
-                    Arguments = arguments,
                 };
+                _ = item.Arguments.Append(arguments);
                 _tools[key] = item;
                 _toolOrder.Add(item);
             }
@@ -682,7 +661,7 @@ internal static class ResponsesAdapter
 
                 if (item.Arguments.Length == 0)
                 {
-                    item.Arguments = arguments;
+                    _ = item.Arguments.Append(arguments);
                 }
 
                 key = item.Key;
@@ -725,7 +704,7 @@ internal static class ResponsesAdapter
         }
 
         public IEnumerable<LLMEvent> ToolCallEvents() =>
-            _toolOrder.Select(call => LLMEvent.ToolCallDelta(call.ToolId(), call.Name, call.Arguments));
+            _toolOrder.Select(call => LLMEvent.ToolCallDelta(call.ToolId(), call.Name, call.Arguments.ToString()));
 
         public LLMEvent Complete() =>
             LLMEvent.Completed(
@@ -734,7 +713,7 @@ internal static class ResponsesAdapter
                 CachedInputTokens,
                 OutputTokens,
                 AssistantText.ToString(),
-                [.. _toolOrder.Select(call => new LLMToolCall(call.ToolId(), call.Name, call.Arguments))]);
+                [.. _toolOrder.Select(call => new LLMToolCall(call.ToolId(), call.Name, call.Arguments.ToString()))]);
 
         public void ValidateLifecycle(JsonElement root, string type)
         {
@@ -784,58 +763,15 @@ internal static class ResponsesAdapter
             }
         }
 
-        private static string ReadNestedResponseId(JsonElement root) =>
-            root.TryGetProperty("response", out var response) && response.ValueKind == JsonValueKind.Object
-                ? ReadString(response, "id")
-                : string.Empty;
-
-        private static List<ContentPart> ReadContent(JsonElement item)
+        public void CaptureCompletion(JsonElement root)
         {
-            var content = new List<ContentPart>();
-            if (item.TryGetProperty("content", out var parts) && parts.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var part in parts.EnumerateArray())
-                {
-                    content.Add(new ContentPart
-                    {
-                        Type = ReadString(part, "type"),
-                        Text = ReadString(part, "text"),
-                    });
-                }
-            }
-
-            return content;
-        }
-
-        private static InputItem? OutputItem(JsonElement item) =>
-            ReadString(item, "type") switch
-            {
-                "function_call" => new InputItem
-                {
-                    Type = "function_call",
-                    CallId = ReadString(item, "call_id"),
-                    Name = ReadString(item, "name"),
-                    Arguments = ReadString(item, "arguments"),
-                },
-                "message" => new InputItem
-                {
-                    Type = "message",
-                    Role = ReadString(item, "role"),
-                    Content = ReadContent(item),
-                },
-                _ => null,
-            };
-
-        private void CaptureCompletion(string data)
-        {
-            using var document = JsonDocument.Parse(data);
-            if (!document.RootElement.TryGetProperty("response", out var response)
+            if (!root.TryGetProperty("response", out var response)
                 || response.ValueKind != JsonValueKind.Object)
             {
                 return;
             }
 
-            ResponseId = ReadString(response, "id");
+            ResponseId = JsonRead.String(response, "id");
             if (response.TryGetProperty("output", out var output) && output.ValueKind == JsonValueKind.Array)
             {
                 _output.AddRange(output.EnumerateArray().Select(OutputItem).OfType<InputItem>());
@@ -847,5 +783,47 @@ internal static class ResponsesAdapter
                 _output.AddRange(_streamedOutput);
             }
         }
+
+        private static string ReadNestedResponseId(JsonElement root) =>
+            root.TryGetProperty("response", out var response) && response.ValueKind == JsonValueKind.Object
+                ? JsonRead.String(response, "id")
+                : string.Empty;
+
+        private static List<ContentPart> ReadContent(JsonElement item)
+        {
+            var content = new List<ContentPart>();
+            if (item.TryGetProperty("content", out var parts) && parts.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var part in parts.EnumerateArray())
+                {
+                    content.Add(new ContentPart
+                    {
+                        Type = JsonRead.String(part, "type"),
+                        Text = JsonRead.String(part, "text"),
+                    });
+                }
+            }
+
+            return content;
+        }
+
+        private static InputItem? OutputItem(JsonElement item) =>
+            JsonRead.String(item, "type") switch
+            {
+                "function_call" => new InputItem
+                {
+                    Type = "function_call",
+                    CallId = JsonRead.String(item, "call_id"),
+                    Name = JsonRead.String(item, "name"),
+                    Arguments = JsonRead.String(item, "arguments"),
+                },
+                "message" => new InputItem
+                {
+                    Type = "message",
+                    Role = JsonRead.String(item, "role"),
+                    Content = ReadContent(item),
+                },
+                _ => null,
+            };
     }
 }

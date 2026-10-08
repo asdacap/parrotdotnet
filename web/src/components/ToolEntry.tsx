@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { formatDuration } from "@/lib/duration"
 import { cn } from "@/lib/utils"
-import type { TimelineItem, ToolStatus } from "@/session/timeline"
+import type { ToolItem, ToolStatus } from "@/session/timeline"
 import {
   isUnifiedDiff,
   parseToolArguments,
@@ -12,8 +12,6 @@ import {
   toolLabel,
   waitDurationMilliseconds,
 } from "@/session/toolPresentation"
-
-type ToolItem = Extract<TimelineItem, { kind: "tool" }>
 
 const toolBadgeVariants = {
   running: "secondary",
@@ -96,7 +94,7 @@ function Output({ text, full }: { text: string; full?: string }) {
 export function ToolEntry({ item }: { item: ToolItem }) {
   const running = item.status === "running"
   const elapsed = useElapsed(running)
-  const args = parseToolArguments(item.args)
+  const args = useMemo(() => parseToolArguments(item.args), [item.args])
   // The terminal CLI shows a wait only while it runs.
   if (item.name === "wait") {
     if (!running) return null

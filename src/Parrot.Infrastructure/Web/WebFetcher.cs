@@ -209,21 +209,9 @@ internal sealed class WebFetcher(
         CancellationToken cancellationToken)
     {
         var buffer = new byte[maxBodyBytes + 1];
-        var length = 0;
-
-        while (length < buffer.Length)
-        {
-            var read = await contentStream
-                .ReadAsync(buffer.AsMemory(length, buffer.Length - length), cancellationToken)
-                .ConfigureAwait(false);
-
-            if (read == 0)
-            {
-                break;
-            }
-
-            length += read;
-        }
+        var length = await contentStream
+            .ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false, cancellationToken)
+            .ConfigureAwait(false);
 
         var truncated = length > maxBodyBytes;
         var text = Encoding.UTF8.GetString(buffer, 0, Math.Min(length, maxBodyBytes));

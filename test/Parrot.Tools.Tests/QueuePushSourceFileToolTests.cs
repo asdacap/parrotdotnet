@@ -2,7 +2,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
-using Parrot.Llm;
 using Parrot.Queues;
 using Parrot.Security;
 using Parrot.Tools;
@@ -12,10 +11,7 @@ namespace Parrot.Core.Tests;
 internal sealed partial class QueuePushSourceFileToolTests : IDisposable
 {
     private const int MaximumSourceFileBytes = 16 << 20;
-    private readonly string _root = Directory.CreateDirectory(Path.Combine(
-        Path.GetTempPath(),
-        "parrot-queue-push-source-file-tests",
-        Guid.NewGuid().ToString("n"))).FullName;
+    private readonly string _root = Directory.CreateTempSubdirectory("parrot-queue-push-source-file-tests-").FullName;
 
     public void Dispose()
     {
@@ -41,7 +37,7 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         ITool tool = new QueuePushTool(queues, new ResourceResolverFixture(null, null), new ToolWorkspace(_root), TestDiagnosticLog.Instance);
         var result = await tool.Execute(
             Invocation("work", "items.txt", "back", close: false),
-            new PushTurnFixture(Permissive()).Selection,
+            TestTurnSelection.Create(Permissive()),
             cancellationToken);
         var taken = queues.TryTake("work", 10, QueueDirection.Front);
 
@@ -64,7 +60,7 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         ITool tool = new QueuePushTool(queues, new ResourceResolverFixture(null, null), new ToolWorkspace(workspace.FullName), TestDiagnosticLog.Instance);
         var result = await tool.Execute(
             Invocation("work", source, "front", close: true),
-            new PushTurnFixture(Permissive()).Selection,
+            TestTurnSelection.Create(Permissive()),
             cancellationToken);
         var taken = queues.TryTake("work", 10, QueueDirection.Front);
 
@@ -85,7 +81,7 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         ITool tool = new QueuePushTool(queues, new ResourceResolverFixture(null, null), new ToolWorkspace(_root), TestDiagnosticLog.Instance);
         var result = await tool.Execute(
             Invocation("work", "empty.txt", "back", close: true),
-            new PushTurnFixture(Permissive()).Selection,
+            TestTurnSelection.Create(Permissive()),
             cancellationToken);
 
         using var document = JsonDocument.Parse(result.Text);
@@ -189,23 +185,13 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
     [Test]
     public async Task Final_queue_limit_failure_does_not_change_existing_items(CancellationToken cancellationToken)
     {
-        var source = Path.Combine(_root, "escaped.txt");
-        await File.WriteAllTextAsync(source, new string('\\', 9 << 20), cancellationToken);
-        await using var queueFixture = CreateQueues("final-limit");
-        var queues = queueFixture.Queues;
-        _ = queues.Create("work", string.Empty);
-        _ = await queues.Push("work", ["existing"], QueueDirection.Back, false, cancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(_root, "escaped.txt"), new string('\\', 9 << 20), cancellationToken);
 
-        ITool tool = new QueuePushTool(queues, new ResourceResolverFixture(null, null), new ToolWorkspace(_root), TestDiagnosticLog.Instance);
-        var result = await tool.Execute(
-            Invocation("work", "escaped.txt", "back", close: true),
-            new PushTurnFixture(Permissive()).Selection,
+        await AssertFailureLeavesQueueUnchanged(
+            "escaped.txt",
+            Permissive(),
+            $"error: queue: file exceeds {MaximumSourceFileBytes} bytes",
             cancellationToken);
-        var taken = queues.TryTake("work", 10, QueueDirection.Front);
-
-        _ = await Assert.That(result.Text).IsEqualTo($"error: queue: file exceeds {MaximumSourceFileBytes} bytes");
-        _ = await Assert.That(string.Join('|', taken.Items)).IsEqualTo("existing");
-        _ = await Assert.That(taken.Info?.Closed).IsFalse();
     }
 
     [Test]
@@ -222,7 +208,7 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         _ = await Assert.That(async () =>
                 _ = await tool.Execute(
                     Invocation("work", "items.txt", "back", close: true),
-                    new PushTurnFixture(Permissive()).Selection,
+                    TestTurnSelection.Create(Permissive()),
                     canceled.Token))
             .Throws<OperationCanceledException>();
         _ = await Assert.That(queues.Get("work").Size).IsEqualTo(0);
@@ -261,29 +247,13 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
         ITool tool = new QueuePushTool(queues, new ResourceResolverFixture(null, null), new ToolWorkspace(_root), TestDiagnosticLog.Instance);
         var result = await tool.Execute(
             Invocation("work", sourceFile, "back", close: true),
-            new PushTurnFixture(security).Selection,
+            TestTurnSelection.Create(security),
             cancellationToken);
         var taken = queues.TryTake("work", 10, QueueDirection.Front);
 
         _ = await Assert.That(result.Text).IsEqualTo(expected);
         _ = await Assert.That(string.Join('|', taken.Items)).IsEqualTo("existing");
         _ = await Assert.That(taken.Info?.Closed).IsFalse();
-    }
-
-    private sealed class PushTurnFixture
-    {
-        public PushTurnFixture(SecurityProfile securityProfile)
-        {
-            ILLMProvider provider = new UnusedProvider();
-            var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-            Selection = new AgentTurnSelection(
-                new ModelSelector(model.Selector),
-                TestModels.Resolve(model),
-                new TestProfileFixture().Profile,
-                securityProfile);
-        }
-
-        public AgentTurnSelection Selection { get; }
     }
 
     private sealed class SourceFileArguments

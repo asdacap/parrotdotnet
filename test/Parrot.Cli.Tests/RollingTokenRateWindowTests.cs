@@ -1,4 +1,5 @@
 using Parrot.Cli.Enhanced;
+using Parrot.Core.Tests;
 
 namespace Parrot.Cli.Tests;
 
@@ -7,7 +8,7 @@ internal sealed class RollingTokenRateWindowTests
     [Test]
     public async Task Window_accumulates_independent_rates_and_expires_at_exact_boundary()
     {
-        var time = new RateTimeProvider();
+        var time = new ControlledTimeProvider();
         var window = new RollingTokenRateWindow(time);
 
         window.Observe(300, 60);
@@ -23,7 +24,7 @@ internal sealed class RollingTokenRateWindowTests
     [Test]
     public async Task Window_clears_after_long_clock_advance_and_reset()
     {
-        var time = new RateTimeProvider();
+        var time = new ControlledTimeProvider();
         var window = new RollingTokenRateWindow(time);
         window.Observe(300, 60);
 
@@ -32,16 +33,5 @@ internal sealed class RollingTokenRateWindowTests
         window.Observe(300, 60);
         window.Reset();
         _ = await Assert.That(window.Current).IsEqualTo(default);
-    }
-
-    private sealed class RateTimeProvider : TimeProvider
-    {
-        private long _timestamp;
-
-        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
-
-        public override long GetTimestamp() => _timestamp;
-
-        public void Advance(TimeSpan elapsed) => _timestamp += elapsed.Ticks;
     }
 }

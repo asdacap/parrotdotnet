@@ -9,12 +9,11 @@ internal sealed class AgentSessionActivity(TimeProvider timeProvider)
 
     private readonly Lock _gate = new();
     private readonly SortedDictionary<long, string> _activeTools = [];
-    private readonly Dictionary<string, StringBuilder> _namedSummaries = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, StringBuilder> _summaries = new(StringComparer.Ordinal);
     private readonly List<RecentEntry> _recent = [];
     private readonly TimeProvider _timeProvider = timeProvider
         ?? throw new ArgumentNullException(nameof(timeProvider));
 
-    private StringBuilder? _unnamedSummary;
     private long? _currentProviderRequestStarted;
     private TimeSpan? _lastProviderRequestDuration;
     private long? _latestProviderActivity;
@@ -66,8 +65,7 @@ internal sealed class AgentSessionActivity(TimeProvider timeProvider)
                 _currentProviderRequestStarted = null;
             }
 
-            _namedSummaries.Clear();
-            _unnamedSummary = null;
+            _summaries.Clear();
         }
     }
 
@@ -184,21 +182,19 @@ internal sealed class AgentSessionActivity(TimeProvider timeProvider)
 
     private void ObserveSummary(LLMEvent observed, long timestamp)
     {
-        var summary = observed.ReasoningPartId.Length == 0
-            ? ObserveUnnamedSummary(observed)
-            : ObserveNamedSummary(observed);
-        if (summary is not null && !string.IsNullOrWhiteSpace(summary))
+        var summary = AccumulateSummary(observed);
+        if (!string.IsNullOrWhiteSpace(summary))
         {
             AppendRecent(AgentSessionActivityEntryKind.ReasoningSummary, summary, timestamp);
         }
     }
 
-    private string? ObserveNamedSummary(LLMEvent observed)
+    private string? AccumulateSummary(LLMEvent observed)
     {
-        if (!_namedSummaries.TryGetValue(observed.ReasoningPartId, out var summary))
+        if (!_summaries.TryGetValue(observed.ReasoningPartId, out var summary))
         {
             summary = new StringBuilder();
-            _namedSummaries.Add(observed.ReasoningPartId, summary);
+            _summaries.Add(observed.ReasoningPartId, summary);
         }
 
         _ = summary.Append(observed.Text);
@@ -207,22 +203,8 @@ internal sealed class AgentSessionActivity(TimeProvider timeProvider)
             return null;
         }
 
-        _ = _namedSummaries.Remove(observed.ReasoningPartId);
+        _ = _summaries.Remove(observed.ReasoningPartId);
         return summary.ToString();
-    }
-
-    private string? ObserveUnnamedSummary(LLMEvent observed)
-    {
-        _unnamedSummary ??= new StringBuilder();
-        _ = _unnamedSummary.Append(observed.Text);
-        if (!observed.ReasoningCompleted)
-        {
-            return null;
-        }
-
-        var completed = _unnamedSummary.ToString();
-        _unnamedSummary = null;
-        return completed;
     }
 
     private void AppendRecent(AgentSessionActivityEntryKind kind, string content, long timestamp)

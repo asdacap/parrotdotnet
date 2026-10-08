@@ -34,10 +34,6 @@ internal sealed class ImageLinkingProvider(ILLMProvider inner, S3ImageBucket buc
     public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
         Link(inner.Call, request, cancellationToken);
 
-    private static bool IsVisible(LLMEvent published) =>
-        published.Kind is LLMEventKind.TextDelta or LLMEventKind.ReasoningDelta
-            or LLMEventKind.ToolCallDelta or LLMEventKind.Completed;
-
     private static bool IsRejection(Exception failure) => failure is ProviderHttpException or ProviderResponseException;
 
     // A client error that is neither a limit nor an overload is the provider refusing the request itself.
@@ -84,7 +80,7 @@ internal sealed class ImageLinkingProvider(ILLMProvider inner, S3ImageBucket buc
                         yield break;
                     }
 
-                    visible |= IsVisible(enumerator.Current);
+                    visible |= enumerator.Current.IsVisibleOutput;
                     yield return enumerator.Current;
                 }
             }

@@ -32,8 +32,7 @@ internal sealed class MonitorTool(
         try
         {
             ToolInputConversion.RequireObject(invocation.ArgumentsJson, "command");
-            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, MonitorToolJsonContext.Default.MonitorToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, MonitorToolJsonContext.Default.MonitorToolInput);
             var command = input.Command ?? throw new FormatException("Tool arguments require a string 'command'.");
             var name = input.Name?.Trim();
             var timeoutMilliseconds = input.TimeoutMilliseconds ?? DefaultTimeoutMilliseconds;

@@ -83,7 +83,7 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
 
                     foreach (var published in step.Emit ?? [])
                     {
-                        if (IsVisible(published))
+                        if (published.IsVisibleOutput)
                         {
                             state.OutputEmitted = true;
                         }
@@ -230,10 +230,6 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
         }
     }
 
-    private static bool IsVisible(LLMEvent published) =>
-        published.Kind is LLMEventKind.TextDelta or LLMEventKind.ReasoningDelta
-            or LLMEventKind.ToolCallDelta or LLMEventKind.Completed;
-
     private static bool RetryableStatus(int status) => status is 429 or >= 500;
 
     private static string OverloadReason(int attempt) =>
@@ -296,7 +292,7 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
 
                         foreach (var published in step.Emit ?? [])
                         {
-                            if (IsVisible(published))
+                            if (published.IsVisibleOutput)
                             {
                                 state.OutputEmitted = true;
                             }

@@ -49,21 +49,10 @@ internal sealed record SecurityWriteTarget
         }
     }
 
-    internal bool Contains(SecurityWriteTarget other) => Includes(other.Path);
-
-    internal bool Includes(string path)
-    {
-        if (Kind != SecurityWriteTargetKind.Directory)
-        {
-            return string.Equals(Path, path, StringComparison.Ordinal);
-        }
-
-        var relative = System.IO.Path.GetRelativePath(Path, path);
-        return relative == "." ||
-            (!System.IO.Path.IsPathRooted(relative) && relative != ".." &&
-             !relative.StartsWith($"..{System.IO.Path.DirectorySeparatorChar}", StringComparison.Ordinal) &&
-             !relative.StartsWith($"..{System.IO.Path.AltDirectorySeparatorChar}", StringComparison.Ordinal));
-    }
+    internal bool Contains(SecurityWriteTarget other) =>
+        Kind == SecurityWriteTargetKind.Directory
+            ? PlatformPath.Contains(Path, other.Path)
+            : string.Equals(Path, other.Path, StringComparison.Ordinal);
 
     private static string ResolvePhysicalPath(string path)
     {

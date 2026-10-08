@@ -1,5 +1,6 @@
 using Parrot.Cli.Enhanced;
 using Parrot.Cli.Enhanced.Tools;
+using Parrot.Core.Tests;
 
 namespace Parrot.Cli.Tests;
 
@@ -18,7 +19,7 @@ internal sealed class EnhancedWaitToolPresenterTests
 
         _ = await Assert.That(live.Render(LiveContext).Lines[0].Text).IsEqualTo(started);
 
-        timeProvider.SetElapsed(TimeSpan.FromSeconds(10));
+        timeProvider.Advance(TimeSpan.FromSeconds(10));
         _ = await Assert.That(live.Animate(1).Render(LiveContext).Lines[0].Text).IsEqualTo(afterTenSeconds);
     }
 
@@ -39,16 +40,5 @@ internal sealed class EnhancedWaitToolPresenterTests
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "timed out", string.Empty);
 
         _ = await Assert.That(presenter.PresentTerminal(call, terminal)).IsNull();
-    }
-
-    private sealed class ControlledTimeProvider : TimeProvider
-    {
-        private long _timestamp;
-
-        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
-
-        public override long GetTimestamp() => _timestamp;
-
-        public void SetElapsed(TimeSpan elapsed) => _timestamp = elapsed.Ticks;
     }
 }

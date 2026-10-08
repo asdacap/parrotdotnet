@@ -23,6 +23,4 @@ internal static class ToolResultFormatter
     public static string MarkdownOutline(ToolInvocation invocation, string outline) => invocation.PromptTemplates is { } templates
         ? templates.Render("tool-result.markdown-outline", [new PromptTemplateArgument("outline", outline)])
         : $"markdown outline (line: heading):\n{outline}\n";
-
-    public static string Marker(ToolInvocation invocation, string marker) => Text(invocation, marker);
 }

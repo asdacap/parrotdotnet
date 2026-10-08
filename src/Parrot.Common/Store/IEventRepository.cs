@@ -26,11 +26,6 @@ internal interface IEventRepository
         IReadOnlyList<LLMToolCall> toolCalls,
         string toolCallId);
 
-    bool AppendToolResult(
-        Event published,
-        long assistantSequence,
-        ToolExecutionTerminal terminal);
-
     bool HasToolSynthetic(long assistantSequence, string agentSessionId);
 
     /// <summary>Projects a batch's image message, returning it or null when one was already projected.</summary>
@@ -72,8 +67,6 @@ internal interface IEventRepository
     IReadOnlyList<Event> Replay();
 
     SessionUsage Usage();
-
-    AgentStatistics? LatestStatistics(string agentSessionId);
 
     IReadOnlyList<ExitReminderEntry> ExitReminders(string agentSessionId);
 
@@ -143,8 +136,6 @@ internal interface IEventRepository
     (string AgentSessionId, string Mode) SessionState(string userSessionId, string requestedMode);
 
     void UpdateMode(string userSessionId, string agentSessionId, string mode);
-
-    bool StatusPromptPending(string agentSessionId);
 
     PendingStatus? PendingStatus(string agentSessionId);
 

@@ -61,16 +61,17 @@ internal sealed class ResponsesWebSocket(
             }
 
             var totalBytes = 0L;
+            var message = new ArrayBufferWriter<byte>();
             while (!response.Done)
             {
-                var message = await ReceiveText(attempt, cancellationToken).ConfigureAwait(false);
-                totalBytes += message.Length;
+                await ReceiveText(message, attempt, cancellationToken).ConfigureAwait(false);
+                totalBytes += message.WrittenCount;
                 if (totalBytes > HttpStreaming.MaxStreamBytes)
                 {
                     throw new WireProtocolException($"responses: provider stream exceeds {HttpStreaming.MaxStreamBytes} bytes");
                 }
 
-                var data = Encoding.UTF8.GetString(message);
+                var data = Encoding.UTF8.GetString(message.WrittenSpan);
                 foreach (var published in response.Consume(data))
                 {
                     yield return published;
@@ -99,9 +100,12 @@ internal sealed class ResponsesWebSocket(
         return ValueTask.CompletedTask;
     }
 
-    private async Task<byte[]> ReceiveText(IProviderAttemptDiagnostics? attempt, CancellationToken cancellationToken)
+    private async Task ReceiveText(
+        ArrayBufferWriter<byte> writer,
+        IProviderAttemptDiagnostics? attempt,
+        CancellationToken cancellationToken)
     {
-        var writer = new ArrayBufferWriter<byte>();
+        writer.ResetWrittenCount();
         while (true)
         {
             var memory = writer.GetMemory(8192);
@@ -137,7 +141,7 @@ internal sealed class ResponsesWebSocket(
 
             if (received.EndOfMessage)
             {
-                return writer.WrittenSpan.ToArray();
+                return;
             }
         }
     }

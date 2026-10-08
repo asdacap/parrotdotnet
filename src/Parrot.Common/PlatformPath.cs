@@ -2,6 +2,20 @@ namespace Parrot;
 
 internal static class PlatformPath
 {
+    public static StringComparison Comparison =>
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+    public static StringComparer Comparer =>
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+    public static bool Contains(string root, string path)
+    {
+        var relative = Path.GetRelativePath(root, path);
+        return relative == "." || (!Path.IsPathRooted(relative) && relative != ".."
+            && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+            && !relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal));
+    }
+
     public static string Normalize(string path)
     {
         var full = Path.GetFullPath(path);

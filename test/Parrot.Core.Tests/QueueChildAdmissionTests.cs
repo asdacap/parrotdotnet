@@ -26,6 +26,7 @@ internal sealed class QueueChildAdmissionTests
                 "worker",
                 1,
                 AgentScope.Empty(TestModels.PromptTemplates),
+                AgentPolicyLineage.Root(),
                 TestModels.PromptTemplates),
             source,
             resources);
@@ -67,6 +68,7 @@ internal sealed class QueueChildAdmissionTests
                 "worker",
                 1,
                 AgentScope.Empty(TestModels.PromptTemplates),
+                AgentPolicyLineage.Root(),
                 TestModels.PromptTemplates),
             source,
             resources);
@@ -159,6 +161,7 @@ internal sealed class QueueChildAdmissionTests
                 "worker",
                 1,
                 AgentScope.Empty(TestModels.PromptTemplates),
+                AgentPolicyLineage.Root(),
                 TestModels.PromptTemplates),
             childParent,
             resources);
@@ -202,6 +205,7 @@ internal sealed class QueueChildAdmissionTests
                 "worker",
                 1,
                 AgentScope.Empty(TestModels.PromptTemplates),
+                AgentPolicyLineage.Root(),
                 TestModels.PromptTemplates),
             source,
             resources);

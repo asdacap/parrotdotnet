@@ -39,7 +39,7 @@ internal partial class EnhancedComposition
                     new AgentSpawnToolPresenter(),
                     new AgentStatusToolPresenter(),
                     new ClearExitReminderToolPresenter(),
-                    new EditToolPresenter(),
+                    new FileMutationToolPresenter("edit"),
                     new ExecCommandToolPresenter(timeProvider, configuration.ReadOnlyExecCommandPrefixes),
                     new GlobToolPresenter(),
                     new ImageGenerationToolPresenter(),
@@ -57,7 +57,7 @@ internal partial class EnhancedComposition
                     new WaitToolPresenter(timeProvider),
                     new WebFetchToolPresenter(),
                     new WriteStdinToolPresenter(),
-                    new WriteToolPresenter(),
+                    new FileMutationToolPresenter("write"),
                 ],
                 new GenericToolPresenter());
             })

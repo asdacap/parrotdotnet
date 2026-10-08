@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Parrot.Llm;
 
 namespace Parrot.Cli.Enhanced.Tools;
 
@@ -29,10 +30,6 @@ internal sealed class ReadToolPresenter : IToolPresenter
     {
         using var document = JsonDocument.Parse(argumentsJson);
         var root = document.RootElement;
-        return root.ValueKind == JsonValueKind.Object
-            && root.TryGetProperty("path", out var pathValue)
-            && pathValue.ValueKind == JsonValueKind.String
-            ? pathValue.GetString() ?? string.Empty
-            : string.Empty;
+        return root.ValueKind == JsonValueKind.Object ? JsonRead.String(root, "path") : string.Empty;
     }
 }

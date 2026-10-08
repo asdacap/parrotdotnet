@@ -34,6 +34,17 @@ internal static class JsonRead
             && value.TryGetInt32(out result);
     }
 
+    public static bool TryReadNonNegativeInt(JsonElement scope, string name, out int result)
+    {
+        if (TryReadInt(scope, name, out result) && result >= 0)
+        {
+            return true;
+        }
+
+        result = 0;
+        return false;
+    }
+
     public static long Long(JsonElement scope, string name) =>
         scope.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number
         && value.TryGetInt64(out var number)
@@ -88,9 +99,6 @@ internal static class JsonRead
         result = 0;
         return false;
     }
-
-    public static IReadOnlyList<string> StringArray(JsonElement scope, string name) =>
-        TryReadStringArray(scope, name, out var value) ? value : [];
 
     public static bool TryReadStringArray(JsonElement scope, string name, out IReadOnlyList<string> result)
     {

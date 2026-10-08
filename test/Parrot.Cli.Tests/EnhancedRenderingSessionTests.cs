@@ -1,6 +1,7 @@
 using Parrot.Cli.Enhanced;
 using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
+using Parrot.Core.Tests;
 using Parrot.Protocol;
 
 namespace Parrot.Cli.Tests;
@@ -26,7 +27,7 @@ internal sealed class EnhancedRenderingSessionTests
         var observed = System.Threading.Channels.Channel.CreateUnbounded<Event>();
         var release = System.Threading.Channels.Channel.CreateUnbounded<bool>();
         await using var session = new EnhancedRenderingSession(
-            new EnhancedTurnRenderer(terminal, configuration, presenters),
+            new EnhancedTurnRenderer(terminal),
             presenters,
             new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true),
             new TestSlashSession("provider/model"),
@@ -134,7 +135,7 @@ internal sealed class EnhancedRenderingSessionTests
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
         var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
         await using var session = new EnhancedRenderingSession(
-            new EnhancedTurnRenderer(terminal, configuration, presenters),
+            new EnhancedTurnRenderer(terminal),
             presenters,
             new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 1, 1, true),
             new TestSlashSession("provider/model"),
@@ -175,7 +176,7 @@ internal sealed class EnhancedRenderingSessionTests
         var stream = new ChannelStreamWriter<Event>();
         var observed = System.Threading.Channels.Channel.CreateUnbounded<Event>();
         await using var session = new EnhancedRenderingSession(
-            new EnhancedTurnRenderer(terminal, configuration, presenters),
+            new EnhancedTurnRenderer(terminal),
             presenters,
             new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true),
             new TestSlashSession("provider/model"),
@@ -278,10 +279,10 @@ internal sealed class EnhancedRenderingSessionTests
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
         var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
         var observed = new List<Event.PayloadOneofCase>();
-        var time = new TestTimeProvider();
+        var time = new ControlledTimeProvider();
         var expiry = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var session = new EnhancedRenderingSession(
-            new EnhancedTurnRenderer(terminal, configuration, presenters),
+            new EnhancedTurnRenderer(terminal),
             presenters,
             new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true),
             new TestSlashSession("provider/model"),
@@ -382,7 +383,7 @@ internal sealed class EnhancedRenderingSessionTests
         var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
         var finishedTurns = 0;
         await using var session = new EnhancedRenderingSession(
-            new EnhancedTurnRenderer(terminal, configuration, presenters),
+            new EnhancedTurnRenderer(terminal),
             presenters,
             new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true),
             new TestSlashSession("provider/model"),
@@ -419,10 +420,10 @@ internal sealed class EnhancedRenderingSessionTests
         var terminal = new TestTerminal(driver.Input, output, error, 120);
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
         var presenters = new ToolPresenterRegistry([new WaitToolPresenter(TimeProvider.System)], new GenericToolPresenter());
-        var time = new TestTimeProvider();
+        var time = new ControlledTimeProvider();
         var pending = new TaskCompletionSource<Event.PayloadOneofCase>(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var session = new EnhancedRenderingSession(
-            new EnhancedTurnRenderer(terminal, configuration, presenters),
+            new EnhancedTurnRenderer(terminal),
             presenters,
             new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true),
             new TestSlashSession("provider/model"),
@@ -546,7 +547,7 @@ internal sealed class EnhancedRenderingSessionTests
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
         var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
         await using var session = new EnhancedRenderingSession(
-            new EnhancedTurnRenderer(terminal, configuration, presenters),
+            new EnhancedTurnRenderer(terminal),
             presenters,
             new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true),
             new TestSlashSession("provider/model"),
@@ -581,7 +582,7 @@ internal sealed class EnhancedRenderingSessionTests
         var renderer = new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true);
         var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
         await using var session = new EnhancedRenderingSession(
-            new EnhancedTurnRenderer(terminal, configuration, presenters),
+            new EnhancedTurnRenderer(terminal),
             presenters,
             renderer,
             new TestSlashSession("provider/model"),
@@ -659,7 +660,7 @@ internal sealed class EnhancedRenderingSessionTests
         var renderer = new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true);
         var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
         await using var session = new EnhancedRenderingSession(
-            new EnhancedTurnRenderer(terminal, configuration, presenters),
+            new EnhancedTurnRenderer(terminal),
             presenters,
             renderer,
             new TestSlashSession("provider/model"),
@@ -687,16 +688,5 @@ internal sealed class EnhancedRenderingSessionTests
         _ = await Assert.That(zeta).IsGreaterThan(alpha);
         _ = await Assert.That(frame).DoesNotContain("stale queue");
         _ = await Assert.That(frame).DoesNotContain("hidden queue");
-    }
-
-    private sealed class TestTimeProvider : TimeProvider
-    {
-        private long _timestamp;
-
-        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
-
-        public override long GetTimestamp() => _timestamp;
-
-        public void Advance(TimeSpan elapsed) => _timestamp += elapsed.Ticks;
     }
 }

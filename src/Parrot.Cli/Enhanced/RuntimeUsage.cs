@@ -1,4 +1,5 @@
 using System.Globalization;
+using Parrot.Statuses;
 
 namespace Parrot.Cli.Enhanced;
 
@@ -17,16 +18,16 @@ internal readonly record struct RuntimeUsage(
             return string.Empty;
         }
 
-        var value = $"+{FormatTokenCount(InputTokens)}i +{FormatTokenCount(OutputTokens)}o";
+        var value = $"+{TokenCountFormatter.Format(InputTokens)}i +{TokenCountFormatter.Format(OutputTokens)}o";
         return CachedInputTokens > 0 && InputTokens > 0
             ? value + $" (+{((double)CachedInputTokens / InputTokens * 100).ToString("0.00", CultureInfo.InvariantCulture)}% cache)"
             : value;
     }
 
     public string FormatContext() => ContextLimit > 0
-        ? $"{FormatTokenCount(ContextSize)}/{FormatTokenCount(ContextLimit)}"
+        ? $"{TokenCountFormatter.Format(ContextSize)}/{TokenCountFormatter.Format(ContextLimit)}"
         : ContextSize > 0
-            ? FormatTokenCount(ContextSize)
+            ? TokenCountFormatter.Format(ContextSize)
             : string.Empty;
 
     public static string FormatRate(TokenRate rate) => rate.HasTokens
@@ -38,13 +39,6 @@ internal readonly record struct RuntimeUsage(
         <= 0 => string.Empty,
         < 0.01 => Cost.ToString("$0.0000", CultureInfo.InvariantCulture),
         _ => Cost.ToString("$0.00", CultureInfo.InvariantCulture),
-    };
-
-    private static string FormatTokenCount(long count) => Math.Abs(count) switch
-    {
-        >= 1_000_000 => (count / 1_000_000d).ToString("0.#", CultureInfo.InvariantCulture) + "M",
-        >= 1_000 => (count / 1_000d).ToString("0.#", CultureInfo.InvariantCulture) + "k",
-        _ => count.ToString(CultureInfo.InvariantCulture),
     };
 
     private static string FormatTokenRate(decimal rate) => Math.Abs(rate) switch

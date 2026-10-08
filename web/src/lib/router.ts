@@ -15,8 +15,12 @@ export function useRoute(): Route {
   return sessionMatch?.[1] ? { page: "session", userSessionId: decodeURIComponent(sessionMatch[1]) } : { page: "sessions" }
 }
 
+export function sessionHash(userSessionId: string) {
+  return `#/s/${encodeURIComponent(userSessionId)}`
+}
+
 export function navigateToSession(userSessionId: string, replace = false) {
-  const hash = `#/s/${encodeURIComponent(userSessionId)}`
+  const hash = sessionHash(userSessionId)
   if (replace) location.replace(hash)
   else location.hash = hash
 }

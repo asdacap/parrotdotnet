@@ -15,8 +15,7 @@ internal sealed class SetCheckpointTool(ICheckpointService checkpoints) : ITool
     {
         try
         {
-            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, AgentProcessToolJsonContext.Default.SetCheckpointToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, AgentProcessToolJsonContext.Default.SetCheckpointToolInput);
             var title = input.Title ?? throw new FormatException("Tool arguments require a string 'title'.");
             checkpoints.SetCheckpoint(title, invocation.AssistantSequence, invocation.CallId);
             return Task.FromResult<ToolExecutionResult>(title);

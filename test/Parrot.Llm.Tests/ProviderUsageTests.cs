@@ -33,7 +33,10 @@ internal sealed class ProviderUsageTests
                 """,
             _ => "{}",
         };
-        using var handler = new UsageHandler(responseBody);
+        using var handler = new RecordingHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(responseBody, Encoding.UTF8, "application/json"),
+        });
         using var client = new HttpClient(handler, disposeHandler: false);
         var credential = hasCredential ? "usage-token" : string.Empty;
         IReadOnlyList<LLMModel> models = [new LLMModel("declared-model", providerId)];
@@ -48,8 +51,8 @@ internal sealed class ProviderUsageTests
         {
             "chatgpt" => new ChatGptProvider(
                 new FixedOAuthTokenSource(credential), client, models, [], [], true, new ResponsesWebSocketConnector()),
-            "kimi" => new KimiProvider(options, client),
-            "opencode-go" => new OpenCodeGoProvider(options, client),
+            "kimi" => new UsageReportingProvider(new OpenAICompatibleProvider(options, client), new KimiUsageReporter(options, client)),
+            "opencode-go" => new UsageReportingProvider(new OpenAICompatibleProvider(options, client), new OpenCodeGoUsageReporter(options, client)),
             _ => new OpenAICompatibleProvider(options, client),
         };
         ILLMProvider retryingProvider = new RetryingProvider(provider);
@@ -57,7 +60,7 @@ internal sealed class ProviderUsageTests
         _ = await Assert.That(retryingProvider.Id).IsEqualTo(provider.Id);
         _ = await Assert.That(provider.SeedModels().Single().Id).IsEqualTo("declared-model");
         _ = await Assert.That(retryingProvider.SeedModels().SequenceEqual(provider.SeedModels())).IsTrue();
-        _ = await Assert.That(handler.RequestCount).IsEqualTo(0);
+        _ = await Assert.That(handler.Requests.Count).IsEqualTo(0);
 
         if (providerId == "compatible")
         {
@@ -71,7 +74,7 @@ internal sealed class ProviderUsageTests
         if (!hasCredential)
         {
             _ = await Assert.That(async () => await reporter.Usage(cancellationToken)).Throws<LLMProviderException>();
-            _ = await Assert.That(handler.RequestCount).IsEqualTo(0);
+            _ = await Assert.That(handler.Requests.Count).IsEqualTo(0);
             return;
         }
 
@@ -109,22 +112,23 @@ internal sealed class ProviderUsageTests
         };
 
         _ = await Assert.That(usage).IsEqualTo(expectedUsage);
-        _ = await Assert.That(handler.RequestCount).IsEqualTo(1);
-        _ = await Assert.That(handler.Endpoint).IsEqualTo(expectedEndpoint);
-        _ = await Assert.That(handler.Method).IsEqualTo(HttpMethod.Get);
-        _ = await Assert.That(handler.Headers["Authorization"]).IsEqualTo("Bearer usage-token");
-        _ = await Assert.That(handler.Headers.ContainsKey("session-id")).IsFalse();
-        _ = await Assert.That(handler.Headers.ContainsKey("x-opencode-session")).IsFalse();
+        _ = await Assert.That(handler.Requests.Count).IsEqualTo(1);
+        var recorded = handler.Requests.Single();
+        _ = await Assert.That(recorded.Uri.AbsoluteUri).IsEqualTo(expectedEndpoint);
+        _ = await Assert.That(recorded.Method).IsEqualTo("GET");
+        _ = await Assert.That(recorded.Headers["authorization"]).IsEqualTo("Bearer usage-token");
+        _ = await Assert.That(recorded.Headers.ContainsKey("session-id")).IsFalse();
+        _ = await Assert.That(recorded.Headers.ContainsKey("x-opencode-session")).IsFalse();
         if (providerId == "opencode-go")
         {
-            _ = await Assert.That(handler.Headers["User-Agent"]).IsEqualTo($"parrot/{BuildInfo.Version}");
+            _ = await Assert.That(recorded.Headers["user-agent"]).IsEqualTo($"parrot/{BuildInfo.Version}");
         }
 
         if (providerId == "chatgpt")
         {
-            _ = await Assert.That(handler.Headers["ChatGPT-Account-Id"]).IsEqualTo("usage-account");
-            _ = await Assert.That(handler.Headers["originator"]).IsEqualTo("parrot");
-            _ = await Assert.That(handler.Headers["User-Agent"]).IsEqualTo("parrot");
+            _ = await Assert.That(recorded.Headers["chatgpt-account-id"]).IsEqualTo("usage-account");
+            _ = await Assert.That(recorded.Headers["originator"]).IsEqualTo("parrot");
+            _ = await Assert.That(recorded.Headers["user-agent"]).IsEqualTo("parrot");
         }
     }
 
@@ -143,32 +147,5 @@ internal sealed class ProviderUsageTests
 
         public Task<OAuthAccess> Token(CancellationToken cancellationToken) =>
             Task.FromResult(new OAuthAccess(credential, "usage-account"));
-    }
-
-    private sealed class UsageHandler(string responseBody) : HttpMessageHandler
-    {
-        public int RequestCount { get; private set; }
-
-        public string Endpoint { get; private set; } = string.Empty;
-
-        public HttpMethod Method { get; private set; } = HttpMethod.Post;
-
-        public Dictionary<string, string> Headers { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            RequestCount++;
-            Endpoint = request.RequestUri?.AbsoluteUri ?? string.Empty;
-            Method = request.Method;
-            foreach (var header in request.Headers)
-            {
-                Headers.Add(header.Key, string.Join(",", header.Value));
-            }
-
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(responseBody, Encoding.UTF8, "application/json"),
-            });
-        }
     }
 }

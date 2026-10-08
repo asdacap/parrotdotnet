@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { memo, useEffect, useRef } from "react"
 
 import { Markdown } from "@/components/Markdown"
 import { TaskTree, fromDeclaration } from "@/components/TaskTree"
@@ -56,6 +56,22 @@ function TimelineEntry({ item }: { item: TimelineItem }) {
   }
 }
 
+interface TimelineRowProps {
+  item: TimelineItem
+  agent: AgentInfo | undefined
+  depth: number
+}
+
+const TimelineRow = memo(function TimelineRow({ item, agent, depth }: TimelineRowProps) {
+  return (
+    // Nested under its agent, as the terminal CLI indents a subagent's activity.
+    <div className={cn("flex flex-col gap-1", depth > 0 && "border-l pl-3", depthIndents[Math.min(depth, 4)])}>
+      {agent && <Badge variant="outline">{agent.name}</Badge>}
+      <TimelineEntry item={item} />
+    </div>
+  )
+})
+
 interface TimelineProps {
   items: TimelineItem[]
   agents: ReadonlyMap<string, AgentInfo>
@@ -81,14 +97,14 @@ export function Timeline({ items, agents }: TimelineProps) {
     >
       <div className="mx-auto flex max-w-4xl flex-col gap-2 px-4 py-4">
         {items.map((item, index) => {
-          const agent = "agentSessionId" in item ? agents.get(item.agentSessionId) : undefined
-          const depth = "agentSessionId" in item ? agentDepth(agents, item.agentSessionId) : 0
+          const agentSessionId = "agentSessionId" in item ? item.agentSessionId : undefined
           return (
-            // Nested under its agent, as the terminal CLI indents a subagent's activity.
-            <div key={index} className={cn("flex flex-col gap-1", depth > 0 && "border-l pl-3", depthIndents[Math.min(depth, 4)])}>
-              {agent && <Badge variant="outline">{agent.name}</Badge>}
-              <TimelineEntry item={item} />
-            </div>
+            <TimelineRow
+              key={index}
+              item={item}
+              agent={agentSessionId === undefined ? undefined : agents.get(agentSessionId)}
+              depth={agentSessionId === undefined ? 0 : agentDepth(agents, agentSessionId)}
+            />
           )
         })}
       </div>

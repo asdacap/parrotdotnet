@@ -1,6 +1,4 @@
 using System.Text;
-using Parrot.Agent;
-using Parrot.Llm;
 using Parrot.Security;
 using Parrot.Tools;
 
@@ -8,10 +6,7 @@ namespace Parrot.Core.Tests;
 
 internal sealed class ReadToolTests : IDisposable
 {
-    private readonly string _workspace = Path.Combine(
-        Path.GetTempPath(), "parrot-read-tool-tests", Guid.NewGuid().ToString("n"));
-
-    public ReadToolTests() => Directory.CreateDirectory(_workspace);
+    private readonly string _workspace = Directory.CreateTempSubdirectory("parrot-read-tool-tests-").FullName;
 
     public void Dispose()
     {
@@ -99,14 +94,9 @@ internal sealed class ReadToolTests : IDisposable
     private async Task<string> Execute(string arguments, CancellationToken cancellationToken)
     {
         ITool tool = new ReadTool(new ToolWorkspace(_workspace));
-        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
         return (await tool.Execute(
             new ToolInvocation("test-call", arguments),
-            new AgentTurnSelection(
-                new ModelSelector(model.Selector),
-                TestModels.Resolve(model),
-                new TestProfileFixture().Profile,
-                SecurityProfile.Compose(readOnly: false, [], [], [])),
+            TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             cancellationToken)).Text;
     }
 }

@@ -81,7 +81,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
         var responseText = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var stream = new ChannelStreamWriter<Event>();
         await using var rendering = new EnhancedRenderingSession(
-            new EnhancedTurnRenderer(terminal, configuration, presenters),
+            new EnhancedTurnRenderer(terminal),
             presenters,
             new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true),
             new TestSlashSession("provider/model"),

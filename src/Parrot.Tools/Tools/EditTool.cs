@@ -22,10 +22,7 @@ internal sealed class EditTool(
     {
         try
         {
-            var input = JsonSerializer.Deserialize(
-                invocation.ArgumentsJson,
-                FileMutationJsonContext.Default.EditToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, FileMutationJsonContext.Default.EditToolInput);
             var path = workspace.ExpandPath(input.Path ?? throw new FormatException("Tool arguments require a string 'path'."));
             var oldString = input.OldString
                 ?? throw new FormatException("Tool arguments require a string 'old_string'.");

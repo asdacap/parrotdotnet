@@ -10,7 +10,7 @@ internal sealed class TransportToken
 
     private TransportToken(byte[] value) => _value = value;
 
-    public string Bearer => Convert.ToHexString(_value).ToLowerInvariant();
+    public string Bearer => Convert.ToHexStringLower(_value);
 
     public static TransportToken Generate() => new(RandomNumberGenerator.GetBytes(TokenBytes));
 

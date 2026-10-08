@@ -25,10 +25,7 @@ internal sealed class AnswerTool(IChildQuestionCoordinator questions) : ITool
 
         try
         {
-            var input = JsonSerializer.Deserialize(
-                invocation.ArgumentsJson,
-                QuestionJsonContext.Default.AnswerToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, QuestionJsonContext.Default.AnswerToolInput);
             var agentName = input.AgentName
                 ?? throw new FormatException("Tool arguments require a string 'agent_name'.");
             var wireAnswers = input.Answers

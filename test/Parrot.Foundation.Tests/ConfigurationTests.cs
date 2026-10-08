@@ -616,31 +616,16 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
-    public async Task User_input_timeout_defaults_to_twenty_minutes_and_accepts_positive_milliseconds()
+    [Arguments(null, 20 * 60 * 1000)]
+    [Arguments("user_input_timeout_ms: 1250\n", 1250)]
+    [Arguments("user_input_timeout_ms: -1\n", -1)]
+    [Arguments("permission_request_timeout_ms: 2500\n", 2500)]
+    [Arguments("permission_request_timeout_ms: 2500\nuser_input_timeout_ms: 1250\n", 1250)]
+    public async Task User_input_timeout_resolves_the_default_sentinel_and_deprecated_fallback(string? yaml, int expectedMilliseconds)
     {
-        var missing = Load(Path.Combine(_directory, "missing.yaml"));
-        var configured = Load(Write("user_input_timeout_ms: 1250\n"));
+        var configuration = Load(yaml is null ? Path.Combine(_directory, "missing.yaml") : Write(yaml));
 
-        _ = await Assert.That(missing.UserInputTimeout).IsEqualTo(TimeSpan.FromMinutes(20));
-        _ = await Assert.That(configured.UserInputTimeout).IsEqualTo(TimeSpan.FromMilliseconds(1250));
-    }
-
-    [Test]
-    public async Task User_input_timeout_accepts_the_infinite_sentinel()
-    {
-        var configuration = Load(Write("user_input_timeout_ms: -1\n"));
-
-        _ = await Assert.That(configuration.UserInputTimeout).IsEqualTo(Timeout.InfiniteTimeSpan);
-    }
-
-    [Test]
-    public async Task Deprecated_permission_request_timeout_is_a_user_configuration_fallback()
-    {
-        var fallback = Load(Write("permission_request_timeout_ms: 2500\n"));
-        var canonical = Load(Write("permission_request_timeout_ms: 2500\nuser_input_timeout_ms: 1250\n"));
-
-        _ = await Assert.That(fallback.UserInputTimeout).IsEqualTo(TimeSpan.FromMilliseconds(2500));
-        _ = await Assert.That(canonical.UserInputTimeout).IsEqualTo(TimeSpan.FromMilliseconds(1250));
+        _ = await Assert.That(configuration.UserInputTimeout).IsEqualTo(TimeSpan.FromMilliseconds(expectedMilliseconds));
     }
 
     [Test]

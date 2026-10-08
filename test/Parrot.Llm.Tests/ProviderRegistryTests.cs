@@ -268,8 +268,7 @@ internal sealed class ProviderRegistryTests
     public async Task Build_activates_predefined_openai_with_a_seeded_model_catalogue(
         CancellationToken cancellationToken)
     {
-        var directory = Path.Combine(Path.GetTempPath(), "parrot-openai-provider", Guid.NewGuid().ToString("n"));
-        _ = Directory.CreateDirectory(directory);
+        var directory = Directory.CreateTempSubdirectory("parrot-openai-provider-").FullName;
         var path = Path.Combine(directory, "config.yaml");
 
         try
@@ -300,8 +299,7 @@ internal sealed class ProviderRegistryTests
     [Test]
     public async Task Build_reads_the_models_dev_catalogue_named_by_models_dev_id(CancellationToken cancellationToken)
     {
-        var directory = Path.Combine(Path.GetTempPath(), "parrot-models-dev-id", Guid.NewGuid().ToString("n"));
-        _ = Directory.CreateDirectory(directory);
+        var directory = Directory.CreateTempSubdirectory("parrot-models-dev-id-").FullName;
         var path = Path.Combine(directory, "config.yaml");
 
         try
@@ -331,8 +329,7 @@ internal sealed class ProviderRegistryTests
     public async Task Build_refreshes_catalogues_without_validating_the_configured_model(
         CancellationToken cancellationToken)
     {
-        var directory = Path.Combine(Path.GetTempPath(), "parrot-provider-registry", Guid.NewGuid().ToString("n"));
-        _ = Directory.CreateDirectory(directory);
+        var directory = Directory.CreateTempSubdirectory("parrot-provider-registry-").FullName;
         var path = Path.Combine(directory, "config.yaml");
 
         try
@@ -369,8 +366,7 @@ internal sealed class ProviderRegistryTests
     public async Task Build_seeds_custom_provider_from_configured_model_defaults(
         CancellationToken cancellationToken)
     {
-        var directory = Path.Combine(Path.GetTempPath(), "parrot-provider-defaults", Guid.NewGuid().ToString("n"));
-        _ = Directory.CreateDirectory(directory);
+        var directory = Directory.CreateTempSubdirectory("parrot-provider-defaults-").FullName;
         var path = Path.Combine(directory, "config.yaml");
 
         try
@@ -612,8 +608,7 @@ internal sealed class ProviderRegistryTests
     public async Task Model_configuration_refresh_publishes_one_valid_generation_and_rejects_invalid_edits(
         CancellationToken cancellationToken)
     {
-        var directory = Path.Combine(Path.GetTempPath(), "parrot-routing-refresh", Guid.NewGuid().ToString("n"));
-        _ = Directory.CreateDirectory(directory);
+        var directory = Directory.CreateTempSubdirectory("parrot-routing-refresh-").FullName;
         var path = Path.Combine(directory, "config.yaml");
 
         try
@@ -678,8 +673,7 @@ internal sealed class ProviderRegistryTests
     public async Task Model_preset_snapshot_overwrites_and_selection_overlays_later_aliases(
         CancellationToken cancellationToken)
     {
-        var directory = Path.Combine(Path.GetTempPath(), "parrot-routing-preset", Guid.NewGuid().ToString("n"));
-        _ = Directory.CreateDirectory(directory);
+        var directory = Directory.CreateTempSubdirectory("parrot-routing-preset-").FullName;
         var path = Path.Combine(directory, "config.yaml");
 
         try
@@ -766,8 +760,7 @@ internal sealed class ProviderRegistryTests
     public async Task Concurrent_preset_and_alias_mutations_publish_only_complete_generations(
         CancellationToken cancellationToken)
     {
-        var directory = Path.Combine(Path.GetTempPath(), "parrot-routing-concurrency", Guid.NewGuid().ToString("n"));
-        _ = Directory.CreateDirectory(directory);
+        var directory = Directory.CreateTempSubdirectory("parrot-routing-concurrency-").FullName;
         var path = Path.Combine(directory, "config.yaml");
 
         try
@@ -842,8 +835,7 @@ internal sealed class ProviderRegistryTests
     [Arguments(true)]
     public async Task Context_limits_refresh_alias_precedence_and_preset_rollback(bool rejectSelection)
     {
-        var directory = Path.Combine(Path.GetTempPath(), "parrot-context-routing", Guid.NewGuid().ToString("n"));
-        _ = Directory.CreateDirectory(directory);
+        var directory = Directory.CreateTempSubdirectory("parrot-context-routing-").FullName;
         var path = Path.Combine(directory, "config.yaml");
         try
         {

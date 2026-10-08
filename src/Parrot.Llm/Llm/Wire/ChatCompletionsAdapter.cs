@@ -51,7 +51,7 @@ internal static class ChatCompletionsAdapter
                     {
                         Name = tool.Name,
                         Description = tool.Description.Length > 0 ? tool.Description : null,
-                        Parameters = ParseSchema(tool.ParametersJson),
+                        Parameters = WireEncoding.ParseSchema(tool.ParametersJson),
                     },
                 })
                 .ToList();
@@ -121,9 +121,9 @@ internal static class ChatCompletionsAdapter
         if (root.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object)
         {
             throw new ProviderResponseException(
-                ReadString(error, "type"),
+                JsonRead.String(error, "type"),
                 ReadScalar(error, "code"),
-                ReadString(error, "message"),
+                JsonRead.String(error, "message"),
                 ProviderErrors.BoundResponseBody(data));
         }
 
@@ -150,7 +150,7 @@ internal static class ChatCompletionsAdapter
     {
         if (choice.TryGetProperty("delta", out var delta) && delta.ValueKind == JsonValueKind.Object)
         {
-            var content = ReadString(delta, "content");
+            var content = JsonRead.String(delta, "content");
 
             if (content.Length > 0)
             {
@@ -158,11 +158,11 @@ internal static class ChatCompletionsAdapter
                 yield return LLMEvent.TextDelta(content);
             }
 
-            var reasoning = ReadString(delta, "reasoning_content");
+            var reasoning = JsonRead.String(delta, "reasoning_content");
 
             if (reasoning.Length == 0)
             {
-                reasoning = ReadString(delta, "reasoning");
+                reasoning = JsonRead.String(delta, "reasoning");
             }
 
             if (reasoning.Length > 0)
@@ -189,7 +189,7 @@ internal static class ChatCompletionsAdapter
         foreach (var toolCall in toolCalls.EnumerateArray())
         {
             var accumulator = state.Tool(ReadInt(toolCall, "index"));
-            var id = ReadString(toolCall, "id");
+            var id = JsonRead.String(toolCall, "id");
 
             if (id.Length > 0)
             {
@@ -200,14 +200,14 @@ internal static class ChatCompletionsAdapter
 
             if (toolCall.TryGetProperty("function", out var function) && function.ValueKind == JsonValueKind.Object)
             {
-                var name = ReadString(function, "name");
+                var name = JsonRead.String(function, "name");
 
                 if (name.Length > 0)
                 {
                     accumulator.Name = name;
                 }
 
-                arguments = ReadString(function, "arguments");
+                arguments = JsonRead.String(function, "arguments");
             }
 
             _ = accumulator.Arguments.Append(arguments);
@@ -224,26 +224,15 @@ internal static class ChatCompletionsAdapter
         }
 
         var content = message.Contents.Select(part => part.Kind == LLMContentKind.Image
-            ? new ChatContentPart { Type = "image_url", ImageUrl = new ImageUrl { Url = ImageReference(part) } }
+            ? new ChatContentPart { Type = "image_url", ImageUrl = new ImageUrl { Url = WireEncoding.ImageReference(part) } }
             : new ChatContentPart { Type = "text", Text = part.Text }).ToList();
         return JsonSerializer.SerializeToElement(content, WireJsonContext.Default.ChatContentParts);
     }
-
-    private static string ImageReference(LLMContent content) =>
-        content.ImageUrl.Length > 0
-            ? content.ImageUrl
-            : $"data:{content.MediaType};base64,{Convert.ToBase64String(content.ReadImage())}";
 
     private static JsonElement WrapSystemUpdate(LLMMessage message) =>
         JsonSerializer.SerializeToElement(
             $"<system-update>\n{System.Security.SecurityElement.Escape(message.Content)}\n</system-update>",
             WireJsonContext.Default.String);
-
-    private static JsonElement ParseSchema(string schema)
-    {
-        using var document = JsonDocument.Parse(schema.Length > 0 ? schema : "{}");
-        return document.RootElement.Clone();
-    }
 
     private static string RoleName(LLMRole role) =>
         role switch
@@ -263,11 +252,6 @@ internal static class ChatCompletionsAdapter
             "content_filter" => "content_filter",
             _ => "incomplete",
         };
-
-    private static string ReadString(JsonElement scope, string name) =>
-        scope.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString() ?? string.Empty
-            : string.Empty;
 
     private static string ReadScalar(JsonElement scope, string name)
     {

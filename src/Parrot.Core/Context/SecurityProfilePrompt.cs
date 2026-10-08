@@ -11,20 +11,12 @@ internal sealed class SecurityProfilePrompt(
     bool sandboxEnabled,
     IPromptTemplateCatalog templates) : ISystemPrompt
 {
-    private readonly SandboxRule[] _rules = [.. rules];
-
-    public void RenewEpoch()
+    private readonly Lazy<string> _rendered = new(() =>
     {
-    }
-
-    public string Build(AgentTurnSelection selection)
-    {
-        ArgumentNullException.ThrowIfNull(selection);
-
-        var rules = new ScriptArray();
-        foreach (var rule in _rules)
+        var renderedRules = new ScriptArray();
+        foreach (var rule in rules)
         {
-            rules.Add(new ScriptObject
+            renderedRules.Add(new ScriptObject
             {
                 ["path"] = Escape(rule.Path),
                 ["action"] = rule.Action.ToString(),
@@ -35,10 +27,20 @@ internal sealed class SecurityProfilePrompt(
             "context.security-profile",
             new ScriptObject
             {
-                ["rules"] = rules,
+                ["rules"] = renderedRules,
                 ["sandbox_enabled"] = sandboxEnabled,
             },
             CancellationToken.None);
+    });
+
+    public void RenewEpoch()
+    {
+    }
+
+    public string Build(AgentTurnSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return _rendered.Value;
     }
 
     private static string Escape(string value)

@@ -722,43 +722,14 @@ internal sealed class EnhancedCli(
 
                     if (selected is null)
                     {
-                        await StopReconciling().ConfigureAwait(false);
-                        if (!lifetime.IsClosed)
-                        {
-                            await RejectQuestion(pending.Id, userSessionId, cancellationToken).ConfigureAwait(false);
-                        }
-
+                        await Reject().ConfigureAwait(false);
                         return;
                     }
 
-                    string answerText;
-                    if (selected.Id == customId)
-                    {
-                        var custom = await dialog.ReadText(title, interaction.Token).ConfigureAwait(false);
-                        if (lifetime.IsClosed)
-                        {
-                            return;
-                        }
-
-                        if (string.IsNullOrWhiteSpace(custom))
-                        {
-                            await StopReconciling().ConfigureAwait(false);
-                            if (!lifetime.IsClosed)
-                            {
-                                await RejectQuestion(pending.Id, userSessionId, cancellationToken).ConfigureAwait(false);
-                            }
-
-                            return;
-                        }
-
-                        answerText = custom.Trim();
-                    }
-                    else
-                    {
-                        answerText = selected.Label;
-                    }
-
-                    if (lifetime.IsClosed)
+                    var answerText = selected.Id == customId
+                        ? await ReadCustomAnswer(title).ConfigureAwait(false)
+                        : selected.Label;
+                    if (answerText is null || lifetime.IsClosed)
                     {
                         return;
                     }
@@ -794,12 +765,7 @@ internal sealed class EnhancedCli(
 
                     if (selected is null)
                     {
-                        await StopReconciling().ConfigureAwait(false);
-                        if (!lifetime.IsClosed)
-                        {
-                            await RejectQuestion(pending.Id, userSessionId, cancellationToken).ConfigureAwait(false);
-                        }
-
+                        await Reject().ConfigureAwait(false);
                         return;
                     }
 
@@ -810,24 +776,11 @@ internal sealed class EnhancedCli(
 
                     if (selected.Id == customId)
                     {
-                        var custom = await dialog.ReadText(title, interaction.Token).ConfigureAwait(false);
-                        if (lifetime.IsClosed)
+                        customAnswer = await ReadCustomAnswer(title).ConfigureAwait(false);
+                        if (customAnswer is null)
                         {
                             return;
                         }
-
-                        if (string.IsNullOrWhiteSpace(custom))
-                        {
-                            await StopReconciling().ConfigureAwait(false);
-                            if (!lifetime.IsClosed)
-                            {
-                                await RejectQuestion(pending.Id, userSessionId, cancellationToken).ConfigureAwait(false);
-                            }
-
-                            return;
-                        }
-
-                        customAnswer = custom.Trim();
                     }
                     else
                     {
@@ -886,6 +839,32 @@ internal sealed class EnhancedCli(
             {
                 await updateCountdown(null, CancellationToken.None).ConfigureAwait(false);
             }
+        }
+
+        async Task Reject()
+        {
+            await StopReconciling().ConfigureAwait(false);
+            if (!lifetime.IsClosed)
+            {
+                await RejectQuestion(pending.Id, userSessionId, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        async Task<string?> ReadCustomAnswer(string title)
+        {
+            var custom = await dialog.ReadText(title, interaction.Token).ConfigureAwait(false);
+            if (lifetime.IsClosed)
+            {
+                return null;
+            }
+
+            if (string.IsNullOrWhiteSpace(custom))
+            {
+                await Reject().ConfigureAwait(false);
+                return null;
+            }
+
+            return custom.Trim();
         }
     }
 

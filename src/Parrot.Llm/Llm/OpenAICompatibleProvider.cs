@@ -161,20 +161,6 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
 
     private static string NewSessionId() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
 
-    private static void CaptureTurnState(
-        IReadOnlyDictionary<string, string> headers,
-        Action<string> captureTurnState)
-    {
-        foreach (var header in headers)
-        {
-            if (header.Key.Equals("x-codex-turn-state", StringComparison.OrdinalIgnoreCase))
-            {
-                captureTurnState(header.Value);
-                break;
-            }
-        }
-    }
-
     private static bool IsSupplementFailure(Exception failure) =>
         failure is LLMProviderException or ProviderHttpException or HeaderTimeoutException or WireProtocolException
             or System.Text.Json.JsonException or HttpRequestException or IOException;
@@ -223,44 +209,22 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
             headers["x-codex-turn-state"] = turnState;
         }
 
-        if (body.Length > _maximumRequestBytes)
-        {
-            throw new ProviderHttpException($"provider: request exceeds {_maximumRequestBytes} bytes");
-        }
-
-        var events = Send(null, cancellationToken);
-        if (request.Diagnostics is { } diagnostics)
-        {
-            events = diagnostics.Trace(Send, "http_sse", cancellationToken);
-        }
-
-        await foreach (var published in events.ConfigureAwait(false))
+        await foreach (var published in HttpStreaming
+            .StreamEvents(
+                _client,
+                _endpoint,
+                body,
+                headers,
+                _headerTimeout,
+                _streamIdleTimeout,
+                _maximumRequestBytes,
+                request,
+                captureTurnState,
+                _protocol == CompatibleProtocol.Responses ? ResponsesAdapter.Parse : ChatCompletionsAdapter.Parse,
+                cancellationToken)
+            .ConfigureAwait(false))
         {
             yield return published;
-        }
-
-        async IAsyncEnumerable<LLMEvent> Send(IProviderAttemptDiagnostics? attempt, [EnumeratorCancellation] CancellationToken sendCancellationToken)
-        {
-            attempt?.RecordRequestBytes(body.Length);
-            request.Diagnostics?.DumpRequest(body);
-            yield return LLMEvent.HttpRequestStarted();
-            var response = await HttpStreaming
-                .OpenStream(_client, _endpoint, body, headers, _headerTimeout, _streamIdleTimeout, _maximumRequestBytes, attempt, sendCancellationToken)
-                .ConfigureAwait(false);
-            CaptureTurnState(response.Headers, captureTurnState);
-
-            await using (response.ConfigureAwait(false))
-            {
-                yield return LLMEvent.HttpResponseHeadersReceived();
-                var responseEvents = _protocol == CompatibleProtocol.Responses
-                    ? ResponsesAdapter.Parse(response.Content, HttpStreaming.MaxEventBytes, sendCancellationToken)
-                    : ChatCompletionsAdapter.Parse(response.Content, HttpStreaming.MaxEventBytes, sendCancellationToken);
-
-                await foreach (var published in responseEvents.ConfigureAwait(false))
-                {
-                    yield return published;
-                }
-            }
         }
     }
 

@@ -1,14 +1,6 @@
 using Parrot.Agent;
-using Parrot.AgentTasks;
-using Parrot.Config;
-using Parrot.Context;
-using Parrot.Diagnostics;
 using Parrot.Llm;
-using Parrot.Process;
-using Parrot.Skills;
-using Parrot.State;
 using Parrot.Store;
-using Parrot.Web;
 
 namespace Parrot.Core.Tests;
 
@@ -21,47 +13,18 @@ internal sealed class AgentScopeDiagnosticsTests
         _ = Directory.CreateDirectory(root);
         try
         {
-            var paths = new StatePaths(Path.Combine(root, "state"), Path.Combine(root, "config"), Path.Combine(root, "data"));
-            using var diagnostics = new DiagnosticLogs(paths, FileDiagnosticLog.CreateInstanceId(), TextWriter.Null, TimeProvider.System);
-            var configuration = Configuration.Load(paths.ConfigFile, paths.PredefinedConfigFile);
             ILLMProvider provider = new UnusedProvider();
             var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-            var router = TestModels.Route(model);
-            var profiles = new ProfileRegistry(configuration.Profiles, configuration.SandboxRules, [], configuration.DisabledTools);
-            var modes = new ModeRegistry(profiles, configuration.DefaultProfile);
-            var web = WebFetcher.Create(new PublicWebAddressPolicy());
-            var source = new AgentSessionFactorySource(
-                ProcessRunner.Locate(ExecutableLocator.Capture()),
-                new Compactor(90, 30, 60_000, 1024, configuration.PromptTemplates),
-                web,
-                configuration.ToolDefinitions,
-                configuration.AgentTasks,
-                configuration.AgentSend,
-                configuration.RequestLimits,
-                configuration.ReadOnlyExecCommandPrefixes,
-                router,
-                [],
-                configuration.PromptTemplates,
-                static (arguments, scope) => new AgentSessionComposition(arguments, scope));
-            var factory = new UserSessionFactory(
-                source,
-                modes,
-                configuration.PromptTemplates,
-                profiles,
-                new SkillCatalogFactory(configuration, root, Path.Combine(root, "skills")),
-                TimeSpan.FromSeconds(30),
-                TimeProvider.System,
-                AgentTaskParser.ParseArtifact);
-            var store = new SessionStore(paths, root, "host", factory, router, modes, diagnostics);
+            using var fixture = new ProductionSessionStoreFixture(root, model, passThroughSandbox: false);
             string logPath;
-            await using (var session = await store.Open(router.Resolve(model.Selector)))
+            await using (var session = await fixture.Store.Open(fixture.Router.Resolve(model.Selector)))
             {
                 logPath = session.Resources.LogPath;
                 var parent = session.Registry.SnapshotScopes().Single();
                 _ = await Assert.That(Directory.GetDirectories(session.Resources.AgentsDirectory).Select(Path.GetFileName).Single())
                     .IsEqualTo(parent.Session.Name);
                 var identity = AgentIdentity.Child(
-                    "diagnostic-child", parent.Session.Identity, "child", 1, AgentScope.Empty(configuration.PromptTemplates), configuration.PromptTemplates);
+                    "diagnostic-child", parent.Session.Identity, "child", 1, AgentScope.Empty(fixture.Configuration.PromptTemplates), AgentPolicyLineage.Root(), fixture.Configuration.PromptTemplates);
                 await using var child = session.Registry.CreateChildScope(
                     identity,
                     AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly, session.Registry.ReserveRetainedAgent()),

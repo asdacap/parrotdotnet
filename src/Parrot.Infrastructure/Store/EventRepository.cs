@@ -142,32 +142,6 @@ internal sealed partial class EventRepository : IEventRepository
         RefreshAgentHistory(published.AgentSessionId);
     }
 
-    public bool AppendToolResult(
-        Event published,
-        long assistantSequence,
-        ToolExecutionTerminal terminal)
-    {
-        ArgumentNullException.ThrowIfNull(published);
-        ArgumentNullException.ThrowIfNull(terminal);
-        lock (_database.Gate)
-        {
-            _historyFile?.ValidateSession(published.AgentSessionId);
-            using var transaction = _database.Begin();
-            if (HasToolResult(transaction, published.AgentSessionId, assistantSequence, terminal.ToolCallId))
-            {
-                transaction.Commit();
-                return false;
-            }
-
-            _ = Record(transaction, published);
-            _ = InsertToolResult(transaction, published.AgentSessionId, assistantSequence, terminal);
-            transaction.Commit();
-        }
-
-        RefreshAgentHistory(published.AgentSessionId);
-        return true;
-    }
-
     public bool HasToolSynthetic(long assistantSequence, string agentSessionId)
     {
         lock (_database.Gate)
@@ -444,29 +418,6 @@ internal sealed partial class EventRepository : IEventRepository
             var usage = CaptureUsage(transaction);
             transaction.Commit();
             return usage;
-        }
-    }
-
-    public AgentStatistics? LatestStatistics(string agentSessionId)
-    {
-        lock (_database.Gate)
-        {
-            using var read = _database.Connection.CreateCommand();
-            read.CommandText =
-                "SELECT payload FROM event WHERE agent_session = $session ORDER BY sequence DESC;";
-            _ = read.Parameters.AddWithValue("$session", agentSessionId);
-
-            using var reader = read.ExecuteReader();
-            while (reader.Read())
-            {
-                var published = Event.Parser.ParseFrom((byte[])reader["payload"]);
-                if (published.PayloadCase == Event.PayloadOneofCase.AgentStatisticsUpdated)
-                {
-                    return AgentStatistics.Restore(published.AgentStatisticsUpdated);
-                }
-            }
-
-            return null;
         }
     }
 
@@ -1400,8 +1351,6 @@ internal sealed partial class EventRepository : IEventRepository
             transaction.Commit();
         }
     }
-
-    public bool StatusPromptPending(string agentSessionId) => PendingStatus(agentSessionId) is not null;
 
     public PendingStatus? PendingStatus(string agentSessionId)
     {
@@ -2620,6 +2569,7 @@ internal sealed partial class EventRepository : IEventRepository
         }
 
         var bySequence = items.ToDictionary(item => item.Sequence);
+        var ownedItems = owners.ToLookup(pair => pair.Value, pair => pair.Key);
         var grouped = new List<ConversationGroup>();
         foreach (var item in items)
         {
@@ -2628,8 +2578,7 @@ internal sealed partial class EventRepository : IEventRepository
                 continue;
             }
 
-            var children = owners.Where(pair => pair.Value == item.Sequence && bySequence.ContainsKey(pair.Key))
-                .Select(pair => bySequence[pair.Key]);
+            var children = ownedItems[item.Sequence].Where(bySequence.ContainsKey).Select(sequence => bySequence[sequence]);
             var members = new[] { item }.Concat(children).OrderBy(member => member.Sequence).ToArray();
             var assistantSequence = item.Role == LLMRole.Assistant && item.ToolCalls.Count > 0
                 ? item.Sequence

@@ -290,7 +290,7 @@ internal sealed class LocalSessionIntegrationTests
             var profiles = new ProfileRegistry(configuration.Profiles, configuration.SandboxRules, [], configuration.DisabledTools);
             var modes = new ModeRegistry(profiles, configuration.DefaultProfile);
             var source = new AgentSessionFactorySource(
-                ProcessRunner.Locate(ExecutableLocator.Capture()),
+                ProcessRunner.LocateConfigured(ExecutableLocator.Capture(), new SandboxGate(enabled: true), []),
                 new Compactor(90, 30, 60_000, 1024, configuration.PromptTemplates),
                 _webFetcher,
                 configuration.ToolDefinitions,

@@ -20,10 +20,7 @@ internal sealed class WriteTool(
     {
         try
         {
-            var input = JsonSerializer.Deserialize(
-                invocation.ArgumentsJson,
-                FileMutationJsonContext.Default.WriteToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, FileMutationJsonContext.Default.WriteToolInput);
             var path = workspace.ExpandPath(input.Path ?? throw new FormatException("Tool arguments require a string 'path'."));
             var content = input.Content ?? throw new FormatException("Tool arguments require a string 'content'.");
             if (path.Length == 0)

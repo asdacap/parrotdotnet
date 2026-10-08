@@ -28,5 +28,5 @@ internal readonly record struct QueueLiveBufferItem(string Name, string Descript
     }
 
     private static string Normalize(string value) =>
-        TerminalText.Sanitize(value).Replace("\n", " ", StringComparison.Ordinal).Trim();
+        TerminalText.SanitizeLine(value).Trim();
 }

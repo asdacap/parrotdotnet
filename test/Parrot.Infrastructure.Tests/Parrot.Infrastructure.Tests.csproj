@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Parrot.Infrastructure/Parrot.Infrastructure.csproj" />
+    <Compile Include="../Parrot.Core.Tests/ControlledTimeProvider.cs" Link="ControlledTimeProvider.cs" />
   </ItemGroup>
 
 </Project>

@@ -8,7 +8,6 @@ using Parrot.Llm;
 using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Questions;
-using Parrot.Security;
 using Parrot.Skills;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -40,17 +39,8 @@ internal sealed class ParrotService(
 {
     private readonly UserSessionRegistry _userSessions = new();
 
-    public override async Task<ListModelsResponse> ListModels(ListModelsRequest request, ServerCallContext context)
-    {
-        var started = Stopwatch.GetTimestamp();
-        var correlationId = Guid.NewGuid().ToString("N");
-        var operationDiagnostics = diagnostics;
-        var outcome = "succeeded";
-        operationDiagnostics.Write(new DiagnosticEvent("protocol", "list_models_start", DiagnosticSeverity.Information)
-        {
-            CorrelationId = correlationId,
-        });
-        try
+    public override Task<ListModelsResponse> ListModels(ListModelsRequest request, ServerCallContext context) =>
+        TraceProtocol("list_models", async _ =>
         {
             ArgumentNullException.ThrowIfNull(context);
 
@@ -66,30 +56,7 @@ internal sealed class ParrotService(
             }
 
             return response;
-        }
-        catch (Exception failure)
-        {
-            outcome = failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? "cancelled" : "failed";
-            operationDiagnostics.Write(new DiagnosticEvent(
-                "protocol", "list_models_failure", failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
-            {
-                CorrelationId = correlationId,
-                ErrorCode = failure is RpcException rpcFailure
-                    ? rpcFailure.StatusCode.ToString() : DiagnosticEvent.ClassifyFailure(failure),
-                Outcome = outcome,
-            });
-            throw;
-        }
-        finally
-        {
-            operationDiagnostics.Write(new DiagnosticEvent("protocol", "list_models_complete", DiagnosticSeverity.Information)
-            {
-                CorrelationId = correlationId,
-                Outcome = outcome,
-                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-            });
-        }
-    }
+        });
 
     public override Task<ListModelAliasesResponse> ListModelAliases(
         ListModelAliasesRequest request,
@@ -365,18 +332,8 @@ internal sealed class ParrotService(
         return Task.FromResult(response);
     }
 
-    public override async Task<UserSession> CreateSession(CreateSessionRequest request, ServerCallContext context)
-    {
-        var started = Stopwatch.GetTimestamp();
-        var correlationId = Guid.NewGuid().ToString("N");
-        var operationDiagnostics = diagnostics;
-        string? userSessionId = null;
-        var outcome = "succeeded";
-        operationDiagnostics.Write(new DiagnosticEvent("protocol", "create_session_start", DiagnosticSeverity.Information)
-        {
-            CorrelationId = correlationId,
-        });
-        try
+    public override Task<UserSession> CreateSession(CreateSessionRequest request, ServerCallContext context) =>
+        TraceProtocol("create_session", async trace =>
         {
             ArgumentNullException.ThrowIfNull(request);
 
@@ -400,8 +357,8 @@ internal sealed class ParrotService(
                     () => store.CreateFresh(model, request.Mode, request.InteractivePermissions),
                     session =>
                     {
-                        userSessionId = session.Id;
-                        return HostSession(session, correlationId, context.CancellationToken);
+                        trace.UserSessionId = session.Id;
+                        return HostSession(session, trace.CorrelationId, context.CancellationToken);
                     }).ConfigureAwait(false);
             }
             catch (Exception failure) when (failure is ModeRegistryException or LLMProviderException)
@@ -413,53 +370,18 @@ internal sealed class ParrotService(
                 throw new RpcException(new Status(StatusCode.FailedPrecondition, failure.Message));
             }
 
-            userSessionId = created.Id;
+            trace.UserSessionId = created.Id;
             return UserSessionMapping.Map(created, false);
-        }
-        catch (Exception failure)
-        {
-            outcome = failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? "cancelled" : "failed";
-            operationDiagnostics.Write(new DiagnosticEvent(
-                "protocol", "create_session_failure", failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
-            {
-                CorrelationId = correlationId,
-                UserSessionId = userSessionId,
-                ErrorCode = failure is RpcException rpcFailure
-                    ? rpcFailure.StatusCode.ToString() : DiagnosticEvent.ClassifyFailure(failure),
-                Outcome = outcome,
-            });
-            throw;
-        }
-        finally
-        {
-            operationDiagnostics.Write(new DiagnosticEvent("protocol", "create_session_complete", DiagnosticSeverity.Information)
-            {
-                CorrelationId = correlationId,
-                UserSessionId = userSessionId,
-                Outcome = outcome,
-                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-            });
-        }
-    }
-
-    public override async Task<UserSession> ResumeSession(ResumeSessionRequest request, ServerCallContext context)
-    {
-        var started = Stopwatch.GetTimestamp();
-        var correlationId = Guid.NewGuid().ToString("N");
-        var operationDiagnostics = diagnostics;
-        string? userSessionId = null;
-        var outcome = "succeeded";
-        operationDiagnostics.Write(new DiagnosticEvent("protocol", "resume_session_start", DiagnosticSeverity.Information)
-        {
-            CorrelationId = correlationId,
         });
-        try
+
+    public override Task<UserSession> ResumeSession(ResumeSessionRequest request, ServerCallContext context) =>
+        TraceProtocol("resume_session", async trace =>
         {
             ArgumentNullException.ThrowIfNull(request);
             ArgumentNullException.ThrowIfNull(context);
             context.CancellationToken.ThrowIfCancellationRequested();
             var id = ParseSessionId(request.UserSessionId);
-            userSessionId = id.Value;
+            trace.UserSessionId = id.Value;
             var metadata = sessionCatalog.Find(id)
                 ?? throw new RpcException(new Status(StatusCode.NotFound, $"no user session {id}"));
             if (metadata.State == SessionCatalogState.Corrupt)
@@ -474,10 +396,10 @@ internal sealed class ParrotService(
                     async () => (await store.Resume(id, request.InteractivePermissions).ConfigureAwait(false)).Session,
                     session =>
                     {
-                        userSessionId = session.Id;
-                        return HostSession(session, correlationId, context.CancellationToken);
+                        trace.UserSessionId = session.Id;
+                        return HostSession(session, trace.CorrelationId, context.CancellationToken);
                     }).ConfigureAwait(false);
-                userSessionId = resumed.Id;
+                trace.UserSessionId = resumed.Id;
                 return UserSessionMapping.Map(resumed, true);
             }
             catch (SessionAdmissionException failure)
@@ -491,78 +413,21 @@ internal sealed class ParrotService(
             {
                 throw new RpcException(new Status(StatusCode.FailedPrecondition, failure.Message));
             }
-        }
-        catch (Exception failure)
-        {
-            outcome = failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? "cancelled" : "failed";
-            operationDiagnostics.Write(new DiagnosticEvent(
-                "protocol", "resume_session_failure", failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
-            {
-                CorrelationId = correlationId,
-                UserSessionId = userSessionId,
-                ErrorCode = failure is RpcException rpcFailure
-                    ? rpcFailure.StatusCode.ToString() : DiagnosticEvent.ClassifyFailure(failure),
-                Outcome = outcome,
-            });
-            throw;
-        }
-        finally
-        {
-            operationDiagnostics.Write(new DiagnosticEvent("protocol", "resume_session_complete", DiagnosticSeverity.Information)
-            {
-                CorrelationId = correlationId,
-                UserSessionId = userSessionId,
-                Outcome = outcome,
-                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-            });
-        }
-    }
-
-    public override Task<UserSession> AttachSession(AttachSessionRequest request, ServerCallContext context)
-    {
-        var started = Stopwatch.GetTimestamp();
-        var correlationId = Guid.NewGuid().ToString("N");
-        var operationDiagnostics = diagnostics;
-        var outcome = "succeeded";
-        operationDiagnostics.Write(new DiagnosticEvent("protocol", "attach_session_start", DiagnosticSeverity.Information)
-        {
-            CorrelationId = correlationId,
         });
-        try
+
+    public override Task<UserSession> AttachSession(AttachSessionRequest request, ServerCallContext context) =>
+        TraceProtocol("attach_session", trace =>
         {
             ArgumentNullException.ThrowIfNull(request);
             ArgumentNullException.ThrowIfNull(context);
             context.CancellationToken.ThrowIfCancellationRequested();
             var id = ParseSessionId(request.UserSessionId);
             var session = _userSessions.Find(id.Value);
-            operationDiagnostics = session.Diagnostics;
+            trace.Diagnostics = session.Diagnostics;
             ValidateWorkspace(request.WorkingDirectory, session.Resources.Workspace.LaunchDirectory);
             SessionStore.RecordOpened(session);
             return Task.FromResult(UserSessionMapping.Map(session, false));
-        }
-        catch (Exception failure)
-        {
-            outcome = failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? "cancelled" : "failed";
-            operationDiagnostics.Write(new DiagnosticEvent(
-                "protocol", "attach_session_failure", failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
-            {
-                CorrelationId = correlationId,
-                ErrorCode = failure is RpcException rpcFailure
-                    ? rpcFailure.StatusCode.ToString() : DiagnosticEvent.ClassifyFailure(failure),
-                Outcome = outcome,
-            });
-            throw;
-        }
-        finally
-        {
-            operationDiagnostics.Write(new DiagnosticEvent("protocol", "attach_session_complete", DiagnosticSeverity.Information)
-            {
-                CorrelationId = correlationId,
-                Outcome = outcome,
-                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-            });
-        }
-    }
+        });
 
     public override async Task<SetGoalResponse> SetGoal(SetGoalRequest request, ServerCallContext context)
     {
@@ -874,13 +739,13 @@ internal sealed class ParrotService(
                 new QuestionReply([.. request.Answers.Select(answer => new global::Parrot.Questions.QuestionAnswer(answer.Text))]));
             return Task.FromResult(new ReplyQuestionResponse());
         }
+        catch (QuestionNotFoundException failure)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, failure.Message));
+        }
         catch (QuestionException failure)
         {
-            throw new RpcException(new Status(
-                failure.Message.StartsWith("question request not found:", StringComparison.Ordinal)
-                    ? StatusCode.NotFound
-                    : StatusCode.InvalidArgument,
-                failure.Message));
+            throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
         }
     }
 
@@ -899,7 +764,7 @@ internal sealed class ParrotService(
             Find(request.UserSessionId).Questions.Reject(request.QuestionRequestId);
             return Task.FromResult(new RejectQuestionResponse());
         }
-        catch (QuestionException failure)
+        catch (QuestionNotFoundException failure)
         {
             throw new RpcException(new Status(StatusCode.NotFound, failure.Message));
         }
@@ -913,7 +778,7 @@ internal sealed class ParrotService(
         ArgumentNullException.ThrowIfNull(context);
 
         var response = new ListPendingPermissionsResponse();
-        response.Permissions.AddRange(Find(request.UserSessionId).Permissions.Pending().Select(ToProtocol));
+        response.Permissions.AddRange(Find(request.UserSessionId).Permissions.Pending().Select(PendingPermissionMapping.Map));
         return Task.FromResult(response);
     }
 
@@ -977,25 +842,16 @@ internal sealed class ParrotService(
     // slowest session rather than as long as all of them added up.
     public ValueTask DisposeAsync() => _userSessions.DisposeAsync();
 
-    public override async Task<SessionStatusResponse> SessionStatus(
+    public override Task<SessionStatusResponse> SessionStatus(
         SessionStatusRequest request,
-        ServerCallContext context)
-    {
-        var started = Stopwatch.GetTimestamp();
-        var correlationId = Guid.NewGuid().ToString("N");
-        var operationDiagnostics = diagnostics;
-        var outcome = "succeeded";
-        operationDiagnostics.Write(new DiagnosticEvent("protocol", "session_status_start", DiagnosticSeverity.Information)
-        {
-            CorrelationId = correlationId,
-        });
-        try
+        ServerCallContext context) =>
+        TraceProtocol("session_status", async trace =>
         {
             ArgumentNullException.ThrowIfNull(request);
             ArgumentNullException.ThrowIfNull(context);
             context.CancellationToken.ThrowIfCancellationRequested();
             var found = Find(request.UserSessionId);
-            operationDiagnostics = found.Diagnostics;
+            trace.Diagnostics = found.Diagnostics;
             var scope = found.Registry.SnapshotScopes()
                 .FirstOrDefault(static scope => scope.Session.Depth == 0)
                 ?? throw new RpcException(new Status(StatusCode.NotFound, "the user session has no agent session"));
@@ -1003,6 +859,7 @@ internal sealed class ParrotService(
             var agent = scope.Session;
             var captured = agent.ResolvePolicySelection();
             var resolved = router.Resolve(captured.RequestedModel.Value);
+            var usageLines = UsageLines(resolved, context.CancellationToken);
             var selection = new AgentTurnSelection(resolved.RequestedSelector, resolved, captured.Profile, captured.SecurityProfile);
             var status = await scope.GetService<IRuntimeStatus>()
                 .ObserveWithContext(agent, selection, selection.Profile, agent.EstimateContext(selection), context.CancellationToken)
@@ -1015,32 +872,9 @@ internal sealed class ParrotService(
             {
                 Status = string.Join("\n\n", new[] { status, statistics }.Where(text => !string.IsNullOrWhiteSpace(text))),
             };
-            response.UsageLines.AddRange(await UsageLines(resolved, context.CancellationToken).ConfigureAwait(false));
+            response.UsageLines.AddRange(await usageLines.ConfigureAwait(false));
             return response;
-        }
-        catch (Exception failure)
-        {
-            outcome = failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? "cancelled" : "failed";
-            operationDiagnostics.Write(new DiagnosticEvent(
-                "protocol", "session_status_failure", failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
-            {
-                CorrelationId = correlationId,
-                ErrorCode = failure is RpcException rpcFailure
-                    ? rpcFailure.StatusCode.ToString() : DiagnosticEvent.ClassifyFailure(failure),
-                Outcome = outcome,
-            });
-            throw;
-        }
-        finally
-        {
-            operationDiagnostics.Write(new DiagnosticEvent("protocol", "session_status_complete", DiagnosticSeverity.Information)
-            {
-                CorrelationId = correlationId,
-                Outcome = outcome,
-                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-            });
-        }
-    }
+        });
 
     internal static ArtifactReference ToProtocol(ImageArtifactMetadata artifact) => new()
     {
@@ -1211,34 +1045,6 @@ internal sealed class ParrotService(
         return pending;
     }
 
-    private static PendingPermission ToProtocol(PermissionPending request)
-    {
-        var pending = new PendingPermission
-        {
-            Id = request.Id,
-            AgentSessionId = request.AgentSessionId,
-            Reason = request.Reason,
-        };
-        pending.Targets.AddRange(request.Targets.Select(target => new PermissionTarget
-        {
-            Kind = target.Kind == SecurityWriteTargetKind.File
-                ? PermissionTargetKind.File
-                : PermissionTargetKind.Directory,
-            Scope = PermissionTargetScope.Write,
-            Path = target.Path,
-        }));
-        pending.Choices.AddRange(request.Choices.Select(choice => new global::Parrot.Protocol.PermissionChoice
-        {
-            Value = choice.Value,
-            Label = choice.Label,
-            Action = choice.Decision == PermissionDecision.Grant
-                ? PermissionAction.Allow
-                : PermissionAction.Deny,
-            RequiresReason = choice.RequiresReason,
-        }));
-        return pending;
-    }
-
     private static ModelAlias ToProtocol(ModelAliasDefinition definition) =>
         new() { Name = definition.Name, ModelString = definition.ModelString, Usage = definition.Usage };
 
@@ -1299,13 +1105,10 @@ internal sealed class ParrotService(
     {
         try
         {
-            var comparison = OperatingSystem.IsWindows()
-                ? StringComparison.OrdinalIgnoreCase
-                : StringComparison.Ordinal;
             return string.Equals(
                 Path.TrimEndingDirectorySeparator(Path.GetFullPath(left)),
                 Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)),
-                comparison);
+                PlatformPath.Comparison);
         }
         catch (Exception failure) when (failure is ArgumentException or NotSupportedException or PathTooLongException)
         {
@@ -1314,6 +1117,46 @@ internal sealed class ParrotService(
     }
 
     private static string Limit(string value) => value.Length <= 4096 ? value : value[..4096];
+
+    private async Task<T> TraceProtocol<T>(string operation, Func<ProtocolTrace, Task<T>> body)
+    {
+        var started = Stopwatch.GetTimestamp();
+        var trace = new ProtocolTrace(diagnostics);
+        var outcome = "succeeded";
+        trace.Diagnostics.Write(new DiagnosticEvent("protocol", $"{operation}_start", DiagnosticSeverity.Information)
+        {
+            CorrelationId = trace.CorrelationId,
+        });
+        try
+        {
+            return await body(trace).ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            var cancelled = failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled };
+            outcome = cancelled ? "cancelled" : "failed";
+            trace.Diagnostics.Write(new DiagnosticEvent(
+                "protocol", $"{operation}_failure", cancelled ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+            {
+                CorrelationId = trace.CorrelationId,
+                UserSessionId = trace.UserSessionId,
+                ErrorCode = failure is RpcException rpcFailure
+                    ? rpcFailure.StatusCode.ToString() : DiagnosticEvent.ClassifyFailure(failure),
+                Outcome = outcome,
+            });
+            throw;
+        }
+        finally
+        {
+            trace.Diagnostics.Write(new DiagnosticEvent("protocol", $"{operation}_complete", DiagnosticSeverity.Information)
+            {
+                CorrelationId = trace.CorrelationId,
+                UserSessionId = trace.UserSessionId,
+                Outcome = outcome,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            });
+        }
+    }
 
     private async Task<IAsyncDisposable> HostSession(Agent.IUserSession session, string correlationId, CancellationToken cancellationToken)
     {
@@ -1384,4 +1227,13 @@ internal sealed class ParrotService(
     }
 
     private Agent.IUserSession Find(string userSessionId) => _userSessions.Find(userSessionId);
+
+    private sealed class ProtocolTrace(IDiagnosticLog diagnostics)
+    {
+        public string CorrelationId { get; } = Guid.NewGuid().ToString("N");
+
+        public string? UserSessionId { get; set; }
+
+        public IDiagnosticLog Diagnostics { get; set; } = diagnostics;
+    }
 }

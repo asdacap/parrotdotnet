@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Parrot.Llm;
 
 namespace Parrot.Cli.Enhanced.Tools;
 
@@ -39,16 +40,12 @@ internal sealed class GlobToolPresenter : IToolPresenter
     {
         using var document = JsonDocument.Parse(argumentsJson);
         var root = document.RootElement;
-        return (String(root, "pattern"), String(root, "path"));
+        return root.ValueKind == JsonValueKind.Object
+            ? (JsonRead.String(root, "pattern"), JsonRead.String(root, "path"))
+            : (string.Empty, string.Empty);
     }
 
     private static string Label(string pattern, string path) => path.Length == 0
         ? $"glob \"{pattern}\""
         : $"glob \"{pattern}\" in {path}";
-
-    private static string String(JsonElement root, string name) => root.ValueKind == JsonValueKind.Object
-        && root.TryGetProperty(name, out var value)
-        && value.ValueKind == JsonValueKind.String
-            ? value.GetString() ?? string.Empty
-            : string.Empty;
 }

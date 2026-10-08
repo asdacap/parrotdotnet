@@ -22,10 +22,7 @@ internal sealed class GetAgentTasksTool(IAgentTaskService agentTasks) : ITool
         Input input;
         try
         {
-            input = JsonSerializer.Deserialize(
-                invocation.ArgumentsJson,
-                AgentTasksToolJsonContext.Default.GetAgentTasksToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, AgentTasksToolJsonContext.Default.GetAgentTasksToolInput);
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {

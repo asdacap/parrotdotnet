@@ -1,6 +1,5 @@
 using Parrot.Agent;
 using Parrot.AgentTasks;
-using Parrot.Llm;
 using Parrot.Security;
 using Parrot.Store;
 using Parrot.Tools;
@@ -36,16 +35,7 @@ internal sealed class GetAgentTasksToolTests
         _ = await Assert.That(empty.Text).IsEqualTo("[]");
     }
 
-    private static AgentTurnSelection Selection()
-    {
-        ILLMProvider provider = new UnusedProvider();
-        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        return new AgentTurnSelection(
-            new ModelSelector(model.Selector),
-            TestModels.Resolve(model),
-            new TestProfileFixture().Profile,
-            SecurityProfile.Compose(readOnly: false, [], [], []));
-    }
+    private static AgentTurnSelection Selection() => TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], []));
 
     private sealed class SnapshotTaskService(IReadOnlyList<AgentTask> tasks) : IAgentTaskService
     {

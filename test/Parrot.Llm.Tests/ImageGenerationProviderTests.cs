@@ -274,8 +274,8 @@ internal sealed class ImageGenerationProviderTests
             {
                 "compatible" => new OpenAICompatibleProvider(options, _client),
                 "retry" => new RetryingProvider(new OpenAICompatibleProvider(options, _client)),
-                "kimi" => new RetryingProvider(new KimiProvider(options, _client)),
-                "opencode" => new RetryingProvider(new OpenCodeGoProvider(options, _client)),
+                "kimi" => new RetryingProvider(new UsageReportingProvider(new OpenAICompatibleProvider(options, _client), new KimiUsageReporter(options, _client))),
+                "opencode" => new RetryingProvider(new UsageReportingProvider(new OpenAICompatibleProvider(options, _client), new OpenCodeGoUsageReporter(options, _client))),
                 "chatgpt" => new ChatGptProvider(new ImageOAuthTokens(Credentials), _client, [], [], [], true, new ResponsesWebSocketConnector()),
                 _ => throw new ArgumentException("Unknown provider", nameof(providerKind)),
             };

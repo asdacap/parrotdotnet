@@ -26,8 +26,7 @@ internal sealed class AgentSpawnTool(
 
         try
         {
-            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, AgentProcessToolJsonContext.Default.AgentSpawnToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, AgentProcessToolJsonContext.Default.AgentSpawnToolInput);
             prompt = input.Prompt ?? throw new FormatException("Tool arguments require a string 'prompt'.");
             requestedProfile = input.Agent ?? throw new FormatException("Tool arguments require a string 'agent'.");
             requestedModel = input.Model ?? string.Empty;

@@ -3,70 +3,14 @@ using Parrot.Store;
 
 namespace Parrot.Process;
 
-internal sealed class ProcessRunner
+internal sealed class ProcessRunner(IProcessSandbox sandbox, SandboxGate sandboxGate)
 {
     private const string SeatbeltExecutable = "/usr/bin/sandbox-exec";
-    private readonly IProcessSandbox _sandbox;
-    private readonly IProcessSandbox _unsandboxed;
+    private readonly IProcessSandbox _unsandboxed = new UnsandboxedProcessSandbox();
 
-    public ProcessRunner(string bubblewrapPath)
-        : this(bubblewrapPath, requireTrustedPath: false, new SandboxGate(enabled: true))
-    {
-    }
+    public SandboxGate SandboxGate { get; } = sandboxGate;
 
-    public ProcessRunner(string bubblewrapPath, bool requireTrustedPath, SandboxGate sandboxGate)
-    {
-        _sandbox = new LinuxBubblewrapSandbox(bubblewrapPath, requireTrustedPath, new LinuxSandboxProcessLauncher([]));
-        _unsandboxed = new UnsandboxedProcessSandbox();
-        SandboxGate = sandboxGate;
-    }
-
-    internal ProcessRunner(IProcessSandbox sandbox)
-        : this(sandbox, new SandboxGate(enabled: true))
-    {
-    }
-
-    internal ProcessRunner(IProcessSandbox sandbox, SandboxGate sandboxGate)
-    {
-        _sandbox = sandbox;
-        _unsandboxed = new UnsandboxedProcessSandbox();
-        SandboxGate = sandboxGate;
-    }
-
-    public SandboxGate SandboxGate { get; }
-
-    public bool SandboxAvailable => _sandbox.SandboxAvailable;
-
-    public static ProcessRunner Locate() => Locate(new SandboxGate(enabled: true));
-
-    public static ProcessRunner Locate(SandboxGate sandboxGate)
-    {
-        ArgumentNullException.ThrowIfNull(sandboxGate);
-        if (OperatingSystem.IsLinux())
-        {
-            return new ProcessRunner(
-                new LinuxBubblewrapSandbox(
-                    ExecutableLocator.Capture().Locate("bwrap"),
-                    requireTrustedPath: true,
-                    new LinuxSandboxProcessLauncher([])),
-                sandboxGate);
-        }
-
-        if (OperatingSystem.IsMacOS())
-        {
-            return new ProcessRunner(
-                new MacSeatbeltSandbox(SeatbeltExecutable, requireTrustedPath: true),
-                sandboxGate);
-        }
-
-        return new ProcessRunner(new UnavailableProcessSandbox(), sandboxGate);
-    }
-
-    public static ProcessRunner Locate(ExecutableLocator locator) =>
-        Locate(locator, new SandboxGate(enabled: true));
-
-    public static ProcessRunner Locate(ExecutableLocator locator, SandboxGate sandboxGate) =>
-        LocateConfigured(locator, sandboxGate, []);
+    public bool SandboxAvailable => sandbox.SandboxAvailable;
 
     public static ProcessRunner LocateConfigured(
         ExecutableLocator locator,
@@ -83,7 +27,7 @@ internal sealed class ProcessRunner
                     requireTrustedPath: false,
                     new LinuxSandboxProcessLauncher(devicePaths)),
                 sandboxGate)
-            : Locate(sandboxGate);
+            : LocateDefault(sandboxGate);
     }
 
     public IProcessExecution Start(
@@ -122,5 +66,17 @@ internal sealed class ProcessRunner
         return await execution.Result.ConfigureAwait(false);
     }
 
-    private IProcessSandbox SelectSandbox() => SandboxGate.Enabled ? _sandbox : _unsandboxed;
+    private static ProcessRunner LocateDefault(SandboxGate sandboxGate)
+    {
+        if (OperatingSystem.IsMacOS())
+        {
+            return new ProcessRunner(
+                new MacSeatbeltSandbox(SeatbeltExecutable, requireTrustedPath: true),
+                sandboxGate);
+        }
+
+        return new ProcessRunner(new UnavailableProcessSandbox(), sandboxGate);
+    }
+
+    private IProcessSandbox SelectSandbox() => SandboxGate.Enabled ? sandbox : _unsandboxed;
 }

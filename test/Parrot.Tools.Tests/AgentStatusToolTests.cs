@@ -16,8 +16,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
     private readonly IEventBroker _broker = new EventBroker();
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
     private readonly IEventRepository _repository;
-    private readonly string _root = Directory.CreateDirectory(
-        Path.Combine(Path.GetTempPath(), "parrot-agent-status-tests", Guid.NewGuid().ToString("N"))).FullName;
+    private readonly string _root = Directory.CreateTempSubdirectory("parrot-agent-status-tests-").FullName;
 
     public AgentStatusToolTests() => _repository = new EventRepository(_database);
 
@@ -223,7 +222,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
                 registry,
                 TestModels.PromptTemplates,
                 resources,
-                new ProcessRunner(string.Empty),
+                TestModels.Runner(string.Empty),
                 TestDiagnosticLog.Instance,
                 (sessionParentScope, owningScope, children, childQuestions) =>
                 {

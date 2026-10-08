@@ -94,8 +94,7 @@ internal static class AgentTaskDeclarationFormatter
         }
     }
 
-    private static string InlineValue(string value) =>
-        TerminalText.Sanitize(value).Replace('\n', ' ');
+    private static string InlineValue(string value) => TerminalText.SanitizeLine(value);
 
     private readonly record struct RenderedLine(string Text, string HangingIndent);
 }

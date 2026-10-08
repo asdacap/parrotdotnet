@@ -175,6 +175,34 @@ internal static class ToolDisplayText
         return lines;
     }
 
+    public static string TruncateUtf8(string value, int maximumBytes, out bool truncated)
+    {
+        if (maximumBytes <= 0)
+        {
+            truncated = value.Length > 0;
+            return string.Empty;
+        }
+
+        var result = new StringBuilder(Math.Min(value.Length, maximumBytes));
+        var bytes = 0;
+        var characters = 0;
+        foreach (var rune in value.EnumerateRunes())
+        {
+            var runeBytes = rune.Utf8SequenceLength;
+            if (bytes + runeBytes > maximumBytes)
+            {
+                break;
+            }
+
+            _ = result.Append(rune);
+            bytes += runeBytes;
+            characters += rune.Utf16SequenceLength;
+        }
+
+        truncated = characters < value.Length;
+        return truncated ? result.ToString() : value;
+    }
+
     private static int CountRemainingLines(IEnumerator<string> values)
     {
         var count = 0;
@@ -202,32 +230,4 @@ internal static class ToolDisplayText
 
     private static string TruncateUtf8(string value, int maximumBytes) =>
         TruncateUtf8(value, maximumBytes, out _);
-
-    private static string TruncateUtf8(string value, int maximumBytes, out bool truncated)
-    {
-        if (maximumBytes <= 0)
-        {
-            truncated = value.Length > 0;
-            return string.Empty;
-        }
-
-        var result = new StringBuilder(Math.Min(value.Length, maximumBytes));
-        var bytes = 0;
-        var characters = 0;
-        foreach (var rune in value.EnumerateRunes())
-        {
-            var runeBytes = rune.Utf8SequenceLength;
-            if (bytes + runeBytes > maximumBytes)
-            {
-                break;
-            }
-
-            _ = result.Append(rune);
-            bytes += runeBytes;
-            characters += rune.Utf16SequenceLength;
-        }
-
-        truncated = characters < value.Length;
-        return truncated ? result.ToString() : value;
-    }
 }

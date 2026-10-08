@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 
@@ -89,6 +90,24 @@ internal static class HttpStreaming
         return result;
     }
 
+    public static async Task<Dictionary<string, string>> ResolveBearerHeaders(
+        IApiKeySource apiKeySource,
+        string providerId,
+        CancellationToken cancellationToken)
+    {
+        var apiKey = await apiKeySource.ApiKey(cancellationToken).ConfigureAwait(false);
+
+        if (apiKey.Length == 0)
+        {
+            throw new LLMProviderException($"provider: \"{providerId}\" has no API key");
+        }
+
+        return new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["Authorization"] = "Bearer " + apiKey,
+        };
+    }
+
     // Opens a streaming POST. The header timeout bounds only time-to-headers;
     // each body read has an idle timeout, while active streams have no total deadline.
     public static async Task<StreamingHttpResponse> OpenStream(
@@ -175,6 +194,55 @@ internal static class HttpStreaming
         }
     }
 
+    public static async IAsyncEnumerable<LLMEvent> StreamEvents(
+        HttpClient client,
+        Uri endpoint,
+        byte[] body,
+        IReadOnlyDictionary<string, string> headers,
+        TimeSpan headerTimeout,
+        TimeSpan streamIdleTimeout,
+        int maximumRequestBytes,
+        LLMRequest request,
+        Action<string> captureTurnState,
+        Func<Stream, int, CancellationToken, IAsyncEnumerable<LLMEvent>> parse,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        if (body.Length > maximumRequestBytes)
+        {
+            throw new ProviderHttpException($"provider: request exceeds {maximumRequestBytes} bytes");
+        }
+
+        var events = Send(null, cancellationToken);
+        if (request.Diagnostics is { } diagnostics)
+        {
+            events = diagnostics.Trace(Send, "http_sse", cancellationToken);
+        }
+
+        await foreach (var published in events.ConfigureAwait(false))
+        {
+            yield return published;
+        }
+
+        async IAsyncEnumerable<LLMEvent> Send(IProviderAttemptDiagnostics? attempt, [EnumeratorCancellation] CancellationToken sendCancellationToken)
+        {
+            attempt?.RecordRequestBytes(body.Length);
+            request.Diagnostics?.DumpRequest(body);
+            yield return LLMEvent.HttpRequestStarted();
+            var response = await OpenStream(client, endpoint, body, headers, headerTimeout, streamIdleTimeout, maximumRequestBytes, attempt, sendCancellationToken)
+                .ConfigureAwait(false);
+            CaptureTurnState(response.Headers, captureTurnState);
+
+            await using (response.ConfigureAwait(false))
+            {
+                yield return LLMEvent.HttpResponseHeadersReceived();
+                await foreach (var published in parse(response.Content, MaxEventBytes, sendCancellationToken).ConfigureAwait(false))
+                {
+                    yield return published;
+                }
+            }
+        }
+    }
+
     // A bounded non-streaming GET, used for model catalogues and usage.
     public static async Task<string> Get(
         HttpClient client,
@@ -221,22 +289,26 @@ internal static class HttpStreaming
         }
     }
 
+    private static void CaptureTurnState(
+        IReadOnlyDictionary<string, string> headers,
+        Action<string> captureTurnState)
+    {
+        foreach (var header in headers)
+        {
+            if (header.Key.Equals("x-codex-turn-state", StringComparison.OrdinalIgnoreCase))
+            {
+                captureTurnState(header.Value);
+                break;
+            }
+        }
+    }
+
     private static async Task<string> ReadBounded(Stream stream, int maxBytes, CancellationToken cancellationToken)
     {
         var buffer = new byte[maxBytes + 1];
-        var total = 0;
-
-        while (total < buffer.Length)
-        {
-            var read = await stream.ReadAsync(buffer.AsMemory(total), cancellationToken).ConfigureAwait(false);
-
-            if (read == 0)
-            {
-                break;
-            }
-
-            total += read;
-        }
+        var total = await stream
+            .ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false, cancellationToken)
+            .ConfigureAwait(false);
 
         if (total > maxBytes)
         {
@@ -293,19 +365,10 @@ internal static class HttpStreaming
         CancellationToken cancellationToken)
     {
         var buffer = new byte[MaxErrorBytes + 4];
-        var total = 0;
-        while (total < buffer.Length)
-        {
-            var read = await stream.ReadAsync(buffer.AsMemory(total), cancellationToken).ConfigureAwait(false);
-            attempt?.RecordResponseBytes(read);
-            if (read == 0)
-            {
-                break;
-            }
-
-            total += read;
-        }
-
+        var total = await stream
+            .ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false, cancellationToken)
+            .ConfigureAwait(false);
+        attempt?.RecordResponseBytes(total);
         return Encoding.UTF8.GetString(buffer, 0, total);
     }
 
@@ -330,9 +393,9 @@ internal static class HttpStreaming
                 ? nested
                 : root;
 
-            var type = ReadString(scope, "type");
+            var type = JsonRead.String(scope, "type");
             var code = ReadScalar(scope, "code");
-            var message = ReadString(scope, "message");
+            var message = JsonRead.String(scope, "message");
             return (type, code, Sanitize(message, 1024));
         }
         catch (JsonException)
@@ -340,11 +403,6 @@ internal static class HttpStreaming
             return (string.Empty, string.Empty, string.Empty);
         }
     }
-
-    private static string ReadString(JsonElement scope, string name) =>
-        scope.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString() ?? string.Empty
-            : string.Empty;
 
     private static string ReadScalar(JsonElement scope, string name)
     {

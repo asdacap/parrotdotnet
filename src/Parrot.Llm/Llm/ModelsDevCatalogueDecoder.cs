@@ -71,13 +71,13 @@ internal static class ModelsDevCatalogueDecoder
         var maxOutputTokens = 0;
         if (value.TryGetProperty("limit", out var limit) && limit.ValueKind == JsonValueKind.Object)
         {
-            fields |= TryReadNonNegativeInt(limit, "context", out contextWindow)
+            fields |= JsonRead.TryReadNonNegativeInt(limit, "context", out contextWindow)
                 ? ModelMetadataFields.ContextWindow
                 : ModelMetadataFields.None;
-            fields |= TryReadNonNegativeInt(limit, "input", out maxInputTokens)
+            fields |= JsonRead.TryReadNonNegativeInt(limit, "input", out maxInputTokens)
                 ? ModelMetadataFields.MaxInputTokens
                 : ModelMetadataFields.None;
-            fields |= TryReadNonNegativeInt(limit, "output", out maxOutputTokens)
+            fields |= JsonRead.TryReadNonNegativeInt(limit, "output", out maxOutputTokens)
                 ? ModelMetadataFields.MaxOutputTokens
                 : ModelMetadataFields.None;
         }
@@ -165,17 +165,6 @@ internal static class ModelsDevCatalogueDecoder
 
     private static bool IsSupportedEffort(string value) =>
         value is "none" or "minimal" or "low" or "medium" or "high" or "xhigh" or "max";
-
-    private static bool TryReadNonNegativeInt(JsonElement scope, string name, out int result)
-    {
-        if (JsonRead.TryReadInt(scope, name, out result) && result >= 0)
-        {
-            return true;
-        }
-
-        result = 0;
-        return false;
-    }
 
     private static bool TryReadPerTokenPrice(JsonElement scope, string name, out double result)
     {

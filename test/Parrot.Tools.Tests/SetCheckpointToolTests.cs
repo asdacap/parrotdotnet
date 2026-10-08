@@ -27,8 +27,8 @@ internal sealed class SetCheckpointToolTests
         ITool otherAgentTool = new SetCheckpointTool(new CheckpointService(repository, "agent-b"));
         var invocation = new ToolInvocation(callId, "{\"title\":\"handoff\"}", assistantSequence);
 
-        var result = await owningTool.Execute(invocation, new SelectionFixture().Selection, CancellationToken.None);
-        var isolatedResult = await otherAgentTool.Execute(invocation, new SelectionFixture().Selection, CancellationToken.None);
+        var result = await owningTool.Execute(invocation, TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), CancellationToken.None);
+        var isolatedResult = await otherAgentTool.Execute(invocation, TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), CancellationToken.None);
 
         _ = await Assert.That(result.Text).IsEqualTo("handoff");
         var checkpoint = repository.LatestUsableCheckpoint("agent-a", "handoff", long.MaxValue)
@@ -58,26 +58,10 @@ internal sealed class SetCheckpointToolTests
 
         var result = await tool.Execute(
             new ToolInvocation("missing-call", argumentsJson, assistantSequence),
-            new SelectionFixture().Selection,
+            TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             CancellationToken.None);
 
         _ = await Assert.That(result.Text).StartsWith("error:");
         _ = await Assert.That(result.Text).Contains(expectedMessage);
-    }
-
-    private sealed class SelectionFixture
-    {
-        public SelectionFixture()
-        {
-            ILLMProvider provider = new UnusedProvider();
-            var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-            Selection = new AgentTurnSelection(
-                new ModelSelector(model.Selector),
-                TestModels.Resolve(model),
-                new TestProfileFixture().Profile,
-                SecurityProfile.Compose(readOnly: false, [], [], []));
-        }
-
-        public AgentTurnSelection Selection { get; }
     }
 }

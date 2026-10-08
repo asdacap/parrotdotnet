@@ -1,14 +1,13 @@
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using Parrot.Files;
 using Parrot.Security;
 using Parrot.Store;
 
 namespace Parrot.Process;
 
-internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
+internal sealed class MacSeatbeltSandbox : IProcessSandbox
 {
-    private const int WriteAccess = 2;
     private readonly string _seatbeltPath;
 
     [SupportedOSPlatform("macos")]
@@ -178,14 +177,7 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
     [SupportedOSPlatform("macos")]
     private static void WriteProfile(string path, SeatbeltPolicySnapshot profile)
     {
-        var options = new FileStreamOptions
-        {
-            Access = FileAccess.Write,
-            Mode = FileMode.CreateNew,
-            UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite,
-        };
-
-        using var stream = new FileStream(path, options);
+        using var stream = PrivateFile.CreateNew(path, FileShare.Read, FileOptions.None);
         using var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         writer.Write(profile.Text);
     }
@@ -198,17 +190,7 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
             return string.Empty;
         }
 
-        if (!Path.IsPathFullyQualified(path))
-        {
-            throw new ArgumentException("The Seatbelt path must be absolute.", nameof(path));
-        }
-
-        var canonical = Path.GetFullPath(path);
-        var target = new FileInfo(canonical).ResolveLinkTarget(returnFinalTarget: true);
-        if (target is not null)
-        {
-            canonical = Path.GetFullPath(target.FullName);
-        }
+        var canonical = SandboxExecutablePath.Canonicalize(path, "Seatbelt");
 
         if (!File.Exists(canonical))
         {
@@ -221,28 +203,11 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
             return string.Empty;
         }
 
-        if (requireTrustedPath && !HasTrustedParentChain(canonical))
+        if (requireTrustedPath && !SandboxExecutablePath.HasTrustedParentChain(canonical))
         {
             throw new SandboxUnavailableException("sandbox-exec must be installed below a non-writable system path");
         }
 
         return canonical;
     }
-
-    private static bool HasTrustedParentChain(string path)
-    {
-        for (var directory = new FileInfo(path).Directory; directory is not null; directory = directory.Parent)
-        {
-            if (Access(directory.FullName, WriteAccess) == 0)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32 | DllImportSearchPath.SafeDirectories)]
-    [LibraryImport("libc", EntryPoint = "access", StringMarshalling = StringMarshalling.Utf8)]
-    private static partial int Access(string path, int mode);
 }

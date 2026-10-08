@@ -28,11 +28,7 @@ internal sealed class AgentInterruptToolTests
 
         var result = await tool.Execute(
             new ToolInvocation("call-1", $"{{\"name\":\"{name}\"}}"),
-            new AgentTurnSelection(
-                new ModelSelector("test/model"),
-                TestModels.Resolve(new ProviderModel(new UnusedProvider(), new LLMModel("model", "test"))),
-                new TestProfileFixture().Profile,
-                SecurityProfile.Compose(readOnly: false, [], [], [])),
+            TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             cancellationToken);
 
         if (!expectedInterrupt)
@@ -57,11 +53,7 @@ internal sealed class AgentInterruptToolTests
 
         var result = await tool.Execute(
             new ToolInvocation("call", "{\"name\":\"worker\",\"extra\":1}"),
-            new AgentTurnSelection(
-                new ModelSelector("test/model"),
-                TestModels.Resolve(new ProviderModel(new UnusedProvider(), new LLMModel("model", "test"))),
-                new TestProfileFixture().Profile,
-                SecurityProfile.Compose(readOnly: false, [], [], [])),
+            TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             cancellationToken);
 
         _ = await Assert.That(result.Text).StartsWith("error: ");

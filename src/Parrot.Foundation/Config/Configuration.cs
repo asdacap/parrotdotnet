@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using Parrot.Context;
 using Parrot.Security;
+using Parrot.State;
 using Parrot.Tools;
 using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
@@ -123,7 +124,7 @@ internal sealed partial class Configuration(string path)
     internal long SkillsGeneration { get; private set; }
 
     public static Configuration Load(string path, string predefinedPath) =>
-        Load(path, predefinedPath, CaptureEnvironment());
+        Load(path, predefinedPath, StatePaths.CaptureEnvironment());
 
     // Only the interactive /model reaches here; --model is a per-invocation
     // override that does not persist.
@@ -2153,20 +2154,6 @@ internal sealed partial class Configuration(string path)
 
     private static string Scalar(YamlMappingNode parent, string key) =>
         Child(parent, key, out var node) && node is YamlScalarNode { Value: { } scalar } ? scalar : string.Empty;
-
-    private static Dictionary<string, string> CaptureEnvironment()
-    {
-        var environment = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
-        {
-            if (entry.Key is string key && entry.Value is string value)
-            {
-                environment[key] = value;
-            }
-        }
-
-        return environment;
-    }
 
     private static bool Child(YamlMappingNode parent, string key, out YamlNode? value) =>
         parent.Children.TryGetValue(new YamlScalarNode(key), out value);

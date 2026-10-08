@@ -320,16 +320,8 @@ internal sealed class PermissionBrokerTests : IDisposable
         PermissionBroker broker,
         CancellationToken cancellationToken)
     {
-        while (true)
-        {
-            var pending = broker.Pending();
-            if (pending.Count == 1)
-            {
-                return pending[0];
-            }
-
-            await Task.Delay(1, cancellationToken).ConfigureAwait(false);
-        }
+        await TestPolling.Until(() => broker.Pending().Count == 1, cancellationToken);
+        return broker.Pending()[0];
     }
 
     private SecurityWriteTarget Target(string name)

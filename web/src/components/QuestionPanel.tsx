@@ -1,12 +1,11 @@
 import { Code, ConnectError } from "@connectrpc/connect"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 import type { PendingQuestion } from "@/gen/parrot_pb"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { usePoll } from "@/lib/usePoll"
 import { parrot } from "@/rpc/client"
-
-const pollMilliseconds = 250
 
 interface QuestionPanelProps {
   userSessionId: string
@@ -24,24 +23,15 @@ export function QuestionPanel({ userSessionId, onFailure }: QuestionPanelProps) 
     return () => { clearInterval(timer) }
   }, [])
 
-  useEffect(() => {
-    let polling = false
-    const timer = setInterval(() => {
-      if (polling) return
-      polling = true
-      parrot
-        .listPendingQuestions({ userSessionId })
-        .then(
-          (response) => {
-            setPendingQuestions(response.questions)
-            setPolledAt(Date.now())
-          },
-          () => undefined,
-        )
-        .finally(() => { polling = false })
-    }, pollMilliseconds)
-    return () => { clearInterval(timer) }
-  }, [userSessionId])
+  const poll = useCallback(
+    () =>
+      parrot.listPendingQuestions({ userSessionId }).then((response) => {
+        setPendingQuestions(response.questions)
+        setPolledAt(Date.now())
+      }),
+    [userSessionId],
+  )
+  usePoll(poll, false)
 
   return pendingQuestions.map((pending) => (
     <PendingQuestionCard

@@ -28,10 +28,7 @@ internal sealed class AgentScope
             return this;
         }
 
-        var changes = new ScopeChange[_changes.Length + 1];
-        _changes.CopyTo(changes, 0);
-        changes[^1] = new ScopeChange(name, depth, requestedScope);
-        return new AgentScope(changes, PromptTemplates);
+        return new AgentScope([.. _changes, new ScopeChange(name, depth, requestedScope)], PromptTemplates);
     }
 
     public string Format(int currentDepth)

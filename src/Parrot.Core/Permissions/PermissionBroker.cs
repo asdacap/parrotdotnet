@@ -5,10 +5,6 @@ using Parrot.Events;
 using Parrot.Protocol;
 using Parrot.Security;
 using Parrot.Store;
-using ProtocolPermissionAction = Parrot.Protocol.PermissionAction;
-using ProtocolPermissionChoice = Parrot.Protocol.PermissionChoice;
-using ProtocolPermissionTarget = Parrot.Protocol.PermissionTarget;
-using ProtocolPermissionTargetKind = Parrot.Protocol.PermissionTargetKind;
 
 namespace Parrot.Permissions;
 
@@ -103,8 +99,7 @@ internal sealed class PermissionBroker : IPermissionBroker
         {
             return [.. _pending
                 .OrderBy(item => item.Key, StringComparer.Ordinal)
-                .Select(item => new PermissionPending(
-                    item.Key, item.Value.Identity.SessionId, item.Value.Reason, item.Value.Targets, DeclaredChoices))];
+                .Select(item => item.Value.Describe(item.Key))];
         }
     }
 
@@ -176,34 +171,6 @@ internal sealed class PermissionBroker : IPermissionBroker
         }
     }
 
-    private static PendingPermission ToProtocol(string id, PendingRequest request)
-    {
-        var pending = new PendingPermission
-        {
-            Id = id,
-            AgentSessionId = request.Identity.SessionId,
-            Reason = request.Reason,
-        };
-        pending.Targets.AddRange(request.Targets.Select(target => new ProtocolPermissionTarget
-        {
-            Kind = target.Kind == SecurityWriteTargetKind.File
-                ? ProtocolPermissionTargetKind.File
-                : ProtocolPermissionTargetKind.Directory,
-            Scope = PermissionTargetScope.Write,
-            Path = target.Path,
-        }));
-        pending.Choices.AddRange(DeclaredChoices.Select(choice => new ProtocolPermissionChoice
-        {
-            Value = choice.Value,
-            Label = choice.Label,
-            Action = choice.Decision == PermissionDecision.Grant
-                ? ProtocolPermissionAction.Allow
-                : ProtocolPermissionAction.Deny,
-            RequiresReason = choice.RequiresReason,
-        }));
-        return pending;
-    }
-
     private async Task<PermissionReply> RequestPending(
         AgentIdentity identity,
         AgentSessionSecurity security,
@@ -251,7 +218,7 @@ internal sealed class PermissionBroker : IPermissionBroker
                 {
                     Id = Identifier.EventId(),
                     AgentSessionId = identity.SessionId,
-                    PermissionPending = ToProtocol(id, pending),
+                    PermissionPending = PendingPermissionMapping.Map(pending.Describe(id)),
                 };
                 _ = _repository.Append(published, null, null);
                 _events.Publish(published);
@@ -314,6 +281,9 @@ internal sealed class PermissionBroker : IPermissionBroker
 
         public TaskCompletionSource<PermissionReply> Reply { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public PermissionPending Describe(string id) =>
+            new(id, Identity.SessionId, Reason, Targets, DeclaredChoices);
 
         public PermissionReply RequireOutcome()
         {

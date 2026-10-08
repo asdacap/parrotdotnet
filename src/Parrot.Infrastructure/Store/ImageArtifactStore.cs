@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Parrot.Files;
 
 namespace Parrot.Store;
 
@@ -30,7 +31,7 @@ internal sealed class ImageArtifactStore
         ArgumentNullException.ThrowIfNull(source);
         ValidateLabel(displayName, nameof(displayName));
         ValidateLabel(origin, nameof(origin));
-        EnsureDirectory(_directory);
+        PrivateFile.EnsureDirectory(_directory);
         var staging = Path.Combine(_directory, $".staging-{Guid.NewGuid():n}");
         try
         {
@@ -91,19 +92,8 @@ internal sealed class ImageArtifactStore
 
     private static async Task<long> Copy(Stream source, string staging, CancellationToken cancellationToken)
     {
-        var options = new FileStreamOptions
-        {
-            Access = FileAccess.Write,
-            Mode = FileMode.CreateNew,
-            Options = FileOptions.Asynchronous,
-        };
-        if (!OperatingSystem.IsWindows())
-        {
-            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        }
-
         long length = 0;
-        await using var destination = new FileStream(staging, options);
+        await using var destination = PrivateFile.CreateNew(staging, FileShare.Read, FileOptions.Asynchronous);
         var buffer = new byte[81920];
         while (true)
         {
@@ -166,13 +156,4 @@ internal sealed class ImageArtifactStore
         "image/webp" => ".webp",
         _ => throw new InvalidDataException("The image media type is not supported."),
     };
-
-    private static void EnsureDirectory(string directory)
-    {
-        _ = Directory.CreateDirectory(directory);
-        if (!OperatingSystem.IsWindows())
-        {
-            File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        }
-    }
 }

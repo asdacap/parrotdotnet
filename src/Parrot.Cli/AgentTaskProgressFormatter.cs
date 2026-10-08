@@ -67,7 +67,7 @@ internal static class AgentTaskProgressFormatter
     internal static string DisplayText(AgentTaskProgressNode node)
     {
         var text = string.IsNullOrEmpty(node.Description) ? node.Name : node.Description;
-        return TerminalText.Sanitize(text).Replace('\n', ' ');
+        return TerminalText.SanitizeLine(text);
     }
 
     private static List<AgentTaskProgressNode> SelectVisibleNodes(
@@ -155,11 +155,11 @@ internal static class AgentTaskProgressFormatter
 
     private static string Icon(AgentTaskProgressStatus status) => status switch
     {
-        AgentTaskProgressStatus.Pending => "○",
-        AgentTaskProgressStatus.Running => "◐",
-        AgentTaskProgressStatus.Succeeded => "✓",
-        AgentTaskProgressStatus.Failed => "✗",
-        AgentTaskProgressStatus.Canceled => "■",
+        AgentTaskProgressStatus.Pending => TerminalIcons.Pending,
+        AgentTaskProgressStatus.Running => TerminalIcons.Running,
+        AgentTaskProgressStatus.Succeeded => TerminalIcons.Success,
+        AgentTaskProgressStatus.Failed => TerminalIcons.Failure,
+        AgentTaskProgressStatus.Canceled => TerminalIcons.Interrupted,
         _ => "?",
     };
 }

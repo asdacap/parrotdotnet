@@ -250,30 +250,6 @@ internal sealed class UserSession : IUserSession
         }
     }
 
-    // Assigned, never rebuilt. The main session holds the conversation, the
-    // input admitted against it and the drain that may be running: replacing it
-    // to change a model would throw all three away, and a turn in flight would
-    // carry on inside a session nothing points at any more.
-    public void UpdateMode(string mode)
-    {
-        var selected = _modes.Resolve(mode);
-
-        lock (_mainGate)
-        {
-            if (string.Equals(Mode.Profile.Id, selected.Profile.Id, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            _eventRepository.UpdateMode(Id, _mainSessionId, selected.Profile.Id);
-            Mode = selected;
-
-            _main?.Session.UpdateSelection(Selection());
-        }
-
-        Diagnostics.Write(new("session", "mode_changed", DiagnosticSeverity.Information));
-    }
-
     public IUserMode ResolveMode(string mode) => _modes.Resolve(mode);
 
     public void UpdateSelection(ResolvedModelSelection model) => Update(model, null);
@@ -321,8 +297,8 @@ internal sealed class UserSession : IUserSession
         if (replayAfterEventId is not null)
         {
             var persisted = _eventRepository.Replay();
-            var after = persisted.ToList().FindIndex(published => published.Id == replayAfterEventId);
-            foreach (var published in persisted.Skip(after + 1))
+            var after = persisted.TakeWhile(published => published.Id != replayAfterEventId).Count();
+            foreach (var published in persisted.Skip(after == persisted.Count ? 0 : after + 1))
             {
                 _ = replayed.Add(published.Id);
                 yield return published;

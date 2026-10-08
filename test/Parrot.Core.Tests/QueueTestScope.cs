@@ -43,7 +43,7 @@ internal sealed class QueueTestScope : IAgentSessionScope
             TestDiagnosticLog.Instance,
             CancellationToken.None);
         _dependencies = TestModels.Dependencies(identity, _events, repository, CancellationToken.None);
-        _processes = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.NamePath)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, CancellationToken.None);
+        _processes = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.NamePath)), TestModels.Runner(string.Empty), TestDiagnosticLog.Instance, CancellationToken.None);
         _queues = new AgentQueues(identity, parent?.GetService<IAgentQueues>(), resources, _children, static queueIdentity => new QueueInventory(queueIdentity), TestDiagnosticLog.Instance);
         IAgentSessionScope? root = parent;
         while (root?.ParentScope.Parent is { } ancestor)

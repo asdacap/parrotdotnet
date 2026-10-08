@@ -5,6 +5,7 @@ using Parrot.Auth;
 using Parrot.Cli.Enhanced;
 using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
+using Parrot.Core.Tests;
 using Parrot.Protocol;
 using Parrot.Tools;
 using GeneratedParrot = Parrot.Protocol.Parrot;
@@ -105,7 +106,7 @@ internal sealed class EnhancedCliTests
         using var loadedConfiguration = new LoadedConfiguration(string.Empty);
         var configuration = loadedConfiguration.Value;
         var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
-        var renderer = new EnhancedTurnRenderer(terminal, configuration, presenters);
+        var renderer = new EnhancedTurnRenderer(terminal);
         using var diagnostics = new TransportDiagnosticsFixture();
         var cli = new EnhancedCli(
             new GeneratedParrot.ParrotClient(invoker),
@@ -157,7 +158,7 @@ internal sealed class EnhancedCliTests
         using var loadedConfiguration = new LoadedConfiguration(string.Empty);
         var configuration = loadedConfiguration.Value;
         var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
-        var renderer = new EnhancedTurnRenderer(terminal, configuration, presenters);
+        var renderer = new EnhancedTurnRenderer(terminal);
         using var diagnostics = new TransportDiagnosticsFixture();
         var cli = new EnhancedCli(
             new GeneratedParrot.ParrotClient(invoker),
@@ -1112,7 +1113,7 @@ internal sealed class EnhancedCliTests
         }
 
         using var error = new StringWriter();
-        var view = new EnhancedTurnView(Replace, Commit, error, static () => 80, true, false, new ForegroundTurn(), new ToolPresenterRegistry([], new GenericToolPresenter()));
+        var view = new EnhancedTurnView(Replace, Commit, error, static () => 80, false, new ForegroundTurn());
         var text = new Event { TextChunk = new TextChunk { Fragment = "pending" } };
         await view.Prepare(text, cancellationToken);
         _ = await view.Render(text, cancellationToken);
@@ -1121,42 +1122,7 @@ internal sealed class EnhancedCliTests
         _ = await view.Render(reasoning, cancellationToken);
 
         _ = await Assert.That(replacements).Contains("● pending");
-        _ = await Assert.That(replacements.Any(static value => value.Contains("thinking", StringComparison.Ordinal))).IsTrue();
         _ = await Assert.That(committed).Contains("● pending");
-    }
-
-    [Test]
-    public async Task Turn_view_agent_task_progress_replaces_the_previous_tree(
-        CancellationToken cancellationToken)
-    {
-        var replacements = new List<string>();
-        var committed = new List<string>();
-        var liveContext = new LiveBufferRenderContext(80, new TerminalPalette(false));
-
-        Task Replace(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
-        {
-            token.ThrowIfCancellationRequested();
-            replacements.Add(string.Join('|', items.SelectMany(item => item.Render(liveContext).Lines)
-                .Select(static line => line.Text)));
-            return Task.CompletedTask;
-        }
-
-        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
-        {
-            token.ThrowIfCancellationRequested();
-            committed.Add(string.Join('|', item.Render(new ScrollbackRenderContext(80, liveContext.Palette))));
-            return Task.CompletedTask;
-        }
-
-        using var error = new StringWriter();
-        var view = new EnhancedTurnView(Replace, Commit, error, static () => 80, true, false, new ForegroundTurn(), new ToolPresenterRegistry([], new GenericToolPresenter()));
-        _ = await view.Render(new Event { AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot { RootNodes = { new AgentTaskProgressNode { Name = "first", Status = AgentTaskProgressStatus.Running } } } }, cancellationToken);
-        _ = await view.Render(new Event { AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot { RootNodes = { new AgentTaskProgressNode { Name = "latest", Status = AgentTaskProgressStatus.Succeeded } } } }, cancellationToken);
-
-        _ = await Assert.That(replacements).Count().IsEqualTo(2);
-        _ = await Assert.That(replacements[^1]).Contains("✓ latest");
-        _ = await Assert.That(replacements[^1]).DoesNotContain("first");
-        _ = await Assert.That(committed).IsEmpty();
     }
 
     [Test]
@@ -1181,7 +1147,7 @@ internal sealed class EnhancedCliTests
         }
 
         using var error = new StringWriter();
-        var view = new EnhancedTurnView(Draw, Commit, error, static () => 80, false, false, new ForegroundTurn(), new ToolPresenterRegistry([], new GenericToolPresenter()));
+        var view = new EnhancedTurnView(Draw, Commit, error, static () => 80, false, new ForegroundTurn());
         _ = await view.Render(
             new Event { TextChunk = new TextChunk { Fragment = "complete line\nsuffix" } },
             cancellationToken);
@@ -1263,7 +1229,7 @@ internal sealed class EnhancedCliTests
         using var loadedConfiguration = new LoadedConfiguration(string.Empty);
         var configuration = loadedConfiguration.Value;
         var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
-        var renderer = new EnhancedTurnRenderer(terminal, configuration, presenters);
+        var renderer = new EnhancedTurnRenderer(terminal);
         using var diagnostics = new TransportDiagnosticsFixture();
         var cli = new EnhancedCli(
             new GeneratedParrot.ParrotClient(invoker),
@@ -1777,47 +1743,6 @@ internal sealed class EnhancedCliTests
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
             }
-        }
-    }
-
-    private sealed class ControlledTimeProvider : TimeProvider
-    {
-        private readonly List<ControlledTimer> _timers = [];
-        private long _timestamp;
-
-        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
-
-        public override long GetTimestamp() => _timestamp;
-
-        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
-        {
-            var timer = new ControlledTimer(callback, state, _timestamp + dueTime.Ticks);
-            _timers.Add(timer);
-            return timer;
-        }
-
-        public void Advance(TimeSpan elapsed)
-        {
-            _timestamp += elapsed.Ticks;
-            foreach (var timer in _timers.Where(timer => timer.DueTimestamp <= _timestamp).ToArray())
-            {
-                timer.Fire();
-            }
-        }
-
-        private sealed class ControlledTimer(TimerCallback callback, object? state, long dueTimestamp) : ITimer
-        {
-            public long DueTimestamp { get; } = dueTimestamp;
-
-            public bool Change(TimeSpan dueTime, TimeSpan period) => throw new NotSupportedException();
-
-            public void Dispose()
-            {
-            }
-
-            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-
-            public void Fire() => callback(state);
         }
     }
 }

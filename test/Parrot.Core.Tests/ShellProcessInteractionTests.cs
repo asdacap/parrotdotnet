@@ -88,7 +88,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
             new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
-            new ProcessRunner(CreateSandboxPassThrough()),
+            TestModels.Runner(SandboxPassThrough.Write(_workspace)),
             TestDiagnosticLog.Instance,
             lifetime.Token);
         var process = owner.StartUnattributed(
@@ -152,7 +152,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             agent.Identity,
             resources,
             new AgentPathEnvironment(resources, scratch),
-            new ProcessRunner(CreateSandboxPassThrough()),
+            TestModels.Runner(SandboxPassThrough.Write(_workspace)),
             TestDiagnosticLog.Instance,
             lifetime.Token);
         var securityProfile = SecurityProfile.Compose(readOnly: false, [], [], []);
@@ -228,7 +228,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
             new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
-            new ProcessRunner(CreateSandboxPassThrough()),
+            TestModels.Runner(SandboxPassThrough.Write(_workspace)),
             TestDiagnosticLog.Instance,
             lifetime.Token);
         var release = Path.Combine(_workspace, "release-spill");
@@ -283,7 +283,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
             new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
-            new ProcessRunner(CreateSandboxPassThrough()),
+            TestModels.Runner(SandboxPassThrough.Write(_workspace)),
             TestDiagnosticLog.Instance,
             lifetime.Token);
         var release = Path.Combine(_workspace, "release-second");
@@ -334,7 +334,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
             new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
-            new ProcessRunner(CreateSandboxPassThrough()),
+            TestModels.Runner(SandboxPassThrough.Write(_workspace)),
             TestDiagnosticLog.Instance,
             lifetime.Token);
         var process = owner.StartUnattributed(
@@ -400,7 +400,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             AgentIdentity.Main(agent.SessionId, agent.Name, TestModels.PromptTemplates),
             resources,
             new AgentPathEnvironment(resources, resources.AgentScratch(agent.Identity.NamePath)),
-            new ProcessRunner(CreateSandboxPassThrough()),
+            TestModels.Runner(SandboxPassThrough.Write(_workspace)),
             TestDiagnosticLog.Instance,
             lifetime.Token);
         var process = owner.StartUnattributed(
@@ -491,34 +491,6 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         var repository = new EventRepository(database);
         var identity = AgentIdentity.Main("agent", "agent", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, events, repository, lifetime);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(blobDirectory), new AgentOutputFile(blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
-    }
-
-    private string CreateSandboxPassThrough()
-    {
-        if (!OperatingSystem.IsLinux())
-        {
-            throw new PlatformNotSupportedException();
-        }
-
-        var path = Path.Combine(_workspace, $"sandbox-{Guid.NewGuid():n}");
-        var script = "#!/bin/sh\nhelper=\nwhile [ \"$1\" != \"--\" ]; do\n"
-            + "  if [ \"$1\" = \"--chdir\" ]; then shift; cd \"$1\" || exit; "
-            + "elif [ \"$1\" = \"--setenv\" ]; then export \"$2=$3\"; shift 2; "
-            + "elif [ \"$1\" = \"--ro-bind\" ] && [ \"$2\" = \"$3\" ] "
-            + "&& [ \"$(basename \"$2\")\" = \"parrot-pty-attach\" ]; "
-            + "then helper=$2; shift 2; fi\n  shift\ndone\nshift\n"
-            + "if [ \"$1\" = \"$helper\" ] && [ -n \"$helper\" ]; then shift; exec \"$helper\" \"$@\"; fi\n"
-            + "exec \"$@\"\n";
-        File.WriteAllText(path, script);
-        File.SetUnixFileMode(
-            path,
-            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        using (var scriptFile = File.Open(path, FileMode.Open, FileAccess.Write, FileShare.Read))
-        {
-            scriptFile.Flush(flushToDisk: true);
-        }
-
-        return path;
+        return dependencies.CreateRootSession(identity, model, events, repository, _workspace, blobDirectory, TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), lifetime);
     }
 }

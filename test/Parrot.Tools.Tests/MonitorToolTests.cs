@@ -13,12 +13,9 @@ namespace Parrot.Core.Tests;
 
 internal sealed class MonitorToolTests : IDisposable
 {
-    private readonly string _workspace = Path.Combine(
-        Path.GetTempPath(), "parrot-monitor-tool-tests", Guid.NewGuid().ToString("n"));
+    private readonly string _workspace = Directory.CreateTempSubdirectory("parrot-monitor-tool-tests-").FullName;
 
     private readonly ProviderModel _model = new(new UnusedProvider(), new LLMModel("model", "unused"));
-
-    public MonitorToolTests() => Directory.CreateDirectory(_workspace);
 
     public void Dispose()
     {
@@ -125,7 +122,7 @@ internal sealed class MonitorToolTests : IDisposable
             session.Identity,
             resources,
             new AgentPathEnvironment(resources, resources.AgentScratch(session.Identity.NamePath)),
-            new ProcessRunner(CreateSandboxPassThrough()),
+            TestModels.Runner(CreateSandboxPassThrough()),
             TestDiagnosticLog.Instance,
             CancellationToken.None);
     }

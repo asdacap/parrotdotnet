@@ -13,16 +13,16 @@ internal sealed class UserSessionResources
         Id = id;
         Workspace = workspace;
         SessionsDirectory = PlatformPath.Normalize(Path.Combine(paths.State, "sessions"));
-        Root = RequireContained(SessionsDirectory, Path.Combine(SessionsDirectory, id.Value));
-        SocketPath = RequireContained(Root, Path.Combine(Root, "parrot.sock"));
-        MetadataPath = RequireContained(Root, Path.Combine(Root, "meta.json"));
-        DatabasePath = RequireContained(Root, Path.Combine(Root, "session.db"));
-        LogPath = RequireContained(Root, Path.Combine(Root, "session.log"));
-        ArtifactDirectory = RequireContained(Root, Path.Combine(Root, "artifacts"));
-        QueueDirectory = RequireContained(Root, Path.Combine(Root, "queues"));
-        AgentQueueRootDirectory = RequireContained(QueueDirectory, Path.Combine(QueueDirectory, "agents"));
-        ScratchDirectory = RequireContained(Root, Path.Combine(Root, "scratch"));
-        AgentsDirectory = RequireContained(Root, Path.Combine(Root, "root-agents"));
+        Root = RequireContained(SessionsDirectory, id.Value);
+        SocketPath = RequireContained(Root, "parrot.sock");
+        MetadataPath = RequireContained(Root, "meta.json");
+        DatabasePath = RequireContained(Root, "session.db");
+        LogPath = RequireContained(Root, "session.log");
+        ArtifactDirectory = RequireContained(Root, "artifacts");
+        QueueDirectory = RequireContained(Root, "queues");
+        AgentQueueRootDirectory = RequireContained(QueueDirectory, "agents");
+        ScratchDirectory = RequireContained(Root, "scratch");
+        AgentsDirectory = RequireContained(Root, "root-agents");
     }
 
     public UserSessionId Id { get; }
@@ -53,7 +53,7 @@ internal sealed class UserSessionResources
 
     public string AgentsDirectory { get; }
 
-    public bool Owns(string path) => Contains(Root, Path.GetFullPath(path));
+    public bool Owns(string path) => PlatformPath.Contains(Root, Path.GetFullPath(path));
 
     public string AgentQueueDirectory(string sessionId) =>
         AgentPath(AgentQueueRootDirectory, sessionId);
@@ -92,24 +92,17 @@ internal sealed class UserSessionResources
             throw new ArgumentException("An agent path segment must be one path segment.", nameof(segment));
         }
 
-        return RequireContained(root, Path.Combine(root, segment));
+        return RequireContained(root, segment);
     }
 
-    private static string RequireContained(string root, string path)
+    private static string RequireContained(string root, string name)
     {
-        var full = Path.GetFullPath(path);
-        if (!Contains(root, full))
+        var full = Path.GetFullPath(Path.Combine(root, name));
+        if (!PlatformPath.Contains(root, full))
         {
             throw new InvalidOperationException("A user session resource escaped its private root.");
         }
 
         return full;
-    }
-
-    private static bool Contains(string root, string path)
-    {
-        var relative = Path.GetRelativePath(root, path);
-        return relative == "." || (!Path.IsPathRooted(relative) && relative != ".."
-            && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal));
     }
 }

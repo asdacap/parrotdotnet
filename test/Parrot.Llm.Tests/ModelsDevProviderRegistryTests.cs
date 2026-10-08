@@ -12,8 +12,7 @@ internal sealed class ModelsDevProviderRegistryTests
     public async Task Build_fetches_once_and_keeps_matching_external_membership_after_live_refresh(
         CancellationToken cancellationToken)
     {
-        var directory = Path.Combine(Path.GetTempPath(), "parrot-models-dev", Guid.NewGuid().ToString("n"));
-        _ = Directory.CreateDirectory(directory);
+        var directory = Directory.CreateTempSubdirectory("parrot-models-dev-").FullName;
         var configurationPath = Path.Combine(directory, "config.yaml");
         const string configuration = """
             providers:

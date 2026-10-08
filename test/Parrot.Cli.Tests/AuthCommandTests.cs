@@ -13,7 +13,7 @@ internal sealed class AuthCommandTests
     {
         using var diagnostics = new TransportDiagnosticsFixture();
         var dialog = new TestSlashDialog().Select("image-upload").Secret(accessKey, secretKey);
-        ISlashCommand command = new AuthCommand(new UnusedCredentials(), new DiagnosticOAuthClient(false), [], dialog, diagnostics.Log);
+        ISlashCommand command = new AuthCommand(new UnusedCredentials(), new DiagnosticOAuthClient(null), [], dialog, diagnostics.Log);
 
         await command.Run(string.Empty, cancellationToken);
 
@@ -114,7 +114,7 @@ internal sealed class AuthCommandTests
         };
         ISlashCommand command = new AuthCommand(
             new UnusedCredentials(),
-            new DiagnosticOAuthClient(false),
+            new DiagnosticOAuthClient(null),
             stage == "no_providers" ? [] : ["sentinel-provider", "chatgpt"],
             dialog,
             diagnostics.Log);
@@ -145,7 +145,7 @@ internal sealed class AuthCommandTests
             using var credentials = new FileCredentialStore(Path.Combine(directory, "credentials.json"));
             var dialog = new TestSlashDialog().Select("login", "chatgpt", device ? "device" : "browser");
             ISlashCommand command = new AuthCommand(
-                credentials, new DiagnosticOAuthClient(fail), ["chatgpt"], dialog, diagnostics.Log);
+                credentials, new DiagnosticOAuthClient(fail ? new AuthException("sentinel-failure") : null), ["chatgpt"], dialog, diagnostics.Log);
 
             await command.Run("sentinel-argument", cancellationToken);
 
@@ -187,7 +187,7 @@ internal sealed class AuthCommandTests
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var dialog = new TestSlashDialog().Select("list");
         ISlashCommand command = new AuthCommand(
-            new UnusedCredentials(), new DiagnosticOAuthClient(false), [], dialog, diagnostics.Log);
+            new UnusedCredentials(), new DiagnosticOAuthClient(null), [], dialog, diagnostics.Log);
         if (cancel)
         {
             await stopping.CancelAsync();
@@ -208,32 +208,5 @@ internal sealed class AuthCommandTests
         {
             _ = await Assert.That(text).Contains("list_failure");
         }
-    }
-
-    private sealed class DiagnosticOAuthClient(bool fail) : IOAuthClient
-    {
-        public string AuthorizationUrl(string redirect, string challenge, string state) =>
-            throw new NotSupportedException();
-
-        public Task<OAuthCredential> BrowserLogin(CancellationToken cancellationToken) => CompleteLogin();
-
-        public Task<DeviceAuthorization> StartDeviceAuthorization(CancellationToken cancellationToken) =>
-            Task.FromResult(new DeviceAuthorization
-            {
-                VerificationUrl = "https://sentinel.invalid/?secret=sentinel-query",
-                UserCode = new Secret("sentinel-code"),
-            });
-
-        public Task<OAuthCredential> AwaitDeviceAuthorization(DeviceAuthorization device, CancellationToken cancellationToken) =>
-            CompleteLogin();
-
-        public Task<OAuthCredential> Refresh(OAuthCredential current, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public DateTimeOffset Now() => throw new NotSupportedException();
-
-        private Task<OAuthCredential> CompleteLogin() => fail
-            ? Task.FromException<OAuthCredential>(new AuthException("sentinel-failure"))
-            : Task.FromResult(OAuthCredential.Create("sentinel-access", "sentinel-refresh", DateTimeOffset.MaxValue, "sentinel-account"));
     }
 }

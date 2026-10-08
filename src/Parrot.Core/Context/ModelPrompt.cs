@@ -7,7 +7,7 @@ namespace Parrot.Context;
 
 internal sealed class ModelPrompt(IReadOnlyDictionary<string, string> augmentations, IPromptTemplateCatalog templates) : ISystemPrompt
 {
-    private readonly Dictionary<string, string> _augmentations = new(augmentations, StringComparer.Ordinal);
+    private AliasSection? _aliasSection;
 
     public void RenewEpoch()
     {
@@ -16,24 +16,14 @@ internal sealed class ModelPrompt(IReadOnlyDictionary<string, string> augmentati
     public string Build(AgentTurnSelection selection)
     {
         ArgumentNullException.ThrowIfNull(selection);
-        var sections = new List<string>();
-        var aliases = new ScriptArray();
-        foreach (var alias in selection.ResolvedModel.AliasSnapshot.Definitions.Values
-            .Where(alias => alias.ModelString.Length > 0))
+        var aliasSnapshot = selection.ResolvedModel.AliasSnapshot;
+        if (_aliasSection is not { } aliasSection || !ReferenceEquals(aliasSection.Snapshot, aliasSnapshot))
         {
-            aliases.Add(new ScriptObject
-            {
-                ["name"] = alias.Name,
-                ["model"] = alias.ModelString,
-                ["usage"] = alias.Usage,
-            });
+            aliasSection = new AliasSection(aliasSnapshot, RenderAliases(aliasSnapshot));
+            _aliasSection = aliasSection;
         }
 
-        if (aliases.Count > 0)
-        {
-            sections.Add(templates.RenderStructured(
-                "context.model-aliases", new ScriptObject { ["aliases"] = aliases }, CancellationToken.None));
-        }
+        var sections = new List<string> { aliasSection.Text };
 
         var augmentation = Augmentation(selection.ResolvedModel);
         if (!string.IsNullOrEmpty(augmentation))
@@ -44,6 +34,24 @@ internal sealed class ModelPrompt(IReadOnlyDictionary<string, string> augmentati
         return string.Join("\n\n", sections.Where(section => section.Length > 0));
     }
 
+    private string RenderAliases(ModelAliasSnapshot snapshot)
+    {
+        var aliases = new ScriptArray();
+        foreach (var alias in snapshot.Definitions.Values.Where(alias => alias.ModelString.Length > 0))
+        {
+            aliases.Add(new ScriptObject
+            {
+                ["name"] = alias.Name,
+                ["model"] = alias.ModelString,
+                ["usage"] = alias.Usage,
+            });
+        }
+
+        return aliases.Count > 0
+            ? templates.RenderStructured("context.model-aliases", new ScriptObject { ["aliases"] = aliases }, CancellationToken.None)
+            : string.Empty;
+    }
+
     private string? Augmentation(ResolvedModelSelection selection)
     {
         if (selection.Alias?.AugmentSystemPrompt is { } aliasAugmentation)
@@ -51,11 +59,13 @@ internal sealed class ModelPrompt(IReadOnlyDictionary<string, string> augmentati
             return aliasAugmentation;
         }
 
-        if (_augmentations.TryGetValue(selection.CanonicalModel.Selector, out var exact))
+        if (augmentations.TryGetValue(selection.CanonicalModel.Selector, out var exact))
         {
             return exact;
         }
 
-        return _augmentations.GetValueOrDefault(selection.CanonicalBase);
+        return augmentations.GetValueOrDefault(selection.CanonicalBase);
     }
+
+    private sealed record AliasSection(ModelAliasSnapshot Snapshot, string Text);
 }

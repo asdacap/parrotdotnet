@@ -4,7 +4,6 @@ using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Queues;
 using Parrot.Security;
-using Parrot.State;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -57,19 +56,15 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
             _profileIds.Add(profile.Id);
         }
 
-        var root = Directory.CreateDirectory(
-            Path.Combine(Path.GetTempPath(), "parrot-agent-task-tests", Guid.NewGuid().ToString("N"))).FullName;
-        var resources = new UserSessionResources(
-            new StatePaths(root, root, root),
-            UserSessionId.Parse(Guid.NewGuid().ToString("N")),
-            ProjectWorkspace.FromLaunchDirectory(root));
+        var resources = TestModels.Resources();
+        var root = resources.Workspace.LaunchDirectory;
         var scope = TestAgentSessionScope.BuildWithResources(
             identity,
             parentLink,
             registry,
             TestModels.PromptTemplates,
             resources,
-            new ProcessRunner(string.Empty),
+            TestModels.Runner(string.Empty),
             TestDiagnosticLog.Instance,
             (sessionParentScope, owningScope, children, childQuestions) =>
         {

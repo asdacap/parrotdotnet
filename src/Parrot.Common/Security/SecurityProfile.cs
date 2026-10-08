@@ -92,7 +92,7 @@ internal sealed class SecurityProfile
     {
         var root = Path.DirectorySeparatorChar.ToString();
         var paths = Paths()
-            .Where(path => _agentBoundary is null || !Contains(_agentBoundary.SessionRoot, path))
+            .Where(path => _agentBoundary is null || !PlatformPath.Contains(_agentBoundary.SessionRoot, path))
             .Append(_agentBoundary?.SessionRoot ?? root)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(path => path.Length);
@@ -137,15 +137,6 @@ internal sealed class SecurityProfile
         }
     }
 
-    private static bool Contains(string root, string path)
-    {
-        var relative = Path.GetRelativePath(root, path);
-        return relative == "." ||
-            (!Path.IsPathRooted(relative) && relative != ".." &&
-             !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) &&
-             !relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal));
-    }
-
     private static (bool Read, bool Write) EvaluateMaterialized(
         string path,
         IEnumerable<MaterializedSandboxRule> rules)
@@ -153,7 +144,7 @@ internal sealed class SecurityProfile
         var access = (Read: true, Write: false);
         foreach (var rule in rules)
         {
-            if (Contains(rule.Path, path))
+            if (PlatformPath.Contains(rule.Path, path))
             {
                 access = (rule.Read, rule.Write);
             }
@@ -162,17 +153,8 @@ internal sealed class SecurityProfile
         return access;
     }
 
-    private Access Evaluate(string path)
-    {
-        if (!TryCanonicalize(path, out var canonicalPath))
-        {
-            return Access.Denied;
-        }
-
-        return _agentBoundary is null
-            ? EvaluatePolicy(canonicalPath)
-            : EvaluateAgent(canonicalPath, _agentBoundary);
-    }
+    private Access Evaluate(string path) =>
+        TryCanonicalize(path, out var canonical) ? EvaluateCanonical(canonical) : Access.Denied;
 
     private Access EvaluateCanonical(string path) => _agentBoundary is null
         ? EvaluatePolicy(path)
@@ -182,16 +164,24 @@ internal sealed class SecurityProfile
     {
         if (_innerProfiles.Length > 0)
         {
-            var inner = _innerProfiles.Select(profile => profile.EvaluateCanonical(path)).ToArray();
-            var read = inner.All(access => access.Read);
-            var write = inner.All(access => access.Write);
-            return new(read, write, write && inner.Any(access => access.WriteAuthorized));
+            var read = true;
+            var write = true;
+            var writeAuthorized = false;
+            foreach (var profile in _innerProfiles)
+            {
+                var profileAccess = profile.EvaluateCanonical(path);
+                read &= profileAccess.Read;
+                write &= profileAccess.Write;
+                writeAuthorized |= profileAccess.WriteAuthorized;
+            }
+
+            return new(read, write, write && writeAuthorized);
         }
 
         var access = new Access(true, !ReadOnly, false);
         foreach (var rule in _rules)
         {
-            if (!Contains(rule.Path, path))
+            if (!PlatformPath.Contains(rule.Path, path))
             {
                 continue;
             }
@@ -212,13 +202,16 @@ internal sealed class SecurityProfile
     private Access EvaluateAgent(string path, AgentSecurityBoundary boundary)
     {
         var policy = _innerProfiles[0].EvaluateCanonical(path);
-        if (Contains(boundary.SessionRoot, path))
+        if (PlatformPath.Contains(boundary.SessionRoot, path))
         {
             return policy with { Write = true, WriteAuthorized = true };
         }
 
-        var boundaryAllowsWrite = boundary.WritablePaths.Any(root => Contains(root, path));
-        return policy with { Write = policy.Write && (policy.WriteAuthorized || boundaryAllowsWrite) };
+        return policy with
+        {
+            Write = policy.Write
+                && (policy.WriteAuthorized || boundary.WritablePaths.Any(root => PlatformPath.Contains(root, path))),
+        };
     }
 
     private (bool Read, bool Write) EvaluateForSandbox(string path)

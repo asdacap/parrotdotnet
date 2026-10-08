@@ -15,8 +15,7 @@ internal sealed class QuestionTool(IQuestionRequester requester) : ITool
     {
         try
         {
-            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, QuestionJsonContext.Default.QuestionToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, QuestionJsonContext.Default.QuestionToolInput);
             var wireQuestions = input.Questions ?? throw new FormatException("Tool arguments require an array 'questions'.");
             QuestionDefinition[] questions = [.. wireQuestions.Select(question => new QuestionDefinition(
                 question.Header ?? string.Empty,

@@ -93,5 +93,5 @@ export function useSlashRunner(
     }
   }
 
-  return { queued, running, prompt, loadingActivity, submit, answer }
+  return { queued, prompt, loadingActivity, submit, answer }
 }

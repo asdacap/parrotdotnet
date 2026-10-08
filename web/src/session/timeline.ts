@@ -34,7 +34,7 @@ export type TimelineItem =
   | { kind: "print"; lines: string[] }
   | { kind: "error"; message: string }
 
-type ToolItem = Extract<TimelineItem, { kind: "tool" }>
+export type ToolItem = Extract<TimelineItem, { kind: "tool" }>
 
 export interface AgentInfo {
   name: string
@@ -125,7 +125,7 @@ function updateTool(
   toolCallId: string,
   update: (tool: ToolItem) => Partial<ToolItem>,
 ): TimelineState {
-  const index = state.items.findIndex((item) => item.kind === "tool" && item.toolCallId === toolCallId)
+  const index = state.items.findLastIndex((item) => item.kind === "tool" && item.toolCallId === toolCallId)
   const existing = state.items[index]
   if (existing?.kind === "tool") {
     return { ...state, items: state.items.with(index, { ...existing, ...update(existing) }) }

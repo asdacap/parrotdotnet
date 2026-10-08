@@ -10,7 +10,7 @@ internal sealed class QueueCreateTool(IAgentQueues queues) : ITool
 
     public Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken) => QueueToolExecution.Execute(invocation, () =>
     {
-        var input = QueueToolExecution.Deserialize(invocation.ArgumentsJson, QueueToolJsonContext.Default.QueueCreateToolInput);
+        var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, QueueToolJsonContext.Default.QueueCreateToolInput);
         return QueueToolExecution.Serialize(queues.Create(QueueToolExecution.RequireName(input.Name), input.Description ?? string.Empty));
     });
 

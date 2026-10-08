@@ -8,6 +8,8 @@ internal static class ToolPresentationRedactor
 {
     private const string Redacted = "<redacted>";
 
+    private static readonly JsonSerializerOptions SerializerOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
     public static ToolCallPresentation Redact(
         ToolCallPresentation call,
         ToolPresentationMetadata metadata)
@@ -39,7 +41,7 @@ internal static class ToolPresentationRedactor
 
             return call with
             {
-                ArgumentsJson = root.ToJsonString(new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }),
+                ArgumentsJson = root.ToJsonString(SerializerOptions),
             };
         }
         catch (JsonException)

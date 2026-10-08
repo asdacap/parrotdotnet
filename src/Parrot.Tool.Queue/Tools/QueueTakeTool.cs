@@ -23,7 +23,7 @@ internal sealed class QueueTakeTool(IAgentQueues queues, IAgentResolver resolver
         });
         try
         {
-            var input = QueueToolExecution.Deserialize(invocation.ArgumentsJson, QueueToolJsonContext.Default.QueueTakeToolInput);
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, QueueToolJsonContext.Default.QueueTakeToolInput);
             var name = QueueToolExecution.RequireName(input.Name);
             IQueueStore? store = null;
             if (name.Contains('/', StringComparison.Ordinal))

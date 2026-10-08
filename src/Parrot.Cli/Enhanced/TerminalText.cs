@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Text;
 
@@ -5,9 +6,19 @@ namespace Parrot.Cli.Enhanced;
 
 internal static class TerminalText
 {
+    private static readonly SearchValues<char> UnsanitizedCharacters = SearchValues.Create(
+        [.. Enumerable.Range(0, char.MaxValue + 1)
+            .Select(static code => (char)code)
+            .Where(static character => character != '\n' && (char.IsControl(character) || char.IsSurrogate(character)))]);
+
     public static string Sanitize(string value)
     {
         ArgumentNullException.ThrowIfNull(value);
+
+        if (!value.AsSpan().ContainsAny(UnsanitizedCharacters))
+        {
+            return value;
+        }
 
         var clean = new StringBuilder(value.Length);
 
@@ -25,6 +36,8 @@ internal static class TerminalText
 
         return clean.ToString();
     }
+
+    public static string SanitizeLine(string value) => Sanitize(value).Replace('\n', ' ');
 
     public static List<string> LayoutWords(string value, int width) =>
         LayoutWordsHanging(value, width, string.Empty);

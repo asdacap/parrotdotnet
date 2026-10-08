@@ -77,48 +77,30 @@ internal sealed class QuestionBroker : IQuestionBroker
         ArgumentException.ThrowIfNullOrEmpty(requestId);
         ArgumentNullException.ThrowIfNull(reply);
 
-        PendingRequest pending;
-        QuestionReply copied;
         lock (_gate)
         {
-            if (!_pending.TryGetValue(requestId, out var found))
-            {
-                throw new QuestionException($"question request not found: {requestId}");
-            }
-
-            pending = found;
-            copied = QuestionValidation.CopyReply(reply);
+            var pending = Find(requestId);
+            var copied = QuestionValidation.CopyReply(reply);
             QuestionValidation.ValidateReply(pending.Questions, copied);
-            pending.PublishOutcome(copied);
             _ = _pending.Remove(requestId);
+            pending.Settle(copied);
         }
-
-        pending.Complete();
     }
 
     public void Reject(string requestId)
     {
         ArgumentException.ThrowIfNullOrEmpty(requestId);
 
-        PendingRequest pending;
         lock (_gate)
         {
-            if (!_pending.TryGetValue(requestId, out var found))
-            {
-                throw new QuestionException($"question request not found: {requestId}");
-            }
-
-            pending = found;
-            pending.PublishFailure(new QuestionRejectedException("question request rejected"));
+            var pending = Find(requestId);
             _ = _pending.Remove(requestId);
+            pending.Fail(new QuestionRejectedException("question request rejected"));
         }
-
-        pending.Complete();
     }
 
     public void Dispose()
     {
-        PendingRequest[] pending;
         lock (_gate)
         {
             if (_disposed)
@@ -127,18 +109,12 @@ internal sealed class QuestionBroker : IQuestionBroker
             }
 
             _disposed = true;
-            pending = [.. _pending.Values];
+            var pending = _pending.Values.ToArray();
+            _pending.Clear();
             foreach (var item in pending)
             {
-                item.PublishFailure(new QuestionRejectedException("question session closed"));
+                item.Fail(new QuestionRejectedException("question session closed"));
             }
-
-            _pending.Clear();
-        }
-
-        foreach (var item in pending)
-        {
-            item.Complete();
         }
     }
 
@@ -180,6 +156,11 @@ internal sealed class QuestionBroker : IQuestionBroker
         }
     }
 
+    private PendingRequest Find(string requestId) =>
+        _pending.TryGetValue(requestId, out var found)
+            ? found
+            : throw new QuestionNotFoundException($"question request not found: {requestId}");
+
     private bool Remove(string id, PendingRequest expected)
     {
         lock (_gate)
@@ -210,20 +191,16 @@ internal sealed class QuestionBroker : IQuestionBroker
             return _outcome ?? throw new InvalidOperationException("The question request has no settled outcome.");
         }
 
-        public void PublishOutcome(QuestionReply outcome) => _outcome = outcome;
-
-        public void PublishFailure(QuestionRejectedException failure) => _failure = failure;
-
-        public void Complete()
+        public void Settle(QuestionReply outcome)
         {
-            if (_failure is not null)
-            {
-                _ = Answer.TrySetException(_failure);
-            }
-            else
-            {
-                _ = Answer.TrySetResult(RequireOutcome());
-            }
+            _outcome = outcome;
+            _ = Answer.TrySetResult(outcome);
+        }
+
+        public void Fail(QuestionRejectedException failure)
+        {
+            _failure = failure;
+            _ = Answer.TrySetException(failure);
         }
     }
 }

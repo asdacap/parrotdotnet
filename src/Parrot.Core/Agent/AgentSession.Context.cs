@@ -15,32 +15,15 @@ internal sealed partial class AgentSession
     {
         ArgumentNullException.ThrowIfNull(selection);
 
-        if (!_epochContext.EpochInitialized)
-        {
-            _systemPrompt.RenewEpoch();
-            _epochContext.EpochInitialized = true;
-        }
-
-        var tools = MaterializeTools()
-            .PermittedBy(selection.Profile);
+        EnsureEpoch();
+        var tools = PermittedTools(selection);
         return EstimateContextForHistory(selection, _systemPrompt.Build(selection), tools.Definitions, [.. _history]);
     }
 
     public IReadOnlyList<LLMToolDefinition> AdvertisedToolDefinitions(AgentTurnSelection selection)
     {
         ArgumentNullException.ThrowIfNull(selection);
-        return MaterializeTools()
-            .PermittedBy(selection.Profile)
-            .Definitions;
-    }
-
-    public ContextSnapshot EstimateContextForTools(
-        AgentTurnSelection selection,
-        IReadOnlyList<LLMToolDefinition> tools)
-    {
-        ArgumentNullException.ThrowIfNull(selection);
-        ArgumentNullException.ThrowIfNull(tools);
-        return EstimateContextForHistory(selection, _systemPrompt.Build(selection), tools, [.. _history]);
+        return PermittedTools(selection).Definitions;
     }
 
     public ContextSnapshot EstimateContextAfterToolResult(
@@ -52,8 +35,7 @@ internal sealed partial class AgentSession
         ArgumentException.ThrowIfNullOrWhiteSpace(toolCallId);
         ArgumentNullException.ThrowIfNull(result);
 
-        var tools = MaterializeTools()
-            .PermittedBy(selection.Profile);
+        var tools = PermittedTools(selection);
         var history = RestoreHistory(eventRepository, SessionId);
         var formattedResult = promptTemplates.Render(
             "tool-result.text",
@@ -74,14 +56,8 @@ internal sealed partial class AgentSession
         ArgumentNullException.ThrowIfNull(selection);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var tools = MaterializeTools()
-            .PermittedBy(selection.Profile);
-        if (!_epochContext.EpochInitialized)
-        {
-            _systemPrompt.RenewEpoch();
-            _epochContext.EpochInitialized = true;
-        }
-
+        var tools = PermittedTools(selection);
+        EnsureEpoch();
         var instructions = _systemPrompt.Build(selection);
         var before = EstimateContextForHistory(selection, instructions, tools.Definitions, [.. _history]);
         if (before.InputLimit <= 0)
@@ -141,21 +117,9 @@ internal sealed partial class AgentSession
                     request.CancellationToken);
                 operation.Token.ThrowIfCancellationRequested();
                 await ReconcileToolBatchesUsingCurrentConfiguration(operation.Token).ConfigureAwait(false);
-                var captured = CaptureSelection();
-                var resolved = ResolveModel(captured);
-                var selection = new AgentTurnSelection(
-                    resolved.RequestedSelector,
-                    resolved,
-                    captured.Profile,
-                    captured.SecurityProfile);
-                var tools = MaterializeTools()
-                    .PermittedBy(selection.Profile);
-                if (!_epochContext.EpochInitialized)
-                {
-                    _systemPrompt.RenewEpoch();
-                    _epochContext.EpochInitialized = true;
-                }
-
+                var selection = CaptureTurnSelection();
+                var tools = PermittedTools(selection);
+                EnsureEpoch();
                 var instructions = _systemPrompt.Build(selection);
                 _ = await CompactEpoch(selection, request.TargetContextSize, tools.Definitions, instructions, operation.Token).ConfigureAwait(false);
                 _ = request.Completion.TrySetResult();
@@ -178,12 +142,7 @@ internal sealed partial class AgentSession
         IReadOnlyList<LLMToolDefinition> tools,
         CancellationToken cancellationToken)
     {
-        if (!_epochContext.EpochInitialized)
-        {
-            _systemPrompt.RenewEpoch();
-            _epochContext.EpochInitialized = true;
-        }
-
+        EnsureEpoch();
         var instructions = _systemPrompt.Build(selection);
         var context = compactor.EstimateSelectedContext(
             selection.ResolvedModel,
@@ -363,27 +322,18 @@ internal sealed partial class AgentSession
             {
                 const int maximumStatusConvergenceAttempts = 8;
                 var compactedHistory = ReplaceFixedStatus(compacted.History, statusContent);
+                var renderedContext = EstimateContextForHistory(selection, instructions, tools, compactedHistory);
                 for (var attempt = 0; attempt < maximumStatusConvergenceAttempts; attempt++)
                 {
-                    var postCompactionContext = EstimateContextForHistory(
-                        selection,
-                        instructions,
-                        tools,
-                        compactedHistory);
+                    var postCompactionContext = renderedContext;
                     var contextContent = await status.ObserveContext(
                         this,
                         selection,
                         postCompactionContext,
                         cancellationToken).ConfigureAwait(false);
-                    var postCompactionStatus = ReplaceContextStatus(statusContent, contextContent);
-                    var postCompactionHistory = ReplaceFixedStatus(compacted.History, postCompactionStatus);
-                    var renderedContext = EstimateContextForHistory(
-                        selection,
-                        instructions,
-                        tools,
-                        postCompactionHistory);
-                    statusContent = postCompactionStatus;
-                    compactedHistory = postCompactionHistory;
+                    statusContent = ReplaceContextStatus(statusContent, contextContent);
+                    compactedHistory = ReplaceFixedStatus(compacted.History, statusContent);
+                    renderedContext = EstimateContextForHistory(selection, instructions, tools, compactedHistory);
                     if (postCompactionContext == renderedContext)
                     {
                         break;
@@ -391,8 +341,7 @@ internal sealed partial class AgentSession
                 }
 
                 compacted = compacted with { History = compactedHistory };
-                var finalContext = EstimateContextForHistory(selection, instructions, tools, compacted.History);
-                if (finalContext.ExceedsInputLimit)
+                if (renderedContext.ExceedsInputLimit)
                 {
                     throw new InvalidOperationException(
                         "The compacted conversation exceeds the selected model input limit.");
@@ -421,7 +370,7 @@ internal sealed partial class AgentSession
                     instructions,
                     tools,
                     _history);
-                contextCadence.Rebase(
+                contextCadence.Acknowledge(
                     persistedContext,
                     selectedModel.Selector,
                     _history.Count);

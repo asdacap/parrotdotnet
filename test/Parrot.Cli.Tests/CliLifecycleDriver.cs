@@ -157,7 +157,7 @@ internal sealed class CliLifecycleDriver : IDisposable
             var terminal = new TestTerminal(Input, _output, _error, _columns);
             _terminal = terminal;
             var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
-            var renderer = new EnhancedTurnRenderer(terminal, _configuration, presenters);
+            var renderer = new EnhancedTurnRenderer(terminal);
             return new EnhancedCli(
                 client,
                 Interrupts,

@@ -1,6 +1,5 @@
 using Parrot.Agent;
 using Parrot.Events;
-using Parrot.Llm;
 using Parrot.Security;
 using Parrot.Store;
 using Parrot.Tools;
@@ -18,9 +17,7 @@ internal sealed class SetExitReminderToolTests
         var reminder = new ExitReminder(repository, broker, TestModels.PromptTemplates, "agent");
         ITool set = new SetExitReminderTool(reminder, TestModels.PromptTemplates);
         ITool clear = new ClearExitReminderTool(reminder, TestModels.PromptTemplates);
-        var provider = new UnusedProvider();
-        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        var selection = new AgentTurnSelection(new ModelSelector(model.Selector), TestModels.Resolve(model), new TestProfileFixture().Profile, SecurityProfile.Compose(readOnly: false, [], [], []));
+        var selection = TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], []));
         const string first = "Exit reminders are set. You cannot finish until every one is cleared with clear_exit_reminder:\n";
         var steps = new (ITool? Tool, string? Json, string? Output, string? ExpectedBuild)[]
         {
@@ -59,9 +56,7 @@ internal sealed class SetExitReminderToolTests
         var reminder = new ExitReminder(repository, broker, TestModels.PromptTemplates, "agent");
         ITool set = new SetExitReminderTool(reminder, TestModels.PromptTemplates);
         ITool clear = new ClearExitReminderTool(reminder, TestModels.PromptTemplates);
-        var provider = new UnusedProvider();
-        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        var selection = new AgentTurnSelection(new ModelSelector(model.Selector), TestModels.Resolve(model), new TestProfileFixture().Profile, SecurityProfile.Compose(readOnly: false, [], [], []));
+        var selection = TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], []));
         var cases = new (ITool Tool, string Json)[]
         {
             (set, "null"),

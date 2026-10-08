@@ -53,7 +53,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         var router = Router(parentProvider, childProvider);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var resources = new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var runner = new ProcessRunner(string.Empty);
+        var runner = TestModels.Runner(string.Empty);
         var repository = new EventRepository(_database);
         var factory = new CompletionAgentSessions(router, runner, resources, _broker, _workspace);
         await using IAgentRegistry registry = new AgentRegistry(factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), TestDiagnosticLog.Instance, lifetime.Token);
@@ -105,7 +105,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         var router = Router(parentProvider, childProvider);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var resources = new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var runner = new ProcessRunner(string.Empty);
+        var runner = TestModels.Runner(string.Empty);
         var repository = new EventRepository(_database);
         var factory = new CompletionAgentSessions(
             router, runner, resources, _broker, _workspace);
@@ -178,7 +178,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         var router = Router(provider);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var resources = new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var runner = new ProcessRunner(string.Empty);
+        var runner = TestModels.Runner(string.Empty);
         var repository = new EventRepository(_database);
         var factory = new CompletionAgentSessions(router, runner, resources, _broker, _workspace);
         await using IAgentRegistry registry = new AgentRegistry(
@@ -221,7 +221,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         var router = Router(provider);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var resources = new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var runner = new ProcessRunner(string.Empty);
+        var runner = TestModels.Runner(string.Empty);
         var repository = new EventRepository(_database);
         var factory = new CompletionAgentSessions(
             router, runner, resources, _broker, _workspace);
@@ -274,7 +274,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         var router = Router(parentProvider, childProvider);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var resources = new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var runner = new ProcessRunner(string.Empty);
+        var runner = TestModels.Runner(string.Empty);
         var repository = new EventRepository(_database);
         var factory = new CompletionAgentSessions(
             router,
@@ -358,7 +358,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         var router = Router(parentProvider, childProvider);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var resources = new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var runner = new ProcessRunner(string.Empty);
+        var runner = TestModels.Runner(string.Empty);
         var repository = new EventRepository(_database);
         var factory = new CompletionAgentSessions(
             router, runner, resources, _broker, _workspace);
@@ -402,7 +402,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         var router = Router(monitoredProvider, siblingProvider, grandchildProvider, rootProvider);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var resources = new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var runner = new ProcessRunner(string.Empty);
+        var runner = TestModels.Runner(string.Empty);
         var repository = new EventRepository(_database);
         var factory = new CompletionAgentSessions(
             router, runner, resources, _broker, _workspace);
@@ -488,7 +488,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         var router = Router(provider);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var resources = new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var runner = new ProcessRunner(CreateSandboxPassThrough());
+        var runner = TestModels.Runner(CreateSandboxPassThrough());
         var repository = new EventRepository(_database);
         var factory = new CompletionAgentSessions(
             router, runner, resources, _broker, _workspace);
@@ -549,7 +549,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         var router = Router(parentProvider, childProvider);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var resources = new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var runner = new ProcessRunner(string.Empty);
+        var runner = TestModels.Runner(string.Empty);
         var repository = new EventRepository(_database);
         var factory = new CompletionAgentSessions(
             router, runner, resources, _broker, _workspace);
@@ -593,16 +593,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         int count,
         CancellationToken cancellationToken)
     {
-        while (true)
-        {
-            var pending = coordinator.PendingForParent(parent);
-            if (pending.Count == count)
-            {
-                return pending;
-            }
-
-            await Task.Delay(1, cancellationToken).ConfigureAwait(false);
-        }
+        await TestPolling.Until(() => coordinator.PendingForParent(parent).Count == count, cancellationToken);
+        return coordinator.PendingForParent(parent);
     }
 
     private static List<Event> Events(IEventSubscription subscription)

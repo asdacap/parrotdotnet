@@ -127,8 +127,7 @@ internal sealed class ChatGptModelCatalogueTests
     [Test]
     public async Task Registry_projects_models_dev_openai_catalogue_into_chatgpt(CancellationToken cancellationToken)
     {
-        var directory = Path.Combine(Path.GetTempPath(), "parrot-chatgpt-models-dev", Guid.NewGuid().ToString("n"));
-        _ = Directory.CreateDirectory(directory);
+        var directory = Directory.CreateTempSubdirectory("parrot-chatgpt-models-dev-").FullName;
         var configurationPath = Path.Combine(directory, "config.yaml");
         await File.WriteAllTextAsync(configurationPath, string.Empty, cancellationToken);
 

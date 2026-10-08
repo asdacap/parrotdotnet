@@ -31,8 +31,7 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
 
         try
         {
-            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, FileToolJsonContext.Default.ReadToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, FileToolJsonContext.Default.ReadToolInput);
             path = workspace.ExpandPath(input.Path ?? throw new FormatException("Tool arguments require a string 'path'."));
             offset = input.Offset ?? 1;
             limit = input.Limit ?? MaxLines;
@@ -56,16 +55,11 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
 
         try
         {
-            resolved = workspace.ResolveRead(path);
+            resolved = workspace.ResolveAllowedRead(path, selection.SecurityProfile);
         }
         catch (Exception failure) when (failure is InvalidOperationException or IOException)
         {
             return ToolResultFormatter.Error(invocation, failure.Message);
-        }
-
-        if (!ToolWorkspace.AllowsRead(resolved, selection.SecurityProfile))
-        {
-            return ToolResultFormatter.Error(invocation, "access denied");
         }
 
         if (Directory.Exists(resolved.Physical))
@@ -134,7 +128,7 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
 
         if (truncated)
         {
-            _ = output.Append(ToolResultFormatter.Marker(invocation, "[output truncated]\n"));
+            _ = output.Append(ToolResultFormatter.Text(invocation, "[output truncated]\n"));
         }
 
         _ = output.Append("total lines in file: ")
@@ -168,21 +162,16 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
 
             try
             {
-                resolved = workspace.ResolveRead(lexical);
+                resolved = workspace.ResolveAllowedRead(lexical, securityProfile);
             }
             catch (Exception failure) when (failure is InvalidOperationException or IOException)
             {
                 continue;
             }
 
-            if (!ToolWorkspace.AllowsRead(resolved, securityProfile))
-            {
-                continue;
-            }
-
             if (count >= MaxLines || output.Length >= MaxOutputBytes)
             {
-                _ = output.Append(ToolResultFormatter.Marker(invocation, "[listing truncated]\n"));
+                _ = output.Append(ToolResultFormatter.Text(invocation, "[listing truncated]\n"));
                 break;
             }
 

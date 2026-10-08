@@ -1,6 +1,5 @@
 using Parrot.Agent;
 using Parrot.AgentTasks;
-using Parrot.Llm;
 using Parrot.Security;
 using Parrot.Store;
 using Parrot.Tools;
@@ -12,8 +11,7 @@ internal sealed class SetAgentTasksToolTests : IDisposable
     private const string Declarations =
         """[{"name":"build","description":"Build it","payload":"Run the build","acceptance_criteria":"It builds","hidden":true},{"name":"test","dependencies":["build"],"description":"Test it","payload":"Run the tests","acceptance_criteria":"Tests pass","state":"succeeded","result":"green"}]""";
 
-    private readonly string _root = Directory.CreateDirectory(
-        Path.Combine(Path.GetTempPath(), "parrot-set-agent-tasks-tool-tests", Guid.NewGuid().ToString("N"))).FullName;
+    private readonly string _root = Directory.CreateTempSubdirectory("parrot-set-agent-tasks-tool-tests-").FullName;
 
     public SetAgentTasksToolTests()
     {
@@ -98,16 +96,7 @@ internal sealed class SetAgentTasksToolTests : IDisposable
         _ = await Assert.That(result.Text).IsEqualTo($"error: {failure.Message}");
     }
 
-    private static AgentTurnSelection Selection()
-    {
-        ILLMProvider provider = new UnusedProvider();
-        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        return new AgentTurnSelection(
-            new ModelSelector(model.Selector),
-            TestModels.Resolve(model),
-            new TestProfileFixture().Profile,
-            SecurityProfile.Compose(readOnly: false, [], [], []));
-    }
+    private static AgentTurnSelection Selection() => TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], []));
 
     private SetAgentTasksTool Tool(IAgentTaskService agentTasks) =>
         new(new ToolWorkspace(_root), agentTasks, TestModels.PromptTemplates);

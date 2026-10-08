@@ -21,8 +21,7 @@ internal sealed class ImageGenerationTool(ToolWorkspace workspace) : ITool
         try
         {
             token.ThrowIfCancellationRequested();
-            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, FileToolJsonContext.Default.ImageGenerationToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, FileToolJsonContext.Default.ImageGenerationToolInput);
             if (string.IsNullOrWhiteSpace(input.Prompt) || string.IsNullOrWhiteSpace(input.OutputPath))
             {
                 throw new FormatException("Tool arguments require nonblank 'prompt' and 'output_path' strings.");

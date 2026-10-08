@@ -42,8 +42,6 @@ internal interface IUserSession : IAsyncDisposable
 
     StandingInstruction StandingInstruction { get; }
 
-    void UpdateMode(string mode);
-
     IUserMode ResolveMode(string mode);
 
     void UpdateSelection(ResolvedModelSelection model);

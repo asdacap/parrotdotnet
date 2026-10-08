@@ -29,7 +29,7 @@ internal sealed class RawReasoningActivityTests
             TerminalText.Sanitize(secondFragment));
         var expectedCount = TokenEstimator.EstimateTokens(accumulated).ToString(CultureInfo.InvariantCulture);
 
-        await using var fixture = new RawReasoningFixture();
+        await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);
         await fixture.View.Render(TurnStart("root"), cancellationToken);
         if (!isRoot)
         {
@@ -55,7 +55,7 @@ internal sealed class RawReasoningActivityTests
         }
 
         _ = await Assert.That(fixture.Committed).Count().IsEqualTo(1);
-        _ = await Assert.That(Count(fixture.CommittedText, "Reasoned for ")).IsEqualTo(1);
+        _ = await Assert.That(fixture.CommittedText.AsSpan().Count("Reasoned for ")).IsEqualTo(1);
         _ = await Assert.That(fixture.CommittedText).Contains(NoticeLine(isRoot, expectedCount));
         _ = await Assert.That(fixture.LastDrawn).DoesNotContain("Thinking (");
     }
@@ -64,7 +64,7 @@ internal sealed class RawReasoningActivityTests
     public async Task Raw_reasoning_count_grows_with_each_fragment_and_stays_silent_when_nothing_arrived(
         CancellationToken cancellationToken)
     {
-        await using var fixture = new RawReasoningFixture();
+        await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);
         await fixture.View.Render(TurnStart("root"), cancellationToken);
         await fixture.View.Prepare(PhaseChange("root"), cancellationToken);
         await fixture.View.Render(SummaryChunk("root", string.Empty), cancellationToken);
@@ -87,7 +87,7 @@ internal sealed class RawReasoningActivityTests
     public async Task Raw_reasoning_count_is_humanized_once_it_is_large(CancellationToken cancellationToken)
     {
         var fragment = new string('a', 16_400);
-        await using var fixture = new RawReasoningFixture();
+        await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);
         await fixture.View.Render(TurnStart("root"), cancellationToken);
         await fixture.View.Render(RawChunk("root", fragment, completed: false), cancellationToken);
         _ = await Assert.That(fixture.LastDrawn).Contains(LiveLine(isRoot: true, "4.1k"));
@@ -99,7 +99,7 @@ internal sealed class RawReasoningActivityTests
     [Test]
     public async Task Raw_reasoning_state_is_isolated_per_agent(CancellationToken cancellationToken)
     {
-        await using var fixture = new RawReasoningFixture();
+        await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);
         await fixture.View.Render(TurnStart("root"), cancellationToken);
         await fixture.View.Render(ChildStart("child", "worker"), cancellationToken);
         await fixture.View.Render(TurnStart("child"), cancellationToken);
@@ -123,7 +123,7 @@ internal sealed class RawReasoningActivityTests
         await fixture.View.Prepare(PhaseChange("root"), cancellationToken);
         _ = await Assert.That(fixture.Committed).Count().IsEqualTo(2);
         _ = await Assert.That(fixture.CommittedText).Contains(NoticeLine(isRoot: true, rootCount));
-        _ = await Assert.That(Count(fixture.CommittedText, "Reasoned for ")).IsEqualTo(2);
+        _ = await Assert.That(fixture.CommittedText.AsSpan().Count("Reasoned for ")).IsEqualTo(2);
         _ = await Assert.That(fixture.LastDrawn).DoesNotContain("Thinking (");
     }
 
@@ -170,56 +170,4 @@ internal sealed class RawReasoningActivityTests
             AgentSessionId = agentSessionId,
             ProviderRequestPhaseChanged = new ProviderRequestPhaseChangedEvent { Phase = ProviderRequestPhase.Idle },
         };
-
-    private static string Render(IReadOnlyList<ILiveBufferItem> items, LiveBufferRenderContext context) =>
-        string.Join('|', items.SelectMany(item => item.Render(context).Lines).Select(static line => line.Text));
-
-    private static int Count(string value, string fragment) =>
-        value.Split(fragment, StringSplitOptions.None).Length - 1;
-
-    private sealed class RawReasoningFixture : IAsyncDisposable
-    {
-        private readonly LiveBufferRenderContext _liveContext = new(120, new TerminalPalette(false));
-        private readonly ScrollbackRenderContext _scrollbackContext;
-        private readonly List<string> _drawn = [];
-        private readonly List<string> _committed = [];
-
-        public RawReasoningFixture()
-        {
-            _scrollbackContext = new ScrollbackRenderContext(120, _liveContext.Palette);
-            View = new RawActivityView(
-                Draw,
-                Commit,
-                new ToolPresenterRegistry([], new GenericToolPresenter()),
-                static (_, _) => Task.CompletedTask);
-        }
-
-        public RawActivityView View { get; }
-
-        public string LastDrawn => _drawn[^1];
-
-        public IReadOnlyList<string> Committed => _committed;
-
-        public string CommittedText => string.Join('|', _committed);
-
-        public ValueTask DisposeAsync() => View.DisposeAsync();
-
-        private Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            _drawn.Add(Render(items, _liveContext));
-            return Task.CompletedTask;
-        }
-
-        private Task Commit(
-            IScrollbackItem item,
-            IReadOnlyList<ILiveBufferItem> items,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            _committed.Add(string.Join('|', item.Render(_scrollbackContext)));
-            _drawn.Add(Render(items, _liveContext));
-            return Task.CompletedTask;
-        }
-    }
 }

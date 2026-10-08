@@ -74,7 +74,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
                 registry,
                 TestModels.PromptTemplates,
                 owner.Resources,
-                new ProcessRunner(string.Empty),
+                TestModels.Runner(string.Empty),
                 owner.Diagnostics,
                 (sessionParentScope, owningScope, children, childQuestions) =>
             {

@@ -13,14 +13,14 @@ internal sealed class WriteEditToolPresenterTests
     {
         yield return
         [
-            new WriteToolPresenter(),
+            new FileMutationToolPresenter("write"),
             "{\"path\":\"src/file.txt\",\"content\":\"secret content\"}",
             "write src/file.txt",
             "secret content",
         ];
         yield return
         [
-            new EditToolPresenter(),
+            new FileMutationToolPresenter("edit"),
             "{\"path\":\"src/file.txt\",\"old_string\":\"secret search\",\"new_string\":\"secret replacement\",\"replace_all\":true}",
             "edit src/file.txt",
             "secret search",
@@ -29,8 +29,8 @@ internal sealed class WriteEditToolPresenterTests
 
     public static IEnumerable<object[]> PresenterInstances()
     {
-        yield return [new WriteToolPresenter()];
-        yield return [new EditToolPresenter()];
+        yield return [new FileMutationToolPresenter("write")];
+        yield return [new FileMutationToolPresenter("edit")];
     }
 
     [Test]

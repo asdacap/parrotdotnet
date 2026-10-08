@@ -1,19 +1,11 @@
 using Parrot.Agent;
 using Parrot.Context;
-using Parrot.Llm;
 
 namespace Parrot.Statuses;
 
 /// <summary>Observes runtime, statistics, and context status for an agent session.</summary>
 internal interface IRuntimeStatus
 {
-    Task<string> ObserveWithTools(
-        IAgentSession session,
-        AgentTurnSelection selection,
-        IAgentProfile profile,
-        IReadOnlyList<LLMToolDefinition> tools,
-        CancellationToken cancellationToken);
-
     Task<string> ObserveRuntime(
         IAgentSession session,
         AgentTurnSelection selection,

@@ -1,6 +1,5 @@
 using Parrot.Llm;
 using Parrot.Security;
-using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Agent;
@@ -21,9 +20,6 @@ internal interface IAgentRegistry : IAsyncDisposable
 
     /// <summary>Removes the exact registered root scope.</summary>
     void UnregisterRootScope(IAgentSessionScope scope);
-
-    /// <summary>Reports active descendants ordered by session identity.</summary>
-    IReadOnlyList<ActiveWorkObservation> Active();
 
     /// <summary>Captures active descendant identities for runtime status reporting.</summary>
     IReadOnlyList<ActiveAgentSnapshot> ActiveSnapshot();

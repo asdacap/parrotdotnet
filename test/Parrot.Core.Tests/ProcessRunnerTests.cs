@@ -33,7 +33,7 @@ internal sealed class ProcessRunnerTests : IDisposable
                 Path.Combine(_workspace, ".test-data")),
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var runner = new ProcessRunner(string.Empty);
+        var runner = TestModels.Runner(string.Empty);
         var marker = Path.Combine(_workspace, "should-not-exist");
 
         _ = await Assert.That(async () =>
@@ -62,8 +62,10 @@ internal sealed class ProcessRunnerTests : IDisposable
         var argumentsPath = Path.Combine(_workspace, "gate-off-arguments");
         var gate = new SandboxGate(enabled: false);
         var runner = new ProcessRunner(
-            CreateArgumentCapturingSandbox(_workspace, argumentsPath),
-            requireTrustedPath: false,
+            new LinuxBubblewrapSandbox(
+                CreateArgumentCapturingSandbox(_workspace, argumentsPath),
+                requireTrustedPath: false,
+                new LinuxSandboxProcessLauncher([])),
             gate);
         var marker = Path.Combine(_workspace, "gate-off-marker");
 
@@ -229,7 +231,7 @@ internal sealed class ProcessRunnerTests : IDisposable
                 Path.Combine(_workspace, ".test-data")),
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var runner = new ProcessRunner(string.Empty, requireTrustedPath: false, new SandboxGate(enabled: false));
+        var runner = new ProcessRunner(new LinuxBubblewrapSandbox(string.Empty, requireTrustedPath: false, new LinuxSandboxProcessLauncher([])), new SandboxGate(enabled: false));
 
         if (!runner.SandboxAvailable)
         {
@@ -266,7 +268,7 @@ internal sealed class ProcessRunnerTests : IDisposable
                 Path.Combine(_workspace, ".test-data")),
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var runner = new ProcessRunner(CreateSandboxPassThrough(_workspace));
+        var runner = TestModels.Runner(SandboxPassThrough.Write(_workspace));
 
         var result = await runner.Run(
             "awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"o\"; "
@@ -311,7 +313,7 @@ internal sealed class ProcessRunnerTests : IDisposable
                 Path.Combine(_workspace, ".test-data")),
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var runner = new ProcessRunner(CreateSandboxPassThrough(_workspace));
+        var runner = TestModels.Runner(SandboxPassThrough.Write(_workspace));
 
         var result = await runner.Run(
             "awk 'BEGIN { for (i = 0; i < 11000; i++) printf \"€\"; "
@@ -339,7 +341,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             return;
         }
 
-        var runner = new ProcessRunner(CreateSandboxPassThrough(_workspace));
+        var runner = TestModels.Runner(SandboxPassThrough.Write(_workspace));
         var resources = new UserSessionResources(
             new StatePaths(
                 Path.Combine(_workspace, ".test-state"),
@@ -377,7 +379,7 @@ internal sealed class ProcessRunnerTests : IDisposable
                 Path.Combine(_workspace, ".test-data")),
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var runner = new ProcessRunner(CreateSandboxPassThrough(_workspace));
+        var runner = TestModels.Runner(SandboxPassThrough.Write(_workspace));
         var pidPath = Path.Combine(_workspace, "child.pid");
         using var cancellation = new CancellationTokenSource();
         var running = runner.Run(
@@ -436,7 +438,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(worktree));
         var argumentsPath = Path.Combine(worktree, "arguments");
-        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(worktree, argumentsPath));
+        var runner = TestModels.Runner(CreateArgumentCapturingSandbox(worktree, argumentsPath));
 
         _ = await runner.Run(
             "true",
@@ -487,7 +489,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
         var argumentsPath = Path.Combine(_workspace, "arguments");
-        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+        var runner = TestModels.Runner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
 
         _ = await runner.Run(
             "true",
@@ -521,7 +523,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         }
 
         var argumentsPath = Path.Combine(_workspace, "arguments");
-        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+        var runner = TestModels.Runner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
 
         var resources = new UserSessionResources(
             new StatePaths(
@@ -555,7 +557,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         }
 
         var argumentsPath = Path.Combine(_workspace, "arguments");
-        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+        var runner = TestModels.Runner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
         var resources = new UserSessionResources(
             new StatePaths(
                 Path.Combine(_workspace, ".test-state"),
@@ -594,7 +596,7 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         var shared = Directory.CreateDirectory(Path.Combine(_workspace, "shared")).FullName;
         var argumentsPath = Path.Combine(_workspace, "arguments");
-        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+        var runner = TestModels.Runner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
         var resources = new UserSessionResources(
             new StatePaths(
                 Path.Combine(_workspace, ".test-state"),
@@ -645,7 +647,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         var nested = Directory.CreateDirectory(Path.Combine(_workspace, "nested")).FullName;
         var hidden = Directory.CreateDirectory(Path.Combine(_workspace, "hidden")).FullName;
         var argumentsPath = Path.Combine(_workspace, "arguments");
-        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+        var runner = TestModels.Runner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
         var profile = SecurityProfile.Compose(
             readOnly: true,
             modeRules:
@@ -700,7 +702,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
         var scratch = Scratch(resources);
-        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+        var runner = TestModels.Runner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
 
         _ = await runner.Run(
             "true",
@@ -738,7 +740,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             ProjectWorkspace.FromLaunchDirectory(_workspace));
         var granted = Directory.CreateDirectory(Path.Combine(_workspace, "granted")).FullName;
         var argumentsPath = Path.Combine(_workspace, "arguments");
-        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+        var runner = TestModels.Runner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
         var approval = SecurityWriteTarget.Resolve(granted);
         var profile = SecurityProfile.Compose(
             false,
@@ -788,7 +790,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             ProjectWorkspace.FromLaunchDirectory(_workspace));
         var mandatoryRoot = Directory.CreateDirectory(Path.Combine(_workspace, "mandatory")).FullName;
         var argumentsPath = Path.Combine(_workspace, "arguments");
-        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+        var runner = TestModels.Runner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
         var approval = SecurityWriteTarget.Resolve(mandatoryRoot);
         var profile = SecurityProfile.Compose(
             readOnly: false,
@@ -817,7 +819,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         string variableName,
         CancellationToken cancellationToken)
     {
-        var runner = ProcessRunner.Locate();
+        var runner = ProcessRunner.LocateConfigured(ExecutableLocator.Capture(), new SandboxGate(enabled: true), []);
         if (!runner.SandboxAvailable)
         {
             return;
@@ -898,7 +900,7 @@ internal sealed class ProcessRunnerTests : IDisposable
                 Path.Combine(_workspace, ".test-data")),
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var runner = ProcessRunner.Locate();
+        var runner = ProcessRunner.LocateConfigured(ExecutableLocator.Capture(), new SandboxGate(enabled: true), []);
         if (!runner.SandboxAvailable)
         {
             return;
@@ -953,7 +955,7 @@ internal sealed class ProcessRunnerTests : IDisposable
                 Path.Combine(_workspace, ".test-data")),
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var runner = ProcessRunner.Locate();
+        var runner = ProcessRunner.LocateConfigured(ExecutableLocator.Capture(), new SandboxGate(enabled: true), []);
         if (!runner.SandboxAvailable)
         {
             return;
@@ -1018,7 +1020,7 @@ internal sealed class ProcessRunnerTests : IDisposable
     public async Task Read_only_process_writes_the_user_session_but_not_other_sessions(
         CancellationToken cancellationToken)
     {
-        var runner = ProcessRunner.Locate();
+        var runner = ProcessRunner.LocateConfigured(ExecutableLocator.Capture(), new SandboxGate(enabled: true), []);
 
         if (!runner.SandboxAvailable)
         {
@@ -1065,7 +1067,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             return;
         }
 
-        var runner = ProcessRunner.Locate();
+        var runner = ProcessRunner.LocateConfigured(ExecutableLocator.Capture(), new SandboxGate(enabled: true), []);
         if (!runner.SandboxAvailable)
         {
             return;
@@ -1196,7 +1198,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             return;
         }
 
-        var runner = ProcessRunner.Locate();
+        var runner = ProcessRunner.LocateConfigured(ExecutableLocator.Capture(), new SandboxGate(enabled: true), []);
 
         if (!runner.SandboxAvailable)
         {
@@ -1227,7 +1229,7 @@ internal sealed class ProcessRunnerTests : IDisposable
     [Test]
     public async Task The_workspace_is_writable_and_the_host_is_read_only(CancellationToken cancellationToken)
     {
-        var runner = ProcessRunner.Locate();
+        var runner = ProcessRunner.LocateConfigured(ExecutableLocator.Capture(), new SandboxGate(enabled: true), []);
 
         if (!runner.SandboxAvailable)
         {
@@ -1361,24 +1363,6 @@ internal sealed class ProcessRunnerTests : IDisposable
         var path = Path.Combine(workspace, $"capturing-sandbox-{Guid.NewGuid():n}");
         var script = $"#!/bin/sh\nprintf '%s\\n' \"$@\" > '{argumentsPath}'\n"
             + "while [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n";
-        File.WriteAllText(path, script);
-        File.SetUnixFileMode(
-            path,
-            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        return path;
-    }
-
-    private static string CreateSandboxPassThrough(string workspace)
-    {
-        if (!OperatingSystem.IsLinux())
-        {
-            throw new PlatformNotSupportedException();
-        }
-
-        var path = Path.Combine(workspace, $"sandbox-{Guid.NewGuid():n}");
-        var script = "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do\n"
-            + "  if [ \"$1\" = \"--chdir\" ]; then shift; cd \"$1\" || exit; fi\n"
-            + "  shift\ndone\nshift\nexec \"$@\"\n";
         File.WriteAllText(path, script);
         File.SetUnixFileMode(
             path,

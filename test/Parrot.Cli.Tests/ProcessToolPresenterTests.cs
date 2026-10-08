@@ -1,5 +1,6 @@
 using Parrot.Cli.Enhanced;
 using Parrot.Cli.Enhanced.Tools;
+using Parrot.Core.Tests;
 using Parrot.Protocol;
 
 namespace Parrot.Cli.Tests;
@@ -168,17 +169,17 @@ internal sealed class ProcessToolPresenterTests
         _ = await Assert.That(live.Render(LiveContext).Lines[0].Text)
             .IsEqualTo("⠋ $ dotnet test (running 0s)");
 
-        timeProvider.SetElapsed(TimeSpan.FromSeconds(12));
+        timeProvider.Advance(TimeSpan.FromSeconds(12));
         live = live.Animate(1);
         _ = await Assert.That(live.Render(LiveContext).Lines[0].Text)
             .IsEqualTo("⠙ $ dotnet test (running 12s)");
 
-        timeProvider.SetElapsed(TimeSpan.FromSeconds(125));
+        timeProvider.Advance(TimeSpan.FromSeconds(125 - 12));
         live = live.Animate(2);
         _ = await Assert.That(live.Render(LiveContext).Lines[0].Text)
             .IsEqualTo("⠹ $ dotnet test (running 2m 05s)");
 
-        timeProvider.SetElapsed(TimeSpan.FromSeconds(3723));
+        timeProvider.Advance(TimeSpan.FromSeconds(3723 - 125));
         live = live.Animate(3);
         _ = await Assert.That(live.Render(LiveContext).Lines[0].Text)
             .IsEqualTo("⠸ $ dotnet test (running 1h 02m 03s)");
@@ -267,114 +268,6 @@ internal sealed class ProcessToolPresenterTests
     }
 
     [Test]
-    public async Task Activity_redacts_sensitive_chunks_and_tracks_names_by_agent_and_call_id()
-    {
-        var registry = new ToolPresenterRegistry([new WriteStdinToolPresenter()], new GenericToolPresenter());
-        var activity = new EnhancedActivity(registry);
-        var first = new Event
-        {
-            AgentSessionId = "main",
-            ToolCallChunk = new ToolCallChunk
-            {
-                ToolCallId = "shared",
-                ToolName = "write_stdin",
-                ArgumentsFragment = "secret input",
-            },
-        };
-        var continuation = new Event
-        {
-            AgentSessionId = "main",
-            ToolCallChunk = new ToolCallChunk
-            {
-                ToolCallId = "shared",
-                ArgumentsFragment = "more secret input",
-            },
-        };
-        var otherAgent = new Event
-        {
-            AgentSessionId = "child",
-            ToolCallChunk = new ToolCallChunk
-            {
-                ToolCallId = "shared",
-                ArgumentsFragment = "unknown secret input",
-            },
-        };
-
-        activity.Observe(first);
-        var firstText = activity.Format(first, false);
-        activity.Observe(continuation);
-        var continuationText = activity.Format(continuation, false);
-        activity.Observe(otherAgent);
-        var otherText = activity.Format(otherAgent, false);
-
-        _ = await Assert.That(firstText).IsEqualTo("tool call write_stdin: <redacted>");
-        _ = await Assert.That(continuationText).IsEqualTo("tool call write_stdin: <redacted>");
-        _ = await Assert.That(otherText).IsEqualTo("tool call: <redacted>");
-        _ = await Assert.That(firstText + continuationText + otherText).DoesNotContain("secret input");
-    }
-
-    [Test]
-    public async Task Activity_forgets_tracked_names_at_terminal_events_and_turn_completion()
-    {
-        var registry = new ToolPresenterRegistry([new ExecCommandToolPresenter(TimeProvider.System, [])], new GenericToolPresenter());
-        var activity = new EnhancedActivity(registry);
-        var named = new Event
-        {
-            AgentSessionId = "main",
-            ToolCallChunk = new ToolCallChunk
-            {
-                ToolCallId = "call",
-                ToolName = "exec_command",
-                ArgumentsFragment = "visible",
-            },
-        };
-        activity.Observe(named);
-        activity.Observe(new Event
-        {
-            AgentSessionId = "main",
-            ToolFinished = new ToolFinished { ToolCallId = "call", ToolName = "exec_command" },
-        });
-        var afterTerminal = new Event
-        {
-            AgentSessionId = "main",
-            ToolCallChunk = new ToolCallChunk
-            {
-                ToolCallId = "call",
-                ToolName = string.Empty,
-                ArgumentsFragment = "terminal secret",
-            },
-        };
-        var secondNamed = new Event
-        {
-            AgentSessionId = "main",
-            ToolCallChunk = new ToolCallChunk
-            {
-                ToolCallId = "other",
-                ToolName = "exec_command",
-                ArgumentsFragment = "visible",
-            },
-        };
-        activity.Observe(secondNamed);
-        activity.Observe(new Event { AgentSessionId = "main", TurnEnded = new TurnEnded() });
-        var afterTurn = new Event
-        {
-            AgentSessionId = "main",
-            ToolCallChunk = new ToolCallChunk
-            {
-                ToolCallId = "other",
-                ToolName = string.Empty,
-                ArgumentsFragment = "turn secret",
-            },
-        };
-
-        var terminalText = activity.Format(afterTerminal, false);
-        var turnText = activity.Format(afterTurn, false);
-
-        _ = await Assert.That(terminalText).IsEqualTo("tool call: <redacted>");
-        _ = await Assert.That(turnText).IsEqualTo("tool call: <redacted>");
-    }
-
-    [Test]
     public async Task Write_stdin_shows_only_process_character_count_and_status()
     {
         IToolPresenter presenter = new WriteStdinToolPresenter();
@@ -435,16 +328,5 @@ internal sealed class ProcessToolPresenterTests
 
         _ = await Assert.That(string.Join('\n', live)).Contains(liveExpected);
         _ = await Assert.That(string.Join('\n', terminalLines)).Contains(terminalExpected);
-    }
-
-    private sealed class ControlledTimeProvider : TimeProvider
-    {
-        private long _timestamp;
-
-        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
-
-        public override long GetTimestamp() => _timestamp;
-
-        public void SetElapsed(TimeSpan elapsed) => _timestamp = elapsed.Ticks;
     }
 }

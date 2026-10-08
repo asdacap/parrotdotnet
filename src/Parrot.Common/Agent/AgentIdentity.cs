@@ -60,15 +60,6 @@ internal sealed record AgentIdentity(
         string name,
         int depth,
         AgentScope scope,
-        IPromptTemplateCatalog promptTemplates) =>
-        ChildWithPolicyLineage(sessionId, parent, name, depth, scope, AgentPolicyLineage.Root(), promptTemplates);
-
-    public static AgentIdentity ChildWithPolicyLineage(
-        string sessionId,
-        AgentIdentity parent,
-        string name,
-        int depth,
-        AgentScope scope,
         AgentPolicyLineage policyLineage,
         IPromptTemplateCatalog promptTemplates)
     {

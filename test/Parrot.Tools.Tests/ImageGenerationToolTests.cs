@@ -10,9 +10,7 @@ namespace Parrot.Core.Tests;
 
 internal sealed class ImageGenerationToolTests : IDisposable
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), "parrot-imagegen-tests", Guid.NewGuid().ToString("n"));
-
-    public ImageGenerationToolTests() => _ = Directory.CreateDirectory(_root);
+    private readonly string _root = Directory.CreateTempSubdirectory("parrot-imagegen-tests-").FullName;
 
     public void Dispose() => Directory.Delete(_root, recursive: true);
 

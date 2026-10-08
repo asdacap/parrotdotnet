@@ -29,13 +29,13 @@ internal sealed class TerminalFrameRendererTests
         var draw = rendered[..boundary];
         var clear = rendered[boundary..];
 
-        _ = await Assert.That(Count(draw, "\u001b[2K")).IsEqualTo(5);
+        _ = await Assert.That(draw.AsSpan().Count("\u001b[2K")).IsEqualTo(5);
         _ = await Assert.That(draw).Contains("\u001b[2Klive[2J     \r\n");
         _ = await Assert.That(draw).Contains("\u001b[2K⠋ thinking  \r\n");
         _ = await Assert.That(draw).Contains("\u001b[2K─ mo model");
         _ = await Assert.That(draw).Contains("\u001b[2K> ab        \r\n");
         _ = await Assert.That(draw).Contains("\u001b[2K  界x       \u001b[1A");
-        _ = await Assert.That(Count(clear, "\u001b[2K")).IsEqualTo(5);
+        _ = await Assert.That(clear.AsSpan().Count("\u001b[2K")).IsEqualTo(5);
         _ = await Assert.That(rendered).DoesNotContain("\u001b[?1049");
     }
 
@@ -73,8 +73,8 @@ internal sealed class TerminalFrameRendererTests
 
         var rendered = output.ToString();
         _ = await Assert.That(rendered).Contains("\u001b[2K─ model \r\n");
-        _ = await Assert.That(Count(rendered, "\u001b[?7l")).IsEqualTo(2);
-        _ = await Assert.That(Count(rendered, "\u001b[?7h")).IsEqualTo(2);
+        _ = await Assert.That(rendered.AsSpan().Count("\u001b[?7l")).IsEqualTo(2);
+        _ = await Assert.That(rendered.AsSpan().Count("\u001b[?7h")).IsEqualTo(2);
     }
 
     [Test]
@@ -155,7 +155,7 @@ internal sealed class TerminalFrameRendererTests
 
         _ = await Assert.That(user).IsGreaterThan(0);
         _ = await Assert.That(redrawn).IsGreaterThan(user);
-        _ = await Assert.That(Count(committed[..user], "\u001b[2K")).IsEqualTo(4);
+        _ = await Assert.That(committed[..user].AsSpan().Count("\u001b[2K")).IsEqualTo(4);
     }
 
     [Test]
@@ -373,7 +373,7 @@ internal sealed class TerminalFrameRendererTests
             cancellationToken);
 
         var replacement = output.ToString()[boundary..];
-        _ = await Assert.That(Count(replacement, "\u001b[2K")).IsEqualTo(1);
+        _ = await Assert.That(replacement.AsSpan().Count("\u001b[2K")).IsEqualTo(1);
         _ = await Assert.That(replacement).Contains("done");
         _ = await Assert.That(replacement).DoesNotContain("chat");
         _ = await Assert.That(replacement).DoesNotContain("> draft");
@@ -423,7 +423,7 @@ internal sealed class TerminalFrameRendererTests
             cancellationToken);
 
         var replacement = output.ToString()[boundary..];
-        _ = await Assert.That(Count(replacement, "\u001b[2K")).IsEqualTo(1);
+        _ = await Assert.That(replacement.AsSpan().Count("\u001b[2K")).IsEqualTo(1);
         _ = await Assert.That(replacement).Contains("> updated");
         _ = await Assert.That(replacement).DoesNotContain("working");
         _ = await Assert.That(replacement).DoesNotContain("thinking");
@@ -443,7 +443,7 @@ internal sealed class TerminalFrameRendererTests
         await renderer.Draw([new TestLiveValue("status", true), modeline, prompt], cancellationToken);
 
         var replacement = output.ToString()[boundary..];
-        _ = await Assert.That(Count(replacement, "\u001b[2K")).IsEqualTo(1);
+        _ = await Assert.That(replacement.AsSpan().Count("\u001b[2K")).IsEqualTo(1);
         _ = await Assert.That(replacement).Contains("\u001b[48;5;240m\u001b[38;5;231mstatus");
     }
 
@@ -537,7 +537,7 @@ internal sealed class TerminalFrameRendererTests
             cancellationToken);
 
         var replacement = output.ToString()[boundary..];
-        _ = await Assert.That(Count(replacement, "\u001b[2K")).IsEqualTo(1);
+        _ = await Assert.That(replacement.AsSpan().Count("\u001b[2K")).IsEqualTo(1);
         _ = await Assert.That(replacement).Contains("\u001b[48;5;236m\u001b[34ms");
     }
 
@@ -559,7 +559,7 @@ internal sealed class TerminalFrameRendererTests
         await renderer.Draw(frame, cancellationToken);
 
         var replacement = output.ToString()[boundary..];
-        _ = await Assert.That(Count(replacement, "\u001b[2K")).IsEqualTo(2);
+        _ = await Assert.That(replacement.AsSpan().Count("\u001b[2K")).IsEqualTo(2);
         _ = await Assert.That(replacement).Contains("model");
         _ = await Assert.That(replacement).Contains("> ");
     }
@@ -599,11 +599,11 @@ internal sealed class TerminalFrameRendererTests
             cancellationToken);
         var continued = output.ToString()[boundary..];
 
-        _ = await Assert.That(Count(growth, "\u001b[2K")).IsEqualTo(1);
+        _ = await Assert.That(growth.AsSpan().Count("\u001b[2K")).IsEqualTo(1);
         _ = await Assert.That(growth).Contains("  next");
-        _ = await Assert.That(Count(shrink, "\u001b[2K")).IsEqualTo(0);
+        _ = await Assert.That(shrink.AsSpan().Count("\u001b[2K")).IsEqualTo(0);
         _ = await Assert.That(shrink).Contains("\u001b[1M");
-        _ = await Assert.That(Count(continued, "\u001b[2K")).IsEqualTo(1);
+        _ = await Assert.That(continued.AsSpan().Count("\u001b[2K")).IsEqualTo(1);
         _ = await Assert.That(continued).Contains("> changed");
     }
 
@@ -667,7 +667,7 @@ internal sealed class TerminalFrameRendererTests
         _ = await Assert.That(updated).DoesNotContain("tool running");
         _ = await Assert.That(updated).DoesNotContain("⠋ working");
         _ = await Assert.That(updated).Contains("next event");
-        _ = await Assert.That(Count(updated, "> unmanaged no more")).IsEqualTo(2);
+        _ = await Assert.That(updated.AsSpan().Count("> unmanaged no more")).IsEqualTo(2);
     }
 
     [Test]
@@ -686,7 +686,7 @@ internal sealed class TerminalFrameRendererTests
             cancellationToken);
 
         var rendered = output.ToString();
-        _ = await Assert.That(Count(rendered, "\u001b[2K")).IsEqualTo(4);
+        _ = await Assert.That(rendered.AsSpan().Count("\u001b[2K")).IsEqualTo(4);
         _ = await Assert.That(rendered).DoesNotContain("oldest");
         _ = await Assert.That(rendered).Contains("middle");
         _ = await Assert.That(rendered).Contains("newest");
@@ -710,7 +710,7 @@ internal sealed class TerminalFrameRendererTests
             cancellationToken);
 
         var rendered = output.ToString();
-        _ = await Assert.That(Count(rendered, "\u001b[2K")).IsEqualTo(5);
+        _ = await Assert.That(rendered.AsSpan().Count("\u001b[2K")).IsEqualTo(5);
         _ = await Assert.That(rendered).Contains("live one");
         _ = await Assert.That(rendered).Contains("live two");
         _ = await Assert.That(rendered).DoesNotContain("> one");
@@ -762,11 +762,11 @@ internal sealed class TerminalFrameRendererTests
         _ = await Assert.That(bottomCaret).Contains("newest");
         _ = await Assert.That(bottomCaret).Contains("model");
         _ = await Assert.That(bottomCaret).Contains("> draft");
-        _ = await Assert.That(Count(bottomCaret, "\u001b[2K")).IsEqualTo(3);
+        _ = await Assert.That(bottomCaret.AsSpan().Count("\u001b[2K")).IsEqualTo(3);
         _ = await Assert.That(topCaret).Contains("> query");
         _ = await Assert.That(topCaret).Contains("first");
         _ = await Assert.That(topCaret).DoesNotContain("second");
-        _ = await Assert.That(Count(topCaret, "\u001b[2K")).IsEqualTo(2);
+        _ = await Assert.That(topCaret.AsSpan().Count("\u001b[2K")).IsEqualTo(2);
     }
 
     [Test]
@@ -797,19 +797,6 @@ internal sealed class TerminalFrameRendererTests
         await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => renderer.Draw(frame, cancellationToken)));
 
         _ = await Assert.That(output.MaximumConcurrentWrites).IsEqualTo(1);
-    }
-
-    private static int Count(string value, string part)
-    {
-        var count = 0;
-        var start = 0;
-        while ((start = value.IndexOf(part, start, StringComparison.Ordinal)) >= 0)
-        {
-            count++;
-            start += part.Length;
-        }
-
-        return count;
     }
 
     private static class InterlockedExtensions

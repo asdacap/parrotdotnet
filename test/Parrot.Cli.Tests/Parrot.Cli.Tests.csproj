@@ -21,4 +21,8 @@
     <ProjectReference Include="../../src/Parrot.Cli/Parrot.Cli.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="../Parrot.Core.Tests/ControlledTimeProvider.cs" Link="ControlledTimeProvider.cs" />
+  </ItemGroup>
+
 </Project>

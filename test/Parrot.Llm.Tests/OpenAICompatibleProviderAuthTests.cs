@@ -52,7 +52,7 @@ internal sealed class OpenAICompatibleProviderAuthTests
         var body = protocol == CompatibleProtocol.Responses
             ? "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n"
             : "data: {\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"delta\":{}}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n";
-        using var handler = new RecordingHandler(
+        using var handler = RespondInOrder(
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "text/event-stream") },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "text/event-stream") },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "text/event-stream") });
@@ -75,26 +75,29 @@ internal sealed class OpenAICompatibleProviderAuthTests
         _ = await Drain(first.Call(request, cancellationToken));
         _ = await Drain(second.Call(request, cancellationToken));
 
-        _ = await Assert.That(handler.RequestCount).IsEqualTo(3);
-        _ = await Assert.That(string.Join("|", handler.UserAgents))
+        var sessionHeaders = handler.Requests
+            .Select(recorded => recorded.Headers.GetValueOrDefault("x-opencode-session", string.Empty))
+            .ToList();
+        _ = await Assert.That(handler.Requests.Count).IsEqualTo(3);
+        _ = await Assert.That(string.Join("|", handler.Requests.Select(recorded => recorded.Headers["user-agent"])))
             .IsEqualTo($"parrot/{BuildInfo.Version}|parrot/{BuildInfo.Version}|parrot/{BuildInfo.Version}");
         if (sessionHeader.Length == 0)
         {
-            _ = await Assert.That(string.Join("|", handler.SessionHeaders)).IsEqualTo("||");
+            _ = await Assert.That(string.Join("|", sessionHeaders)).IsEqualTo("||");
             return;
         }
 
-        _ = await Assert.That(handler.SessionHeaders[0].Length).IsEqualTo(32);
-        _ = await Assert.That(handler.SessionHeaders[1]).IsEqualTo(handler.SessionHeaders[0]);
-        _ = await Assert.That(handler.SessionHeaders[2].Length).IsEqualTo(32);
-        _ = await Assert.That(handler.SessionHeaders[2]).IsNotEqualTo(handler.SessionHeaders[0]);
+        _ = await Assert.That(sessionHeaders[0].Length).IsEqualTo(32);
+        _ = await Assert.That(sessionHeaders[1]).IsEqualTo(sessionHeaders[0]);
+        _ = await Assert.That(sessionHeaders[2].Length).IsEqualTo(32);
+        _ = await Assert.That(sessionHeaders[2]).IsNotEqualTo(sessionHeaders[0]);
     }
 
     [Test]
     public async Task Non_success_responses_preserve_their_body(CancellationToken cancellationToken)
     {
         const string body = """{"error":{"type":"invalid_request","code":"bad","message":"broken"},"trace":"abc"}""";
-        using var handler = new RecordingHandler(
+        using var handler = RespondInOrder(
             new HttpResponseMessage(HttpStatusCode.BadRequest)
             {
                 Content = new StringContent(body, Encoding.UTF8, "application/json"),
@@ -134,7 +137,7 @@ internal sealed class OpenAICompatibleProviderAuthTests
     public async Task Api_key_is_resolved_for_each_request_and_missing_keys_fail_before_http(CancellationToken cancellationToken)
     {
         var source = new RecordingApiKeySource(["first-key", "second-key", string.Empty, string.Empty]);
-        using var handler = new RecordingHandler(
+        using var handler = RespondInOrder(
             new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
@@ -173,11 +176,11 @@ internal sealed class OpenAICompatibleProviderAuthTests
 
         _ = await Assert.That(listed).HasSingleItem();
         _ = await Assert.That(events[^1].Kind).IsEqualTo(LLMEventKind.Completed);
-        _ = await Assert.That(handler.AuthorizationHeaders[0]).IsEqualTo("Bearer first-key");
-        _ = await Assert.That(handler.AuthorizationHeaders[1]).IsEqualTo("Bearer second-key");
+        _ = await Assert.That(handler.Requests[0].Headers["authorization"]).IsEqualTo("Bearer first-key");
+        _ = await Assert.That(handler.Requests[1].Headers["authorization"]).IsEqualTo("Bearer second-key");
         _ = await Assert.That(async () => await provider.ListModels(cancellationToken)).Throws<LLMProviderException>();
         _ = await Assert.That(async () => await Drain(provider.Call(request, cancellationToken))).Throws<LLMProviderException>();
-        _ = await Assert.That(handler.RequestCount).IsEqualTo(2);
+        _ = await Assert.That(handler.Requests.Count).IsEqualTo(2);
     }
 
     [Test]
@@ -188,7 +191,7 @@ internal sealed class OpenAICompatibleProviderAuthTests
         string expectedPaths,
         CancellationToken cancellationToken)
     {
-        using var handler = new RecordingHandler(
+        using var handler = RespondInOrder(
             new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent("""{"data":[{"id":"served","max_output_tokens":0,"supports_function_calling":false},{"id":"primary-only"}]}""", Encoding.UTF8, "application/json"),
@@ -213,10 +216,10 @@ internal sealed class OpenAICompatibleProviderAuthTests
         var listed = await provider.ListModels(cancellationToken);
         var served = listed.Single(model => model.Id == "served");
 
-        _ = await Assert.That(string.Join("|", handler.Paths)).IsEqualTo(expectedPaths);
-        _ = await Assert.That(string.Join("|", handler.AuthorizationHeaders))
+        _ = await Assert.That(string.Join("|", handler.Requests.Select(recorded => recorded.Uri.AbsolutePath))).IsEqualTo(expectedPaths);
+        _ = await Assert.That(string.Join("|", handler.Requests.Select(recorded => recorded.Headers["authorization"])))
             .IsEqualTo("Bearer one-key|Bearer one-key");
-        _ = await Assert.That(string.Join("|", handler.TenantHeaders)).IsEqualTo("tenant|tenant");
+        _ = await Assert.That(string.Join("|", handler.Requests.Select(recorded => recorded.Headers["x-tenant"]))).IsEqualTo("tenant|tenant");
         _ = await Assert.That(source.RequestCount).IsEqualTo(1);
         _ = await Assert.That(string.Join(",", listed.Select(model => model.Id))).IsEqualTo("primary-only,served");
         _ = await Assert.That(served.ContextWindow).IsEqualTo(512);
@@ -234,7 +237,7 @@ internal sealed class OpenAICompatibleProviderAuthTests
         const string completeModels = """
             {"data":[{"id":"complete","context_window":0,"max_input_tokens":0,"max_output_tokens":0,"input_cost_per_token":0,"cache_read_input_token_cost":0,"output_cost_per_token":0,"supports_function_calling":false,"supports_reasoning":false,"supported_output_modalities":[],"supported_reasoning_efforts":[]}]}
             """;
-        using var handler = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        using var handler = RespondInOrder(new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(completeModels, Encoding.UTF8, "application/json"),
         });
@@ -251,7 +254,7 @@ internal sealed class OpenAICompatibleProviderAuthTests
         var listed = await provider.ListModels(cancellationToken);
 
         _ = await Assert.That(listed).HasSingleItem();
-        _ = await Assert.That(string.Join("|", handler.Paths)).IsEqualTo("/v1/models");
+        _ = await Assert.That(string.Join("|", handler.Requests.Select(recorded => recorded.Uri.AbsolutePath))).IsEqualTo("/v1/models");
     }
 
     [Test]
@@ -265,7 +268,7 @@ internal sealed class OpenAICompatibleProviderAuthTests
         string modelInfoBody,
         CancellationToken cancellationToken)
     {
-        using var handler = new RecordingHandler(
+        using var handler = RespondInOrder(
             new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent("""{"data":[{"id":"served"}]}""", Encoding.UTF8, "application/json"),
@@ -287,7 +290,7 @@ internal sealed class OpenAICompatibleProviderAuthTests
         var listed = await provider.ListModels(cancellationToken);
 
         _ = await Assert.That(listed.Single().Id).IsEqualTo("served");
-        _ = await Assert.That(string.Join("|", handler.Paths)).IsEqualTo("/v1/models|/v1/model/info");
+        _ = await Assert.That(string.Join("|", handler.Requests.Select(recorded => recorded.Uri.AbsolutePath))).IsEqualTo("/v1/models|/v1/model/info");
     }
 
     [Test]
@@ -349,6 +352,12 @@ internal sealed class OpenAICompatibleProviderAuthTests
         return result;
     }
 
+    private static RecordingHttpHandler RespondInOrder(params HttpResponseMessage[] responses)
+    {
+        var queue = new Queue<HttpResponseMessage>(responses);
+        return new RecordingHttpHandler(_ => queue.Dequeue());
+    }
+
     private sealed class RecordingApiKeySource(IEnumerable<string> keys) : IApiKeySource
     {
         private readonly Queue<string> _keys = new(keys);
@@ -390,38 +399,6 @@ internal sealed class OpenAICompatibleProviderAuthTests
             }
 
             return await Task.FromException<HttpResponseMessage>(failure);
-        }
-    }
-
-    private sealed class RecordingHandler(params HttpResponseMessage[] responses) : HttpMessageHandler
-    {
-        private readonly Queue<HttpResponseMessage> _responses = new(responses);
-
-        public List<string> AuthorizationHeaders { get; } = [];
-
-        public List<string> TenantHeaders { get; } = [];
-
-        public List<string> SessionHeaders { get; } = [];
-
-        public List<string> UserAgents { get; } = [];
-
-        public List<string> Paths { get; } = [];
-
-        public int RequestCount { get; private set; }
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            RequestCount++;
-            AuthorizationHeaders.Add(request.Headers.Authorization?.ToString() ?? string.Empty);
-            TenantHeaders.Add(request.Headers.TryGetValues("X-Tenant", out var values)
-                ? values.Single()
-                : string.Empty);
-            SessionHeaders.Add(request.Headers.TryGetValues("x-opencode-session", out var sessions)
-                ? sessions.Single()
-                : string.Empty);
-            UserAgents.Add(request.Headers.UserAgent.ToString());
-            Paths.Add(request.RequestUri?.AbsolutePath ?? string.Empty);
-            return Task.FromResult(_responses.Dequeue());
         }
     }
 }

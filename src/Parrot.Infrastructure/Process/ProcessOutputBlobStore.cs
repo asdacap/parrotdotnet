@@ -1,10 +1,10 @@
 using System.Text;
+using Parrot.Files;
 
 namespace Parrot.Process;
 
 internal sealed class ProcessOutputBlobStore
 {
-    private const int MaximumNameAttempts = 16;
     private static readonly UTF8Encoding Utf8WithoutBom = new(encoderShouldEmitUTF8Identifier: false);
     private readonly string _directory;
     private readonly Func<string> _nextName;
@@ -27,132 +27,43 @@ internal sealed class ProcessOutputBlobStore
         ProcessOutput stderr,
         CancellationToken cancellationToken)
     {
-        EnsureDirectory(_directory);
-
-        for (var attempt = 0; attempt < MaximumNameAttempts; attempt++)
+        await using var stream = PrivateFile.CreateUnique(_directory, _nextName, "process output blob", FileOptions.Asynchronous);
+        var path = stream.Name;
+        try
         {
-            var name = _nextName();
-
-            if (!string.Equals(Path.GetFileName(name), name, StringComparison.Ordinal)
-                || !name.EndsWith("-arse.dat", StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException("The process output blob name must be a safe -arse.dat basename.");
-            }
-
-            var path = Path.Combine(_directory, name);
-
-            try
-            {
-                var fileOptions = new FileStreamOptions
-                {
-                    Access = FileAccess.Write,
-                    Mode = FileMode.CreateNew,
-                    Options = System.IO.FileOptions.Asynchronous,
-                };
-
-                if (!OperatingSystem.IsWindows())
-                {
-                    fileOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-                }
-
-                await using var stream = new FileStream(path, fileOptions);
-
-                try
-                {
-                    await Write(stream, exitCode, elapsedMilliseconds, stdout, stderr, cancellationToken)
-                        .ConfigureAwait(false);
-                    return path;
-                }
-                catch
-                {
-                    await stream.DisposeAsync().ConfigureAwait(false);
-                    File.Delete(path);
-                    throw;
-                }
-            }
-            catch (IOException) when (File.Exists(path))
-            {
-            }
+            await Write(stream, exitCode, elapsedMilliseconds, stdout, stderr, cancellationToken)
+                .ConfigureAwait(false);
+            return path;
         }
-
-        throw new IOException($"Could not create a unique process output blob in '{_directory}'.");
-    }
-
-    internal static void EnsureDirectory(string directory)
-    {
-        _ = Directory.CreateDirectory(directory);
-
-        if (!OperatingSystem.IsWindows())
+        catch
         {
-            File.SetUnixFileMode(
-                directory,
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            await stream.DisposeAsync().ConfigureAwait(false);
+            File.Delete(path);
+            throw;
         }
     }
 
     internal string PersistImmediately(int exitCode, long elapsedMilliseconds, ProcessOutput stdout)
     {
-        EnsureDirectory(_directory);
-
-        for (var attempt = 0; attempt < MaximumNameAttempts; attempt++)
+        var stream = PrivateFile.CreateUnique(_directory, _nextName, "process output blob", FileOptions.None);
+        var path = stream.Name;
+        try
         {
-            var name = _nextName();
-
-            if (!string.Equals(Path.GetFileName(name), name, StringComparison.Ordinal)
-                || !name.EndsWith("-arse.dat", StringComparison.Ordinal))
+            using (stream)
+            using (var writer = new StreamWriter(stream, Utf8WithoutBom))
             {
-                throw new InvalidOperationException("The process output blob name must be a safe -arse.dat basename.");
+                writer.Write(ProcessResultFormatter.FormatCompletion(exitCode, elapsedMilliseconds));
+                writer.Write("\n[stdout]\n");
+                stdout.CopyTo(writer);
             }
 
-            var path = Path.Combine(_directory, name);
-
-            FileStream stream;
-
-            try
-            {
-                stream = Open(path);
-            }
-            catch (IOException) when (File.Exists(path))
-            {
-                continue;
-            }
-
-            try
-            {
-                using (stream)
-                using (var writer = new StreamWriter(stream, Utf8WithoutBom))
-                {
-                    writer.Write(ProcessResultFormatter.FormatCompletion(exitCode, elapsedMilliseconds));
-                    writer.Write("\n[stdout]\n");
-                    stdout.CopyTo(writer);
-                }
-
-                return path;
-            }
-            catch
-            {
-                File.Delete(path);
-                throw;
-            }
+            return path;
         }
-
-        throw new IOException($"Could not create a unique process output blob in '{_directory}'.");
-    }
-
-    private static FileStream Open(string path)
-    {
-        var options = new FileStreamOptions
+        catch
         {
-            Access = FileAccess.Write,
-            Mode = FileMode.CreateNew,
-        };
-
-        if (!OperatingSystem.IsWindows())
-        {
-            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            File.Delete(path);
+            throw;
         }
-
-        return new FileStream(path, options);
     }
 
     private static async Task Write(

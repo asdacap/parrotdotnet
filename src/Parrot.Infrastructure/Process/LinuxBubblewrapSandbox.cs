@@ -1,15 +1,13 @@
-using System.Runtime.InteropServices;
 using Parrot.Security;
 using Parrot.Store;
 
 namespace Parrot.Process;
 
-internal sealed partial class LinuxBubblewrapSandbox(
+internal sealed class LinuxBubblewrapSandbox(
     string bubblewrapPath,
     bool requireTrustedPath,
     ILinuxSandboxProcessLauncher launcher) : IProcessSandbox
 {
-    private const int WriteAccess = 2;
     private readonly string _bubblewrapPath = ValidateBubblewrapPath(bubblewrapPath, requireTrustedPath);
 
     public bool SandboxAvailable => _bubblewrapPath.Length > 0;
@@ -77,50 +75,18 @@ internal sealed partial class LinuxBubblewrapSandbox(
             return string.Empty;
         }
 
-        if (!Path.IsPathFullyQualified(path))
-        {
-            throw new ArgumentException("The bubblewrap path must be absolute.", nameof(path));
-        }
-
-        var canonical = Path.GetFullPath(path);
-        var target = new FileInfo(canonical).ResolveLinkTarget(returnFinalTarget: true);
-        if (target is not null)
-        {
-            canonical = Path.GetFullPath(target.FullName);
-        }
+        var canonical = SandboxExecutablePath.Canonicalize(path, "bubblewrap");
 
         if (!File.Exists(canonical))
         {
             throw new FileNotFoundException("The bubblewrap executable does not exist.", canonical);
         }
 
-        if (requireTrustedPath && !HasTrustedParentChain(canonical))
+        if (requireTrustedPath && !SandboxExecutablePath.HasTrustedParentChain(canonical))
         {
             throw new SandboxUnavailableException("bubblewrap must be installed below a non-writable system path");
         }
 
         return canonical;
     }
-
-    private static bool HasTrustedParentChain(string path)
-    {
-        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS() && !OperatingSystem.IsFreeBSD())
-        {
-            return false;
-        }
-
-        for (var directory = new FileInfo(path).Directory; directory is not null; directory = directory.Parent)
-        {
-            if (Access(directory.FullName, WriteAccess) == 0)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32 | DllImportSearchPath.SafeDirectories)]
-    [LibraryImport("libc", EntryPoint = "access", StringMarshalling = StringMarshalling.Utf8)]
-    private static partial int Access(string path, int mode);
 }

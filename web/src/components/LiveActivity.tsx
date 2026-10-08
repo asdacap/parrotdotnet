@@ -1,9 +1,10 @@
 import { Loader2Icon } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useMemo } from "react"
 
 import type { ActiveShellProcess, AgentTaskProgressSnapshot, QueueState } from "@/gen/parrot_pb"
 import { TaskTree, fromProgress, isSettled } from "@/components/TaskTree"
 import { formatDuration } from "@/lib/duration"
+import { useElapsedSince } from "@/lib/useElapsedSince"
 import type { OwnerInventory } from "@/session/inventory"
 
 interface LiveActivityProps {
@@ -15,27 +16,18 @@ interface LiveActivityProps {
 
 // Unsettled task graphs, queues holding work and background shell processes, as the terminal CLI keeps them in its live area.
 export function LiveActivity({ queues, processes, taskProgress }: LiveActivityProps) {
+  const running = useMemo(() => [...processes.values()].flatMap((owner) => owner.items), [processes])
+  const waiting = useMemo(() => [...queues.values()].flatMap((owner) => owner.items).filter((queue) => queue.itemCount > 0), [queues])
+  const trees = useMemo(() => {
+    // A child agent's graph nests under its task in its owner's graph instead of standing alone.
+    const nested = new Set([...taskProgress.values()].flatMap((tree) => tree.rootNodes.map((node) => node.agentSessionId)))
+    return [...taskProgress.entries()]
+      .filter(([agentSessionId]) => !nested.has(agentSessionId))
+      .map(([agentSessionId, tree]) => ({ agentSessionId, nodes: tree.rootNodes.map((node) => fromProgress(node, taskProgress)) }))
+      .filter((tree) => !tree.nodes.every(isSettled))
+  }, [taskProgress])
   // Milliseconds since the latest process snapshot, which each elapsed time is as of.
-  const [sinceSnapshot, setSinceSnapshot] = useState(0)
-  const running = [...processes.values()].flatMap((owner) => owner.items)
-  const waiting = [...queues.values()].flatMap((owner) => owner.items).filter((queue) => queue.itemCount > 0)
-  // A child agent's graph nests under its task in its owner's graph instead of standing alone.
-  const nested = new Set([...taskProgress.values()].flatMap((tree) => tree.rootNodes.map((node) => node.agentSessionId)))
-  const trees = [...taskProgress.entries()]
-    .filter(([agentSessionId]) => !nested.has(agentSessionId))
-    .map(([agentSessionId, tree]) => ({ agentSessionId, nodes: tree.rootNodes.map((node) => fromProgress(node, taskProgress)) }))
-    .filter((tree) => !tree.nodes.every(isSettled))
-
-  useEffect(() => {
-    const snapshotAt = Date.now()
-    const tick = () => { setSinceSnapshot(Date.now() - snapshotAt) }
-    const reset = setTimeout(tick, 0)
-    const timer = setInterval(tick, 1000)
-    return () => {
-      clearTimeout(reset)
-      clearInterval(timer)
-    }
-  }, [processes])
+  const sinceSnapshot = useElapsedSince(processes, running.length > 0)
 
   if (running.length === 0 && waiting.length === 0 && trees.length === 0) return null
   return (

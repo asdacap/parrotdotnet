@@ -10,7 +10,7 @@ internal sealed class SkillSelection
         ArgumentNullException.ThrowIfNull(mentions);
 
         var selected = new List<SkillMetadata>();
-        var paths = new HashSet<string>(PathComparer());
+        var paths = new HashSet<string>(PlatformPath.Comparer);
         foreach (var mention in mentions.OrderBy(item => item.Position))
         {
             var match = mention.Path is null
@@ -33,15 +33,11 @@ internal sealed class SkillSelection
     {
         try
         {
-            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-            return string.Equals(PlatformPath.Normalize(candidate), PlatformPath.Normalize(requested), comparison);
+            return string.Equals(PlatformPath.Normalize(candidate), PlatformPath.Normalize(requested), PlatformPath.Comparison);
         }
         catch (Exception failure) when (failure is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return false;
         }
     }
-
-    private static StringComparer PathComparer() =>
-        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 }

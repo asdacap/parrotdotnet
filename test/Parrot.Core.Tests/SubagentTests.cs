@@ -8,7 +8,6 @@ using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Queues;
 using Parrot.Security;
-using Parrot.State;
 using Parrot.Store;
 using Parrot.Tools;
 
@@ -1396,7 +1395,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
         await Task.CompletedTask;
-        var identity = AgentIdentity.Child("child", AgentIdentity.Main("parent", "parent", TestModels.PromptTemplates), "helper", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates);
+        var identity = AgentIdentity.Child("child", AgentIdentity.Main("parent", "parent", TestModels.PromptTemplates), "helper", 1, AgentScope.Empty(TestModels.PromptTemplates), AgentPolicyLineage.Root(), TestModels.PromptTemplates);
         var notification = AgentExecution.Failed(new string('界', 262_144)).FormatCompletion(identity, TestModels.PromptTemplates);
 
         _ = await Assert.That(notification).Contains("Status: failed");
@@ -2541,7 +2540,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         IAgentProfile profile = new AgentProfile("worker", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal));
         var securityProfile = SecurityProfile.Compose(false, [], [], []);
         var first = sessions.Create(
-            AgentIdentity.Child("first-child", parent.Identity, "duplicate", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates),
+            AgentIdentity.Child("first-child", parent.Identity, "duplicate", 1, AgentScope.Empty(TestModels.PromptTemplates), AgentPolicyLineage.Root(), TestModels.PromptTemplates),
             AgentSessionParentLink.Child(parentScope, AgentCompletionDeliveryPolicy.RetainedOnly, registry.ReserveRetainedAgent()),
             new ModelSelector("stepped/model"),
             _broker,
@@ -2551,7 +2550,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             registry,
             cancellationToken);
         var second = sessions.Create(
-            AgentIdentity.Child("second-child", parent.Identity, "duplicate", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates),
+            AgentIdentity.Child("second-child", parent.Identity, "duplicate", 1, AgentScope.Empty(TestModels.PromptTemplates), AgentPolicyLineage.Root(), TestModels.PromptTemplates),
             AgentSessionParentLink.Child(parentScope, AgentCompletionDeliveryPolicy.RetainedOnly, registry.ReserveRetainedAgent()),
             new ModelSelector("stepped/model"),
             _broker,
@@ -2694,7 +2693,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
         var identity = depth == 0
             ? AgentIdentity.Main(sessionId, name, TestModels.PromptTemplates)
-            : AgentIdentity.Child(sessionId, AgentIdentity.Main("ancestor", "ancestor-agent", TestModels.PromptTemplates), name, depth, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates);
+            : AgentIdentity.Child(sessionId, AgentIdentity.Main("ancestor", "ancestor-agent", TestModels.PromptTemplates), name, depth, AgentScope.Empty(TestModels.PromptTemplates), AgentPolicyLineage.Root(), TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
         using var scope = TestAgentSessionScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, owningScope, children, childQuestions) =>
             new AgentSession(identity, sessionParentScope, new ModelSelector($"{provider.Id}/model"), router, _broker, _repository, [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new AgentOutputFile(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.GetService<IProcessOwner>()), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), dependencies.ExitReminder, _repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, cancellationToken));
@@ -2877,19 +2876,15 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             _models.Add(model);
             Profiles.Add(profile);
             SecurityProfiles.Add(securityProfile);
-            var root = Directory.CreateDirectory(
-                Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("N"))).FullName;
-            var resources = new UserSessionResources(
-                new StatePaths(root, root, root),
-                UserSessionId.Parse(Guid.NewGuid().ToString("N")),
-                ProjectWorkspace.FromLaunchDirectory(root));
+            var resources = TestModels.Resources();
+            var root = resources.Workspace.LaunchDirectory;
             var scope = TestAgentSessionScope.BuildWithResources(
                 identity,
                 parentLink,
                 registry,
                 TestModels.PromptTemplates,
                 resources,
-                new ProcessRunner(string.Empty),
+                TestModels.Runner(string.Empty),
                 TestDiagnosticLog.Instance,
                 (sessionParentScope, owningScope, children, childQuestions) =>
             {

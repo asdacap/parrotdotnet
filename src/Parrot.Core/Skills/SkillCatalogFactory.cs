@@ -18,7 +18,7 @@ internal sealed class SkillCatalogFactory(Configuration configuration, string us
     {
         ArgumentNullException.ThrowIfNull(workspace);
         var roots = new List<SkillRoot>();
-        var paths = new HashSet<string>(PathComparer());
+        var paths = new HashSet<string>(PlatformPath.Comparer);
         if (workspace.RepositoryRoot is not null)
         {
             var launchDirectory = Contains(workspace.RepositoryRoot, workspace.LaunchDirectory)
@@ -59,20 +59,11 @@ internal sealed class SkillCatalogFactory(Configuration configuration, string us
         }
     }
 
-    private static bool Contains(string root, string path)
-    {
-        var relative = Path.GetRelativePath(PlatformPath.Normalize(root), PlatformPath.Normalize(path));
-        return relative == "." || (!Path.IsPathRooted(relative)
-            && relative != ".."
-            && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
-            && !relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal));
-    }
+    private static bool Contains(string root, string path) =>
+        PlatformPath.Contains(PlatformPath.Normalize(root), PlatformPath.Normalize(path));
 
     private static bool PathsEqual(string left, string right) =>
-        PathComparer().Equals(
+        PlatformPath.Comparer.Equals(
             Path.TrimEndingDirectorySeparator(PlatformPath.Normalize(left)),
             Path.TrimEndingDirectorySeparator(PlatformPath.Normalize(right)));
-
-    private static StringComparer PathComparer() =>
-        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 }

@@ -33,8 +33,7 @@ internal sealed class ReadImageTool(ToolWorkspace workspace, IImageArtifactRepos
 
         try
         {
-            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, FileToolJsonContext.Default.ReadImageToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, FileToolJsonContext.Default.ReadImageToolInput);
             path = input.Path ?? throw new FormatException("Tool arguments require a string 'path'.");
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
@@ -45,16 +44,11 @@ internal sealed class ReadImageTool(ToolWorkspace workspace, IImageArtifactRepos
         (string Lexical, string Physical) resolved;
         try
         {
-            resolved = workspace.ResolveRead(path);
+            resolved = workspace.ResolveAllowedRead(path, selection.SecurityProfile);
         }
         catch (Exception failure) when (failure is InvalidOperationException or IOException)
         {
             return ToolResultFormatter.Error(invocation, failure.Message);
-        }
-
-        if (!ToolWorkspace.AllowsRead(resolved, selection.SecurityProfile))
-        {
-            return ToolResultFormatter.Error(invocation, "access denied");
         }
 
         if (!File.Exists(resolved.Physical))

@@ -21,10 +21,7 @@ internal sealed class CompactContextTool(
         ContextSize? target = null;
         try
         {
-            var input = JsonSerializer.Deserialize(
-                invocation.ArgumentsJson,
-                CompactContextToolJsonContext.Default.CompactContextToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, CompactContextToolJsonContext.Default.CompactContextToolInput);
             if (input.TargetContextSize is { } targetText)
             {
                 if (targetText.Length == 0)

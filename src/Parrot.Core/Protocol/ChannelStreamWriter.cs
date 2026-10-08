@@ -7,7 +7,7 @@ namespace Parrot.Protocol;
 internal sealed class ChannelStreamWriter<T> : IServerStreamWriter<T>, IAsyncStreamReader<T>
     where T : class
 {
-    private readonly Channel<T> _messages = Channel.CreateUnbounded<T>();
+    private readonly Channel<T> _messages = Channel.CreateUnbounded<T>(new UnboundedChannelOptions { SingleReader = true });
     private T? _read;
     private Exception? _fault;
 

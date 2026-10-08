@@ -509,15 +509,7 @@ internal sealed partial class SubagentTests
         IAgentSession parent,
         CancellationToken cancellationToken)
     {
-        while (true)
-        {
-            var pending = coordinator.PendingForParent(parent);
-            if (pending.Count > 0)
-            {
-                return pending[0];
-            }
-
-            await Task.Delay(1, cancellationToken).ConfigureAwait(false);
-        }
+        await TestPolling.Until(() => coordinator.PendingForParent(parent).Count > 0, cancellationToken);
+        return coordinator.PendingForParent(parent)[0];
     }
 }

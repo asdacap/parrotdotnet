@@ -17,8 +17,7 @@ internal sealed class StatusTool(
     {
         try
         {
-            _ = JsonSerializer.Deserialize(invocation.ArgumentsJson, StatusToolJsonContext.Default.StatusToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            _ = ToolInputConversion.Deserialize(invocation.ArgumentsJson, StatusToolJsonContext.Default.StatusToolInput);
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {

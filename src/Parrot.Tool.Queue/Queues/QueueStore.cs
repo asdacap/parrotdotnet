@@ -1,9 +1,10 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Parrot.Agent;
 
 namespace Parrot.Queues;
 
-internal sealed class QueueStore(string directory) : IQueueStore
+internal sealed partial class QueueStore(string directory) : IQueueStore
 {
     private const int MaximumFileBytes = 16 << 20;
     private const UnixFileMode DirectoryPermissions =
@@ -358,53 +359,34 @@ internal sealed class QueueStore(string directory) : IQueueStore
         }
     }
 
-    private static QueueDirection ResolvePushDirection(QueueDirection direction) => direction switch
+    private static QueueDirection ResolvePushDirection(QueueDirection direction) =>
+        ResolveDirection(direction, QueueDirection.Back);
+
+    private static QueueDirection ResolveTakeDirection(int count, QueueDirection direction) =>
+        count <= 0
+            ? throw new QueueException($"queue: count {count} must be positive")
+            : ResolveDirection(direction, QueueDirection.Front);
+
+    private static QueueDirection ResolveDirection(QueueDirection direction, QueueDirection unspecified) => direction switch
     {
-        QueueDirection.Unspecified => QueueDirection.Back,
+        QueueDirection.Unspecified => unspecified,
         QueueDirection.Front or QueueDirection.Back => direction,
-        _ => throw new QueueInvalidDirectionException($"queue: direction '{direction}' must be front or back"),
+        _ => throw new QueueException($"queue: direction '{direction}' must be front or back"),
     };
-
-    private static QueueDirection ResolveTakeDirection(int count, QueueDirection direction)
-    {
-        if (count <= 0)
-        {
-            throw new QueueInvalidCountException($"queue: count {count} must be positive");
-        }
-
-        return direction switch
-        {
-            QueueDirection.Unspecified => QueueDirection.Front,
-            QueueDirection.Front or QueueDirection.Back => direction,
-            _ => throw new QueueInvalidDirectionException($"queue: direction '{direction}' must be front or back"),
-        };
-    }
 
     private static string RequireItem(string? item) =>
         item ?? throw new QueueException("queue: items cannot contain null");
 
     private static void ValidateName(string name)
     {
-        if (name.Length == 0 || name[0] == '-' || name[^1] == '-')
+        if (!NamePattern().IsMatch(name))
         {
-            throw new QueueInvalidNameException($"queue: name '{name}' must contain only lowercase ASCII alphanumeric words separated by hyphens");
-        }
-
-        var previousHyphen = false;
-
-        foreach (var character in name)
-        {
-            var hyphen = character == '-';
-
-            if ((!hyphen && (character < 'a' || character > 'z') && (character < '0' || character > '9'))
-                || (hyphen && previousHyphen))
-            {
-                throw new QueueInvalidNameException($"queue: name '{name}' must contain only lowercase ASCII alphanumeric words separated by hyphens");
-            }
-
-            previousHyphen = hyphen;
+            throw new QueueException($"queue: name '{name}' must contain only lowercase ASCII alphanumeric words separated by hyphens");
         }
     }
+
+    [GeneratedRegex(@"\A[a-z0-9]+(?:-[a-z0-9]+)*\z")]
+    private static partial Regex NamePattern();
 
     private static QueueTakeResult TakeLocked(
         string path,

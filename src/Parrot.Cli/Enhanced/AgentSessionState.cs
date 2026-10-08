@@ -205,13 +205,13 @@ internal sealed class AgentSessionState(string agentSessionId)
         }
     }
 
-    public async Task<string?> FinishChildTurn(Func<string, Task> flush)
+    public async Task<bool> FinishChildTurn(Func<string, Task> flush)
     {
         ArgumentNullException.ThrowIfNull(flush);
 
         if (!_activities.Remove(AgentActivityId))
         {
-            return null;
+            return false;
         }
 
         try
@@ -227,10 +227,10 @@ internal sealed class AgentSessionState(string agentSessionId)
         _requestAttempt = 0;
         _waitingForFirstToken = false;
         _terminalCommitted = true;
-        return AgentActivityId;
+        return true;
     }
 
-    public (string ActivityId, string Response, ActivityNoticeScrollbackValue Notice)? FinishTurn(
+    public (string Response, ActivityNoticeScrollbackValue Notice)? FinishTurn(
         Event published,
         bool failed)
     {
@@ -250,23 +250,17 @@ internal sealed class AgentSessionState(string agentSessionId)
             : interrupted
                 ? new ActivityNoticeScrollbackValue(TerminalIcons.Interrupted, "agent interrupted")
                 : new ActivityNoticeScrollbackValue(TerminalIcons.Agent, "agent finished");
-        return (AgentActivityId, IsBlank(response) ? string.Empty : response, notice);
+        return (IsBlank(response) ? string.Empty : response, notice);
     }
 
-    public (string ActivityId, ActivityNoticeScrollbackValue Notice)? FinishAgent(Event published, bool failed)
-    {
-        if (!_agentTerminalPending)
-        {
-            return null;
-        }
-
-        var notice = failed
-            ? new ActivityNoticeScrollbackValue(TerminalIcons.Failure, $"agent: {published.AgentFailed.Message}")
-            : new ActivityNoticeScrollbackValue(
-                TerminalIcons.Agent,
-                $"agent finished after {AgentDurationFormatter.Format(published.AgentFinished.ElapsedMs)}");
-        return (AgentActivityId, notice);
-    }
+    public ActivityNoticeScrollbackValue? FinishAgent(Event published, bool failed) =>
+        !_agentTerminalPending
+            ? null
+            : failed
+                ? new ActivityNoticeScrollbackValue(TerminalIcons.Failure, $"agent: {published.AgentFailed.Message}")
+                : new ActivityNoticeScrollbackValue(
+                    TerminalIcons.Agent,
+                    $"agent finished after {AgentDurationFormatter.Format(published.AgentFinished.ElapsedMs)}");
 
     public void CompleteAgent()
     {
@@ -380,7 +374,7 @@ internal sealed class AgentSessionState(string agentSessionId)
         Func<string, string> agentReferenceResolver,
         bool startOmitted)
     {
-        var (toolCallId, toolName) = GetTerminalTool(published);
+        var (toolCallId, toolName) = TerminalToolEvent.ReadTool(published);
         _ = _toolLive.Remove(toolCallId);
         _ = _terminalTools.Add(toolCallId);
         if (!_toolCalls.Remove(toolCallId, out var toolCall))
@@ -462,18 +456,6 @@ internal sealed class AgentSessionState(string agentSessionId)
         node.Status is AgentTaskProgressStatus.Succeeded
             or AgentTaskProgressStatus.Canceled
         && node.Children.All(IsTerminal);
-
-    private static (string ToolCallId, string ToolName) GetTerminalTool(Event published) =>
-        published.PayloadCase switch
-        {
-            Event.PayloadOneofCase.ToolFinished =>
-                (published.ToolFinished.ToolCallId, published.ToolFinished.ToolName),
-            Event.PayloadOneofCase.ToolCancelled =>
-                (published.ToolCancelled.ToolCallId, published.ToolCancelled.ToolName),
-            Event.PayloadOneofCase.ToolError =>
-                (published.ToolError.ToolCallId, published.ToolError.ToolName),
-            _ => (string.Empty, string.Empty),
-        };
 
     private static string FormatTokenCount(long count) => count switch
     {

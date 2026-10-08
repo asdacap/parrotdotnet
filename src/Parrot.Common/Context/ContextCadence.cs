@@ -32,12 +32,11 @@ internal sealed class ContextCadence
         if (!_initialized)
         {
             var checkpoint = _checkpoint;
-            var matchingCheckpoint = checkpoint is not null
+            var reportedBand = checkpoint is not null
                 && string.Equals(checkpoint.CanonicalModel, canonicalModel, StringComparison.Ordinal)
-                && checkpoint.ContextLimit == snapshot.ContextLimit;
-            var reportedBand = matchingCheckpoint && checkpoint is not null
-                ? checkpoint.Percentage / NotificationInterval
-                : 0;
+                && checkpoint.ContextLimit == snapshot.ContextLimit
+                    ? checkpoint.Percentage / NotificationInterval
+                    : 0;
             SetState(snapshot, canonicalModel, effectiveHistorySize, band, reportedBand);
             _checkpoint = null;
             return null;
@@ -70,31 +69,17 @@ internal sealed class ContextCadence
             return null;
         }
 
-        var crossedBand = band;
         _observedBand = band;
-        if (crossedBand * NotificationInterval < 50 || crossedBand <= _reportedBand)
+        if (band * NotificationInterval < 50 || band <= _reportedBand)
         {
             return null;
         }
 
-        _reportedBand = crossedBand;
-        return crossedBand * NotificationInterval;
+        _reportedBand = band;
+        return band * NotificationInterval;
     }
 
     internal void Acknowledge(
-        ContextSnapshot snapshot,
-        string canonicalModel,
-        long effectiveHistorySize)
-    {
-        ArgumentNullException.ThrowIfNull(snapshot);
-        ArgumentException.ThrowIfNullOrWhiteSpace(canonicalModel);
-        ArgumentOutOfRangeException.ThrowIfNegative(effectiveHistorySize);
-
-        var band = Band(snapshot) ?? 0;
-        SetState(snapshot, canonicalModel, effectiveHistorySize, band, band);
-    }
-
-    internal void Rebase(
         ContextSnapshot snapshot,
         string canonicalModel,
         long effectiveHistorySize)

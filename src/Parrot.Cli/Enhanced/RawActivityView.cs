@@ -1,6 +1,7 @@
 using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using Parrot.Cli.Enhanced.Tools;
+using Parrot.Llm;
 using Parrot.Protocol;
 
 namespace Parrot.Cli.Enhanced;
@@ -91,20 +92,13 @@ internal sealed class RawActivityView(
 
     public async Task ResetRequests(CancellationToken cancellationToken)
     {
-        await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var renderingLock = await _rendering.Lock(cancellationToken).ConfigureAwait(false);
+        foreach (var state in _agentSessions.Values)
         {
-            foreach (var state in _agentSessions.Values)
-            {
-                state.ObserveRequestPhase(new ProviderRequestPhaseChangedEvent());
-            }
+            state.ObserveRequestPhase(new ProviderRequestPhaseChangedEvent());
+        }
 
-            await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _rendering.Release();
-        }
+        await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task Run(CancellationToken cancellationToken)
@@ -114,18 +108,11 @@ internal sealed class RawActivityView(
             while (true)
             {
                 await delay(cancellationToken).ConfigureAwait(false);
-                await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
-                try
+                using var renderingLock = await _rendering.Lock(cancellationToken).ConfigureAwait(false);
+                _frame++;
+                if (_activities.Count > 0 || _processes.Count > 0)
                 {
-                    _frame++;
-                    if (_activities.Count > 0 || _processes.Count > 0)
-                    {
-                        await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
-                    }
-                }
-                finally
-                {
-                    _ = _rendering.Release();
+                    await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
                 }
             }
         }
@@ -140,16 +127,9 @@ internal sealed class RawActivityView(
     {
         ArgumentNullException.ThrowIfNull(items);
 
-        await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            _content = Capture(items);
-            await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _rendering.Release();
-        }
+        using var renderingLock = await _rendering.Lock(cancellationToken).ConfigureAwait(false);
+        _content = Capture(items);
+        await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task CommitContent(
@@ -160,16 +140,9 @@ internal sealed class RawActivityView(
         ArgumentNullException.ThrowIfNull(scrollback);
         ArgumentNullException.ThrowIfNull(items);
 
-        await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            _content = Capture(items);
-            await commit(scrollback, Snapshot(), cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _rendering.Release();
-        }
+        using var renderingLock = await _rendering.Lock(cancellationToken).ConfigureAwait(false);
+        _content = Capture(items);
+        await commit(scrollback, Snapshot(), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task Prepare(Event published, CancellationToken cancellationToken)
@@ -183,115 +156,106 @@ internal sealed class RawActivityView(
             return;
         }
 
-        await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await CommitReasoning(state, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _rendering.Release();
-        }
+        using var renderingLock = await _rendering.Lock(cancellationToken).ConfigureAwait(false);
+        await CommitReasoning(state, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task ReplaceProcesses(
         ShellProcessSnapshot snapshot,
         CancellationToken cancellationToken)
     {
-        await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var renderingLock = await _rendering.Lock(cancellationToken).ConfigureAwait(false);
+        var inventory = ObserveInventory(_processInventories, snapshot.OwnerAgentSessionId);
+        if (!inventory.Accept(snapshot.InventoryInstanceId, snapshot.Revision, snapshot.Removed, out var replaced))
         {
-            var inventory = ObserveInventory(_processInventories, snapshot.OwnerAgentSessionId);
-            if (!inventory.Accept(snapshot.InventoryInstanceId, snapshot.Revision, snapshot.Removed, out var replaced))
-            {
-                return;
-            }
+            return;
+        }
 
-            if (replaced)
-            {
-                ClearOwnerProcesses(snapshot.OwnerAgentSessionId);
-            }
+        if (replaced)
+        {
+            ClearOwnerProcesses(snapshot.OwnerAgentSessionId);
+        }
 
-            var snapshotProcessIds = snapshot.Processes
-                .Select(static process => process.ProcessId)
-                .ToHashSet(StringComparer.Ordinal);
-            ObserveProcessCompletions(snapshot.OwnerAgentSessionId, snapshot.CompletedProcesses);
-            var completions = _processes.Values
-                .Where(process => string.Equals(process.Process.OwnerAgentSessionId, snapshot.OwnerAgentSessionId, StringComparison.Ordinal)
-                    && (snapshot.Removed || process.Revision < snapshot.Revision)
-                    && !snapshotProcessIds.Contains(process.Process.ProcessId))
-                .OrderBy(static process => process.Process.Depth)
-                .ThenBy(static process => process.Process.OwnerAgentName, StringComparer.Ordinal)
-                .ThenBy(static process => process.Process.Name, StringComparer.Ordinal)
-                .ThenBy(static process => process.Process.ProcessId, StringComparer.Ordinal)
-                .ToArray();
-            var future = _processes.Values
-                .Where(process => string.Equals(process.Process.OwnerAgentSessionId, snapshot.OwnerAgentSessionId, StringComparison.Ordinal)
-                    && !snapshot.Removed && process.Revision >= snapshot.Revision
-                    && !snapshotProcessIds.Contains(process.Process.ProcessId))
-                .ToArray();
-            var deferred = _processes.Values
-                .Where(static process => process.IsDeferred)
-                .ToDictionary(static process => process.Process.ProcessId, StringComparer.Ordinal);
-            foreach (var processId in _processes.Where(process => string.Equals(
-                process.Value.Process.OwnerAgentSessionId, snapshot.OwnerAgentSessionId, StringComparison.Ordinal))
-                .Select(static process => process.Key).ToArray())
-            {
-                _ = _processes.Remove(processId);
-            }
+        var snapshotProcessIds = snapshot.Processes
+            .Select(static process => process.ProcessId)
+            .ToHashSet(StringComparer.Ordinal);
+        ObserveProcessCompletions(snapshot.OwnerAgentSessionId, snapshot.CompletedProcesses);
+        var completions = _processes.Values
+            .Where(process => string.Equals(process.Process.OwnerAgentSessionId, snapshot.OwnerAgentSessionId, StringComparison.Ordinal)
+                && (snapshot.Removed || process.Revision < snapshot.Revision)
+                && !snapshotProcessIds.Contains(process.Process.ProcessId))
+            .OrderBy(static process => process.Process.Depth)
+            .ThenBy(static process => process.Process.OwnerAgentName, StringComparer.Ordinal)
+            .ThenBy(static process => process.Process.Name, StringComparer.Ordinal)
+            .ThenBy(static process => process.Process.ProcessId, StringComparer.Ordinal)
+            .ToArray();
+        var future = _processes.Values
+            .Where(process => string.Equals(process.Process.OwnerAgentSessionId, snapshot.OwnerAgentSessionId, StringComparison.Ordinal)
+                && !snapshot.Removed && process.Revision >= snapshot.Revision
+                && !snapshotProcessIds.Contains(process.Process.ProcessId))
+            .ToArray();
+        var deferred = _processes.Values
+            .Where(static process => process.IsDeferred)
+            .ToDictionary(static process => process.Process.ProcessId, StringComparer.Ordinal);
+        foreach (var processId in _processes.Where(process => string.Equals(
+            process.Value.Process.OwnerAgentSessionId, snapshot.OwnerAgentSessionId, StringComparison.Ordinal))
+            .Select(static process => process.Key).ToArray())
+        {
+            _ = _processes.Remove(processId);
+        }
 
-            foreach (var process in snapshot.Processes)
+        foreach (var process in snapshot.Processes)
+        {
+            ObserveOwnerHierarchy(process.OwnerAgentSessionId, process.OwnerAgentName, process.ParentAgentSessionId, process.ParentAgentName);
+            if (deferred.TryGetValue(process.ProcessId, out var pending))
             {
-                ObserveProcessHierarchy(process);
-                if (deferred.TryGetValue(process.ProcessId, out var pending))
-                {
-                    _processes.Add(process.ProcessId, pending.Observe(process, snapshot.Revision, _timeProvider.GetTimestamp()));
-                }
-                else
-                {
-                    _processes.Add(process.ProcessId, ProcessState.Observe(
-                        process, snapshot.InventoryInstanceId, snapshot.Revision, _timeProvider.GetTimestamp()));
-                }
+                _processes.Add(process.ProcessId, pending.Observe(process, snapshot.Revision, _timeProvider.GetTimestamp()));
             }
-
-            foreach (var process in future)
+            else
             {
-                _processes[process.Process.ProcessId] = process;
-            }
-
-            var committed = false;
-            foreach (var completion in completions)
-            {
-                var originTool = OriginTool(completion.Process);
-                if (originTool is { } origin && IsOriginToolActive(completion.Process))
-                {
-                    _ = _omittedProcessTools.Add(origin);
-                }
-                else if ((originTool is not { } terminalOrigin || !_terminalProcessTools.Remove(terminalOrigin))
-                    && !string.IsNullOrWhiteSpace(completion.Command)
-                    && _completedProcesses.Add((completion.Process.OwnerAgentSessionId, ProcessKey(completion.InventoryInstanceId, completion.Process.ProcessId))))
-                {
-                    committed = true;
-                    await commit(
-                        WrapProcess(
-                            completion.Process,
-                            ProcessCompletion(
-                                ExecCommandToolPresenter.Summarize(completion.Process.Name, completion.Process.Description, completion.Command),
-                                completion.Process.OwnerAgentSessionId,
-                                completion.Process.ProcessId)),
-                        Snapshot(),
-                        cancellationToken).ConfigureAwait(false);
-                }
-            }
-
-            if (!committed)
-            {
-                await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+                _processes.Add(process.ProcessId, ProcessState.Observe(
+                    process, snapshot.InventoryInstanceId, snapshot.Revision, _timeProvider.GetTimestamp()));
             }
         }
-        finally
+
+        if (snapshot.Processes.Count > 0)
         {
-            _ = _rendering.Release();
+            RefreshToolPresentations();
+        }
+
+        foreach (var process in future)
+        {
+            _processes[process.Process.ProcessId] = process;
+        }
+
+        var committed = false;
+        foreach (var completion in completions)
+        {
+            var originTool = OriginTool(completion.Process);
+            if (originTool is { } origin && IsOriginToolActive(completion.Process))
+            {
+                _ = _omittedProcessTools.Add(origin);
+            }
+            else if ((originTool is not { } terminalOrigin || !_terminalProcessTools.Remove(terminalOrigin))
+                && !string.IsNullOrWhiteSpace(completion.Command)
+                && _completedProcesses.Add((completion.Process.OwnerAgentSessionId, ProcessKey(completion.InventoryInstanceId, completion.Process.ProcessId))))
+            {
+                committed = true;
+                await commit(
+                    WrapProcess(
+                        completion.Process,
+                        ProcessCompletion(
+                            ExecCommandToolPresenter.Summarize(completion.Process.Name, completion.Process.Description, completion.Command),
+                            completion.Process.OwnerAgentSessionId,
+                            completion.Process.ProcessId)),
+                    Snapshot(),
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        if (!committed)
+        {
+            await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -301,39 +265,32 @@ internal sealed class RawActivityView(
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var renderingLock = await _rendering.Lock(cancellationToken).ConfigureAwait(false);
+        var inventory = ObserveInventory(_queueInventories, snapshot.OwnerAgentSessionId);
+        if (!inventory.Accept(snapshot.InventoryInstanceId, snapshot.Revision, snapshot.Removed, out _))
         {
-            var inventory = ObserveInventory(_queueInventories, snapshot.OwnerAgentSessionId);
-            if (!inventory.Accept(snapshot.InventoryInstanceId, snapshot.Revision, snapshot.Removed, out _))
-            {
-                return;
-            }
-
-            _hierarchy.ObserveRoot(snapshot.RootAgentSessionId);
-            RefreshToolPresentations();
-            foreach (var key in _queues.Keys.Where(key => string.Equals(
-                key.OwnerAgentSessionId, snapshot.OwnerAgentSessionId, StringComparison.Ordinal)).ToArray())
-            {
-                _ = _queues.Remove(key);
-            }
-
-            foreach (var queue in snapshot.Queues.Where(static queue => queue.Name.Length > 0 && queue.ItemCount > 0))
-            {
-                ObserveQueueHierarchy(queue);
-                var key = (queue.OwnerAgentSessionId, queue.Name);
-                _queues[key] = new QueueLiveBufferItem(queue.Name, queue.Description, queue.ItemCount)
-                {
-                    OwnerAgentSessionId = queue.OwnerAgentSessionId,
-                };
-            }
-
-            await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+            return;
         }
-        finally
+
+        _hierarchy.ObserveRoot(snapshot.RootAgentSessionId);
+        foreach (var key in _queues.Keys.Where(key => string.Equals(
+            key.OwnerAgentSessionId, snapshot.OwnerAgentSessionId, StringComparison.Ordinal)).ToArray())
         {
-            _ = _rendering.Release();
+            _ = _queues.Remove(key);
         }
+
+        foreach (var queue in snapshot.Queues.Where(static queue => queue.Name.Length > 0 && queue.ItemCount > 0))
+        {
+            ObserveOwnerHierarchy(queue.OwnerAgentSessionId, queue.OwnerAgentName, queue.ParentAgentSessionId, queue.ParentAgentName);
+            var key = (queue.OwnerAgentSessionId, queue.Name);
+            _queues[key] = new QueueLiveBufferItem(queue.Name, queue.Description, queue.ItemCount)
+            {
+                OwnerAgentSessionId = queue.OwnerAgentSessionId,
+            };
+        }
+
+        RefreshToolPresentations();
+        await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task Render(Event published, CancellationToken cancellationToken)
@@ -345,190 +302,183 @@ internal sealed class RawActivityView(
             return;
         }
 
-        await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var renderingLock = await _rendering.Lock(cancellationToken).ConfigureAwait(false);
+        var rootSessionId = _hierarchy.RootSessionId;
+        _hierarchy.Observe(published);
+        if (!string.Equals(rootSessionId, _hierarchy.RootSessionId, StringComparison.Ordinal)
+            || published.PayloadCase is Event.PayloadOneofCase.AgentStarted
+            or Event.PayloadOneofCase.AgentFinished
+            or Event.PayloadOneofCase.AgentFailed)
         {
-            var rootSessionId = _hierarchy.RootSessionId;
-            _hierarchy.Observe(published);
-            if (!string.Equals(rootSessionId, _hierarchy.RootSessionId, StringComparison.Ordinal)
-                || published.PayloadCase is Event.PayloadOneofCase.AgentStarted
-                or Event.PayloadOneofCase.AgentFinished
-                or Event.PayloadOneofCase.AgentFailed)
-            {
-                RefreshToolPresentations();
-            }
-
-            switch (published.PayloadCase)
-            {
-                case Event.PayloadOneofCase.AgentStarted:
-                    await UpdateAgentName(
-                        published.AgentSessionId,
-                        published.AgentStarted.Name,
-                        cancellationToken).ConfigureAwait(false);
-                    await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
-                    break;
-                case Event.PayloadOneofCase.AgentStatisticsUpdated:
-                    await UpdateAgentStatistics(
-                        published.AgentSessionId,
-                        published.AgentStatisticsUpdated,
-                        cancellationToken).ConfigureAwait(false);
-                    await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
-                    break;
-                case Event.PayloadOneofCase.AgentFinished:
-                    await FinishAgent(published, failed: false, cancellationToken).ConfigureAwait(false);
-                    break;
-                case Event.PayloadOneofCase.AgentFailed:
-                    await FinishAgent(published, failed: true, cancellationToken).ConfigureAwait(false);
-                    break;
-                case Event.PayloadOneofCase.TurnStarted:
-                    await StartTurn(
-                        published.AgentSessionId,
-                        LiveModelAliasIcon.Convert(published.TurnStarted.ModelAliasIcon),
-                        cancellationToken).ConfigureAwait(false);
-                    await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
-                    break;
-                case Event.PayloadOneofCase.TurnEnded:
-                    await FinishTurn(published, failed: false, cancellationToken).ConfigureAwait(false);
-                    break;
-                case Event.PayloadOneofCase.TurnFailed:
-                    await FinishTurn(published, failed: true, cancellationToken).ConfigureAwait(false);
-                    break;
-                case Event.PayloadOneofCase.CompactionStarted:
-                    StartCompaction(published.AgentSessionId);
-                    await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
-                    break;
-                case Event.PayloadOneofCase.CompactionFinished:
-                case Event.PayloadOneofCase.CompactionFailed:
-                    await FinishCompaction(published, cancellationToken).ConfigureAwait(false);
-                    break;
-                case Event.PayloadOneofCase.ProviderRequestPhaseChanged:
-                    GetAgentSession(published.AgentSessionId).ObserveRequestPhase(
-                        published.ProviderRequestPhaseChanged);
-                    await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
-                    break;
-                case Event.PayloadOneofCase.ToolCallChunk:
-                    ToolCall(published.AgentSessionId, published.ToolCallChunk);
-                    break;
-                case Event.PayloadOneofCase.TextChunk when _hierarchy.IsChild(published.AgentSessionId):
-                    GetNamedAgentSession(published.AgentSessionId).CollectResponse(published.TextChunk.Fragment);
-                    await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
-                    break;
-                case Event.PayloadOneofCase.ToolStarted:
-                    await StartTool(published, cancellationToken).ConfigureAwait(false);
-                    break;
-                case Event.PayloadOneofCase.ToolFinished:
-                case Event.PayloadOneofCase.ToolCancelled:
-                case Event.PayloadOneofCase.ToolError:
-                    await FinishTool(published, cancellationToken).ConfigureAwait(false);
-                    break;
-                case Event.PayloadOneofCase.AgentTaskProgressSnapshot:
-                {
-                    var state = GetAgentSession(published.AgentSessionId);
-                    if (!_progressShutdown && state.OfferAgentTaskProgress(published.AgentTaskProgressSnapshot))
-                    {
-                        ScheduleProgress(state, published.AgentTaskProgressSnapshot);
-                        await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
-                    }
-
-                    break;
-                }
-
-                case Event.PayloadOneofCase.ActiveWorkReminderInjected when _hierarchy.IsChild(published.AgentSessionId):
-                    await commit(
-                        Wrap(
-                            GetNamedAgentSession(published.AgentSessionId),
-                            new ActivityNoticeScrollbackValue(TerminalIcons.StatusNotice, "Active work reminder injected")),
-                        Snapshot(),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.ExitReminderChanged when _hierarchy.IsChild(published.AgentSessionId):
-                    await commit(
-                        Wrap(
-                            GetNamedAgentSession(published.AgentSessionId),
-                            new ActivityNoticeScrollbackValue(
-                                TerminalIcons.StatusNotice,
-                                ExitReminderNotice(published.ExitReminderChanged))),
-                        Snapshot(),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.ExitReminderInjected when _hierarchy.IsChild(published.AgentSessionId):
-                    await commit(
-                        Wrap(
-                            GetNamedAgentSession(published.AgentSessionId),
-                            new ActivityNoticeScrollbackValue(TerminalIcons.StatusNotice, "Exit reminder injected")),
-                        Snapshot(),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.SkillLoaded when _hierarchy.IsChild(published.AgentSessionId):
-                    await commit(
-                        Wrap(
-                            GetNamedAgentSession(published.AgentSessionId),
-                            new ActivityNoticeScrollbackValue(
-                                TerminalIcons.StatusNotice,
-                                $"Skill loaded: {published.SkillLoaded.Path}")),
-                        Snapshot(),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.RetryNotice
-                    or Event.PayloadOneofCase.StatusInjected
-                    or Event.PayloadOneofCase.ContextReminderInjected
-                    or Event.PayloadOneofCase.FinalProviderRequestPromptInjected
-                    or Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected
-                    or Event.PayloadOneofCase.PlanValidationRepairInjected
-                    or Event.PayloadOneofCase.PendingChildQuestionReminderInjected
-                    when _hierarchy.IsChild(published.AgentSessionId):
-                    await commit(
-                        Wrap(
-                            GetNamedAgentSession(published.AgentSessionId),
-                            new ActivityNoticeScrollbackValue(TerminalIcons.StatusNotice, DescribeNotice(published))),
-                        Snapshot(),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.ToolRequestReceived when published.ToolRequestReceived.ToolCallCount > 1:
-                    await commit(
-                        Wrap(
-                            GetNamedAgentSession(published.AgentSessionId),
-                            new ActivityNoticeScrollbackValue(
-                                TerminalIcons.ToolRequest,
-                                $"requested {published.ToolRequestReceived.ToolCallCount} tool calls")),
-                        Snapshot(),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.ReasoningChunk:
-                {
-                    var chunk = published.ReasoningChunk;
-                    var state = GetNamedAgentSession(published.AgentSessionId);
-                    if (state.HasReasoning && state.IsReasoningSummary != (chunk.Kind == ReasoningKind.Summary))
-                    {
-                        await CommitReasoning(state, cancellationToken).ConfigureAwait(false);
-                    }
-
-                    state.CollectReasoning(chunk);
-                    if (chunk.Completed)
-                    {
-                        await CommitReasoning(state, cancellationToken).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
-                    }
-
-                    break;
-                }
-
-                default:
-                    break;
-            }
+            RefreshToolPresentations();
         }
-        finally
+
+        switch (published.PayloadCase)
         {
-            _ = _rendering.Release();
+            case Event.PayloadOneofCase.AgentStarted:
+                await UpdateAgentName(
+                    published.AgentSessionId,
+                    published.AgentStarted.Name,
+                    cancellationToken).ConfigureAwait(false);
+                await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+                break;
+            case Event.PayloadOneofCase.AgentStatisticsUpdated:
+                await UpdateAgentStatistics(
+                    published.AgentSessionId,
+                    published.AgentStatisticsUpdated,
+                    cancellationToken).ConfigureAwait(false);
+                await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+                break;
+            case Event.PayloadOneofCase.AgentFinished:
+                await FinishAgent(published, failed: false, cancellationToken).ConfigureAwait(false);
+                break;
+            case Event.PayloadOneofCase.AgentFailed:
+                await FinishAgent(published, failed: true, cancellationToken).ConfigureAwait(false);
+                break;
+            case Event.PayloadOneofCase.TurnStarted:
+                await StartTurn(
+                    published.AgentSessionId,
+                    LiveModelAliasIcon.Convert(published.TurnStarted.ModelAliasIcon),
+                    cancellationToken).ConfigureAwait(false);
+                await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+                break;
+            case Event.PayloadOneofCase.TurnEnded:
+                await FinishTurn(published, failed: false, cancellationToken).ConfigureAwait(false);
+                break;
+            case Event.PayloadOneofCase.TurnFailed:
+                await FinishTurn(published, failed: true, cancellationToken).ConfigureAwait(false);
+                break;
+            case Event.PayloadOneofCase.CompactionStarted:
+                StartCompaction(published.AgentSessionId);
+                await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+                break;
+            case Event.PayloadOneofCase.CompactionFinished:
+            case Event.PayloadOneofCase.CompactionFailed:
+                await FinishCompaction(published, cancellationToken).ConfigureAwait(false);
+                break;
+            case Event.PayloadOneofCase.ProviderRequestPhaseChanged:
+                GetAgentSession(published.AgentSessionId).ObserveRequestPhase(
+                    published.ProviderRequestPhaseChanged);
+                await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+                break;
+            case Event.PayloadOneofCase.ToolCallChunk:
+                ToolCall(published.AgentSessionId, published.ToolCallChunk);
+                break;
+            case Event.PayloadOneofCase.TextChunk when _hierarchy.IsChild(published.AgentSessionId):
+                GetNamedAgentSession(published.AgentSessionId).CollectResponse(published.TextChunk.Fragment);
+                await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+                break;
+            case Event.PayloadOneofCase.ToolStarted:
+                await StartTool(published, cancellationToken).ConfigureAwait(false);
+                break;
+            case Event.PayloadOneofCase.ToolFinished:
+            case Event.PayloadOneofCase.ToolCancelled:
+            case Event.PayloadOneofCase.ToolError:
+                await FinishTool(published, cancellationToken).ConfigureAwait(false);
+                break;
+            case Event.PayloadOneofCase.AgentTaskProgressSnapshot:
+            {
+                var state = GetAgentSession(published.AgentSessionId);
+                if (!_progressShutdown && state.OfferAgentTaskProgress(published.AgentTaskProgressSnapshot))
+                {
+                    ScheduleProgress(state, published.AgentTaskProgressSnapshot);
+                    await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+                }
+
+                break;
+            }
+
+            case Event.PayloadOneofCase.ActiveWorkReminderInjected when _hierarchy.IsChild(published.AgentSessionId):
+                await commit(
+                    Wrap(
+                        GetNamedAgentSession(published.AgentSessionId),
+                        new ActivityNoticeScrollbackValue(TerminalIcons.StatusNotice, "Active work reminder injected")),
+                    Snapshot(),
+                    cancellationToken).ConfigureAwait(false);
+                break;
+
+            case Event.PayloadOneofCase.ExitReminderChanged when _hierarchy.IsChild(published.AgentSessionId):
+                await commit(
+                    Wrap(
+                        GetNamedAgentSession(published.AgentSessionId),
+                        new ActivityNoticeScrollbackValue(
+                            TerminalIcons.StatusNotice,
+                            ExitReminderNotice(published.ExitReminderChanged))),
+                    Snapshot(),
+                    cancellationToken).ConfigureAwait(false);
+                break;
+
+            case Event.PayloadOneofCase.ExitReminderInjected when _hierarchy.IsChild(published.AgentSessionId):
+                await commit(
+                    Wrap(
+                        GetNamedAgentSession(published.AgentSessionId),
+                        new ActivityNoticeScrollbackValue(TerminalIcons.StatusNotice, "Exit reminder injected")),
+                    Snapshot(),
+                    cancellationToken).ConfigureAwait(false);
+                break;
+
+            case Event.PayloadOneofCase.SkillLoaded when _hierarchy.IsChild(published.AgentSessionId):
+                await commit(
+                    Wrap(
+                        GetNamedAgentSession(published.AgentSessionId),
+                        new ActivityNoticeScrollbackValue(
+                            TerminalIcons.StatusNotice,
+                            $"Skill loaded: {published.SkillLoaded.Path}")),
+                    Snapshot(),
+                    cancellationToken).ConfigureAwait(false);
+                break;
+
+            case Event.PayloadOneofCase.RetryNotice
+                or Event.PayloadOneofCase.StatusInjected
+                or Event.PayloadOneofCase.ContextReminderInjected
+                or Event.PayloadOneofCase.FinalProviderRequestPromptInjected
+                or Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected
+                or Event.PayloadOneofCase.PlanValidationRepairInjected
+                or Event.PayloadOneofCase.PendingChildQuestionReminderInjected
+                when _hierarchy.IsChild(published.AgentSessionId):
+                await commit(
+                    Wrap(
+                        GetNamedAgentSession(published.AgentSessionId),
+                        new ActivityNoticeScrollbackValue(TerminalIcons.StatusNotice, DescribeNotice(published))),
+                    Snapshot(),
+                    cancellationToken).ConfigureAwait(false);
+                break;
+
+            case Event.PayloadOneofCase.ToolRequestReceived when published.ToolRequestReceived.ToolCallCount > 1:
+                await commit(
+                    Wrap(
+                        GetNamedAgentSession(published.AgentSessionId),
+                        new ActivityNoticeScrollbackValue(
+                            TerminalIcons.ToolRequest,
+                            $"requested {published.ToolRequestReceived.ToolCallCount} tool calls")),
+                    Snapshot(),
+                    cancellationToken).ConfigureAwait(false);
+                break;
+
+            case Event.PayloadOneofCase.ReasoningChunk:
+            {
+                var chunk = published.ReasoningChunk;
+                var state = GetNamedAgentSession(published.AgentSessionId);
+                if (state.HasReasoning && state.IsReasoningSummary != (chunk.Kind == ReasoningKind.Summary))
+                {
+                    await CommitReasoning(state, cancellationToken).ConfigureAwait(false);
+                }
+
+                state.CollectReasoning(chunk);
+                if (chunk.Completed)
+                {
+                    await CommitReasoning(state, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+                }
+
+                break;
+            }
+
+            default:
+                break;
         }
     }
 
@@ -542,7 +492,7 @@ internal sealed class RawActivityView(
 
         try
         {
-            await Task.WhenAll(shutdown).ConfigureAwait(false);
+            await shutdown.ConfigureAwait(false);
         }
         catch
         {
@@ -550,6 +500,11 @@ internal sealed class RawActivityView(
             throw;
         }
     }
+
+    internal static string ExitReminderNotice(ExitReminderChanged changed) =>
+        changed.StateCase == ExitReminderChanged.StateOneofCase.Description
+            ? $"Exit reminder set: {TerminalText.Sanitize(changed.Title)}: {TerminalText.Sanitize(changed.Description)}"
+            : $"Exit reminder cleared: {TerminalText.Sanitize(changed.Title)}";
 
     private static bool ContainsHiddenTask(IEnumerable<AgentTaskProgressNode> nodes) =>
         nodes.Any(static node => node.Hidden || ContainsHiddenTask(node.Children));
@@ -570,13 +525,16 @@ internal sealed class RawActivityView(
         return new AgentTaskProgressLiveValue(tree.Snapshot, taskAgentLines, activeAgentSessionIds);
     }
 
-    private static string GetTerminalToolCallId(Event published) => published.PayloadCase switch
+    private static void CancelPending(CancellationTokenSource cancellation)
     {
-        Event.PayloadOneofCase.ToolFinished => published.ToolFinished.ToolCallId,
-        Event.PayloadOneofCase.ToolCancelled => published.ToolCancelled.ToolCallId,
-        Event.PayloadOneofCase.ToolError => published.ToolError.ToolCallId,
-        _ => string.Empty,
-    };
+        try
+        {
+            cancellation.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
 
     private static InventoryState ObserveInventory(Dictionary<string, InventoryState> inventories, string ownerAgentSessionId)
     {
@@ -588,11 +546,6 @@ internal sealed class RawActivityView(
 
         return inventory;
     }
-
-    private static string ExitReminderNotice(ExitReminderChanged changed) =>
-        changed.StateCase == ExitReminderChanged.StateOneofCase.Description
-            ? $"Exit reminder set: {TerminalText.Sanitize(changed.Title)}: {TerminalText.Sanitize(changed.Description)}"
-            : $"Exit reminder cleared: {TerminalText.Sanitize(changed.Title)}";
 
     private static string DescribeNotice(Event published) => published.PayloadCase switch
     {
@@ -617,38 +570,19 @@ internal sealed class RawActivityView(
             ? null
             : (process.OwnerAgentSessionId, process.OriginToolCallId);
 
-    private static string ReadCommand(string argumentsJson)
+    private static (string Command, string Description) ReadProcessArguments(string argumentsJson)
     {
         try
         {
             using var document = JsonDocument.Parse(argumentsJson);
-            return document.RootElement.TryGetProperty("command", out var command)
-                && command.ValueKind == JsonValueKind.String
-                    ? command.GetString() ?? string.Empty
-                    : document.RootElement.TryGetProperty("cmd", out var aliased)
-                        && aliased.ValueKind == JsonValueKind.String
-                            ? aliased.GetString() ?? string.Empty
-                            : string.Empty;
+            var root = document.RootElement;
+            return (
+                JsonRead.TryReadString(root, "command", out var command) ? command : JsonRead.String(root, "cmd"),
+                JsonRead.String(root, "description"));
         }
         catch (JsonException)
         {
-            return string.Empty;
-        }
-    }
-
-    private static string ReadDescription(string argumentsJson)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(argumentsJson);
-            return document.RootElement.TryGetProperty("description", out var description)
-                && description.ValueKind == JsonValueKind.String
-                    ? description.GetString() ?? string.Empty
-                    : string.Empty;
-        }
-        catch (JsonException)
-        {
-            return string.Empty;
+            return (string.Empty, string.Empty);
         }
     }
 
@@ -680,23 +614,18 @@ internal sealed class RawActivityView(
 
     private async Task ShutdownCore()
     {
-        await _rendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-        try
+        using (await _rendering.Lock(CancellationToken.None).ConfigureAwait(false))
         {
             _progressShutdown = true;
             foreach (var pending in _pendingProgress.Values)
             {
-                pending.Cancel();
+                CancelPending(pending.Cancellation);
             }
 
             foreach (var pendingStart in _pendingStarts.Values)
             {
-                pendingStart.Cancel();
+                CancelPending(pendingStart.Cancellation);
             }
-        }
-        finally
-        {
-            _ = _rendering.Release();
         }
 
         Task[] tasks;
@@ -755,50 +684,36 @@ internal sealed class RawActivityView(
         if (_pendingProgress.TryGetValue(key, out var previous))
         {
             flushedRevision = previous.FlushedRevision;
-            previous.Cancel();
+            CancelPending(previous.Cancellation);
         }
 
         var pending = new PendingProgress(snapshot.Clone(), flushedRevision);
         _pendingProgress[key] = pending;
-        pending.DelayTask = DelayAndFlushProgress(key, pending);
-        TrackProgressTask(pending.DelayTask);
+        TrackProgressTask(DelayAndRun(
+            pending.Cancellation,
+            ProgressQuietPeriod,
+            () => FlushProgress(key, pending, pending.Cancellation.Token)));
     }
 
-    private async Task DelayAndFlushProgress(
-        string key,
-        PendingProgress pending)
+    private async Task DelayAndRun(CancellationTokenSource cancellation, TimeSpan quietPeriod, Func<Task> run)
     {
         try
         {
-            await progressDelay(ProgressQuietPeriod, pending.Cancellation.Token).ConfigureAwait(false);
-            await _rendering.WaitAsync(pending.Cancellation.Token).ConfigureAwait(false);
-            try
-            {
-                await FlushProgress(key, pending, pending.Cancellation.Token).ConfigureAwait(false);
-            }
-            finally
-            {
-                _ = _rendering.Release();
-            }
+            await progressDelay(quietPeriod, cancellation.Token).ConfigureAwait(false);
+            using var renderingLock = await _rendering.Lock(cancellation.Token).ConfigureAwait(false);
+            await run().ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (pending.Cancellation.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
         }
         catch (Exception failure)
         {
-            await _rendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-            try
-            {
-                _progressFailure ??= ExceptionDispatchInfo.Capture(failure);
-            }
-            finally
-            {
-                _ = _rendering.Release();
-            }
+            using var renderingLock = await _rendering.Lock(CancellationToken.None).ConfigureAwait(false);
+            _progressFailure ??= ExceptionDispatchInfo.Capture(failure);
         }
         finally
         {
-            pending.Cancellation.Dispose();
+            cancellation.Dispose();
         }
     }
 
@@ -826,47 +741,6 @@ internal sealed class RawActivityView(
 
         pending.FlushedRevision = pending.Snapshot.Revision;
         await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
-    }
-
-    private async Task DelayAndCommitStart(
-        (string AgentSessionId, string ToolCallId) key,
-        PendingStart pending)
-    {
-        try
-        {
-            await progressDelay(StartGracePeriod, pending.Cancellation.Token).ConfigureAwait(false);
-            await _rendering.WaitAsync(pending.Cancellation.Token).ConfigureAwait(false);
-            try
-            {
-                if (_pendingStarts.Remove(key))
-                {
-                    await commit(pending.Scrollback, Snapshot(), pending.Cancellation.Token).ConfigureAwait(false);
-                }
-            }
-            finally
-            {
-                _ = _rendering.Release();
-            }
-        }
-        catch (OperationCanceledException) when (pending.Cancellation.IsCancellationRequested)
-        {
-        }
-        catch (Exception failure)
-        {
-            await _rendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-            try
-            {
-                _progressFailure ??= ExceptionDispatchInfo.Capture(failure);
-            }
-            finally
-            {
-                _ = _rendering.Release();
-            }
-        }
-        finally
-        {
-            pending.Cancellation.Dispose();
-        }
     }
 
     private void TrackProgressTask(Task task)
@@ -900,52 +774,29 @@ internal sealed class RawActivityView(
         _rendering.Dispose();
     }
 
-    private void ObserveQueueHierarchy(QueueState queue)
+    private void ObserveOwnerHierarchy(
+        string ownerAgentSessionId,
+        string ownerAgentName,
+        string parentAgentSessionId,
+        string parentAgentName)
     {
-        _hierarchy.Observe(queue);
-        if (queue.OwnerAgentSessionId.Length > 0)
-        {
-            var state = GetAgentSession(queue.OwnerAgentSessionId);
-            if (!state.HasName && queue.OwnerAgentName.Length > 0)
-            {
-                state.UpdateName(queue.OwnerAgentName);
-            }
-        }
-
-        if (queue.ParentAgentSessionId.Length > 0)
-        {
-            var parent = GetAgentSession(queue.ParentAgentSessionId);
-            if (!parent.HasName && queue.ParentAgentName.Length > 0)
-            {
-                parent.UpdateName(queue.ParentAgentName);
-            }
-        }
-
-        RefreshToolPresentations();
+        _hierarchy.ObserveOwner(ownerAgentSessionId, ownerAgentName, parentAgentSessionId, parentAgentName);
+        NameAgentSession(ownerAgentSessionId, ownerAgentName);
+        NameAgentSession(parentAgentSessionId, parentAgentName);
     }
 
-    private void ObserveProcessHierarchy(ActiveShellProcess process)
+    private void NameAgentSession(string agentSessionId, string name)
     {
-        _hierarchy.Observe(process);
-        if (process.OwnerAgentSessionId.Length > 0)
+        if (agentSessionId.Length == 0)
         {
-            var state = GetAgentSession(process.OwnerAgentSessionId);
-            if (!state.HasName && process.OwnerAgentName.Length > 0)
-            {
-                state.UpdateName(process.OwnerAgentName);
-            }
+            return;
         }
 
-        if (process.ParentAgentSessionId.Length > 0)
+        var state = GetAgentSession(agentSessionId);
+        if (!state.HasName && name.Length > 0)
         {
-            var parent = GetAgentSession(process.ParentAgentSessionId);
-            if (!parent.HasName && process.ParentAgentName.Length > 0)
-            {
-                parent.UpdateName(process.ParentAgentName);
-            }
+            state.UpdateName(name);
         }
-
-        RefreshToolPresentations();
     }
 
     private List<ILiveBufferItem> Snapshot()
@@ -1085,8 +936,7 @@ internal sealed class RawActivityView(
         rows.AddRange((IEnumerable<(string OwnerId, int Kind, string Id, ILiveBufferItem Item)>)_agentSessions.Values
             .Where(state => !_hierarchy.IsRoot(state.AgentSessionId)
                 && !state.IsAgentActive
-                && ownerIds.Any(ownerId => string.Equals(ownerId, state.AgentSessionId, StringComparison.Ordinal)
-                    || _hierarchy.IsDescendant(ownerId, state.AgentSessionId))
+                && ownerIds.Contains(state.AgentSessionId)
                 && !activities.Any(activity => ReferenceEquals(activity.State, state)
                     && state.IsAgentActivity(activity.ActivityId)))
             .Select(state => (
@@ -1195,9 +1045,9 @@ internal sealed class RawActivityView(
             if (await state.FinishChildTurn(response => commit(
                     Wrap(state, new FinalMessageScrollbackValue(response)),
                     SnapshotWithout(state, AgentSessionState.AgentActivityId),
-                    cancellationToken)).ConfigureAwait(false) is { } activityId)
+                    cancellationToken)).ConfigureAwait(false))
             {
-                _ = _activities.Remove((state, activityId));
+                _ = _activities.Remove((state, AgentSessionState.AgentActivityId));
                 await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
             }
 
@@ -1214,13 +1064,13 @@ internal sealed class RawActivityView(
             await updateMainAgentActivity(string.Empty, cancellationToken).ConfigureAwait(false);
         }
 
-        await CommitCompletion(state, completion, cancellationToken).ConfigureAwait(false);
+        await CommitCompletion(state, completion.Response, completion.Notice, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task FinishAgent(Event published, bool failed, CancellationToken cancellationToken)
     {
         var state = GetAgentSession(published.AgentSessionId);
-        if (state.FinishAgent(published, failed) is not { } completion)
+        if (state.FinishAgent(published, failed) is not { } notice)
         {
             return;
         }
@@ -1230,7 +1080,7 @@ internal sealed class RawActivityView(
             await updateMainAgentActivity(string.Empty, cancellationToken).ConfigureAwait(false);
         }
 
-        await CommitAgentCompletion(state, completion, cancellationToken).ConfigureAwait(false);
+        await CommitCompletion(state, string.Empty, notice, cancellationToken).ConfigureAwait(false);
         state.CompleteAgent();
     }
 
@@ -1303,7 +1153,12 @@ internal sealed class RawActivityView(
             var key = (published.AgentSessionId, published.ToolStarted.ToolCallId);
             var pendingStart = new PendingStart(Wrap(state, started));
             _pendingStarts[key] = pendingStart;
-            TrackProgressTask(DelayAndCommitStart(key, pendingStart));
+            TrackProgressTask(DelayAndRun(
+                pendingStart.Cancellation,
+                StartGracePeriod,
+                () => _pendingStarts.Remove(key)
+                    ? commit(pendingStart.Scrollback, Snapshot(), pendingStart.Cancellation.Token)
+                    : Task.CompletedTask));
             await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
         }
         else
@@ -1315,12 +1170,12 @@ internal sealed class RawActivityView(
     private async Task FinishTool(Event published, CancellationToken cancellationToken)
     {
         var state = GetNamedAgentSession(published.AgentSessionId);
-        var toolCallId = GetTerminalToolCallId(published);
+        var toolCallId = TerminalToolEvent.ReadTool(published).ToolCallId;
         var key = (published.AgentSessionId, toolCallId);
         var startOmitted = false;
         if (_pendingStarts.Remove(key, out var pendingStart))
         {
-            pendingStart.Cancel();
+            CancelPending(pendingStart.Cancellation);
             if (published.PayloadCase == Event.PayloadOneofCase.ToolFinished && published.ToolFinished.YieldedProcess is not null)
             {
                 await commit(pendingStart.Scrollback, Snapshot(), cancellationToken).ConfigureAwait(false);
@@ -1350,8 +1205,7 @@ internal sealed class RawActivityView(
 
         if (deferred is not null)
         {
-            var command = ReadCommand(call.ArgumentsJson);
-            var description = ReadDescription(call.ArgumentsJson);
+            var (command, description) = ReadProcessArguments(call.ArgumentsJson);
             scrollback = ObserveDeferredProcess(deferred, published, state.Name, command, description)
                 && !string.IsNullOrWhiteSpace(command)
                 && _completedProcesses.Add((published.AgentSessionId, ProcessKey(deferred.InventoryInstanceId, deferred.ProcessId)))
@@ -1465,31 +1319,20 @@ internal sealed class RawActivityView(
 
     private async Task CommitCompletion(
         AgentSessionState state,
-        (string ActivityId, string Response, ActivityNoticeScrollbackValue Notice) completion,
+        string response,
+        ActivityNoticeScrollbackValue notice,
         CancellationToken cancellationToken)
     {
-        _ = _activities.Remove((state, completion.ActivityId));
-        if (completion.Response.Length > 0)
+        _ = _activities.Remove((state, AgentSessionState.AgentActivityId));
+        if (response.Length > 0)
         {
             await commit(
-                Wrap(state, new FinalMessageScrollbackValue(completion.Response)),
+                Wrap(state, new FinalMessageScrollbackValue(response)),
                 Snapshot(),
                 cancellationToken).ConfigureAwait(false);
         }
 
-        await CommitAgentCompletion(
-            state,
-            (completion.ActivityId, completion.Notice),
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    private async Task CommitAgentCompletion(
-        AgentSessionState state,
-        (string ActivityId, ActivityNoticeScrollbackValue Notice) completion,
-        CancellationToken cancellationToken)
-    {
-        _ = _activities.Remove((state, completion.ActivityId));
-        await commit(Wrap(state, completion.Notice), Snapshot(), cancellationToken).ConfigureAwait(false);
+        await commit(Wrap(state, notice), Snapshot(), cancellationToken).ConfigureAwait(false);
     }
 
     private bool ObserveDeferredProcess(
@@ -1682,17 +1525,6 @@ internal sealed class RawActivityView(
         public IScrollbackItem Scrollback { get; } = scrollback;
 
         public CancellationTokenSource Cancellation { get; } = new();
-
-        public void Cancel()
-        {
-            try
-            {
-                Cancellation.Cancel();
-            }
-            catch (ObjectDisposedException)
-            {
-            }
-        }
     }
 
     private sealed class PendingProgress(
@@ -1704,18 +1536,5 @@ internal sealed class RawActivityView(
         public CancellationTokenSource Cancellation { get; } = new();
 
         public ulong FlushedRevision { get; set; } = flushedRevision;
-
-        public Task DelayTask { get; set; } = Task.CompletedTask;
-
-        public void Cancel()
-        {
-            try
-            {
-                Cancellation.Cancel();
-            }
-            catch (ObjectDisposedException)
-            {
-            }
-        }
     }
 }

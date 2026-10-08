@@ -3,7 +3,6 @@ using System.Runtime.ExceptionServices;
 using Parrot.Config;
 using Parrot.Diagnostics;
 using Parrot.Events;
-using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Agent;
@@ -25,7 +24,6 @@ internal sealed class AgentRegistry(
     private readonly CancellationTokenSource _lifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
     private readonly Lock _gate = new();
 
-    private bool _accepting = true;
     private Task? _shutdown;
 
     public CancellationToken ChildLifetime => _lifetime.Token;
@@ -38,7 +36,7 @@ internal sealed class AgentRegistry(
         {
             lock (_gate)
             {
-                return _accepting;
+                return _shutdown is null;
             }
         }
     }
@@ -94,18 +92,6 @@ internal sealed class AgentRegistry(
     public IReadOnlyList<IAgentSessionScope> SnapshotScopes() =>
         [.. SnapshotRoots().SelectMany(EnumerateScopes)];
 
-    public IReadOnlyList<ActiveWorkObservation> Active()
-    {
-        var sessions = SnapshotDescendants();
-        return [.. sessions
-            .Where(static session => session.IsActive())
-            .Select(static session => new ActiveWorkObservation(
-                session.SessionId,
-                session.Name,
-                ActiveWorkState.Running))
-            .OrderBy(static observation => observation.Id, StringComparer.Ordinal)];
-    }
-
     public IReadOnlyList<ActiveAgentSnapshot> ActiveSnapshot()
     {
         var snapshots = SnapshotDescendants()
@@ -123,11 +109,7 @@ internal sealed class AgentRegistry(
     {
         lock (_gate)
         {
-            if (_shutdown is null)
-            {
-                _accepting = false;
-                _shutdown = ShutDown();
-            }
+            _shutdown ??= ShutDown();
 
             return new ValueTask(_shutdown);
         }
@@ -247,7 +229,7 @@ internal sealed class AgentRegistry(
     {
         lock (_gate)
         {
-            return _accepting ? [.. _roots.Values] : [];
+            return _shutdown is null ? [.. _roots.Values] : [];
         }
     }
 
@@ -256,7 +238,7 @@ internal sealed class AgentRegistry(
 
     private void EnsureAccepting()
     {
-        if (!_accepting)
+        if (_shutdown is not null)
         {
             throw new AgentRegistryException("the user session is shutting down");
         }

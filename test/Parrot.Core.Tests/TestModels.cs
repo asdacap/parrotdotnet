@@ -131,6 +131,9 @@ internal static class TestModels
 
     public static AgentQueueTestFixture Queues(AgentIdentity identity) => new(identity);
 
+    public static ProcessRunner Runner(string bubblewrapPath) =>
+        new(new LinuxBubblewrapSandbox(bubblewrapPath, requireTrustedPath: false, new LinuxSandboxProcessLauncher([])), new SandboxGate(enabled: true));
+
     public static UserSessionResources Resources()
     {
         var root = Directory.CreateDirectory(
@@ -139,6 +142,14 @@ internal static class TestModels
             new StatePaths(root, root, root),
             UserSessionId.Parse(Guid.NewGuid().ToString("N")),
             ProjectWorkspace.FromLaunchDirectory(root));
+    }
+
+    public static Skills.SkillCatalogFactory SkillCatalogFactory()
+    {
+        var configuration = Configuration.Load(
+            Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"), "config.yaml"),
+            Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"), "predefined.yaml"));
+        return new Skills.SkillCatalogFactory(configuration, Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "packaged-skills"));
     }
 
     public static IAgentSessionScope ScopeOf(IAgentSession session) =>
@@ -198,7 +209,7 @@ internal static class TestModels
         CancellationToken lifetime)
     {
         var resources = Resources();
-        var owner = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.NamePath)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime);
+        var owner = new ShellProcessOwner(identity, resources, new AgentPathEnvironment(resources, resources.AgentScratch(identity.NamePath)), Runner(string.Empty), TestDiagnosticLog.Instance, lifetime);
         var children = new ChildRegistry(identity, QueueChildAdmissionValidator.Validate);
         IAgentQueues queues = new AgentQueues(identity, null, resources, children, static queueIdentity => new QueueInventory(queueIdentity), TestDiagnosticLog.Instance);
         queues.Initialize();

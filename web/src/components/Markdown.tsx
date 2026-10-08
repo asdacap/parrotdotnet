@@ -1,3 +1,4 @@
+import { memo, useDeferredValue } from "react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import rehypeHighlight from "rehype-highlight"
 import remarkGfm from "remark-gfm"
@@ -20,10 +21,14 @@ const components: Components = {
   blockquote: ({ children }) => <blockquote className="my-2 border-l-2 pl-3 text-muted-foreground">{children}</blockquote>,
 }
 
-export function Markdown({ text }: { text: string }) {
+const remarkPlugins = [remarkGfm]
+const rehypePlugins = [rehypeHighlight]
+
+export const Markdown = memo(function Markdown({ text }: { text: string }) {
+  const deferredText = useDeferredValue(text)
   return (
-    <ReactMarkdown components={components} remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-      {text}
+    <ReactMarkdown components={components} remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins}>
+      {deferredText}
     </ReactMarkdown>
   )
-}
+})

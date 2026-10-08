@@ -37,8 +37,7 @@ internal sealed class GlobTool(ToolWorkspace workspace) : ITool
 
         try
         {
-            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, FileToolJsonContext.Default.GlobToolInput)
-                ?? throw new FormatException("Tool arguments must be an object.");
+            var input = ToolInputConversion.Deserialize(invocation.ArgumentsJson, FileToolJsonContext.Default.GlobToolInput);
             pattern = input.Pattern ?? throw new FormatException("Tool arguments require a string 'pattern'.");
             path = input.Path ?? string.Empty;
         }
@@ -74,16 +73,11 @@ internal sealed class GlobTool(ToolWorkspace workspace) : ITool
         (string Lexical, string Physical) root;
         try
         {
-            root = workspace.ResolveRead(path.Length == 0 ? "." : path);
+            root = workspace.ResolveAllowedRead(path.Length == 0 ? "." : path, selection.SecurityProfile);
         }
         catch (Exception failure) when (failure is InvalidOperationException or IOException)
         {
             return ToolResultFormatter.Error(invocation, failure.Message);
-        }
-
-        if (!ToolWorkspace.AllowsRead(root, selection.SecurityProfile))
-        {
-            return ToolResultFormatter.Error(invocation, "access denied");
         }
 
         if (!Directory.Exists(root.Physical))
@@ -122,8 +116,8 @@ internal sealed class GlobTool(ToolWorkspace workspace) : ITool
             var output = results.Count == 0 ? string.Empty : string.Join('\n', results) + "\n";
             return stopReason switch
             {
-                WalkStopReason.ResultLimit => output + ToolResultFormatter.Marker(invocation, "[glob results truncated: result limit reached]\n"),
-                WalkStopReason.VisitLimit => output + ToolResultFormatter.Marker(invocation, "[glob results truncated: visit limit reached]\n"),
+                WalkStopReason.ResultLimit => output + ToolResultFormatter.Text(invocation, "[glob results truncated: result limit reached]\n"),
+                WalkStopReason.VisitLimit => output + ToolResultFormatter.Text(invocation, "[glob results truncated: visit limit reached]\n"),
                 _ => output,
             };
         }
@@ -182,14 +176,9 @@ internal sealed class GlobTool(ToolWorkspace workspace) : ITool
 
             try
             {
-                resolved = workspace.ResolveRead(lexical);
+                resolved = workspace.ResolveAllowedRead(lexical, securityProfile);
             }
             catch (Exception failure) when (failure is InvalidOperationException or IOException)
-            {
-                continue;
-            }
-
-            if (!ToolWorkspace.AllowsRead(resolved, securityProfile))
             {
                 continue;
             }

@@ -1,11 +1,18 @@
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
+
 namespace Parrot.Tools;
 
 internal static class ToolInputConversion
 {
+    public static TInput Deserialize<TInput>(string json, JsonTypeInfo<TInput> typeInfo)
+        where TInput : class =>
+        JsonSerializer.Deserialize(json, typeInfo) ?? throw new FormatException("Tool arguments must be an object.");
+
     public static void RequireObject(string json, string requiredProperty)
     {
-        using var document = System.Text.Json.JsonDocument.Parse(json);
-        if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
+        using var document = JsonDocument.Parse(json);
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
         {
             throw new FormatException($"Tool arguments require a string '{requiredProperty}'.");
         }

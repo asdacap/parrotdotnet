@@ -1,5 +1,4 @@
 using Parrot.Llm;
-using Parrot.Protocol;
 
 namespace Parrot.Agent;
 
@@ -31,14 +30,4 @@ internal sealed record AgentStatistics(
             InputCost + inputCost,
             OutputCost + (completed.OutputTokens * model.OutputPrice));
     }
-
-    public static AgentStatistics Restore(AgentStatisticsUpdatedEvent payload) =>
-        new(
-            payload.InputTokens,
-            payload.CachedInputTokens,
-            payload.OutputTokens,
-            payload.ContextSize,
-            payload.ContextLimit,
-            payload.InputCost,
-            payload.OutputCost);
 }

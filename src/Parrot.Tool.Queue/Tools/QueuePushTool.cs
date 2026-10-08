@@ -21,7 +21,7 @@ internal sealed class QueuePushTool(IAgentQueues queues, IAgentResolver resolver
     {
         try
         {
-            var input = QueueToolExecution.Deserialize(
+            var input = ToolInputConversion.Deserialize(
                 invocation.ArgumentsJson,
                 QueueToolJsonContext.Default.QueuePushToolInput);
             var items = await LoadItems(input, selection, cancellationToken).ConfigureAwait(false);
@@ -139,16 +139,11 @@ internal sealed class QueuePushTool(IAgentQueues queues, IAgentResolver resolver
         (string Lexical, string Physical) resolved;
         try
         {
-            resolved = workspace.ResolveRead(sourceFile);
+            resolved = workspace.ResolveAllowedRead(sourceFile, selection.SecurityProfile);
         }
         catch (Exception failure) when (failure is InvalidOperationException or IOException)
         {
             throw new FormatException(failure.Message, failure);
-        }
-
-        if (!ToolWorkspace.AllowsRead(resolved, selection.SecurityProfile))
-        {
-            throw new FormatException("access denied");
         }
 
         if (Directory.Exists(resolved.Physical))

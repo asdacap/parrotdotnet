@@ -42,15 +42,15 @@ internal sealed record LLMEvent
 
     public string AssistantText { get; init; } = string.Empty;
 
+    public bool IsVisibleOutput =>
+        Kind is LLMEventKind.TextDelta or LLMEventKind.ReasoningDelta or LLMEventKind.ToolCallDelta or LLMEventKind.Completed;
+
     public static LLMEvent HttpRequestStarted() => new() { Kind = LLMEventKind.HttpRequestStarted };
 
     public static LLMEvent HttpResponseHeadersReceived() => new() { Kind = LLMEventKind.HttpResponseHeadersReceived };
 
     public static LLMEvent TextDelta(string fragment) =>
         new() { Kind = LLMEventKind.TextDelta, Text = fragment };
-
-    public static LLMEvent ReasoningDelta(string fragment) =>
-        ReasoningDelta(fragment, LLMReasoningKind.Raw, string.Empty, completed: false);
 
     public static LLMEvent ReasoningDelta(
         string fragment,
