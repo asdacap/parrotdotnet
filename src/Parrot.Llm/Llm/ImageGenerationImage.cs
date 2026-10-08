@@ -1,43 +1,35 @@
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
+using Parrot.Store;
 
 namespace Parrot.Llm;
 
 internal static class ImageGenerationImage
 {
-    public static async Task<string> Validate(byte[] data, bool requirePng, CancellationToken cancellationToken)
+    public static string Validate(byte[] data, bool requirePng)
     {
+        var mediaType = ImageInspection.DetectMediaType(data) switch
+        {
+            "image/png" => "image/png",
+            "image/jpeg" when !requirePng => "image/jpeg",
+            "image/webp" when !requirePng => "image/webp",
+            _ => throw new LLMProviderException("provider: unsupported image format"),
+        };
+
+        ImageInspection image;
         try
         {
-            using var stream = new MemoryStream(data, writable: false);
-            var format = await Image.DetectFormatAsync(stream, cancellationToken).ConfigureAwait(false);
-            var mediaType = format.DefaultMimeType switch
-            {
-                "image/png" => "image/png",
-                "image/jpeg" when !requirePng => "image/jpeg",
-                "image/webp" when !requirePng => "image/webp",
-                _ => throw new LLMProviderException("provider: unsupported image format"),
-            };
-            stream.Position = 0;
-            var info = await Image.IdentifyAsync(stream, cancellationToken).ConfigureAwait(false);
-            if (info.Width > 8192 || info.Height > 8192 || (long)info.Width * info.Height > 40_000_000
-                || info.FrameMetadataCollection.Count > 1)
-            {
-                throw new LLMProviderException("provider: image dimensions or frames exceed supported limits");
-            }
-
-            stream.Position = 0;
-            using var image = await Image.LoadAsync(new DecoderOptions { MaxFrames = 2 }, stream, cancellationToken).ConfigureAwait(false);
-            if (image.Frames.Count != 1)
-            {
-                throw new LLMProviderException("provider: animated images are not supported");
-            }
-
-            return mediaType;
+            image = ImageInspection.Inspect(data);
         }
-        catch (Exception failure) when (failure is UnknownImageFormatException or InvalidImageContentException)
+        catch (InvalidDataException)
         {
             throw new LLMProviderException("provider: invalid image content");
         }
+
+        if (image.Width > 8192 || image.Height > 8192 || (long)image.Width * image.Height > 40_000_000
+            || image.FrameCount > 1)
+        {
+            throw new LLMProviderException("provider: image dimensions or frames exceed supported limits");
+        }
+
+        return mediaType;
     }
 }

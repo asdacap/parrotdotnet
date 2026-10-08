@@ -1,6 +1,4 @@
 using System.Security.Cryptography;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
 
 namespace Parrot.Store;
 
@@ -60,11 +58,6 @@ internal sealed class ImageArtifactStore
             }
 
             return metadata;
-        }
-        catch (Exception failure) when (failure is UnknownImageFormatException or InvalidImageContentException)
-        {
-            File.Delete(staging);
-            throw new InvalidDataException("The image content is invalid or unsupported.", failure);
         }
         catch
         {
@@ -139,38 +132,21 @@ internal sealed class ImageArtifactStore
         string origin,
         CancellationToken cancellationToken)
     {
-        await using var stream = File.OpenRead(staging);
-        var format = await Image.DetectFormatAsync(stream, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidDataException("The image format is not supported.");
-        var mediaType = MediaType(format);
-        stream.Position = 0;
-        var info = await Image.IdentifyAsync(stream, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidDataException("The image content is invalid or unsupported.");
-        var frameCount = Math.Max(1, info.FrameMetadataCollection.Count);
-        var framePixels = checked((long)info.Width * info.Height);
-        var aggregatePixels = checked(framePixels * frameCount);
-        if (info.Width > ImageArtifactLimits.MaximumDimension
-            || info.Height > ImageArtifactLimits.MaximumDimension
+        var bytes = await File.ReadAllBytesAsync(staging, cancellationToken).ConfigureAwait(false);
+        var image = ImageInspection.Inspect(bytes);
+        var framePixels = checked((long)image.Width * image.Height);
+        var aggregatePixels = checked(framePixels * image.FrameCount);
+        if (image.Width > ImageArtifactLimits.MaximumDimension
+            || image.Height > ImageArtifactLimits.MaximumDimension
             || framePixels > ImageArtifactLimits.MaximumFramePixels
-            || frameCount > ImageArtifactLimits.MaximumFrames
+            || image.FrameCount > ImageArtifactLimits.MaximumFrames
             || aggregatePixels > ImageArtifactLimits.MaximumAggregatePixels)
         {
             throw new InvalidDataException("The image dimensions or frame count exceed the supported limits.");
         }
 
-        stream.Position = 0;
-        using var image = await Image.LoadAsync(
-            new DecoderOptions { MaxFrames = ImageArtifactLimits.MaximumFrames + 1 },
-            stream,
-            cancellationToken).ConfigureAwait(false);
-        if (image.Frames.Count != frameCount || image.Width != info.Width || image.Height != info.Height)
-        {
-            throw new InvalidDataException("The decoded image metadata does not match its inspected metadata.");
-        }
-
-        stream.Position = 0;
-        var hash = Convert.ToHexStringLower(await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false));
-        return new ImageArtifactMetadata(hash, hash, mediaType, byteLength, info.Width, info.Height, frameCount, aggregatePixels, displayName, origin);
+        var hash = Convert.ToHexStringLower(SHA256.HashData(bytes));
+        return new ImageArtifactMetadata(hash, hash, image.MediaType, byteLength, image.Width, image.Height, image.FrameCount, aggregatePixels, displayName, origin);
     }
 
     private static void ValidateLabel(string value, string parameterName)
@@ -181,15 +157,6 @@ internal sealed class ImageArtifactStore
             throw new ArgumentException("An image label cannot contain control characters.", parameterName);
         }
     }
-
-    private static string MediaType(IImageFormat format) => format.Name switch
-    {
-        "PNG" => "image/png",
-        "JPEG" => "image/jpeg",
-        "GIF" => "image/gif",
-        "WEBP" => "image/webp",
-        _ => throw new InvalidDataException("Only PNG, JPEG, GIF, and WebP images are supported."),
-    };
 
     private static string Extension(string mediaType) => mediaType switch
     {

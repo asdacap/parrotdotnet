@@ -40,7 +40,7 @@ internal sealed class ImageGenerationClient(
                 throw new LLMProviderException("provider: image reference exceeds byte limit");
             }
 
-            var mediaType = await ImageGenerationImage.Validate(reference.Data, false, token).ConfigureAwait(false);
+            var mediaType = ImageGenerationImage.Validate(reference.Data, false);
             if (mediaType != reference.MediaType)
             {
                 throw new LLMProviderException("provider: image reference media type does not match its content");
@@ -119,7 +119,7 @@ internal sealed class ImageGenerationClient(
             throw new LLMProviderException("provider: generated image exceeds byte limit");
         }
 
-        _ = await ImageGenerationImage.Validate(data, true, token).ConfigureAwait(false);
+        _ = ImageGenerationImage.Validate(data, true);
         return new(data);
     }
 }

@@ -3,9 +3,8 @@ using Grpc.Core;
 using Parrot.Agent;
 using Parrot.Protocol;
 using Parrot.Security;
+using Parrot.Store;
 using Parrot.Tools;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli;
@@ -102,7 +101,7 @@ internal sealed class PromptAttachmentUploader(ToolWorkspace workspace, ModeRegi
                 artifact = await Upload(client, userSessionId, intent.Value, security, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or InvalidOperationException
-                or InvalidDataException or ImageFormatException or RpcException)
+                or InvalidDataException or RpcException)
             {
                 await error.WriteLineAsync($"parrot: cannot attach '{intent.Value}': {failure.Message}".AsMemory(), cancellationToken)
                     .ConfigureAwait(false);
@@ -114,15 +113,6 @@ internal sealed class PromptAttachmentUploader(ToolWorkspace workspace, ModeRegi
 
         return request;
     }
-
-    private static string MediaType(IImageFormat format) => format.Name switch
-    {
-        "PNG" => "image/png",
-        "JPEG" => "image/jpeg",
-        "GIF" => "image/gif",
-        "WEBP" => "image/webp",
-        _ => throw new InvalidDataException("Only PNG, JPEG, GIF, and WebP images are supported."),
-    };
 
     private async Task<ArtifactReference> Upload(
         GeneratedParrot.ParrotClient client,
@@ -138,9 +128,10 @@ internal sealed class PromptAttachmentUploader(ToolWorkspace workspace, ModeRegi
         }
 
         await using var source = File.OpenRead(physical);
-        var format = await Image.DetectFormatAsync(source, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidDataException("The image format is not supported.");
-        var mediaType = MediaType(format);
+        var header = new byte[ImageInspection.HeaderLength];
+        var headerLength = await source.ReadAtLeastAsync(header, header.Length, false, cancellationToken).ConfigureAwait(false);
+        var mediaType = ImageInspection.DetectMediaType(header.AsSpan(0, headerLength))
+            ?? throw new InvalidDataException("Only PNG, JPEG, GIF, and WebP images are supported.");
         source.Position = 0;
         return await Send(client, userSessionId, source, Path.GetFileName(path), mediaType, cancellationToken).ConfigureAwait(false);
     }

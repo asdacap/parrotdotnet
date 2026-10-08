@@ -4,14 +4,14 @@ using System.Text.Json;
 using Parrot.Auth;
 using Parrot.Llm;
 using Parrot.Llm.Wire;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace Parrot.Core.Tests;
 
 internal sealed class ImageGenerationProviderTests
 {
     private const string PngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+    private const string JpegHex = "FFD8FFE000104A46494600010100000100010000FFDB004300100B0C0E0C0A100E0D0E1211101318281A181616183123251D283A333D3C3933383740485C4E404457453738506D51575F626768673E4D71797064785C656763FFC0000B080002000301011100FFC40014000100000000000000000000000000000000FFC40014100100000000000000000000000000000000FFDA0008010100003F003FFFD9";
+    private const string WebpHex = "524946461C000000574542505650384C0F0000002F024000000710FD8FFE0722A2FF0100";
     private const string SuccessBody = "{\"data\":[{\"b64_json\":\"" + PngBase64 + "\"}]}";
 
     [Test]
@@ -26,11 +26,8 @@ internal sealed class ImageGenerationProviderTests
         string providerKind, string baseUrl, bool edit, CancellationToken cancellationToken)
     {
         using var fixture = new ProviderFixture(providerKind, baseUrl, SuccessBody, HttpStatusCode.OK);
-        using var referenceImage = new Image<Rgba32>(1, 1);
-        using var referenceStream = new MemoryStream();
-        await referenceImage.SaveAsJpegAsync(referenceStream, cancellationToken);
         ImageGenerationReference[] references = edit
-            ? [new("image/png", Convert.FromBase64String(PngBase64)), new("image/jpeg", referenceStream.ToArray())]
+            ? [new("image/png", Convert.FromBase64String(PngBase64)), new("image/jpeg", Convert.FromHexString(JpegHex))]
             : [];
         var request = new ImageGenerationRequest("  Keep this prompt verbatim.\nSecond line.  ", references);
 
@@ -195,10 +192,7 @@ internal sealed class ImageGenerationProviderTests
     [Arguments(true)]
     public async Task Oversized_response_or_non_png_output_is_rejected(bool oversized, CancellationToken cancellationToken)
     {
-        using var image = new Image<Rgba32>(1, 1);
-        using var stream = new MemoryStream();
-        await image.SaveAsJpegAsync(stream, cancellationToken);
-        var body = oversized ? SuccessBody : "{\"data\":[{\"b64_json\":\"" + Convert.ToBase64String(stream.ToArray()) + "\"}]}";
+        var body = oversized ? SuccessBody : "{\"data\":[{\"b64_json\":\"" + Convert.ToBase64String(Convert.FromHexString(JpegHex)) + "\"}]}";
         using var fixture = new ProviderFixture("compatible", "https://example.test/v1", body, HttpStatusCode.OK);
         fixture.Handler.AdvertisedLength = oversized ? (64L << 20) + 1 : null;
         _ = await Assert.That(async () => await fixture.Provider.GenerateImage(new("prompt", []), cancellationToken))
@@ -242,10 +236,7 @@ internal sealed class ImageGenerationProviderTests
     [Test]
     public async Task Five_webp_references_are_accepted(CancellationToken cancellationToken)
     {
-        using var image = new Image<Rgba32>(1, 1);
-        using var stream = new MemoryStream();
-        await image.SaveAsWebpAsync(stream, cancellationToken);
-        var references = Enumerable.Repeat(new ImageGenerationReference("image/webp", stream.ToArray()), 5).ToArray();
+        var references = Enumerable.Repeat(new ImageGenerationReference("image/webp", Convert.FromHexString(WebpHex)), 5).ToArray();
         using var fixture = new ProviderFixture("compatible", "https://example.test/v1", SuccessBody, HttpStatusCode.OK);
         var result = await fixture.Provider.GenerateImage(new("prompt", references), cancellationToken);
         _ = await Assert.That(Convert.ToBase64String(result.Data)).IsEqualTo(PngBase64);

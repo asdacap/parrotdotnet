@@ -67,7 +67,7 @@ internal sealed class ImageGenerationTool(ToolWorkspace workspace) : ITool
                 }
 
                 var data = buffer.ToArray();
-                var mediaType = await ImageGenerationImage.Validate(data, false, token).ConfigureAwait(false);
+                var mediaType = ImageGenerationImage.Validate(data, false);
                 references.Add(new ImageGenerationReference(mediaType, data));
             }
 
@@ -78,7 +78,7 @@ internal sealed class ImageGenerationTool(ToolWorkspace workspace) : ITool
                 throw new LLMProviderException("Generated image exceeds the supported byte limit.");
             }
 
-            _ = await ImageGenerationImage.Validate(result.Data, true, token).ConfigureAwait(false);
+            _ = ImageGenerationImage.Validate(result.Data, true);
             output = workspace.ResolveMutation(input.OutputPath, create: true, selection.SecurityProfile);
             FileMutation.RequireRegularFileOrMissing(output.Physical);
             await FileMutation.Write(output.Physical, result.Data, createParents: true, token).ConfigureAwait(false);
