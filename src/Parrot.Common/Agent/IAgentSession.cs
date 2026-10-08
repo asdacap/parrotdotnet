@@ -42,7 +42,7 @@ internal interface IAgentSession : IAsyncDisposable
     /// <summary>Wakes the session to resume durable pending work.</summary>
     void Recover();
 
-    void UpdateSelection(ModelSelector selectedModel, IMode mode);
+    void UpdateSelection(AgentSelection selection);
 
     /// <summary>Offers incoming activity to the drain and reports whether a follow-up was scheduled.</summary>
     bool Wake(IncomingActivity? activity);
@@ -83,7 +83,16 @@ internal interface IAgentSession : IAsyncDisposable
 
     Task<AgentSendResult> SendTextMessage(string message, CancellationToken cancellationToken);
 
-    Task<string> SendAndWaitForResult(string prompt, CancellationToken cancellationToken);
+    /// <summary>
+    /// Runs the parts as an owned execution after earlier ones, applying <paramref name="selection"/> when it takes the
+    /// drain and reporting the admission to <paramref name="admitted"/>.
+    /// </summary>
+    Task<string> SendAndWaitForResult(
+        IReadOnlyList<ConversationPart> parts,
+        string messageId,
+        AgentSelection? selection,
+        Action<Admission>? admitted,
+        CancellationToken cancellationToken);
 
     /// <summary>Durably admits input without waking the drain, unlike Send; for use while the session is shutting down.</summary>
     Task Record(

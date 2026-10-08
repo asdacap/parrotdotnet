@@ -15,6 +15,6 @@ internal sealed class ForegroundTurn
     public bool IsChild(string agentSessionId) => _hierarchy.IsChild(agentSessionId);
 
     public bool IsTerminal(Event published) =>
-        published.PayloadCase is Event.PayloadOneofCase.TurnEnded or Event.PayloadOneofCase.TurnFailed
+        published.PayloadCase is Event.PayloadOneofCase.ModeTurnCompleted or Event.PayloadOneofCase.TurnFailed
         && IsMain(published.AgentSessionId);
 }

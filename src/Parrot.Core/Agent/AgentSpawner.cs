@@ -177,7 +177,10 @@ internal sealed class AgentSpawner : IAgentSpawner
         }
 
         var securityProfile = lineage.Resolve(profile.SecurityProfile);
-        scope.Session.UpdateSelection(request.Model, new NoopMode(profile, securityProfile));
+        scope.Session.UpdateSelection(new AgentSelection(
+            request.Model,
+            new SessionModeProfile(profile, () => profile.Prompt, securityProfile),
+            securityProfile));
         return scope;
     }
 
@@ -261,7 +264,7 @@ internal sealed class AgentSpawner : IAgentSpawner
                 childIdentity,
                 childParentLink,
                 request.Model,
-                new NoopMode(profile, securityProfile),
+                new SessionModeProfile(profile, () => profile.Prompt, securityProfile),
                 securityProfile,
                 childHistory,
                 _lifetime.Token);

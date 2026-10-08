@@ -16,7 +16,6 @@ internal sealed class TestCompletionCallbacksFixture(
     [
         new PendingChildQuestionTurnCompletionCallback(childQuestions, eventRepository, eventBroker),
         new ActiveWorkTurnCompletionCallback(activeWorkReminder, eventRepository, eventBroker),
-        new ModeTurnCompletionCallback(eventRepository, eventBroker),
         new ExitReminderTurnCompletionCallback(exitReminder, eventRepository, eventBroker),
     ];
 }

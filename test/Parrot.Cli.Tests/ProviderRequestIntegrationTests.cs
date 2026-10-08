@@ -59,7 +59,6 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
         var identity = AgentIdentity.Main("root", "main", templates);
         var profiles = new ProfileRegistry(configuration.Profiles, [], [], new HashSet<string>(StringComparer.Ordinal));
         var profile = profiles.Resolve("build");
-        IMode mode = new NoopMode(profile, profile.SecurityProfile);
         await using IAgentRegistry registry = new AgentRegistry(
             new UnsupportedAgentSessionFactory(), broker, repository, profiles, templates, new RetainedAgentBudget(1), diagnostics.Log, cancellationToken);
         var status = new RuntimeStatus(templates, TimeProvider.System, [new RuntimeTreeStatusProvider(registry, templates)]);
@@ -69,7 +68,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
         queues.Initialize();
         var questions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), children, templates);
         await using IAgentSession agent = new AgentSession(
-            identity, AgentSessionParentScope.Root(), new ModelSelector("provider/model"), router, broker, repository, [], new ConfiguredSystemPromptProvider("test:integration", "Reply briefly.").Materialize(identity), new ToolOutputBlobStore(_root), new AgentOutputFile(_root), new CompactionGroupBlobStore(resources.AgentScratch(identity.NamePath)), new Compactor(int.MaxValue, 30, 60_000, 1024, templates), new ProviderSessions(diagnostics.Log, identity.SessionId, null), new ContextCadence(), templates, questions, new ExitReminder(repository, broker, templates, identity.SessionId), mode, [], new AgentSessionSecurity(profile.SecurityProfile, resources.Workspace, resources.AgentsDirectory), status, new AgentSessionActivity(TimeProvider.System), diagnostics.Log, cancellationToken);
+            identity, AgentSessionParentScope.Root(), new ModelSelector("provider/model"), router, broker, repository, [], new ConfiguredSystemPromptProvider("test:integration", "Reply briefly.").Materialize(identity), new ToolOutputBlobStore(_root), new AgentOutputFile(_root), new CompactionGroupBlobStore(resources.AgentScratch(identity.NamePath)), new Compactor(int.MaxValue, 30, 60_000, 1024, templates), new ProviderSessions(diagnostics.Log, identity.SessionId, null), new ContextCadence(), templates, questions, new ExitReminder(repository, broker, templates, identity.SessionId), profile, [], new AgentSessionSecurity(profile.SecurityProfile, resources.Workspace, resources.AgentsDirectory), status, new AgentSessionActivity(TimeProvider.System), diagnostics.Log, cancellationToken);
         queues.Attach(agent);
 
         using var output = new StringWriter();
@@ -181,6 +180,10 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
                     await stream.WriteAsync(published, cancellationToken);
                     if (published.PayloadCase is Event.PayloadOneofCase.TurnEnded or Event.PayloadOneofCase.TurnFailed)
                     {
+                        // Stands in for the user session, which owns the queued run around this agent session.
+                        await stream.WriteAsync(
+                            new Event { AgentSessionId = published.AgentSessionId, ModeTurnCompleted = new ModeTurnCompleted() },
+                            cancellationToken);
                         break;
                     }
                 }
@@ -249,7 +252,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
             throw new NotSupportedException("This test does not spawn agents.");
 
         public IAgentSessionScope Create(
-            AgentIdentity identity, AgentSessionParentLink parentLink, ModelSelector model, IEventBroker eventBroker, IEventRepository eventRepository, IMode mode, SecurityProfile securityProfile, IAgentRegistry registry, CancellationToken lifetime) =>
+            AgentIdentity identity, AgentSessionParentLink parentLink, ModelSelector model, IEventBroker eventBroker, IEventRepository eventRepository, IAgentProfile profile, SecurityProfile securityProfile, IAgentRegistry registry, CancellationToken lifetime) =>
             throw new NotSupportedException("This test does not spawn agents.");
     }
 }

@@ -4,13 +4,9 @@ namespace Parrot.Core.Tests;
 
 internal sealed class TestProfileFixture
 {
-    public TestProfileFixture()
-    {
-        var profile = Registry.ResolveChild("test");
-        Mode = new NoopMode(profile, profile.SecurityProfile);
-    }
+    public TestProfileFixture() => Profile = Registry.ResolveChild("test");
 
     public ProfileRegistry Registry { get; } = new(TestModels.Profiles, [], [], new HashSet<string>(StringComparer.Ordinal));
 
-    public IMode Mode { get; }
+    public IAgentProfile Profile { get; }
 }

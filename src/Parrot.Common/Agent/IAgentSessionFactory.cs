@@ -20,7 +20,7 @@ internal interface IAgentSessionFactory
         ModelSelector model,
         IEventBroker eventBroker,
         IEventRepository eventRepository,
-        IMode mode,
+        IAgentProfile profile,
         SecurityProfile securityProfile,
         IAgentRegistry registry,
         CancellationToken lifetime);

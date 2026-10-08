@@ -54,7 +54,7 @@ internal sealed class AgentPathEnvironmentTests : IDisposable
         var selection = new AgentTurnSelection(
             new ModelSelector(model.Selector),
             TestModels.Resolve(model),
-            new TestProfileFixture().Mode,
+            new TestProfileFixture().Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []));
         var rendered = prompt.Build(selection);
         var defaultRendered = new AgentPathEnvironmentProvider(environment, TestModels.PromptTemplates).Materialize(identity).Build(selection);

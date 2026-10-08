@@ -77,6 +77,10 @@ internal sealed class BasicCliTests
         {
             TurnEnded = new TurnEnded { FinishReason = "stop" },
         });
+        await driver.Invoker.Publish("already-open", new Event
+        {
+            ModeTurnCompleted = new ModeTurnCompleted(),
+        });
         driver.Input.End();
         _ = await running.WaitAsync(cancellationToken);
 
@@ -348,11 +352,17 @@ internal sealed class BasicCliTests
             },
             cancellationToken);
         await stream.WriteAsync(
-            new Event { AgentStarted = new AgentStarted { Name = "explorer" } }, cancellationToken);
+            new Event { AgentStarted = new AgentStarted { Name = "main" } }, cancellationToken);
         await stream.WriteAsync(
-            new Event { AgentFinished = new AgentFinished { Name = "explorer", ElapsedMs = 65_000 } }, cancellationToken);
+            new Event { AgentStarted = new AgentStarted { ParentAgentSessionId = "main", Name = "explorer" } }, cancellationToken);
         await stream.WriteAsync(
-            new Event { AgentFailed = new AgentFailed { Name = "reviewer", Message = "boom" } }, cancellationToken);
+            new Event { AgentFinished = new AgentFinished { ParentAgentSessionId = "main", Name = "explorer", ElapsedMs = 65_000 } }, cancellationToken);
+        await stream.WriteAsync(
+            new Event { AgentFailed = new AgentFailed { ParentAgentSessionId = "main", Name = "reviewer", Message = "boom" } }, cancellationToken);
+        await stream.WriteAsync(
+            new Event { AgentFinished = new AgentFinished { Name = "main", ElapsedMs = 65_000 } }, cancellationToken);
+        await stream.WriteAsync(
+            new Event { AgentFailed = new AgentFailed { Name = "main", Message = "root failure" } }, cancellationToken);
         await stream.WriteAsync(new Event { CompactionStarted = new CompactionStarted() }, cancellationToken);
         await stream.WriteAsync(new Event { CompactionFinished = new CompactionFinished() }, cancellationToken);
         await stream.WriteAsync(
@@ -380,6 +390,42 @@ internal sealed class BasicCliTests
     }
 
     [Test]
+    public async Task Mode_turn_completion_ends_the_turn_after_its_plan(CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        await stream.WriteAsync(new Event { TurnStarted = new TurnStarted() }, cancellationToken);
+        await stream.WriteAsync(new Event { TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
+        await stream.WriteAsync(new Event { PlanCompleted = new PlanCompleted { Markdown = "# Plan" } }, cancellationToken);
+        await stream.WriteAsync(new Event { ModeTurnCompleted = new ModeTurnCompleted() }, cancellationToken);
+        await stream.WriteAsync(new Event { TurnStarted = new TurnStarted() }, cancellationToken);
+        stream.Complete();
+
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var observed = new List<Event.PayloadOneofCase>();
+        var completed = await BasicCli.RenderTurn(
+            stream.Reader,
+            output,
+            error,
+            (published, _) =>
+            {
+                observed.Add(published.PayloadCase);
+                return Task.CompletedTask;
+            },
+            cancellationToken);
+
+        _ = await Assert.That(completed).IsTrue();
+        _ = await Assert.That(observed).IsEquivalentTo(
+        [
+            Event.PayloadOneofCase.TurnStarted,
+            Event.PayloadOneofCase.TurnEnded,
+            Event.PayloadOneofCase.PlanCompleted,
+            Event.PayloadOneofCase.ModeTurnCompleted,
+        ]);
+        _ = await Assert.That(output.ToString()).Contains("turn ended (stop, 0 total in / 0 total out)");
+    }
+
+    [Test]
     public async Task Turn_completion_reports_cumulative_token_totals(CancellationToken cancellationToken)
     {
         var stream = new ChannelStreamWriter<Event>();
@@ -387,6 +433,12 @@ internal sealed class BasicCliTests
             new Event
             {
                 TurnEnded = new TurnEnded { FinishReason = "stop", InputTokens = 1234, OutputTokens = 567 },
+            },
+            cancellationToken);
+        await stream.WriteAsync(
+            new Event
+            {
+                ModeTurnCompleted = new ModeTurnCompleted(),
             },
             cancellationToken);
         stream.Complete();
@@ -432,6 +484,9 @@ internal sealed class BasicCliTests
         await stream.WriteAsync(
             new Event { TurnEnded = new TurnEnded { FinishReason = "length", InputTokens = 100, OutputTokens = 1 } },
             cancellationToken);
+        await stream.WriteAsync(
+            new Event { ModeTurnCompleted = new ModeTurnCompleted() },
+            cancellationToken);
         stream.Complete();
 
         using var output = new StringWriter();
@@ -450,6 +505,8 @@ internal sealed class BasicCliTests
         await stream.WriteAsync(new Event { Id = "status", StatusInjected = new StatusInjected() }, cancellationToken);
         await stream.WriteAsync(
             new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
+        await stream.WriteAsync(
+            new Event { Id = "ended-mode", ModeTurnCompleted = new ModeTurnCompleted() }, cancellationToken);
         stream.Complete();
 
         using var output = new StringWriter();
@@ -478,6 +535,8 @@ internal sealed class BasicCliTests
             cancellationToken);
         await stream.WriteAsync(
             new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
+        await stream.WriteAsync(
+            new Event { Id = "ended-mode", ModeTurnCompleted = new ModeTurnCompleted() }, cancellationToken);
         stream.Complete();
 
         using var output = new StringWriter();
@@ -513,6 +572,8 @@ internal sealed class BasicCliTests
             cancellationToken);
         await stream.WriteAsync(
             new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
+        await stream.WriteAsync(
+            new Event { Id = "ended-mode", ModeTurnCompleted = new ModeTurnCompleted() }, cancellationToken);
         stream.Complete();
 
         using var output = new StringWriter();
@@ -537,6 +598,8 @@ internal sealed class BasicCliTests
             cancellationToken);
         await stream.WriteAsync(
             new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
+        await stream.WriteAsync(
+            new Event { Id = "ended-mode", ModeTurnCompleted = new ModeTurnCompleted() }, cancellationToken);
         stream.Complete();
 
         using var output = new StringWriter();
@@ -579,6 +642,8 @@ internal sealed class BasicCliTests
             cancellationToken);
         await stream.WriteAsync(
             new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
+        await stream.WriteAsync(
+            new Event { Id = "ended-mode", ModeTurnCompleted = new ModeTurnCompleted() }, cancellationToken);
         stream.Complete();
 
         using var output = new StringWriter();

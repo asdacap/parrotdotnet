@@ -242,6 +242,7 @@ function reduceItems(state: TimelineState, event: Event): TimelineState {
     case "toolRequestReceived":
       return payload.value.toolCallCount > 1 ? notice(state, event, `requested ${String(payload.value.toolCallCount)} tool calls`) : state
     case "agentStarted":
+      if (!payload.value.parentAgentSessionId) return state
       return notice(
         {
           ...state,
@@ -255,6 +256,7 @@ function reduceItems(state: TimelineState, event: Event): TimelineState {
         "active",
       )
     case "agentFinished":
+      if (!payload.value.parentAgentSessionId) return state
       return notice(
         state,
         event,
@@ -262,19 +264,21 @@ function reduceItems(state: TimelineState, event: Event): TimelineState {
         "success",
       )
     case "agentFailed":
+      if (!payload.value.parentAgentSessionId) return state
       return notice(state, event, `agent ${payload.value.name}: ${payload.value.message}`, "error")
     case "turnStarted":
       return isRoot
         ? { ...state, busy: true, pendingPlan: undefined, modelIcon: payload.value.modelAliasIcon }
         : state
     case "turnEnded": {
-      const ended = { ...state, busy: state.busy && !isRoot }
-      if (!isRoot) return ended
+      if (!isRoot) return state
       const { finishReason, inputTokens, outputTokens } = payload.value
       return finishReason === "interrupted"
-        ? notice(ended, event, "agent interrupted", "error")
-        : notice(ended, event, `${finishReason} - ${String(inputTokens)} total in / ${String(outputTokens)} total out`, "success")
+        ? notice(state, event, "agent interrupted", "error")
+        : notice(state, event, `${finishReason} - ${String(inputTokens)} total in / ${String(outputTokens)} total out`, "success")
     }
+    case "modeTurnCompleted":
+      return isRoot ? { ...state, busy: false } : state
     case "turnFailed":
       return notice({ ...state, busy: state.busy && !isRoot }, event, payload.value.message, "error", payload.value.providerResponseBody)
     case "retryNotice":

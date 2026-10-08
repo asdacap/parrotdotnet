@@ -217,6 +217,11 @@ internal sealed class EnhancedCliTests
         await driver.Invoker.Publish(new Event
         {
             AgentSessionId = "agent",
+            TurnEnded = new TurnEnded { FinishReason = "stop" },
+        });
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
             PlanCompleted = new PlanCompleted
             {
                 Markdown = "# Written plan\n\n- change code",
@@ -242,7 +247,7 @@ internal sealed class EnhancedCliTests
         await driver.Invoker.Publish(new Event
         {
             AgentSessionId = "agent",
-            TurnEnded = new TurnEnded { FinishReason = "stop" },
+            ModeTurnCompleted = new ModeTurnCompleted(),
         });
 
         await driver.OutputContains("Written plan", cancellationToken);
@@ -256,6 +261,7 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(driver.Invoker.Sent.Count).IsEqualTo(2);
         _ = await Assert.That(driver.Invoker.Sent[0]).IsEqualTo("draft plan");
         _ = await Assert.That(driver.Invoker.Sent[1]).IsEqualTo("Implement the approved plan.");
+        _ = await Assert.That(driver.Invoker.SentRequests.All(request => request.Delivery == Delivery.Queue)).IsTrue();
         _ = await Assert.That(driver.Invoker.Updated).Count().IsEqualTo(1);
         _ = await Assert.That(driver.Invoker.Updated[0].Mode).IsEqualTo("build");
 
@@ -275,6 +281,11 @@ internal sealed class EnhancedCliTests
         {
             AgentSessionId = "agent",
             TurnStarted = new TurnStarted { Model = "model" },
+        });
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
+            TurnEnded = new TurnEnded { FinishReason = "stop" },
         });
         await driver.Invoker.Publish(new Event
         {
@@ -317,7 +328,7 @@ internal sealed class EnhancedCliTests
         await driver.Invoker.Publish(new Event
         {
             AgentSessionId = "agent",
-            TurnEnded = new TurnEnded { FinishReason = "stop" },
+            ModeTurnCompleted = new ModeTurnCompleted(),
         });
 
         await driver.OutputContains("Plan complete:", cancellationToken);
@@ -361,6 +372,11 @@ internal sealed class EnhancedCliTests
         await driver.Invoker.Publish(new Event
         {
             AgentSessionId = "agent",
+            TurnEnded = new TurnEnded { FinishReason = "stop" },
+        });
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
             PlanCompleted = new PlanCompleted
             {
                 Markdown = "# Written plan\n\n- change code",
@@ -382,7 +398,7 @@ internal sealed class EnhancedCliTests
         await driver.Invoker.Publish(new Event
         {
             AgentSessionId = "agent",
-            TurnEnded = new TurnEnded { FinishReason = "stop" },
+            ModeTurnCompleted = new ModeTurnCompleted(),
         });
 
         await driver.OutputContains("Written plan", cancellationToken);

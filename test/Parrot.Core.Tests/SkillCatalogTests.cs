@@ -305,12 +305,12 @@ internal sealed class SkillCatalogTests : IDisposable
         var second = provider.Materialize(AgentIdentity.Main("second", "second", TestModels.PromptTemplates));
         ILLMProvider modelProvider = new UnusedProvider();
         var model = new ProviderModel(modelProvider, new LLMModel("model", modelProvider.Id));
-        var mode = new TestProfileFixture().Mode;
+        var profile = new TestProfileFixture().Profile;
         var selection = new AgentTurnSelection(
             new ModelSelector(model.Selector),
             TestModels.Resolve(model),
-            mode,
-            mode.Profile.SecurityProfile);
+            profile,
+            profile.SecurityProfile);
 
         var firstPrompt = first.Build(selection);
         var secondPrompt = second.Build(selection);

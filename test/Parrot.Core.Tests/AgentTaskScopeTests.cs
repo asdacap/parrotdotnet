@@ -63,7 +63,7 @@ internal sealed class AgentTaskScopeTests
                 rejectedIdentity,
                 AgentSessionParentLink.Root(),
                 new ModelSelector(model.Selector),
-                session.Mode,
+                session.Mode.Profile,
                 session.Mode.Profile.SecurityProfile,
                 rejectedHistory,
                 session.Lifetime)).Throws<AgentRegistryException>();
@@ -76,7 +76,7 @@ internal sealed class AgentTaskScopeTests
                     identity,
                     AgentSessionParentLink.Child(root, AgentCompletionDeliveryPolicy.RetainedOnly, session.Registry.ReserveRetainedAgent()),
                     new ModelSelector(model.Selector),
-                    session.Mode,
+                    session.Mode.Profile,
                     session.Mode.Profile.SecurityProfile,
                     session.Registry.InitializeChildHistory(identity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty"), new AgentHistorySource.Parent()),
                     session.Lifetime);
@@ -239,7 +239,7 @@ internal sealed class AgentTaskScopeTests
         var selection = scope.Session.CurrentSelection();
         scope.GetService<IAgentTaskService>().SetTasks(
             tasks,
-            new AgentTurnSelection(selection.RequestedModel, router.Resolve(selection.RequestedModel.Value), selection.Mode, selection.SecurityProfile),
+            new AgentTurnSelection(selection.RequestedModel, router.Resolve(selection.RequestedModel.Value), selection.Profile, selection.SecurityProfile),
             new HistoryForkBoundary.AfterCompletedHistory());
     }
 

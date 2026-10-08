@@ -89,7 +89,7 @@ internal sealed class SessionRoutingDiagnosticsTests
                     childIdentity,
                     AgentSessionParentLink.Child(firstScope, AgentCompletionDeliveryPolicy.RetainedOnly, first.Registry.ReserveRetainedAgent()),
                     new ModelSelector(model.Selector),
-                    first.Mode,
+                    first.Mode.Profile,
                     first.Mode.Profile.SecurityProfile,
                     first.Registry.InitializeChildHistory(childIdentity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty"), new AgentHistorySource.Parent()),
                     first.Lifetime);

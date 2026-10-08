@@ -70,7 +70,7 @@ describe("reduceTimeline", () => {
       [
         [child, { case: "agentStarted", value: { parentAgentSessionId: root, name: "helper" } }],
         [child, { case: "turnEnded", value: { finishReason: "stop" } }],
-        [child, { case: "agentFinished", value: { name: "helper", elapsedMs: 65_000n } }],
+        [child, { case: "agentFinished", value: { parentAgentSessionId: root, name: "helper", elapsedMs: 65_000n } }],
         [root, { case: "turnEnded", value: { finishReason: "interrupted" } }],
       ],
       {
@@ -110,22 +110,25 @@ describe("reduceTimeline", () => {
       },
     ],
     [
-      "stays busy while the root turn runs, regardless of subagent turns",
+      "stays busy until the root mode turn completes, regardless of turn ends",
       [
         [root, { case: "turnStarted", value: {} }],
         [child, { case: "agentStarted", value: { parentAgentSessionId: root, name: "helper" } }],
         [child, { case: "turnStarted", value: {} }],
         [child, { case: "turnEnded", value: { finishReason: "stop" } }],
+        [child, { case: "modeTurnCompleted", value: {} }],
+        [root, { case: "turnEnded", value: { finishReason: "stop" } }],
       ],
       { busy: true },
     ],
     [
-      "is idle once the root turn ends even while a subagent keeps working",
+      "is idle once the root mode turn completes even while a subagent keeps working",
       [
         [child, { case: "agentStarted", value: { parentAgentSessionId: root, name: "helper" } }],
         [root, { case: "turnStarted", value: {} }],
         [child, { case: "turnStarted", value: {} }],
         [root, { case: "turnEnded", value: { finishReason: "stop" } }],
+        [root, { case: "modeTurnCompleted", value: {} }],
       ],
       { busy: false },
     ],
@@ -137,6 +140,18 @@ describe("reduceTimeline", () => {
         [child, { case: "planCompleted", value: { markdown: "# Child", dialog: { prompt: "Child?" } } }],
       ],
       { pendingPlan: { markdown: "# Plan" } },
+    ],
+    [
+      "keeps the main agent's plan after its turn ends, ignoring its own lifecycle notices",
+      [
+        [root, { case: "agentStarted", value: { name: "main" } }],
+        [root, { case: "turnStarted", value: {} }],
+        [root, { case: "turnEnded", value: { finishReason: "stop" } }],
+        [root, { case: "agentFinished", value: { name: "main" } }],
+        [root, { case: "planCompleted", value: { markdown: "# Plan", dialog: { prompt: "Proceed?" } } }],
+        [root, { case: "modeTurnCompleted", value: {} }],
+      ],
+      { busy: false, agents: new Map(), pendingPlan: { markdown: "# Plan" } },
     ],
     [
       "settles a pending plan once the main agent admits new input",

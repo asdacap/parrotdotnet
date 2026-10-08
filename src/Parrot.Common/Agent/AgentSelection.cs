@@ -5,8 +5,5 @@ namespace Parrot.Agent;
 
 internal sealed record AgentSelection(
     ModelSelector RequestedModel,
-    IMode Mode,
-    SecurityProfile SecurityProfile)
-{
-    public IAgentProfile Profile => Mode.Profile;
-}
+    IAgentProfile Profile,
+    SecurityProfile SecurityProfile);

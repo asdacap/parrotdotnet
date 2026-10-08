@@ -34,7 +34,7 @@ internal sealed record AgentSessionScopeArguments(
     IAgentPathEnvironment PathEnvironment,
     Compactor Compactor,
     IPromptTemplateCatalog PromptTemplates,
-    IMode Mode,
+    IAgentProfile Profile,
     AgentSessionSecurity Security,
     AgentSkills Skills,
     IPermissionBroker Permissions,

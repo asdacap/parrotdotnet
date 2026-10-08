@@ -20,7 +20,7 @@ internal sealed class SetExitReminderToolTests
         ITool clear = new ClearExitReminderTool(reminder, TestModels.PromptTemplates);
         var provider = new UnusedProvider();
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        var selection = new AgentTurnSelection(new ModelSelector(model.Selector), TestModels.Resolve(model), new TestProfileFixture().Mode, SecurityProfile.Compose(readOnly: false, [], [], []));
+        var selection = new AgentTurnSelection(new ModelSelector(model.Selector), TestModels.Resolve(model), new TestProfileFixture().Profile, SecurityProfile.Compose(readOnly: false, [], [], []));
         const string first = "Exit reminders are set. You cannot finish until every one is cleared with clear_exit_reminder:\n";
         var steps = new (ITool? Tool, string? Json, string? Output, string? ExpectedBuild)[]
         {
@@ -61,7 +61,7 @@ internal sealed class SetExitReminderToolTests
         ITool clear = new ClearExitReminderTool(reminder, TestModels.PromptTemplates);
         var provider = new UnusedProvider();
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        var selection = new AgentTurnSelection(new ModelSelector(model.Selector), TestModels.Resolve(model), new TestProfileFixture().Mode, SecurityProfile.Compose(readOnly: false, [], [], []));
+        var selection = new AgentTurnSelection(new ModelSelector(model.Selector), TestModels.Resolve(model), new TestProfileFixture().Profile, SecurityProfile.Compose(readOnly: false, [], [], []));
         var cases = new (ITool Tool, string Json)[]
         {
             (set, "null"),

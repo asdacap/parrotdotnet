@@ -1,7 +1,7 @@
 namespace Parrot.Agent;
 
 /// <summary>Coordinates a session mode's profile and turn lifecycle.</summary>
-internal interface IMode
+internal interface IUserMode
 {
     /// <summary>Gets the mode's live profile projection, including its prompt and security policy.</summary>
     IAgentProfile Profile { get; }

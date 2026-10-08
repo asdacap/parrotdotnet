@@ -152,16 +152,13 @@ internal sealed class ModeRegistryTests : IDisposable
     }
 
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task Mode_profiles_preserve_lazy_prompts_policy_and_lifecycle(bool noOp)
+    public async Task Mode_profiles_preserve_lazy_prompts_policy_and_lifecycle()
     {
         var registry = Registry();
         var configured = registry.Resolve(ModeRegistry.Build);
-        var securityProfile = registry.Resolve(ModeRegistry.Query).SecurityProfile;
         var promptReads = 0;
         var prepared = false;
-        IMode sessionMode = new SessionMode(
+        IUserMode mode = new SessionMode(
             configured,
             () =>
             {
@@ -171,9 +168,6 @@ internal sealed class ModeRegistryTests : IDisposable
             configured.SecurityProfile,
             () => prepared = true,
             () => ModeCompletionOutcome.Repair("repair"));
-        var mode = noOp
-            ? new NoopMode(sessionMode.Profile, securityProfile)
-            : sessionMode;
         var profile = mode.Profile;
 
         _ = await Assert.That(promptReads).IsEqualTo(0);
@@ -186,19 +180,18 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(profile.EnforceActiveWorkCompletion).IsEqualTo(configured.EnforceActiveWorkCompletion);
         _ = await Assert.That(profile.IsUserSelectable).IsEqualTo(configured.IsUserSelectable);
         _ = await Assert.That(profile.IsAgentSelectable).IsEqualTo(configured.IsAgentSelectable);
-        _ = await Assert.That(profile.SecurityProfile.ReadOnly)
-            .IsEqualTo(noOp ? securityProfile.ReadOnly : configured.SecurityProfile.ReadOnly);
+        _ = await Assert.That(profile.SecurityProfile.ReadOnly).IsEqualTo(configured.SecurityProfile.ReadOnly);
         _ = await Assert.That(profile.Prompt).IsEqualTo("initial");
 
         mode.Prepare();
 
-        _ = await Assert.That(prepared).IsEqualTo(!noOp);
-        _ = await Assert.That(profile.Prompt).IsEqualTo(noOp ? "initial" : "prepared");
-        _ = await Assert.That(mode.Profile.Prompt).IsEqualTo(noOp ? "initial" : "prepared");
+        _ = await Assert.That(prepared).IsTrue();
+        _ = await Assert.That(profile.Prompt).IsEqualTo("prepared");
+        _ = await Assert.That(mode.Profile.Prompt).IsEqualTo("prepared");
         _ = await Assert.That(promptReads).IsEqualTo(3);
         var completion = mode.Complete();
         _ = await Assert.That(completion.Completion).IsNull();
-        _ = await Assert.That(completion.RepairDiagnostic).IsEqualTo(noOp ? null : "repair");
+        _ = await Assert.That(completion.RepairDiagnostic).IsEqualTo("repair");
     }
 
     [Test]
@@ -288,7 +281,7 @@ internal sealed class ModeRegistryTests : IDisposable
         var selection = new AgentTurnSelection(
             new ModelSelector(model.Selector),
             TestModels.Resolve(model),
-            new TestProfileFixture().Mode,
+            new TestProfileFixture().Profile,
             security);
 
         var supporting = Path.Combine(planDirectory, "supporting.md");

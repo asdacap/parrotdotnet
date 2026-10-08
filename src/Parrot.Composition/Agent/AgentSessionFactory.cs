@@ -44,7 +44,7 @@ internal sealed class AgentSessionFactory(
         ModelSelector model,
         IEventBroker eventBroker,
         IEventRepository eventRepository,
-        IMode mode,
+        IAgentProfile profile,
         SecurityProfile securityProfile,
         IAgentRegistry registry,
         CancellationToken lifetime)
@@ -89,7 +89,7 @@ internal sealed class AgentSessionFactory(
             pathEnvironment,
             compactor,
             promptTemplates,
-            mode,
+            profile,
             security,
             agentSkills,
             owner.Permissions,

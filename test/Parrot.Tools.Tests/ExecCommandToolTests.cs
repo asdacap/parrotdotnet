@@ -76,7 +76,7 @@ internal sealed class ExecCommandToolTests : IDisposable
         var selection = new AgentTurnSelection(
             new ModelSelector(model.Selector),
             TestModels.Resolve(model),
-            new TestProfileFixture().Mode,
+            new TestProfileFixture().Profile,
             securityProfile);
         var factoryTool = new ExecCommandToolFactory(
             processes,

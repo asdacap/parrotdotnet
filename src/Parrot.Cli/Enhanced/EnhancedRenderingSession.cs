@@ -384,7 +384,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
             CommitBody,
             _toolPresenters,
             UpdateMainAgentActivity);
-        var queueStream = new QueueSnapshotStreamReader(stream, activity.ReplaceQueues);
+        var queueStream = new QueueSnapshotStreamReader(new RootLifecycleFilterStreamReader(stream), activity.ReplaceQueues);
         var renderedStream = new ShellProcessSnapshotStreamReader(queueStream, activity.ReplaceProcesses);
         using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var animation = activity.Run(animating.Token);

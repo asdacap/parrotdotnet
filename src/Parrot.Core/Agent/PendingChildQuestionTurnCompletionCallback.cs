@@ -27,7 +27,7 @@ internal sealed class PendingChildQuestionTurnCompletionCallback(
                 return AgentTurnCompletionOutcome.Retry(reminder, true, false, true, null);
             }
 
-            var outcome = AgentTurnCompletionOutcome.Continue(completionAttempt, null);
+            var outcome = AgentTurnCompletionOutcome.Continue(completionAttempt);
             completionAttempt = null;
             return outcome;
         }

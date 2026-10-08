@@ -59,7 +59,7 @@ internal sealed class GlobToolTests : IDisposable
             new AgentTurnSelection(
                 new ModelSelector(model.Selector),
                 TestModels.Resolve(model),
-                new TestProfileFixture().Mode,
+                new TestProfileFixture().Profile,
                 SecurityProfile.Compose(readOnly: false, [], [], [])),
             cancellationToken)).Text;
     }

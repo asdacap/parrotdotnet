@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Config;
+using Parrot.Store;
 
 namespace Parrot.AgentTasks;
 
@@ -149,7 +150,12 @@ internal sealed class AgentTaskRunner(AgentTaskConfig configuration)
             string output;
             try
             {
-                output = await scope.Session.SendAndWaitForResult(prompt, cancellationToken).ConfigureAwait(false);
+                output = await scope.Session.SendAndWaitForResult(
+                    [ConversationPart.TextPart(prompt)],
+                    Identifier.MessageId(),
+                    null,
+                    null,
+                    cancellationToken).ConfigureAwait(false);
             }
             catch (AgentExecutionException exception)
             {

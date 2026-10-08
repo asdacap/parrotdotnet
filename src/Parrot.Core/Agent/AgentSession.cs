@@ -42,7 +42,7 @@ internal sealed partial class AgentSession(
     IPromptTemplateCatalog promptTemplates,
     IChildQuestionCoordinator childQuestions,
     IExitReminder exitReminder,
-    IMode mode,
+    IAgentProfile profile,
     [InjectionTag("turnCompletionCallbacks")] IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
     AgentSessionSecurity security,
     AgentSkills skills,
@@ -96,7 +96,7 @@ internal sealed partial class AgentSession(
 
     private readonly AgentSessionStatistics _statistics = statistics;
 
-    private AgentSelection _selection = new(model, mode, security.Policy());
+    private AgentSelection _selection = new(model, profile, security.Policy());
     private ResolvedModelSelection? _resolvedSelection;
     private long _settledConversationSequence;
     private bool _disposing;
@@ -123,7 +123,7 @@ internal sealed partial class AgentSession(
         IPromptTemplateCatalog promptTemplates,
         IChildQuestionCoordinator childQuestions,
         IExitReminder exitReminder,
-        IMode mode,
+        IAgentProfile profile,
         IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
         AgentSessionSecurity security,
         IRuntimeStatus status,
@@ -150,7 +150,7 @@ internal sealed partial class AgentSession(
             promptTemplates,
             childQuestions,
             exitReminder,
-            mode,
+            profile,
             turnCompletionCallbacks,
             security,
             new AgentSkills(new SkillCatalog([], () => (SkillConfiguration.Default, 0L)), promptTemplates),
@@ -191,22 +191,18 @@ internal sealed partial class AgentSession(
         }
     }
 
-    public void UpdateSelection(ModelSelector selectedModel, IMode mode)
+    public void UpdateSelection(AgentSelection selection)
     {
-        ArgumentNullException.ThrowIfNull(selectedModel);
-        ArgumentNullException.ThrowIfNull(mode);
+        ArgumentNullException.ThrowIfNull(selection);
 
         lock (_selectionGate)
         {
-            if (!string.Equals(_selection.RequestedModel.Value, selectedModel.Value, StringComparison.Ordinal))
+            if (!string.Equals(_selection.RequestedModel.Value, selection.RequestedModel.Value, StringComparison.Ordinal))
             {
                 _resolvedSelection = null;
             }
 
-            _selection = new AgentSelection(
-                selectedModel,
-                mode,
-                mode.Profile.SecurityProfile);
+            _selection = selection;
         }
     }
 
@@ -439,9 +435,14 @@ internal sealed partial class AgentSession(
         return result;
     }
 
-    public async Task<string> SendAndWaitForResult(string prompt, CancellationToken cancellationToken)
+    public async Task<string> SendAndWaitForResult(
+        IReadOnlyList<ConversationPart> parts,
+        string messageId,
+        AgentSelection? selection,
+        Action<Admission>? admitted,
+        CancellationToken cancellationToken)
     {
-        var execution = EnqueueExecution(prompt, cancellationToken);
+        var execution = EnqueueExecution(parts, messageId, selection, admitted, cancellationToken);
         var result = await execution.ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 

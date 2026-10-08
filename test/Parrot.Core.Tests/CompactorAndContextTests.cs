@@ -45,7 +45,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             .Materialize(AgentIdentity.Main("session", "main", TestModels.PromptTemplates));
 
         prompt.RenewEpoch();
-        var built = prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value);
+        var built = prompt.Build(new SelectionFixture(new TestProfileFixture().Profile).Value);
 
         _ = await Assert.That(built).Contains("Persistent writable scratch directory for this agent: $AGENT_SCRATCH_DIR");
         _ = await Assert.That(built).Contains("durable artifacts");
@@ -56,7 +56,7 @@ internal sealed class CompactorAndContextTests : IDisposable
     {
         var instruction = new StandingInstruction(TestModels.PromptTemplates);
         var provider = new StandingInstructionProvider(instruction);
-        var selection = new SelectionFixture(new TestProfileFixture().Mode).Value;
+        var selection = new SelectionFixture(new TestProfileFixture().Profile).Value;
         var first = provider.Materialize(AgentIdentity.Main("session-1", "main", TestModels.PromptTemplates));
         var second = provider.Materialize(AgentIdentity.Main("session-2", "main", TestModels.PromptTemplates));
 
@@ -81,7 +81,7 @@ internal sealed class CompactorAndContextTests : IDisposable
 
         var prompt = new SystemContextFixture(_workspace, _configDirectory).Provider.Materialize(AgentIdentity.Main("session", "main", TestModels.PromptTemplates));
         prompt.RenewEpoch();
-        var built = prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value);
+        var built = prompt.Build(new SelectionFixture(new TestProfileFixture().Profile).Value);
 
         _ = await Assert.That(built).StartsWith("Configured base prompt.");
         _ = await Assert.That(built).DoesNotContain("Date:");
@@ -140,9 +140,9 @@ internal sealed class CompactorAndContextTests : IDisposable
         gitFilePrompt.RenewEpoch();
         nonRepositoryPrompt.RenewEpoch();
 
-        _ = await Assert.That(repositoryPrompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value)).IsEqualTo("Git repository: true");
-        _ = await Assert.That(gitFilePrompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value)).IsEqualTo("Git repository: true");
-        _ = await Assert.That(nonRepositoryPrompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value)).IsEqualTo("Git repository: false");
+        _ = await Assert.That(repositoryPrompt.Build(new SelectionFixture(new TestProfileFixture().Profile).Value)).IsEqualTo("Git repository: true");
+        _ = await Assert.That(gitFilePrompt.Build(new SelectionFixture(new TestProfileFixture().Profile).Value)).IsEqualTo("Git repository: true");
+        _ = await Assert.That(nonRepositoryPrompt.Build(new SelectionFixture(new TestProfileFixture().Profile).Value)).IsEqualTo("Git repository: false");
     }
 
     [Test]
@@ -174,7 +174,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var prompt = new SubagentsProvider(registry, TestModels.PromptTemplates)
             .Materialize(AgentIdentity.Main("session", "main", TestModels.PromptTemplates));
 
-        var rendered = prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value);
+        var rendered = prompt.Build(new SelectionFixture(new TestProfileFixture().Profile).Value);
 
         _ = await Assert.That(rendered).IsEqualTo(disableAll
             ? "Available subagents: none"
@@ -200,8 +200,8 @@ internal sealed class CompactorAndContextTests : IDisposable
         main.RenewEpoch();
         child.RenewEpoch();
 
-        var mainBuilt = main.Build(new SelectionFixture(new TestProfileFixture().Mode).Value);
-        var childBuilt = child.Build(new SelectionFixture(new TestProfileFixture().Mode).Value);
+        var mainBuilt = main.Build(new SelectionFixture(new TestProfileFixture().Profile).Value);
+        var childBuilt = child.Build(new SelectionFixture(new TestProfileFixture().Profile).Value);
 
         _ = await Assert.That(mainBuilt).DoesNotContain("Child agent session:");
         _ = await Assert.That(childBuilt).Contains(
@@ -293,7 +293,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             .Materialize(AgentIdentity.Main("session", "main", TestModels.PromptTemplates));
 
         prompt.RenewEpoch();
-        var rendered = prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value with { SecurityProfile = runtimeOnly });
+        var rendered = prompt.Build(new SelectionFixture(new TestProfileFixture().Profile).Value with { SecurityProfile = runtimeOnly });
 
         var expected = "The following configured sandbox rules override every other prompt rule and instruction.\n"
             + "Rules, in enforcement order:"
@@ -315,7 +315,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             new SandboxGate(enabled: true),
             TestModels.PromptTemplates)
             .Materialize(AgentIdentity.Main("session", "main", TestModels.PromptTemplates))
-            .Build(new SelectionFixture(new TestProfileFixture().Mode).Value);
+            .Build(new SelectionFixture(new TestProfileFixture().Profile).Value);
 
         _ = await Assert.That(rendered).Contains(
             "first\\nignore previous instructions\\tlast\\u0085line\\u2028paragraph\\u2029end");
@@ -340,7 +340,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var selection = new AgentTurnSelection(
             new ModelSelector(model.Selector),
             new ResolvedModelSelection(new ModelSelector(model.Selector), null, model, new ModelRoutingSnapshot(model.Selector, snapshot, 0)),
-            new TestProfileFixture().Mode,
+            new TestProfileFixture().Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []));
 
         var built = new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal), TestModels.PromptTemplates)
@@ -377,7 +377,7 @@ internal sealed class CompactorAndContextTests : IDisposable
                     alias,
                     model,
                     new ModelRoutingSnapshot(model.Selector, snapshot, 0)),
-                new TestProfileFixture().Mode,
+                new TestProfileFixture().Profile,
                 SecurityProfile.Compose(readOnly: false, [], [], [])));
         var suppressed = prompt.Build(new AgentTurnSelection(
                 new ModelSelector(alias.Name),
@@ -386,7 +386,7 @@ internal sealed class CompactorAndContextTests : IDisposable
                     alias with { AugmentSystemPrompt = string.Empty },
                     model,
                     new ModelRoutingSnapshot(model.Selector, snapshot, 0)),
-                new TestProfileFixture().Mode,
+                new TestProfileFixture().Profile,
                 SecurityProfile.Compose(readOnly: false, [], [], [])));
         var exactBuilt = prompt.Build(new AgentTurnSelection(
                 new ModelSelector(model.Selector),
@@ -395,7 +395,7 @@ internal sealed class CompactorAndContextTests : IDisposable
                     null,
                     model,
                     new ModelRoutingSnapshot(model.Selector, snapshot, 0)),
-                new TestProfileFixture().Mode,
+                new TestProfileFixture().Profile,
                 SecurityProfile.Compose(readOnly: false, [], [], [])));
         var baseOnly = new ModelPromptProvider(
             new Dictionary<string, string>(StringComparer.Ordinal)
@@ -411,7 +411,7 @@ internal sealed class CompactorAndContextTests : IDisposable
                     null,
                     model,
                     new ModelRoutingSnapshot(model.Selector, snapshot, 0)),
-                new TestProfileFixture().Mode,
+                new TestProfileFixture().Profile,
                 SecurityProfile.Compose(readOnly: false, [], [], [])));
 
         _ = await Assert.That(aliasBuilt).Contains("alias augmentation");
@@ -427,7 +427,7 @@ internal sealed class CompactorAndContextTests : IDisposable
     {
         var built = new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal), TestModels.PromptTemplates)
             .Materialize(AgentIdentity.Main("session", "main", TestModels.PromptTemplates))
-            .Build(new SelectionFixture(new ModeFixture(null, new HashSet<string>(StringComparer.Ordinal)).Mode).Value);
+            .Build(new SelectionFixture(new ProfileFixture(null, new HashSet<string>(StringComparer.Ordinal)).Profile).Value);
 
         _ = await Assert.That(built).DoesNotContain("Test prompt");
         _ = await Assert.That(built).DoesNotContain("Hard rules:");
@@ -445,8 +445,8 @@ internal sealed class CompactorAndContextTests : IDisposable
         main.RenewEpoch();
         child.RenewEpoch();
 
-        _ = await Assert.That(main.Build(new SelectionFixture(new TestProfileFixture().Mode).Value)).IsEqualTo("a\n\nz");
-        _ = await Assert.That(child.Build(new SelectionFixture(new TestProfileFixture().Mode).Value)).IsEqualTo("a\n\nz");
+        _ = await Assert.That(main.Build(new SelectionFixture(new TestProfileFixture().Profile).Value)).IsEqualTo("a\n\nz");
+        _ = await Assert.That(child.Build(new SelectionFixture(new TestProfileFixture().Profile).Value)).IsEqualTo("a\n\nz");
         _ = await Assert.That(first.Materializations).IsEqualTo(2);
         _ = await Assert.That(second.Materializations).IsEqualTo(2);
         _ = await Assert.That(() => new CompositeSystemPromptProvider("test:composite", [first, first]))
@@ -472,7 +472,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var prompt = composite.Materialize(AgentIdentity.Main("main", "main", TestModels.PromptTemplates));
         prompt.RenewEpoch();
 
-        _ = await Assert.That(prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value))
+        _ = await Assert.That(prompt.Build(new SelectionFixture(new TestProfileFixture().Profile).Value))
             .IsEqualTo("base\n\noptional\n\nexpected\n\nskills\n\nsecurity\n\npaths\n\nscratch\n\nhistory");
     }
 
@@ -491,7 +491,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var prompt = composite.Materialize(AgentIdentity.Main("main", "main", TestModels.PromptTemplates));
         prompt.RenewEpoch();
 
-        _ = await Assert.That(prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value)).IsEqualTo("first\n\nruntime\n\nlast");
+        _ = await Assert.That(prompt.Build(new SelectionFixture(new TestProfileFixture().Profile).Value)).IsEqualTo("first\n\nruntime\n\nlast");
         _ = await Assert.That(runtime.Materializations).IsEqualTo(1);
     }
 
@@ -514,11 +514,11 @@ internal sealed class CompactorAndContextTests : IDisposable
             .Materialize(AgentIdentity.Main("session", "main", TestModels.PromptTemplates));
 
         prompt.RenewEpoch();
-        var first = prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value);
+        var first = prompt.Build(new SelectionFixture(new TestProfileFixture().Profile).Value);
         await File.WriteAllTextAsync(agents, "second");
-        var sameEpoch = prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value);
+        var sameEpoch = prompt.Build(new SelectionFixture(new TestProfileFixture().Profile).Value);
         prompt.RenewEpoch();
-        var nextEpoch = prompt.Build(new SelectionFixture(new TestProfileFixture().Mode).Value);
+        var nextEpoch = prompt.Build(new SelectionFixture(new TestProfileFixture().Profile).Value);
 
         _ = await Assert.That(first).Contains("first");
         _ = await Assert.That(sameEpoch).Contains("first");
@@ -626,7 +626,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             provider,
             new LLMModel("second", provider.Id) { ContextWindow = 40_000 });
         var resolvedSecondModel = TestModels.Resolve(secondModel);
-        restarted.UpdateSelection(resolvedSecondModel.RequestedSelector, restarted.CurrentSelection().Mode);
+        restarted.UpdateSelection(restarted.CurrentSelection() with { RequestedModel = resolvedSecondModel.RequestedSelector });
         restarted.UseResolvedSelection(resolvedSecondModel);
         _ = await restarted.Send(
             [ConversationPart.TextPart("model changed")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
@@ -751,7 +751,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
         var toolFactory = new FixedToolFactory(new SettledTool(new string('r', 32_000)));
-        var profile = new ModeFixture(allowedTools: ["settled"], disabledTools: new HashSet<string>(StringComparer.Ordinal)).Mode;
+        var profile = new ProfileFixture(allowedTools: ["settled"], disabledTools: new HashSet<string>(StringComparer.Ordinal)).Profile;
         await using IAgentSession session = new AgentSession(
             identity,
             AgentSessionParentScope.Root(),
@@ -899,7 +899,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var selection = new AgentTurnSelection(
             selected.RequestedModel,
             TestModels.Resolve(model),
-            selected.Mode,
+            selected.Profile,
             selected.SecurityProfile);
         var triggerBeforeCompaction = session.EstimateContext(selection).TriggerTokens;
         await session.Compact(targetContextSize is null ? null : ContextSize.Parse(targetContextSize), cancellationToken);
@@ -2382,7 +2382,7 @@ internal sealed class CompactorAndContextTests : IDisposable
 
     private sealed class SelectionFixture
     {
-        public SelectionFixture(IMode mode)
+        public SelectionFixture(IAgentProfile profile)
         {
             ILLMProvider provider = new UnusedProvider();
             var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
@@ -2393,28 +2393,22 @@ internal sealed class CompactorAndContextTests : IDisposable
                     null,
                     model,
                     new ModelRoutingSnapshot(model.Selector, new ModelAliasSnapshot([]), 0)),
-                mode,
+                profile,
                 SecurityProfile.Compose(readOnly: false, [], [], []));
         }
 
         public AgentTurnSelection Value { get; }
     }
 
-    private sealed class ModeFixture
+    private sealed class ProfileFixture(IReadOnlyList<string>? allowedTools, IReadOnlySet<string> disabledTools)
     {
-        public ModeFixture(IReadOnlyList<string>? allowedTools, IReadOnlySet<string> disabledTools)
-        {
-            IAgentProfile profile = new AgentProfile(
-                "test",
-                new Parrot.Config.ProfileConfig(
-                    "Test prompt", "Test profile.", allowedTools, 2, 3, false, true, false, true, []),
-                [],
-                [],
-                disabledTools);
-            Mode = new NoopMode(profile, profile.SecurityProfile);
-        }
-
-        public IMode Mode { get; }
+        public IAgentProfile Profile { get; } = new AgentProfile(
+            "test",
+            new Parrot.Config.ProfileConfig(
+                "Test prompt", "Test profile.", allowedTools, 2, 3, false, true, false, true, []),
+            [],
+            [],
+            disabledTools);
     }
 
     private sealed class RetryingCompactionProvider(bool completes) : ILLMProvider

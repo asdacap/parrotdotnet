@@ -69,7 +69,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
                 AgentSessionParentLink.Child(runtime.ParentScope, AgentCompletionDeliveryPolicy.RetainedOnly, registry.ReserveRetainedAgent()),
                 runtime.Selection.RequestedModel,
                 dependencies.Profile,
-                dependencies.Profile.Profile.SecurityProfile,
+                dependencies.Profile.SecurityProfile,
                 _repository,
                 cancellationToken);
             if (fail)
@@ -820,7 +820,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             AgentCompletionDeliveryPolicy.Automatic,
             new AgentHistorySource.Parent()));
         using var turns = _broker.Subscribe();
-        _ = await manualScope.Session.SendAndWaitForResult("manual prompt", cancellationToken);
+        _ = await manualScope.Session.SendAndWaitForResult([ConversationPart.TextPart("manual prompt")], Identifier.MessageId(), null, null, cancellationToken);
         _ = await turns.TurnEnding(runtime.Parent.SessionId, cancellationToken);
         var originalSelection = manualScope.Session.CurrentSelection();
 
@@ -1192,7 +1192,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
         var selection = new AgentTurnSelection(
             selected.RequestedModel,
             router.Resolve(selected.RequestedModel.Value),
-            selected.Mode,
+            selected.Profile,
             selected.SecurityProfile);
         return new RuntimeContext(router, sessions, registry, parentScope, parent, selection);
     }
@@ -1216,7 +1216,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             ModelSelector model,
             IEventBroker eventBroker,
             IEventRepository eventRepository,
-            IMode mode,
+            IAgentProfile profile,
             SecurityProfile securityProfile,
             IAgentRegistry registry,
             CancellationToken lifetime) =>

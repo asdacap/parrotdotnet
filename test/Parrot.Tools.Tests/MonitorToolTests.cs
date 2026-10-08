@@ -134,7 +134,7 @@ internal sealed class MonitorToolTests : IDisposable
         new(
             new ModelSelector(_model.Selector),
             TestModels.Resolve(_model),
-            new TestProfileFixture().Mode,
+            new TestProfileFixture().Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []));
 
     private string CreateSandboxPassThrough()
@@ -200,7 +200,7 @@ internal sealed class MonitorToolTests : IDisposable
 
         public void Recover() => throw new NotSupportedException();
 
-        public void UpdateSelection(ModelSelector selectedModel, IMode mode) => throw new NotSupportedException();
+        public void UpdateSelection(AgentSelection selection) => throw new NotSupportedException();
 
         public bool Wake(IncomingActivity? activity) => throw new NotSupportedException();
 
@@ -229,7 +229,12 @@ internal sealed class MonitorToolTests : IDisposable
 
         public Task<AgentSendResult> SendTextMessage(string message, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task<string> SendAndWaitForResult(string prompt, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<string> SendAndWaitForResult(
+            IReadOnlyList<ConversationPart> parts,
+            string messageId,
+            AgentSelection? selection,
+            Action<Admission>? admitted,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task Record(IReadOnlyList<ConversationPart> parts, string messageId, Delivery delivery, CancellationToken cancellationToken) => throw new NotSupportedException();
 

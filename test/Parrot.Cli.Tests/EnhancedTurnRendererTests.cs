@@ -127,6 +127,11 @@ internal sealed class EnhancedTurnRendererTests
                     Id = "ended",
                     TurnEnded = new TurnEnded { FinishReason = "stop\u001b[2J", InputTokens = 3, OutputTokens = 4 },
                 },
+                new Event
+                {
+                    Id = "ended-mode",
+                    ModeTurnCompleted = new ModeTurnCompleted(),
+                },
             ],
             cancellationToken);
 
@@ -192,6 +197,7 @@ internal sealed class EnhancedTurnRendererTests
                     },
                 },
                 new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+                new Event { Id = "ended-mode", ModeTurnCompleted = new ModeTurnCompleted() },
             ],
             cancellationToken);
 
@@ -215,6 +221,7 @@ internal sealed class EnhancedTurnRendererTests
             new Event { Id = "text-2", TextChunk = new TextChunk { Fragment = "ing\n**bo" } },
             new Event { Id = "text-3", TextChunk = new TextChunk { Fragment = "ld**" } },
             new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+            new Event { Id = "ended-mode", ModeTurnCompleted = new ModeTurnCompleted() },
         ];
         foreach (var published in events)
         {
@@ -289,6 +296,7 @@ internal sealed class EnhancedTurnRendererTests
             .. Notices("child"),
             .. Notices("main"),
             new() { AgentSessionId = "main", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+            new() { AgentSessionId = "main", ModeTurnCompleted = new ModeTurnCompleted() },
         ];
         foreach (var published in events)
         {
@@ -344,6 +352,7 @@ internal sealed class EnhancedTurnRendererTests
             new Event { Id = "first-visible", TextChunk = new TextChunk { Fragment = "answer" } },
             new Event { Id = "later-visible", ToolStarted = new ToolStarted { ToolName = "shell" } },
             new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+            new Event { Id = "ended-mode", ModeTurnCompleted = new ModeTurnCompleted() },
         ];
         foreach (var published in events)
         {
@@ -368,7 +377,7 @@ internal sealed class EnhancedTurnRendererTests
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(string.Join(',', callbackIds))
-            .IsEqualTo("none,admitted-before-turn,promoted,retry,started,tool-chunk,first-visible,later-visible,ended");
+            .IsEqualTo("none,admitted-before-turn,promoted,retry,started,tool-chunk,first-visible,later-visible,ended,ended-mode");
         _ = await Assert.That(output.ToString()).StartsWith("before:none|");
         _ = await Assert.That(output.ToString()).Contains("event none has no payload");
         _ = await Assert.That(output.ToString()).Contains("input admitted: sent");
@@ -400,6 +409,11 @@ internal sealed class EnhancedTurnRendererTests
                 {
                     AgentSessionId = "main",
                     TurnEnded = new TurnEnded { FinishReason = "stop", InputTokens = 10, OutputTokens = 2 },
+                },
+                new Event
+                {
+                    AgentSessionId = "main",
+                    ModeTurnCompleted = new ModeTurnCompleted(),
                 },
             ],
             cancellationToken);
@@ -455,6 +469,12 @@ internal sealed class EnhancedTurnRendererTests
                     Id = "main-ended",
                     AgentSessionId = "main-session",
                     TurnEnded = new TurnEnded { FinishReason = "main-stop" },
+                },
+                new Event
+                {
+                    Id = "main-ended-mode",
+                    AgentSessionId = "main-session",
+                    ModeTurnCompleted = new ModeTurnCompleted(),
                 },
             ],
             cancellationToken);
@@ -535,6 +555,12 @@ internal sealed class EnhancedTurnRendererTests
                     Id = "main-ended",
                     AgentSessionId = "main",
                     TurnEnded = new TurnEnded { FinishReason = "stop" },
+                },
+                new Event
+                {
+                    Id = "main-ended-mode",
+                    AgentSessionId = "main",
+                    ModeTurnCompleted = new ModeTurnCompleted(),
                 },
             ],
             cancellationToken);

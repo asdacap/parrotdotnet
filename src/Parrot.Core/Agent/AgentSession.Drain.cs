@@ -133,7 +133,7 @@ internal sealed partial class AgentSession
         string message,
         CancellationToken cancellationToken)
     {
-        EnsureMessageCanBeSent(message);
+        EnsureMessageCanBeSent([ConversationPart.TextPart(message)]);
         var messageId = Identifier.MessageId();
         Task<AgentExecution>? execution = null;
         var followUp = false;
@@ -145,7 +145,7 @@ internal sealed partial class AgentSession
                 followUp = _started;
                 _started = true;
                 execution = Execute(
-                    message,
+                    [ConversationPart.TextPart(message)],
                     messageId,
                     selectedDrain: null,
                     ownedExecution: null,
@@ -168,17 +168,21 @@ internal sealed partial class AgentSession
         return (new AgentSendResult(Name, messageId, followUp), execution);
     }
 
-    private Task<AgentExecution> EnqueueExecution(string prompt, CancellationToken cancellationToken)
+    private Task<AgentExecution> EnqueueExecution(
+        IReadOnlyList<ConversationPart> parts,
+        string messageId,
+        AgentSelection? selection,
+        Action<Admission>? admitted,
+        CancellationToken cancellationToken)
     {
-        EnsureMessageCanBeSent(prompt);
-        var messageId = Identifier.MessageId();
+        EnsureMessageCanBeSent(parts);
         Task<AgentExecution> execution;
 
         lock (_executionGate)
         {
             var predecessor = _sendAndWaitTail.IsCompleted ? _execution : _sendAndWaitTail;
             _started = true;
-            execution = ExecuteAfter(predecessor, prompt, messageId, cancellationToken);
+            execution = ExecuteAfter(predecessor, parts, messageId, selection, admitted, cancellationToken);
 
             // A canceled reservation completes early, but its FIFO position still waits for predecessors.
             _sendAndWaitTail = Task.WhenAll(predecessor, execution);
@@ -189,8 +193,10 @@ internal sealed partial class AgentSession
 
     private async Task<AgentExecution> ExecuteAfter(
         Task predecessor,
-        string prompt,
+        IReadOnlyList<ConversationPart> parts,
         string messageId,
+        AgentSelection? selection,
+        Action<Admission>? admitted,
         CancellationToken cancellationToken)
     {
         try
@@ -221,7 +227,12 @@ internal sealed partial class AgentSession
                         if (_drainLifecycle.Drain.IsCompleted)
                         {
                             _started = true;
-                            execution = ExecuteOwned(prompt, messageId, cancellationToken);
+                            if (selection is not null)
+                            {
+                                UpdateSelection(selection);
+                            }
+
+                            execution = ExecuteOwned(parts, messageId, admitted, cancellationToken);
                             _execution = execution;
                         }
                         else
@@ -258,27 +269,30 @@ internal sealed partial class AgentSession
     }
 
     private async Task<AgentExecution> ExecuteOwned(
-        string prompt,
+        IReadOnlyList<ConversationPart> parts,
         string messageId,
+        Action<Admission>? admitted,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var ownedExecution = new OwnedExecutionReservation(
-            AdmitParts([ConversationPart.TextPart(prompt)], messageId, Delivery.Steer), cancellationToken);
+        var ownedExecution = new OwnedExecutionReservation(AdmitParts(parts, messageId, Delivery.Steer), cancellationToken);
+        admitted?.Invoke(ownedExecution.Admission);
         var (_, selectedDrain) = WakeSelected(
             new IncomingActivity(string.Empty, null), ownedExecution, cancellationToken);
-        return await Execute(prompt, messageId, selectedDrain, ownedExecution, CancellationToken.None)
+        return await Execute(parts, messageId, selectedDrain, ownedExecution, CancellationToken.None)
             .ConfigureAwait(false);
     }
 
-    private void EnsureMessageCanBeSent(string message)
+    private void EnsureMessageCanBeSent(IReadOnlyList<ConversationPart> parts)
     {
+        ArgumentNullException.ThrowIfNull(parts);
         if (lifetime.IsCancellationRequested)
         {
             throw new AgentRegistryException("the user session is shutting down");
         }
 
-        if (string.IsNullOrWhiteSpace(message))
+        var message = string.Concat(parts.Select(part => part.Text));
+        if (parts.All(part => part.Kind == ConversationPartKind.Text) && string.IsNullOrWhiteSpace(message))
         {
             throw new AgentRegistryException("no message given");
         }
@@ -290,7 +304,7 @@ internal sealed partial class AgentSession
     }
 
     private async Task<AgentExecution> Execute(
-        string prompt,
+        IReadOnlyList<ConversationPart> parts,
         string messageId,
         Task<AgentExecution>? selectedDrain,
         OwnedExecutionReservation? ownedExecution,
@@ -335,7 +349,7 @@ internal sealed partial class AgentSession
             if (selectedDrain is null)
             {
                 _ = await Send(
-                    [ConversationPart.TextPart(prompt)],
+                    parts,
                     messageId,
                     Delivery.Steer,
                     new IncomingActivity(string.Empty, null),
@@ -700,12 +714,11 @@ internal sealed partial class AgentSession
                 {
                     _skills.EndTurn();
                     var captured = CaptureSelection();
-                    captured.Mode.Prepare();
                     var resolved = ResolveModel(captured);
                     activeSelection = new AgentTurnSelection(
                         resolved.RequestedSelector,
                         resolved,
-                        captured.Mode,
+                        captured.Profile,
                         captured.SecurityProfile);
                     providerRequests = 0;
                     turnOpen = true;
@@ -899,9 +912,8 @@ internal sealed partial class AgentSession
                     SessionId,
                     Identifier.MessageId(),
                     completed.AssistantText,
-                    activeSelection.Mode);
+                    activeSelection.Profile);
                 List<IDisposable> completionReservations = [];
-                PlanCompleted? deferredPlanCompletion = null;
                 AgentTurnCompletionOutcome.RetryOutcome? retryOutcome = null;
                 try
                 {
@@ -915,11 +927,6 @@ internal sealed partial class AgentSession
                                 if (continuation.CompletionReservation is { } completionReservation)
                                 {
                                     completionReservations.Add(completionReservation);
-                                }
-
-                                if (continuation.DeferredPlanCompletion is { } planCompletion)
-                                {
-                                    deferredPlanCompletion = planCompletion;
                                 }
 
                                 break;
@@ -980,17 +987,6 @@ internal sealed partial class AgentSession
                             OutputTokens = CaptureStatistics().Self.Totals.OutputTokens,
                         },
                     };
-                    if (deferredPlanCompletion is { } planCompleted)
-                    {
-                        var plan = new Event
-                        {
-                            Id = Identifier.EventId(),
-                            AgentSessionId = SessionId,
-                            PlanCompleted = planCompleted,
-                        };
-                        await EmitEvent(plan, null, null, cancellationToken).ConfigureAwait(false);
-                    }
-
                     await EmitEvent(ended, "assistant", completed.AssistantText, cancellationToken)
                         .ConfigureAwait(false);
                     FinishTurn("completed", null);
@@ -1182,7 +1178,7 @@ internal sealed partial class AgentSession
         var selection = new AgentTurnSelection(
             resolved.RequestedSelector,
             resolved,
-            captured.Mode,
+            captured.Profile,
             captured.SecurityProfile);
         var tools = MaterializeTools()
             .PermittedBy(captured.Profile);

@@ -174,10 +174,10 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.PromptTemplates;
             })
-            .Bind<IMode>().To(ctx =>
+            .Bind<IAgentProfile>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.Mode;
+                return arguments.Profile;
             })
             .Bind<IRuntimeStatus>().As(Lifetime.Scoped).To(ctx =>
             {
@@ -329,19 +329,16 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             })
             .Bind<PendingChildQuestionTurnCompletionCallback>().As(Lifetime.Scoped).To<PendingChildQuestionTurnCompletionCallback>()
             .Bind<ActiveWorkTurnCompletionCallback>().As(Lifetime.Scoped).To<ActiveWorkTurnCompletionCallback>()
-            .Bind<ModeTurnCompletionCallback>().As(Lifetime.Scoped).To<ModeTurnCompletionCallback>()
             .Bind<ExitReminderTurnCompletionCallback>().As(Lifetime.Scoped).To<ExitReminderTurnCompletionCallback>()
             .Bind<IReadOnlyList<IAgentTurnCompletionCallback>>("turnCompletionCallbacks").As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<PendingChildQuestionTurnCompletionCallback>(out var pendingChildQuestions);
                 ctx.Inject<ActiveWorkTurnCompletionCallback>(out var activeWork);
-                ctx.Inject<ModeTurnCompletionCallback>(out var modeCompletion);
                 ctx.Inject<ExitReminderTurnCompletionCallback>(out var exitReminder);
                 return new IAgentTurnCompletionCallback[]
                 {
                     pendingChildQuestions,
                     activeWork,
-                    modeCompletion,
                     exitReminder,
                 };
             })

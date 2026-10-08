@@ -20,7 +20,7 @@ internal interface IUserSession : IAsyncDisposable
 
     string Model { get; }
 
-    IMode Mode { get; }
+    IUserMode Mode { get; }
 
     CancellationToken Lifetime { get; }
 
@@ -44,12 +44,12 @@ internal interface IUserSession : IAsyncDisposable
 
     void UpdateMode(string mode);
 
-    IMode ResolveMode(string mode);
+    IUserMode ResolveMode(string mode);
 
     void UpdateSelection(ResolvedModelSelection model);
 
     /// <summary>Updates the foreground model and mode without replacing its agent session.</summary>
-    void Update(ResolvedModelSelection? model, IMode? mode);
+    void Update(ResolvedModelSelection? model, IUserMode? mode);
 
     /// <summary>
     /// Streams current inventory and subsequent events until cancelled or the session closes. A non-null

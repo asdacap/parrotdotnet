@@ -208,7 +208,7 @@ internal sealed class ReadImageToolTests : IDisposable
             Selection = new AgentTurnSelection(
                 new ModelSelector(model.Selector),
                 TestModels.Resolve(model),
-                new TestProfileFixture().Mode,
+                new TestProfileFixture().Profile,
                 securityProfile);
         }
 

@@ -266,6 +266,9 @@ internal sealed class EnhancedRenderingSessionTests
         await stream.WriteAsync(
             new Event { AgentSessionId = "root", TurnEnded = new TurnEnded { FinishReason = "stop" } },
             cancellationToken);
+        await stream.WriteAsync(
+            new Event { AgentSessionId = "root", ModeTurnCompleted = new ModeTurnCompleted() },
+            cancellationToken);
         stream.Complete();
 
         using var output = new StringWriter();
@@ -531,6 +534,9 @@ internal sealed class EnhancedRenderingSessionTests
         await stream.WriteAsync(
             new Event { AgentSessionId = "root", TurnEnded = new TurnEnded { FinishReason = "stop" } },
             cancellationToken);
+        await stream.WriteAsync(
+            new Event { AgentSessionId = "root", ModeTurnCompleted = new ModeTurnCompleted() },
+            cancellationToken);
         stream.Complete();
 
         using var output = new StringWriter();
@@ -638,6 +644,9 @@ internal sealed class EnhancedRenderingSessionTests
             cancellationToken);
         await stream.WriteAsync(
             new Event { AgentSessionId = "root", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+            cancellationToken);
+        await stream.WriteAsync(
+            new Event { AgentSessionId = "root", ModeTurnCompleted = new ModeTurnCompleted() },
             cancellationToken);
         stream.Complete();
 

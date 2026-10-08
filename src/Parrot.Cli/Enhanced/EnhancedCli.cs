@@ -232,7 +232,7 @@ internal sealed class EnhancedCli(
 
         async Task StartTurn(string entered)
         {
-            var message = await attachments.Prepare(client, session.Id, session.Mode, entered, terminal.Error, cancellationToken)
+            var message = await attachments.Prepare(client, session.Id, session.Mode, entered, _busy ? Delivery.Steer : Delivery.Queue, terminal.Error, cancellationToken)
                 .ConfigureAwait(false);
             if (message is null)
             {
@@ -959,7 +959,7 @@ internal sealed class EnhancedCli(
 
                 _busy = true;
                 _ = await client.SendMessageAsync(
-                    new SendMessageRequest { UserSessionId = session.Id, Text = feedback.Trim(), Delivery = Delivery.Steer }, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    new SendMessageRequest { UserSessionId = session.Id, Text = feedback.Trim(), Delivery = Delivery.Queue }, cancellationToken: cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -978,7 +978,7 @@ internal sealed class EnhancedCli(
             {
                 _busy = true;
                 _ = await client.SendMessageAsync(
-                    new SendMessageRequest { UserSessionId = session.Id, Text = choice.Action.Prompt, Delivery = Delivery.Steer }, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    new SendMessageRequest { UserSessionId = session.Id, Text = choice.Action.Prompt, Delivery = Delivery.Queue }, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
         }
         finally

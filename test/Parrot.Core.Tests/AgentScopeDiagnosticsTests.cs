@@ -66,7 +66,7 @@ internal sealed class AgentScopeDiagnosticsTests
                     identity,
                     AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly, session.Registry.ReserveRetainedAgent()),
                     new ModelSelector(model.Selector),
-                    session.Mode,
+                    session.Mode.Profile,
                     session.Mode.Profile.SecurityProfile,
                     session.Registry.InitializeChildHistory(identity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty"), new AgentHistorySource.Parent()),
                     session.Lifetime);

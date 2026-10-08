@@ -247,20 +247,20 @@ internal sealed class BasicCli(
                         cancellationToken).ConfigureAwait(false);
                     break;
 
-                case Event.PayloadOneofCase.AgentStarted:
+                case Event.PayloadOneofCase.AgentStarted when published.AgentStarted.ParentAgentSessionId.Length > 0:
                     await output.WriteLineAsync(
                         $"  agent started: {published.AgentStarted.Name}".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
                     break;
 
-                case Event.PayloadOneofCase.AgentFinished:
+                case Event.PayloadOneofCase.AgentFinished when published.AgentFinished.ParentAgentSessionId.Length > 0:
                     await output.WriteLineAsync(
                         ($"  agent finished: {published.AgentFinished.Name} " +
                          $"({AgentDurationFormatter.Format(published.AgentFinished.ElapsedMs)})").AsMemory(),
                         cancellationToken).ConfigureAwait(false);
                     break;
 
-                case Event.PayloadOneofCase.AgentFailed:
+                case Event.PayloadOneofCase.AgentFailed when published.AgentFailed.ParentAgentSessionId.Length > 0:
                     await output.WriteLineAsync(
                         $"  agent failed: {published.AgentFailed.Name}: {published.AgentFailed.Message}".AsMemory(),
                         cancellationToken).ConfigureAwait(false);
@@ -295,6 +295,9 @@ internal sealed class BasicCli(
                     await output.WriteLineAsync().ConfigureAwait(false);
                     await output.WriteLineAsync(
                         $"  {Summarise(published.TurnEnded)}".AsMemory(), cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.ModeTurnCompleted:
                     return true;
 
                 case Event.PayloadOneofCase.TurnFailed:
@@ -378,7 +381,7 @@ internal sealed class BasicCli(
         using var call = client.Listen(
             new ListenRequest { UserSessionId = userSessionId }, cancellationToken: listening.Token);
 
-        var message = await attachments.Prepare(client, userSessionId, mode, prompt, error, cancellationToken)
+        var message = await attachments.Prepare(client, userSessionId, mode, prompt, Delivery.Queue, error, cancellationToken)
             .ConfigureAwait(false);
         if (message is null)
         {
@@ -497,7 +500,7 @@ internal sealed class BasicCli(
                     continue;
                 }
 
-                var message = await attachments.Prepare(client, session.Id, session.Mode, entered, error, application.Token)
+                var message = await attachments.Prepare(client, session.Id, session.Mode, entered, _busy ? Delivery.Steer : Delivery.Queue, error, application.Token)
                     .ConfigureAwait(false);
                 if (message is null)
                 {
@@ -609,7 +612,7 @@ internal sealed class BasicCli(
             if (choice.Action?.Prompt.Length > 0)
             {
                 _busy = true;
-                _ = await client.SendMessageAsync(new SendMessageRequest { UserSessionId = _session.Id, Text = choice.Action.Prompt, Delivery = Delivery.Steer }, cancellationToken: cancellationToken);
+                _ = await client.SendMessageAsync(new SendMessageRequest { UserSessionId = _session.Id, Text = choice.Action.Prompt, Delivery = Delivery.Queue }, cancellationToken: cancellationToken);
             }
 
             return;
@@ -622,7 +625,7 @@ internal sealed class BasicCli(
         }
 
         _busy = true;
-        _ = await client.SendMessageAsync(new SendMessageRequest { UserSessionId = _session.Id, Text = selected, Delivery = Delivery.Steer }, cancellationToken: cancellationToken);
+        _ = await client.SendMessageAsync(new SendMessageRequest { UserSessionId = _session.Id, Text = selected, Delivery = Delivery.Queue }, cancellationToken: cancellationToken);
     }
 
     private async Task CompleteQuestion(

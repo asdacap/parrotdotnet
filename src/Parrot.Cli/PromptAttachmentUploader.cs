@@ -71,6 +71,7 @@ internal sealed class PromptAttachmentUploader(ToolWorkspace workspace, ModeRegi
         string userSessionId,
         string mode,
         string prompt,
+        Delivery delivery,
         TextWriter error,
         CancellationToken cancellationToken)
     {
@@ -83,7 +84,7 @@ internal sealed class PromptAttachmentUploader(ToolWorkspace workspace, ModeRegi
         var request = new SendMessageRequest
         {
             UserSessionId = userSessionId,
-            Delivery = Delivery.Steer,
+            Delivery = delivery,
         };
         var security = modes.Resolve(mode).SecurityProfile;
 

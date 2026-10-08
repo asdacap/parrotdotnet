@@ -1,5 +1,3 @@
-using Parrot.Protocol;
-
 namespace Parrot.Agent;
 
 internal abstract record AgentTurnCompletionOutcome
@@ -8,10 +6,8 @@ internal abstract record AgentTurnCompletionOutcome
     {
     }
 
-    internal static AgentTurnCompletionOutcome Continue(
-        IDisposable? completionReservation,
-        PlanCompleted? deferredPlanCompletion) =>
-        new ContinueOutcome(completionReservation, deferredPlanCompletion);
+    internal static AgentTurnCompletionOutcome Continue(IDisposable? completionReservation) =>
+        new ContinueOutcome(completionReservation);
 
     internal static AgentTurnCompletionOutcome Retry(
         string systemMessage,
@@ -26,9 +22,7 @@ internal abstract record AgentTurnCompletionOutcome
             recordAssistantActivity,
             completionRetryPending);
 
-    internal sealed record ContinueOutcome(
-        IDisposable? CompletionReservation,
-        PlanCompleted? DeferredPlanCompletion) : AgentTurnCompletionOutcome;
+    internal sealed record ContinueOutcome(IDisposable? CompletionReservation) : AgentTurnCompletionOutcome;
 
     internal sealed record RetryOutcome(
         string SystemMessage,

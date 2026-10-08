@@ -128,7 +128,7 @@ internal sealed class AgentSpawnerTests
         await using var fixture = new SpawnerFixture(2, cancellationToken);
         var request = fixture.Request with { RequestedName = "Busy Helper!" };
         var child = fixture.Root.AgentSpawner.SpawnOrResumeScope(request);
-        var completion = child.Session.SendAndWaitForResult("first work", cancellationToken);
+        var completion = child.Session.SendAndWaitForResult([ConversationPart.TextPart("first work")], Identifier.MessageId(), null, null, cancellationToken);
         await fixture.Provider.Arrived(cancellationToken);
 
         var busy = await Assert.That(() => fixture.Root.AgentSpawner.SpawnOrResumeScope(request))
@@ -158,7 +158,7 @@ internal sealed class AgentSpawnerTests
         var request = fixture.Request with { RequestedProfile = "worker", RequestedName = "helper" };
         var child = fixture.Root.AgentSpawner.SpawnOrResumeScope(request);
         var originalScope = child.Session.Identity.Scope;
-        var firstWork = child.Session.SendAndWaitForResult("first work", cancellationToken);
+        var firstWork = child.Session.SendAndWaitForResult([ConversationPart.TextPart("first work")], Identifier.MessageId(), null, null, cancellationToken);
         await fixture.Provider.Arrived(cancellationToken);
         fixture.Provider.Release();
         _ = await firstWork;
@@ -327,15 +327,15 @@ internal sealed class AgentSpawnerTests
                 new ModelSelector($"{_provider.Id}/model"),
                 _broker,
                 repository,
-                profiles.Mode,
-                profiles.Mode.Profile.SecurityProfile,
+                profiles.Profile,
+                profiles.Profile.SecurityProfile,
                 _registry,
                 cancellationToken);
             _registry.RegisterRootScope(Root);
             var selection = Root.Session.CurrentSelection();
             Request = new AgentLaunchRequest(
                 Root.Session,
-                new AgentTurnSelection(selection.RequestedModel, router.Resolve(selection.RequestedModel.Value), selection.Mode, selection.SecurityProfile),
+                new AgentTurnSelection(selection.RequestedModel, router.Resolve(selection.RequestedModel.Value), selection.Profile, selection.SecurityProfile),
                 "worker",
                 selection.RequestedModel,
                 "helper",

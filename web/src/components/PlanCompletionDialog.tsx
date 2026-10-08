@@ -30,7 +30,7 @@ export function PlanCompletionDialog({ userSessionId, dialog, onSettled, onSessi
   }
 
   const send = async (text: string) => {
-    await parrot.sendMessage({ userSessionId, text, messageId: crypto.randomUUID(), delivery: Delivery.STEER })
+    await parrot.sendMessage({ userSessionId, text, messageId: crypto.randomUUID(), delivery: Delivery.QUEUE })
   }
 
   const choose = (choice: DialogChoice) =>

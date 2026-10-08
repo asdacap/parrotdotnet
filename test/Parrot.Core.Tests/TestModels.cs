@@ -270,7 +270,7 @@ internal static class TestModels
             ModelSelector model,
             IEventBroker eventBroker,
             IEventRepository eventRepository,
-            IMode mode,
+            IAgentProfile profile,
             SecurityProfile securityProfile,
             IAgentRegistry registry,
             CancellationToken lifetime) =>

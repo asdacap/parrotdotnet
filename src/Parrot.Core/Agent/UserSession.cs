@@ -138,7 +138,7 @@ internal sealed class UserSession : IUserSession
 
     // The user-selected foreground mode. The resolved profile is applied only
     // to this user session's main agent; child agents select their own profile.
-    public IMode Mode { get; private set; }
+    public IUserMode Mode { get; private set; }
 
     public CancellationToken Lifetime => _lifetime.Token;
 
@@ -268,17 +268,17 @@ internal sealed class UserSession : IUserSession
             _eventRepository.UpdateMode(Id, _mainSessionId, selected.Profile.Id);
             Mode = selected;
 
-            _main?.Session.UpdateSelection(_model, selected);
+            _main?.Session.UpdateSelection(Selection());
         }
 
         Diagnostics.Write(new("session", "mode_changed", DiagnosticSeverity.Information));
     }
 
-    public IMode ResolveMode(string mode) => _modes.Resolve(mode);
+    public IUserMode ResolveMode(string mode) => _modes.Resolve(mode);
 
     public void UpdateSelection(ResolvedModelSelection model) => Update(model, null);
 
-    public void Update(ResolvedModelSelection? model, IMode? mode)
+    public void Update(ResolvedModelSelection? model, IUserMode? mode)
     {
         lock (_mainGate)
         {
@@ -295,7 +295,7 @@ internal sealed class UserSession : IUserSession
                 CanonicalModel = model.CanonicalModel.Selector;
             }
 
-            _main?.Session.UpdateSelection(_model, Mode);
+            _main?.Session.UpdateSelection(Selection());
             if (model is not null)
             {
                 _main?.Session.UseResolvedSelection(model);
@@ -351,20 +351,45 @@ internal sealed class UserSession : IUserSession
         string prompt, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
         await Send([ConversationPart.TextPart(prompt)], messageId, delivery, cancellationToken).ConfigureAwait(false);
 
+    // A steer joins whatever turn is running. A queued prompt owns its own
+    // execution, so the mode can complete -- or repair -- once that turn ends.
     public async Task<Admission> Send(
         IReadOnlyList<ConversationPart> parts,
         string messageId,
         Delivery delivery,
         CancellationToken cancellationToken)
     {
-        var (admission, _) = await Main().Send(
-            parts,
-            messageId,
-            delivery,
-            new IncomingActivity(string.Empty, null),
-            cancellationToken)
-            .ConfigureAwait(false);
-        return admission;
+        IAgentSession main;
+        IUserMode mode;
+        AgentSelection selection;
+        lock (_mainGate)
+        {
+            main = Main();
+            mode = Mode;
+            selection = Selection();
+        }
+
+        mode.Prepare();
+        if (delivery == Delivery.Steer)
+        {
+            var (admission, _) = await main.Send(
+                parts,
+                messageId,
+                delivery,
+                new IncomingActivity(string.Empty, null),
+                cancellationToken)
+                .ConfigureAwait(false);
+            return admission;
+        }
+
+        var admitted = new TaskCompletionSource<Admission>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var running = RunQueued(main, mode, selection, parts, messageId, admitted);
+        if (await Task.WhenAny(admitted.Task, running).WaitAsync(cancellationToken).ConfigureAwait(false) == running)
+        {
+            await running.ConfigureAwait(false);
+        }
+
+        return await admitted.Task.ConfigureAwait(false);
     }
 
     // Stops the main turn in flight. Parent-owned children outlive the tool
@@ -398,6 +423,93 @@ internal sealed class UserSession : IUserSession
 
     public Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken) =>
         Main().Compact(targetContextSize, cancellationToken);
+
+    // Runs past the request that admitted it, bounded by the session lifetime.
+    // A failure before admission belongs to that request; after it, only the
+    // diagnostics can hear about it. However an admitted run ends, it ends with
+    // ModeTurnCompleted, so a client waiting on the main turn is never stranded.
+    private async Task RunQueued(
+        IAgentSession main,
+        IUserMode mode,
+        AgentSelection selection,
+        IReadOnlyList<ConversationPart> parts,
+        string messageId,
+        TaskCompletionSource<Admission> admitted)
+    {
+        void WriteFailure(Exception failure) =>
+            Diagnostics.Write(new("session", "queued_prompt_failed", DiagnosticSeverity.Error)
+            {
+                AgentSessionId = main.SessionId,
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+            });
+
+        await Task.Yield();
+        try
+        {
+            await CompleteMode(main, mode, selection, parts, messageId, admitted.SetResult).ConfigureAwait(false);
+        }
+        catch (Exception failure) when (admitted.Task.IsCompleted)
+        {
+            WriteFailure(failure);
+        }
+
+        try
+        {
+            await Publish(new Event { Id = Identifier.EventId(), AgentSessionId = main.SessionId, ModeTurnCompleted = new ModeTurnCompleted() })
+                .ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            WriteFailure(failure);
+        }
+    }
+
+    private async Task CompleteMode(
+        IAgentSession main,
+        IUserMode mode,
+        AgentSelection selection,
+        IReadOnlyList<ConversationPart> parts,
+        string messageId,
+        Action<Admission>? admitted)
+    {
+        while (true)
+        {
+            _ = await main.SendAndWaitForResult(parts, messageId, selection, admitted, _lifetime.Token)
+                .ConfigureAwait(false);
+            var outcome = mode.Complete();
+            if (outcome.Completion is { } completion)
+            {
+                completion.AgentSessionId = main.SessionId;
+                completion.MessageId = Identifier.MessageId();
+                await Publish(new Event { Id = Identifier.EventId(), AgentSessionId = main.SessionId, PlanCompleted = completion })
+                    .ConfigureAwait(false);
+            }
+
+            if (outcome.RepairDiagnostic is not { } diagnostic)
+            {
+                return;
+            }
+
+            await Publish(new Event
+            {
+                Id = Identifier.EventId(),
+                AgentSessionId = main.SessionId,
+                PlanValidationRepairInjected = new PlanValidationRepairInjected { Diagnostic = diagnostic },
+            }).ConfigureAwait(false);
+            mode.Prepare();
+            parts = [ConversationPart.TextPart(diagnostic)];
+            messageId = Identifier.MessageId();
+            admitted = null;
+        }
+    }
+
+    private async Task Publish(Event published)
+    {
+        _ = _eventRepository.Append(published, null, null);
+        await _eventBroker.PublishWithCancellation(published, _lifetime.Token).ConfigureAwait(false);
+    }
+
+    private AgentSelection Selection() => new(_model, Mode.Profile, Mode.Profile.SecurityProfile);
 
     private async Task DisposeResources()
     {
@@ -534,7 +646,7 @@ internal sealed class UserSession : IUserSession
             _model,
             _eventBroker,
             _agentSessions.PrepareHistory(_mainIdentity, _eventRepository),
-            Mode,
+            Mode.Profile,
             Mode.Profile.SecurityProfile,
             Registry,
             _lifetime.Token);

@@ -599,7 +599,7 @@ internal sealed class ParrotService(
 
         var found = Find(request.UserSessionId);
 
-        IMode? selectedMode = null;
+        IUserMode? selectedMode = null;
         ResolvedModelSelection? selectedModel = null;
 
         try
@@ -1003,7 +1003,7 @@ internal sealed class ParrotService(
             var agent = scope.Session;
             var captured = agent.ResolvePolicySelection();
             var resolved = router.Resolve(captured.RequestedModel.Value);
-            var selection = new AgentTurnSelection(resolved.RequestedSelector, resolved, captured.Mode, captured.SecurityProfile);
+            var selection = new AgentTurnSelection(resolved.RequestedSelector, resolved, captured.Profile, captured.SecurityProfile);
             var status = await scope.GetService<IRuntimeStatus>()
                 .ObserveWithContext(agent, selection, selection.Profile, agent.EstimateContext(selection), context.CancellationToken)
                 .ConfigureAwait(false);

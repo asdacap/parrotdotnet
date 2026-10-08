@@ -103,7 +103,7 @@ function SessionChat({ session, onCycleMode, onSessionChanged }: SessionChatProp
           ...(text ? [{ content: { case: "text" as const, value: text } }] : []),
           ...uploaded.map((artifactId) => ({ content: { case: "artifactId" as const, value: artifactId } })),
         ]
-        await parrot.sendMessage({ userSessionId, parts, messageId: crypto.randomUUID(), delivery: Delivery.STEER })
+        await parrot.sendMessage({ userSessionId, parts, messageId: crypto.randomUUID(), delivery: timeline.busy ? Delivery.STEER : Delivery.QUEUE })
       } catch (error) {
         reportFailure(ConnectError.from(error).message)
       }

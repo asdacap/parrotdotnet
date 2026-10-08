@@ -151,7 +151,7 @@ internal sealed class BrokerDiagnosticsTests : IDisposable
             ? "{\"name\":\"missing-private-sentinel\",\"yield_after_ms\":0}"
             : "{\"name\":\"private-sentinel\",\"yield_after_ms\":0}";
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
-        var selection = new AgentTurnSelection(new ModelSelector(model.Selector), TestModels.Resolve(model), new TestProfileFixture().Mode, SecurityProfile.Compose(false, [], [], []));
+        var selection = new AgentTurnSelection(new ModelSelector(model.Selector), TestModels.Resolve(model), new TestProfileFixture().Profile, SecurityProfile.Compose(false, [], [], []));
         var waiting = tool.Execute(new ToolInvocation("take", arguments), selection, cancellation.Token);
         if (outcome == "cancelled")
         {

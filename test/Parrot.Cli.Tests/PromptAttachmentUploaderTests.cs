@@ -28,6 +28,7 @@ internal sealed class PromptAttachmentUploaderTests : IDisposable
             "session-1",
             ModeRegistry.Build,
             "hello",
+            Parrot.Protocol.Delivery.Queue,
             TextWriter.Null,
             cancellationToken);
 
@@ -55,6 +56,7 @@ internal sealed class PromptAttachmentUploaderTests : IDisposable
             "session-1",
             ModeRegistry.Build,
             "inspect @pixel.dat",
+            Parrot.Protocol.Delivery.Queue,
             TextWriter.Null,
             cancellationToken);
 
@@ -83,6 +85,7 @@ internal sealed class PromptAttachmentUploaderTests : IDisposable
             "session-1",
             ModeRegistry.Build,
             $"inspect @{name}",
+            Parrot.Protocol.Delivery.Queue,
             error,
             cancellationToken);
 

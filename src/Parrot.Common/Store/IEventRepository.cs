@@ -152,8 +152,6 @@ internal interface IEventRepository
 
     void AppendInitialStatusPrompt(Event published, string content);
 
-    void AppendPlanValidationRepair(Event published, string assistantContent, string diagnostic);
-
     void AppendPendingChildQuestionReminder(
         Event published,
         string assistantContent,

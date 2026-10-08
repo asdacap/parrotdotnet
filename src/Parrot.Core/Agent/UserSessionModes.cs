@@ -40,7 +40,7 @@ internal sealed class UserSessionModes(
         }
     }
 
-    public IMode Resolve(string id)
+    public IUserMode Resolve(string id)
     {
         var profile = _modes.Resolve(id);
 

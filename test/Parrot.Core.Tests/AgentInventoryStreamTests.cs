@@ -462,7 +462,7 @@ internal sealed class AgentInventoryStreamTests
             identity,
             AgentSessionParentLink.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly, Session.Registry.ReserveRetainedAgent()),
             new ModelSelector(model.Selector),
-            Session.Mode,
+            Session.Mode.Profile,
             Session.Mode.Profile.SecurityProfile,
             Session.Registry.InitializeChildHistory(identity, new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("empty"), new AgentHistorySource.Parent()),
             Session.Lifetime);

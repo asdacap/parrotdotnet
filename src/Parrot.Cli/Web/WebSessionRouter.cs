@@ -125,7 +125,8 @@ internal sealed class WebSessionRouter(
         {
             lock (_gate)
             {
-                if (published.PayloadCase == Event.PayloadOneofCase.AgentStarted)
+                if (published.PayloadCase == Event.PayloadOneofCase.AgentStarted
+                    && published.AgentStarted.ParentAgentSessionId.Length > 0)
                 {
                     _ = _subagents.Add(published.AgentSessionId);
                 }
@@ -134,7 +135,7 @@ internal sealed class WebSessionRouter(
                     _busy = published.PayloadCase switch
                     {
                         Event.PayloadOneofCase.TurnStarted => true,
-                        Event.PayloadOneofCase.TurnEnded or Event.PayloadOneofCase.TurnFailed => false,
+                        Event.PayloadOneofCase.ModeTurnCompleted or Event.PayloadOneofCase.TurnFailed => false,
                         _ => _busy,
                     };
                 }

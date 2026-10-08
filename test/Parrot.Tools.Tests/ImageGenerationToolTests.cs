@@ -400,7 +400,7 @@ internal sealed class ImageGenerationToolTests : IDisposable
         public TurnFixture(ILLMProvider provider, SecurityProfile security)
         {
             var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-            Selection = new AgentTurnSelection(new ModelSelector(model.Selector), TestModels.Resolve(model), new TestProfileFixture().Mode, security);
+            Selection = new AgentTurnSelection(new ModelSelector(model.Selector), TestModels.Resolve(model), new TestProfileFixture().Profile, security);
         }
 
         public AgentTurnSelection Selection { get; }

@@ -46,7 +46,7 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
         ModelSelector model,
         IEventBroker eventBroker,
         IEventRepository eventRepository,
-        IMode mode,
+        IAgentProfile profile,
         SecurityProfile securityProfile,
         IAgentRegistry registry,
         CancellationToken lifetime)
@@ -54,7 +54,7 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
         lock (_gate)
         {
             _identities.Add(identity);
-            _profileIds.Add(mode.Profile.Id);
+            _profileIds.Add(profile.Id);
         }
 
         var root = Directory.CreateDirectory(
@@ -100,7 +100,7 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
             TestModels.PromptTemplates,
             childQuestions,
             exitReminder,
-            mode,
+            profile,
             completionCallbacks,
             new SecurityProfileTestFixture(securityProfile).Security,
             TestModels.ScopedRuntimeStatus(registry, owningScope),

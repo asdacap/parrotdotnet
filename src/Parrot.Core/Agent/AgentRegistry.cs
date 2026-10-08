@@ -164,7 +164,7 @@ internal sealed class AgentRegistry(
         AgentIdentity identity,
         AgentSessionParentLink parentLink,
         Llm.ModelSelector model,
-        IMode mode,
+        IAgentProfile profile,
         Security.SecurityProfile securityProfile,
         IEventRepository childHistory,
         CancellationToken childLifetime)
@@ -183,7 +183,7 @@ internal sealed class AgentRegistry(
                 model,
                 eventBroker,
                 childHistory,
-                mode,
+                profile,
                 securityProfile,
                 this,
                 childLifetime);

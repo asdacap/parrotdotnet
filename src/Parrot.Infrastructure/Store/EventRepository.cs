@@ -1506,36 +1506,6 @@ internal sealed partial class EventRepository : IEventRepository
         RefreshAgentHistory(published.AgentSessionId);
     }
 
-    public void AppendPlanValidationRepair(Event published, string assistantContent, string diagnostic)
-    {
-        ArgumentNullException.ThrowIfNull(published);
-        lock (_database.Gate)
-        {
-            _historyFile?.ValidateSession(published.AgentSessionId);
-            using var transaction = _database.Begin();
-            _ = Record(transaction, published);
-            _ = Project(
-                transaction,
-                published.AgentSessionId,
-                ConversationOrigin.Model,
-                LLMRole.Assistant,
-                [ConversationPart.TextPart(assistantContent)],
-                [],
-                string.Empty);
-            _ = Project(
-                transaction,
-                published.AgentSessionId,
-                ConversationOrigin.System,
-                LLMRole.System,
-                [ConversationPart.TextPart(diagnostic)],
-                [],
-                string.Empty);
-            transaction.Commit();
-        }
-
-        RefreshAgentHistory(published.AgentSessionId);
-    }
-
     public void AppendPendingChildQuestionReminder(
         Event published,
         string assistantContent,

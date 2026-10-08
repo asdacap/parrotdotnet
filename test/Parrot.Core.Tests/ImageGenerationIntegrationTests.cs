@@ -71,7 +71,7 @@ internal sealed class ImageGenerationIntegrationTests : IDisposable
         IToolFactory factory = new ImageGenerationToolFactory(new ToolWorkspace(_root), TestModels.ToolDefinitions);
         var snapshot = ToolSnapshot.Document([factory.Create(session)], [factory.Supports(session)], [factory.Definition]);
         var tool = snapshot.Find("imagegen") ?? throw new InvalidOperationException("Image tool was not registered.");
-        var selection = new AgentTurnSelection(new ModelSelector(model.Selector), TestModels.Resolve(model), new TestProfileFixture().Mode, securityProfile);
+        var selection = new AgentTurnSelection(new ModelSelector(model.Selector), TestModels.Resolve(model), new TestProfileFixture().Profile, securityProfile);
         var arguments = $$"""{"prompt":"{{JsonEncodedText.Encode(Prompt)}}","output_path":"output.png","referenced_image_paths":{{(edit ? "[\"output.png\"]" : "[]")}}}""";
         var invocation = new ToolInvocation("image-call", arguments) { PromptTemplates = TestModels.PromptTemplates };
 

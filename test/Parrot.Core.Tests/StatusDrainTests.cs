@@ -122,7 +122,7 @@ internal sealed class StatusDrainTests : IDisposable
     }
 
     [Test]
-    public async Task Blank_markdown_repairs_in_the_same_turn_before_completion(
+    public async Task Blank_markdown_repairs_in_a_new_turn_before_completion(
         CancellationToken cancellationToken)
     {
         using var database = SessionDatabase.Open(":memory:");
@@ -151,7 +151,7 @@ internal sealed class StatusDrainTests : IDisposable
             TimeProvider.System,
             static () => new EventBroker());
 
-        _ = await session.Send([ConversationPart.TextPart("plan")], "message", Delivery.Steer, cancellationToken);
+        _ = await session.Send([ConversationPart.TextPart("plan")], "message", Delivery.Queue, cancellationToken);
         await provider.Arrived(cancellationToken);
         var planArtifact = Directory.GetFiles(
             Path.Combine(_root, "sessions", "repair-user", "root-agents", "main-agent", "plan"),
@@ -165,12 +165,14 @@ internal sealed class StatusDrainTests : IDisposable
         await provider.Arrived(cancellationToken);
 
         var repairing = repository.Replay();
-        _ = await Assert.That(repairing.Count(published =>
-            published.PayloadCase == Event.PayloadOneofCase.PlanValidationRepairInjected)).IsEqualTo(1);
+        var repairDiagnostic = repairing.Single(published =>
+            published.PayloadCase == Event.PayloadOneofCase.PlanValidationRepairInjected).PlanValidationRepairInjected.Diagnostic;
         _ = await Assert.That(repairing.Any(published =>
             published.PayloadCase == Event.PayloadOneofCase.PlanCompleted)).IsFalse();
-        _ = await Assert.That(repairing.Any(published =>
-            published.PayloadCase == Event.PayloadOneofCase.TurnEnded)).IsFalse();
+        _ = await Assert.That(repairing.Count(published =>
+            published.PayloadCase == Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
+        _ = await Assert.That(provider.Requests[1].Messages[^1].Role).IsEqualTo(LLMRole.User);
+        _ = await Assert.That(provider.Requests[1].Messages[^1].Content).IsEqualTo(repairDiagnostic);
         var repairingActivity = sessions.Sessions.Single().Activity.Capture();
         _ = await Assert.That(repairingActivity.Recent).Count().IsEqualTo(1);
         _ = await Assert.That(repairingActivity.Recent[0].Content).IsEqualTo("candidate");
@@ -178,17 +180,24 @@ internal sealed class StatusDrainTests : IDisposable
         time.Advance(TimeSpan.FromSeconds(2));
         await File.WriteAllTextAsync(planArtifact, "# Repaired", cancellationToken);
         provider.Release();
-        await WaitForRecentActivity(sessions.Sessions.Single(), 2, cancellationToken);
+        await WaitForPayload(repository, Event.PayloadOneofCase.ModeTurnCompleted, cancellationToken);
 
         var completed = repository.Replay().ToArray();
         var repair = Array.FindIndex(completed, published =>
             published.PayloadCase == Event.PayloadOneofCase.PlanValidationRepairInjected);
         var plan = Array.FindIndex(completed, published =>
             published.PayloadCase == Event.PayloadOneofCase.PlanCompleted);
-        var ended = Array.FindIndex(completed, published =>
+        var firstEnded = Array.FindIndex(completed, published =>
             published.PayloadCase == Event.PayloadOneofCase.TurnEnded);
-        _ = await Assert.That(repair).IsLessThan(plan);
-        _ = await Assert.That(plan).IsLessThan(ended);
+        var lastEnded = Array.FindLastIndex(completed, published =>
+            published.PayloadCase == Event.PayloadOneofCase.TurnEnded);
+        _ = await Assert.That(firstEnded).IsLessThan(repair);
+        _ = await Assert.That(repair).IsLessThan(lastEnded);
+        _ = await Assert.That(lastEnded).IsLessThan(plan);
+        _ = await Assert.That(plan).IsLessThan(Array.FindIndex(completed, published =>
+            published.PayloadCase == Event.PayloadOneofCase.ModeTurnCompleted));
+        _ = await Assert.That(completed.Count(published =>
+            published.PayloadCase == Event.PayloadOneofCase.ModeTurnCompleted)).IsEqualTo(1);
         var activity = sessions.Sessions.Single().Activity.Capture();
         _ = await Assert.That(activity.Recent).Count().IsEqualTo(2);
         _ = await Assert.That(activity.Recent[0].Content).IsEqualTo("candidate");
@@ -203,7 +212,7 @@ internal sealed class StatusDrainTests : IDisposable
         using var database = SessionDatabase.Open(":memory:");
         var repository = new EventRepository(database);
         var modes = Modes();
-        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "steered", []), LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         var providerModel = new ProviderModel(provider, new LLMModel("model", provider.Id));
         var router = TestModels.Route(providerModel);
         var sessions = new DirectAgentSessions();
@@ -224,7 +233,7 @@ internal sealed class StatusDrainTests : IDisposable
             TimeProvider.System,
             static () => new EventBroker());
 
-        _ = await session.Send([ConversationPart.TextPart("plan")], "message", Delivery.Steer, cancellationToken);
+        _ = await session.Send([ConversationPart.TextPart("steer")], "steer", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
         var planArtifact = Directory.GetFiles(
             Path.Combine(_root, "sessions", "user", "root-agents", "main-agent", "plan"),
@@ -234,11 +243,18 @@ internal sealed class StatusDrainTests : IDisposable
         await File.WriteAllTextAsync(taskArtifact, "{\"schema_version\":1,\"tasks\":[{\"name\":\"work\",\"description\":\"Do work\",\"payload\":\"Implement it\",\"acceptance_criteria\":\"Tests pass\"}]}", cancellationToken);
         provider.Release();
         await Settled(session);
+        _ = await Assert.That(repository.Replay().Any(published =>
+            published.PayloadCase == Event.PayloadOneofCase.PlanCompleted)).IsFalse();
+
+        _ = await session.Send([ConversationPart.TextPart("plan")], "message", Delivery.Queue, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await WaitForPayload(repository, Event.PayloadOneofCase.ModeTurnCompleted, cancellationToken);
 
         var mainAgentSessionId = AgentSessionId(repository);
         var events = repository.Replay();
         var plan = events.Single(published => published.PayloadCase == Event.PayloadOneofCase.PlanCompleted);
-        var ended = events.Single(published => published.PayloadCase == Event.PayloadOneofCase.TurnEnded);
+        var ended = events.Last(published => published.PayloadCase == Event.PayloadOneofCase.TurnEnded);
 
         _ = await Assert.That(plan.AgentSessionId).IsEqualTo(mainAgentSessionId);
         _ = await Assert.That(plan.PlanCompleted.AgentSessionId).IsEqualTo(mainAgentSessionId);
@@ -255,7 +271,9 @@ internal sealed class StatusDrainTests : IDisposable
         _ = await Assert.That(plan.PlanCompleted.TaskDeclarations[0].Status)
             .IsEqualTo(AgentTaskProgressStatus.Pending);
         var sequence = events.ToArray();
-        _ = await Assert.That(Array.IndexOf(sequence, plan)).IsLessThan(Array.IndexOf(sequence, ended));
+        _ = await Assert.That(Array.IndexOf(sequence, ended)).IsLessThan(Array.IndexOf(sequence, plan));
+        _ = await Assert.That(Array.IndexOf(sequence, plan)).IsLessThan(Array.FindIndex(sequence, published =>
+            published.PayloadCase == Event.PayloadOneofCase.ModeTurnCompleted));
     }
 
     [Test]
@@ -392,12 +410,12 @@ internal sealed class StatusDrainTests : IDisposable
         }
     }
 
-    private static async Task WaitForRecentActivity(
-        IAgentSession session,
-        int count,
+    private static async Task WaitForPayload(
+        EventRepository repository,
+        Event.PayloadOneofCase payload,
         CancellationToken cancellationToken)
     {
-        while (session.Activity.Capture().Recent.Count < count)
+        while (!repository.Replay().Any(published => published.PayloadCase == payload))
         {
             await Task.Delay(1, cancellationToken).ConfigureAwait(false);
         }

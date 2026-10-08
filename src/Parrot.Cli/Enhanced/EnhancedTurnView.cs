@@ -235,13 +235,16 @@ internal sealed class EnhancedTurnView(
                 break;
 
             case Event.PayloadOneofCase.TurnEnded:
-                if (renderActivityEvents && foreground.IsTerminal(published))
+                if (renderActivityEvents && foreground.IsMain(published.AgentSessionId))
                 {
                     await Commit(
                         ImmediateScrollbackValue.Trusted([$"{Green}  {Summarise(published.TurnEnded)}{Reset}"]),
                         cancellationToken).ConfigureAwait(false);
                 }
 
+                break;
+
+            case Event.PayloadOneofCase.ModeTurnCompleted:
                 return foreground.IsTerminal(published) ? true : null;
 
             case Event.PayloadOneofCase.TurnFailed:

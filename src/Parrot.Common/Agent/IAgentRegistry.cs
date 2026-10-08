@@ -45,7 +45,7 @@ internal interface IAgentRegistry : IAsyncDisposable
         AgentIdentity identity,
         AgentSessionParentLink parentLink,
         ModelSelector model,
-        IMode mode,
+        IAgentProfile profile,
         SecurityProfile securityProfile,
         IEventRepository childHistory,
         CancellationToken childLifetime);

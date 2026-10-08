@@ -67,7 +67,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             new AgentHistorySource.Parent()));
         async Task Run(IAgentSession session)
         {
-            var completion = session.SendAndWaitForResult("work", cancellationToken);
+            var completion = session.SendAndWaitForResult([ConversationPart.TextPart("work")], Identifier.MessageId(), null, null, cancellationToken);
             await provider.Arrived(cancellationToken);
             provider.Release();
             _ = await completion;
@@ -234,7 +234,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             TestModels.PromptTemplates,
             cancellationToken);
         await using var success = Session(successProvider, 0, "success", successRegistry, cancellationToken);
-        var successTask = success.SendAndWaitForResult("work", cancellationToken);
+        var successTask = success.SendAndWaitForResult([ConversationPart.TextPart("work")], Identifier.MessageId(), null, null, cancellationToken);
         await successProvider.Arrived(cancellationToken);
         successProvider.Release();
         _ = await Assert.That(await successTask).IsEqualTo("result");
@@ -251,7 +251,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         AgentExecutionException? failed = null;
         try
         {
-            _ = await failure.SendAndWaitForResult("work", cancellationToken);
+            _ = await failure.SendAndWaitForResult([ConversationPart.TextPart("work")], Identifier.MessageId(), null, null, cancellationToken);
         }
         catch (AgentExecutionException exception)
         {
@@ -271,7 +271,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             TestModels.PromptTemplates,
             cancellationToken);
         await using var canceled = Session(canceledProvider, 0, "canceled", canceledRegistry, cancellationToken);
-        var canceledTask = canceled.SendAndWaitForResult("work", cancellationToken);
+        var canceledTask = canceled.SendAndWaitForResult([ConversationPart.TextPart("work")], Identifier.MessageId(), null, null, cancellationToken);
         await canceledProvider.Arrived(cancellationToken);
         await canceled.Interrupt(CancellationToken.None);
         var terminalCanceled = await Assert.That(canceledTask).Throws<AgentExecutionException>();
@@ -288,7 +288,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             cancellationToken);
         await using var caller = Session(callerProvider, 0, "caller", callerRegistry, cancellationToken);
         using var callerCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var callerTask = caller.SendAndWaitForResult("work", callerCancellation.Token);
+        var callerTask = caller.SendAndWaitForResult([ConversationPart.TextPart("work")], Identifier.MessageId(), null, null, callerCancellation.Token);
         await callerProvider.Arrived(cancellationToken);
         await callerCancellation.CancelAsync();
         _ = await Assert.That(callerTask).Throws<OperationCanceledException>();
@@ -315,7 +315,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         CancellationTokenRegistration delayedCancellation;
         lock (_database.Gate)
         {
-            canceledExecution = session.SendAndWaitForResult("canceled prompt", ownerCancellation.Token);
+            canceledExecution = session.SendAndWaitForResult([ConversationPart.TextPart("canceled prompt")], Identifier.MessageId(), null, null, ownerCancellation.Token);
             _ = _repository.Admit(
                 session.SessionId,
                 "unrelated-pending",
@@ -349,7 +349,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await Assert.That(_repository.Replay().Single(published => published.InputCanceled is not null)
             .InputCanceled.InputId).IsEqualTo(admitted.InputAdmitted.InputId);
 
-        var survivor = session.SendAndWaitForResult("live prompt", cancellationToken);
+        var survivor = session.SendAndWaitForResult([ConversationPart.TextPart("live prompt")], Identifier.MessageId(), null, null, cancellationToken);
         await provider.Arrived(cancellationToken);
         var lifecycle = _repository.Replay().Where(published => published.AgentSessionId == session.SessionId).ToArray();
         _ = await Assert.That(Array.FindLastIndex(lifecycle, published => published.AgentStarted is not null)
@@ -361,7 +361,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     }
 
     [Test]
-    public async Task Send_and_wait_serializes_full_executions_and_returns_each_result(
+    public async Task Send_and_wait_serializes_full_executions_and_applies_each_selection_when_admitted(
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(
@@ -377,10 +377,17 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             cancellationToken);
         await using var session = Session(provider, 0, "serialized", registry, cancellationToken);
 
-        var first = session.SendAndWaitForResult("first prompt", cancellationToken);
+        var originalProfile = session.CurrentSelection().Profile;
+        IAgentProfile selectedProfile = new AgentProfile("selected", new ProfileConfig("Test prompt", "Test profile.", null, 2, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal));
+        var selection = new AgentSelection(session.CurrentSelection().RequestedModel, selectedProfile, selectedProfile.SecurityProfile);
+        var admissions = new List<Admission>();
+
+        var first = session.SendAndWaitForResult([ConversationPart.TextPart("first prompt")], Identifier.MessageId(), null, null, cancellationToken);
         await provider.Arrived(cancellationToken);
-        var second = session.SendAndWaitForResult("second prompt", cancellationToken);
-        var third = session.SendAndWaitForResult("third prompt", cancellationToken);
+        var second = session.SendAndWaitForResult([ConversationPart.TextPart("second prompt")], "second-message", selection, admissions.Add, cancellationToken);
+        var third = session.SendAndWaitForResult([ConversationPart.TextPart("third prompt")], Identifier.MessageId(), null, null, cancellationToken);
+        _ = await Assert.That(session.CurrentSelection().Profile).IsSameReferenceAs(originalProfile);
+        _ = await Assert.That(admissions).IsEmpty();
 
         provider.Release();
         _ = await Assert.That(await first).IsEqualTo("first");
@@ -388,6 +395,8 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(2);
         _ = await Assert.That(provider.Requests[1].Messages.Last(message => message.Role == LLMRole.User).Content)
             .IsEqualTo("second prompt");
+        _ = await Assert.That(session.CurrentSelection()).IsSameReferenceAs(selection);
+        _ = await Assert.That(admissions.Single().Input.MessageId).IsEqualTo("second-message");
         _ = await Assert.That(second.IsCompleted).IsFalse();
         _ = await Assert.That(third.IsCompleted).IsFalse();
 
@@ -427,9 +436,9 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             cancellationToken);
         await using var session = Session(provider, 0, "failed-predecessor", registry, cancellationToken);
 
-        var first = session.SendAndWaitForResult("first prompt", cancellationToken);
+        var first = session.SendAndWaitForResult([ConversationPart.TextPart("first prompt")], Identifier.MessageId(), null, null, cancellationToken);
         await provider.Arrived(cancellationToken);
-        var second = session.SendAndWaitForResult("second prompt", cancellationToken);
+        var second = session.SendAndWaitForResult([ConversationPart.TextPart("second prompt")], Identifier.MessageId(), null, null, cancellationToken);
         await session.Interrupt(CancellationToken.None);
 
         var interrupted = await Assert.That(first).Throws<AgentExecutionException>();
@@ -1111,14 +1120,16 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             _ = await Assert.That(() => rootResolver.ResolveResource(path)).Throws<AgentRegistryException>();
         }
 
-        nestedDuplicate.UpdateSelection(nestedDuplicate.CurrentSelection().RequestedModel, new NoopMode(
+        nestedDuplicate.UpdateSelection(new AgentSelection(
+            nestedDuplicate.CurrentSelection().RequestedModel,
             new AgentProfile("restricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
             SecurityProfile.Compose(readOnly: true, [], [], [])));
         var deniedResource = await Assert.That(() => nestedResolver.ResolveResource($"/{root.Name}/shell1")).Throws<AgentRegistryException>();
         _ = await Assert.That(deniedResource?.Message).IsEqualTo("cannot access resources of a more permissive agent");
         var deniedRelativeResource = await Assert.That(() => nestedResolver.ResolveResource("../../shell1")).Throws<AgentRegistryException>();
         _ = await Assert.That(deniedRelativeResource?.Message).IsEqualTo("cannot access resources of a more permissive agent");
-        duplicate.UpdateSelection(duplicate.CurrentSelection().RequestedModel, new NoopMode(
+        duplicate.UpdateSelection(new AgentSelection(
+            duplicate.CurrentSelection().RequestedModel,
             new AgentProfile("unrestricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
             SecurityProfile.Compose(readOnly: false, [], [], [])));
         ITool restrictedSend = new AgentSendTool(nestedDuplicate.Identity, nestedResolver, nestedDuplicate, TestModels.AgentSend);
@@ -1166,7 +1177,8 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var childScope = Spawn(rootScope, "child");
         var grandchildScope = Spawn(childScope, "grandchild");
         var grandchild = grandchildScope.Session;
-        grandchild.UpdateSelection(grandchild.CurrentSelection().RequestedModel, new NoopMode(
+        grandchild.UpdateSelection(new AgentSelection(
+            grandchild.CurrentSelection().RequestedModel,
             new AgentProfile("restricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
             SecurityProfile.Compose(readOnly: true, [], [], [])));
         var resolver = new AgentResolver(grandchild.Identity, grandchildScope.ParentScope, grandchildScope, registry);
@@ -1407,7 +1419,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         await provider.Arrived(cancellationToken);
         provider.Release();
 
-        _ = await Assert.That(sessions.Profiles.Single()?.Profile.Id).IsEqualTo("explorer");
+        _ = await Assert.That(sessions.Profiles.Single()?.Id).IsEqualTo("explorer");
     }
 
     [Test]
@@ -1419,7 +1431,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         await using var registry = TestModels.Registry(
             sessions, _broker, _repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, cancellationToken);
         await using var parent = Session(provider, 0, "agent", registry, cancellationToken);
-        parent.UpdateSelection(parent.CurrentSelection().RequestedModel, new NoopMode(new AgentProfile("parent", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: true, [], [], [])));
+        parent.UpdateSelection(new AgentSelection(parent.CurrentSelection().RequestedModel, new AgentProfile("parent", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: true, [], [], [])));
 
         var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(new AgentLaunchRequest(
             parent,
@@ -1432,16 +1444,14 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly,
             new AgentHistorySource.Parent())).Session;
-        var mode = sessions.Profiles.Single();
+        var profile = sessions.Profiles.Single();
         var securityProfile = sessions.SecurityProfiles.Single();
 
-        mode.Prepare();
-        _ = await Assert.That(mode.Profile.Id).IsEqualTo("worker");
-        _ = await Assert.That(mode.Profile.Prompt).IsEqualTo("You are a worker agent.");
-        _ = await Assert.That(mode.Profile.MaxTurns).IsEqualTo(64);
-        _ = await Assert.That(mode.Profile.SecurityProfile).IsSameReferenceAs(securityProfile);
-        _ = await Assert.That(mode.Profile.SecurityProfile.ReadOnly).IsTrue();
-        _ = await Assert.That(mode.Complete().Completion).IsNull();
+        _ = await Assert.That(profile.Id).IsEqualTo("worker");
+        _ = await Assert.That(profile.Prompt).IsEqualTo("You are a worker agent.");
+        _ = await Assert.That(profile.MaxTurns).IsEqualTo(64);
+        _ = await Assert.That(profile.SecurityProfile).IsSameReferenceAs(securityProfile);
+        _ = await Assert.That(profile.SecurityProfile.ReadOnly).IsTrue();
 
         _ = await child.SendTextMessage("work", cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -1465,19 +1475,17 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         await using var registry = TestModels.Registry(
             sessions, _broker, _repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, cancellationToken);
         await using var parent = Session(provider, 0, "agent", registry, cancellationToken);
-        parent.UpdateSelection(parent.CurrentSelection().RequestedModel, new NoopMode(new AgentProfile(ModeRegistry.Build, new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: false, [], [], [])));
+        parent.UpdateSelection(new AgentSelection(parent.CurrentSelection().RequestedModel, new AgentProfile(ModeRegistry.Build, new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: false, [], [], [])));
         ITool spawn = new AgentSpawnTool(TestModels.ScopeOf(parent), new RouterFixture(provider, []).Router);
         var capturedSelection = new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection;
-        parent.UpdateSelection(
-            new ModelSelector("stepped/replacement"),
-            parent.CurrentSelection().Mode);
+        parent.UpdateSelection(parent.CurrentSelection() with { RequestedModel = new ModelSelector("stepped/replacement") });
 
         _ = (await spawn.Execute(new ToolInvocation("test-call", """{"prompt":"do the subtask","agent":"worker","name":"worker-helper"}"""), capturedSelection, cancellationToken)).Text;
         await provider.Arrived(cancellationToken);
         provider.Release();
 
         _ = await Assert.That(sessions.Models.Single().Value).IsEqualTo("stepped/model");
-        _ = await Assert.That(sessions.Profiles.Single()?.Profile.Id).IsEqualTo("worker");
+        _ = await Assert.That(sessions.Profiles.Single()?.Id).IsEqualTo("worker");
     }
 
     [Test]
@@ -1498,7 +1506,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var sessions = new TestAgentSessions(router);
         await using var registry = TestModels.Registry(sessions, _broker, _repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, cancellationToken);
         await using var parent = Session(provider, 0, "agent", registry, cancellationToken);
-        parent.UpdateSelection(new ModelSelector("fast"), parent.CurrentSelection().Mode);
+        parent.UpdateSelection(parent.CurrentSelection() with { RequestedModel = new ModelSelector("fast") });
         ITool spawn = new AgentSpawnTool(TestModels.ScopeOf(parent), router);
 
         foreach (var arguments in new[]
@@ -2106,7 +2114,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
         releaseConstruction.Set();
         var child = await spawning;
-        root.UpdateSelection(root.CurrentSelection().RequestedModel, new NoopMode(new AgentProfile("root", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: true, [], [], [])));
+        root.UpdateSelection(new AgentSelection(root.CurrentSelection().RequestedModel, new AgentProfile("root", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: true, [], [], [])));
 
         _ = await Assert.That(child.ResolvePolicySelection().SecurityProfile.ReadOnly).IsTrue();
         var childRecursion = await Assert.That(() => TestModels.ScopeOf(child).AgentSpawner.SpawnScope(new AgentLaunchRequest(
@@ -2530,15 +2538,16 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             cancellationToken);
         await using var parent = Session(provider, 0, "parent", "parent", registry, cancellationToken);
         var parentScope = TestModels.ScopeOf(parent);
-        IMode mode = new NoopMode(new AgentProfile("worker", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(false, [], [], []));
+        IAgentProfile profile = new AgentProfile("worker", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal));
+        var securityProfile = SecurityProfile.Compose(false, [], [], []);
         var first = sessions.Create(
             AgentIdentity.Child("first-child", parent.Identity, "duplicate", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates),
             AgentSessionParentLink.Child(parentScope, AgentCompletionDeliveryPolicy.RetainedOnly, registry.ReserveRetainedAgent()),
             new ModelSelector("stepped/model"),
             _broker,
             _repository,
-            mode,
-            mode.Profile.SecurityProfile,
+            profile,
+            securityProfile,
             registry,
             cancellationToken);
         var second = sessions.Create(
@@ -2547,8 +2556,8 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             new ModelSelector("stepped/model"),
             _broker,
             _repository,
-            mode,
-            mode.Profile.SecurityProfile,
+            profile,
+            securityProfile,
             registry,
             cancellationToken);
         await using var rejected = second;
@@ -2707,7 +2716,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             Selection = new AgentTurnSelection(
                 selection.RequestedModel,
                 router.Resolve(selection.RequestedModel.Value),
-                selection.Mode,
+                selection.Profile,
                 selection.SecurityProfile);
         }
 
@@ -2794,7 +2803,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             ModelSelector model,
             IEventBroker eventBroker,
             IEventRepository eventRepository,
-            IMode mode,
+            IAgentProfile profile,
             SecurityProfile securityProfile,
             IAgentRegistry registry,
             CancellationToken lifetime)
@@ -2807,7 +2816,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
                 model,
                 eventBroker,
                 eventRepository,
-                mode,
+                profile,
                 securityProfile,
                 registry,
                 CancellationToken.None);
@@ -2826,7 +2835,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             ModelSelector model,
             IEventBroker eventBroker,
             IEventRepository eventRepository,
-            IMode mode,
+            IAgentProfile profile,
             SecurityProfile securityProfile,
             IAgentRegistry registry,
             CancellationToken lifetime) =>
@@ -2842,7 +2851,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
         public IReadOnlyList<ModelSelector> Models => _models;
 
-        public List<IMode> Profiles { get; } = [];
+        public List<IAgentProfile> Profiles { get; } = [];
 
         public List<SecurityProfile> SecurityProfiles { get; } = [];
 
@@ -2859,14 +2868,14 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             ModelSelector model,
             IEventBroker eventBroker,
             IEventRepository eventRepository,
-            IMode mode,
+            IAgentProfile profile,
             SecurityProfile securityProfile,
             IAgentRegistry registry,
             CancellationToken lifetime)
         {
             _identities.Add(identity);
             _models.Add(model);
-            Profiles.Add(mode);
+            Profiles.Add(profile);
             SecurityProfiles.Add(securityProfile);
             var root = Directory.CreateDirectory(
                 Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("N"))).FullName;
@@ -2887,7 +2896,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
                 var processOwner = owningScope.GetService<IProcessOwner>();
                 var queues = owningScope.GetService<IAgentQueues>();
                 var exitReminder = new ExitReminder(eventRepository, eventBroker, TestModels.PromptTemplates, identity.SessionId);
-                IAgentSession session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new AgentOutputFile(resources.AgentScratch(identity.NamePath).BlobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(processOwner), new QueueActiveWorkBlocker(queues, TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker).Callbacks, new SecurityProfileTestFixture(securityProfile).Security, TestModels.ScopedRuntimeStatus(registry, owningScope), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
+                IAgentSession session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new AgentOutputFile(resources.AgentScratch(identity.NamePath).BlobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, profile, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(processOwner), new QueueActiveWorkBlocker(queues, TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker).Callbacks, new SecurityProfileTestFixture(securityProfile).Security, TestModels.ScopedRuntimeStatus(registry, owningScope), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
                 return session;
             },
                 lifetime);

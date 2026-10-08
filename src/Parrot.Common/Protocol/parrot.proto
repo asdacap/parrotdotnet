@@ -572,6 +572,7 @@ message Event {
     ToolExecutionStarted tool_execution_started = 44;
     ToolRequestReceived tool_request_received = 45;
     SkillContextInjected skill_context_injected = 46;
+    ModeTurnCompleted mode_turn_completed = 47;
   }
 }
 
@@ -920,6 +921,11 @@ message TurnEnded {
   string finish_reason = 1;
   int64  input_tokens  = 2;
   int64  output_tokens = 3;
+}
+
+// A queued prompt's run is over: its turns, the mode's completion and any
+// repair turns. A client ends the main agent's turn here, not at TurnEnded.
+message ModeTurnCompleted {
 }
 
 message PlanValidationRepairInjected {

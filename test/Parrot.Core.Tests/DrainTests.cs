@@ -267,15 +267,11 @@ internal sealed class DrainTests : IDisposable
             calls.Add($"first:{candidate.MessageId}");
             if (invocation == 1)
             {
-                return AgentTurnCompletionOutcome.Continue(
-                    firstReservation,
-                    new PlanCompleted { Markdown = "discarded" });
+                return AgentTurnCompletionOutcome.Continue(firstReservation);
             }
 
             firstReservationWasDisposedBeforeSecondAttempt = firstReservation.Disposed;
-            return AgentTurnCompletionOutcome.Continue(
-                terminalReservation,
-                new PlanCompleted { Markdown = "retained" });
+            return AgentTurnCompletionOutcome.Continue(terminalReservation);
         });
         var second = new RecordingCompletionCallback((candidate, invocation) =>
         {
@@ -287,18 +283,18 @@ internal sealed class DrainTests : IDisposable
                     false,
                     false,
                     null)
-                : AgentTurnCompletionOutcome.Continue(null, null);
+                : AgentTurnCompletionOutcome.Continue(null);
         });
         var third = new RecordingCompletionCallback((candidate, _) =>
         {
             calls.Add($"third:{candidate.MessageId}");
-            return AgentTurnCompletionOutcome.Continue(null, null);
+            return AgentTurnCompletionOutcome.Continue(null);
         });
         var session = SessionWithCompletionCallbacks(
             provider,
             repository,
             [first, second, third],
-            new TestProfileFixture().Mode,
+            new TestProfileFixture().Profile,
             cancellationToken);
         using var turns = _broker.Subscribe();
 
@@ -317,11 +313,6 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(firstReservationWasDisposedBeforeSecondAttempt).IsTrue();
         _ = await Assert.That(firstReservation.Disposed).IsTrue();
         _ = await Assert.That(terminalReservation.Disposed).IsTrue();
-        var plans = repository.Replay()
-            .Where(published => published.PayloadCase == Event.PayloadOneofCase.PlanCompleted)
-            .ToArray();
-        _ = await Assert.That(plans).HasSingleItem();
-        _ = await Assert.That(plans[0].PlanCompleted.Markdown).IsEqualTo("retained");
         _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnStarted)).IsEqualTo(1);
         _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
     }
@@ -340,12 +331,12 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [callback],
-            new TestProfileFixture().Mode,
+            new TestProfileFixture().Profile,
             cancellationToken);
 
-        var first = session.SendAndWaitForResult("first prompt", cancellationToken);
+        var first = session.SendAndWaitForResult([ConversationPart.TextPart("first prompt")], Identifier.MessageId(), null, null, cancellationToken);
         await provider.Arrived(cancellationToken);
-        var second = session.SendAndWaitForResult("second prompt", cancellationToken);
+        var second = session.SendAndWaitForResult([ConversationPart.TextPart("second prompt")], Identifier.MessageId(), null, null, cancellationToken);
         provider.Release();
         await callback.WaitUntilEntered(cancellationToken);
 
@@ -382,12 +373,12 @@ internal sealed class DrainTests : IDisposable
                 false,
                 false,
                 null)
-            : AgentTurnCompletionOutcome.Continue(null, null));
+            : AgentTurnCompletionOutcome.Continue(null));
         await using var session = SessionWithCompletionCallbacks(
             provider,
             repository,
             [retry],
-            new DrainProfile(maxTurns: 2).Mode,
+            new DrainProfile(maxTurns: 2).Profile,
             cancellationToken);
         using var turns = _broker.Subscribe();
 
@@ -437,7 +428,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [new TestTool(new SettledTool("settled"))],
-            new DrainProfile(maxTurns: 3).Mode,
+            new DrainProfile(maxTurns: 3).Profile,
             skills,
             null,
             cancellationToken);
@@ -537,7 +528,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [],
-            new TestProfileFixture().Mode,
+            new TestProfileFixture().Profile,
             skills,
             securityProfile,
             cancellationToken);
@@ -609,7 +600,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [new TestTool(new SettledTool("settled"))],
-            new DrainProfile(maxTurns: 2).Mode,
+            new DrainProfile(maxTurns: 2).Profile,
             cancellationToken);
         using var turns = _broker.Subscribe();
 
@@ -656,7 +647,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [new TestTool(new SettledTool("settled"))],
-            new DrainProfile(maxTurns: 2).Mode,
+            new DrainProfile(maxTurns: 2).Profile,
             cancellationToken);
         using var turns = _broker.Subscribe();
 
@@ -699,7 +690,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [new TestTool(new SettledTool("settled"))],
-            new DrainProfile(maxTurns: 4).Mode,
+            new DrainProfile(maxTurns: 4).Profile,
             cancellationToken);
         using var turns = _broker.Subscribe();
 
@@ -728,7 +719,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [new TestTool(new SettledTool("settled"))],
-            new DrainProfile(maxTurns: 2).Mode,
+            new DrainProfile(maxTurns: 2).Profile,
             cancellationToken);
         using var turns = _broker.Subscribe();
 
@@ -1090,7 +1081,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [new TestTool(new SettledTool("settled"))],
-            new DrainProfile(maxTurns: 2).Mode,
+            new DrainProfile(maxTurns: 2).Profile,
             cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
@@ -1155,13 +1146,13 @@ internal sealed class DrainTests : IDisposable
             3,
             ["first"],
             new HashSet<string>(StringComparer.Ordinal),
-            readOnly: false).Mode;
+            readOnly: false).Profile;
         var secondProfile = new DrainProfile(
             "second-profile",
             3,
             ["second"],
             new HashSet<string>(StringComparer.Ordinal),
-            readOnly: true).Mode;
+            readOnly: true).Profile;
         await using var session = Session(
             provider,
             repository,
@@ -1177,7 +1168,7 @@ internal sealed class DrainTests : IDisposable
         provider.Release();
         _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
-        session.UpdateSelection(session.CurrentSelection().RequestedModel, secondProfile);
+        session.UpdateSelection(new AgentSelection(session.CurrentSelection().RequestedModel, secondProfile, secondProfile.SecurityProfile));
         _ = await session.Send([ConversationPart.TextPart("second prompt")], "msg-2", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(string.Join(" | ", provider.Requests[1].Tools.Select(tool => tool.Name)))
@@ -1205,19 +1196,19 @@ internal sealed class DrainTests : IDisposable
             3,
             ["record"],
             new HashSet<string>(StringComparer.Ordinal),
-            readOnly: false).Mode;
+            readOnly: false).Profile;
         var readOnly = new DrainProfile(
             "read-only",
             3,
             ["record"],
             new HashSet<string>(StringComparer.Ordinal),
-            readOnly: true).Mode;
+            readOnly: true).Profile;
         await using var session = Session(provider, repository, [new TestTool(factory.Tool, factory)], writable, cancellationToken);
         using var turns = _broker.Subscribe();
 
         _ = await session.Send([ConversationPart.TextPart("first prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
-        session.UpdateSelection(session.CurrentSelection().RequestedModel, readOnly);
+        session.UpdateSelection(new AgentSelection(session.CurrentSelection().RequestedModel, readOnly, readOnly.SecurityProfile));
         provider.Release();
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(string.Join(" | ", factory.RecordingTool.Selections.Select(SelectionSummary)))
@@ -1249,7 +1240,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [new TestTool(new SettledTool("settled")), new TestTool(new HeldTool())],
-            new DrainProfile(3, ["settled", "held"], new HashSet<string>(["settled"], StringComparer.Ordinal)).Mode,
+            new DrainProfile(3, ["settled", "held"], new HashSet<string>(["settled"], StringComparer.Ordinal)).Profile,
             cancellationToken);
         using var turns = _broker.Subscribe();
 
@@ -1282,7 +1273,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [new TestTool(new SettledTool("settled"))],
-            new DrainProfile(maxTurns: 2).Mode,
+            new DrainProfile(maxTurns: 2).Profile,
             cancellationToken);
         using var turns = _broker.Subscribe();
 
@@ -1328,7 +1319,7 @@ internal sealed class DrainTests : IDisposable
         var repository = new EventRepository(_database);
         using (var firstProvider = new SteppedProvider(Answer("first answer")))
         {
-            await using var firstSession = Session(firstProvider, repository, [], new DrainProfile(maxTurns: 1).Mode, cancellationToken);
+            await using var firstSession = Session(firstProvider, repository, [], new DrainProfile(maxTurns: 1).Profile, cancellationToken);
 
             _ = await firstSession.Send([ConversationPart.TextPart("first prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
             await firstProvider.Arrived(cancellationToken);
@@ -1341,7 +1332,7 @@ internal sealed class DrainTests : IDisposable
             restoredProvider,
             repository,
             [new TestTool(new SettledTool("settled"))],
-            new DrainProfile(maxTurns: 2).Mode,
+            new DrainProfile(maxTurns: 2).Profile,
             cancellationToken);
         using var turns = _broker.Subscribe();
 
@@ -1387,7 +1378,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [new TestTool(new SettledTool("settled"))],
-            new DrainProfile(maxTurns: 4).Mode,
+            new DrainProfile(maxTurns: 4).Profile,
             cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
@@ -1447,7 +1438,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [new TestTool(new SettledTool("settled"))],
-            new DrainProfile(maxTurns: 4).Mode,
+            new DrainProfile(maxTurns: 4).Profile,
             cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
@@ -1503,7 +1494,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [new TestTool(new SettledTool("settled"))],
-            new DrainProfile(maxTurns: 2).Mode,
+            new DrainProfile(maxTurns: 2).Profile,
             cancellationToken);
         using var turns = _broker.Subscribe();
 
@@ -1555,7 +1546,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [new TestTool(new SettledTool("settled"))],
-            new DrainProfile(maxTurns: 1).Mode,
+            new DrainProfile(maxTurns: 1).Profile,
             cancellationToken);
         using var turns = _broker.Subscribe();
 
@@ -1591,7 +1582,7 @@ internal sealed class DrainTests : IDisposable
                 new TestTool(new SurvivingTool("survivor")),
                 new TestTool(new SettledTool("worker")),
             ],
-            new DrainProfile(maxTurns: 2).Mode,
+            new DrainProfile(maxTurns: 2).Profile,
             cancellationToken);
         using var turns = _broker.Subscribe();
 
@@ -1632,7 +1623,7 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [new TestTool(new SurvivingTool("survivor"))],
-            new DrainProfile(maxTurns: 2).Mode,
+            new DrainProfile(maxTurns: 2).Profile,
             cancellationToken);
         using var turns = _broker.Subscribe();
 
@@ -2340,7 +2331,7 @@ internal sealed class DrainTests : IDisposable
         ILLMProvider provider,
         IEventRepository repository,
         IReadOnlyList<TestTool> toolFactories,
-        IMode profile,
+        IAgentProfile profile,
         CancellationToken lifetime) =>
         Session(provider, repository, toolFactories, profile, 0, 0, 0, 0, lifetime);
 
@@ -2386,7 +2377,7 @@ internal sealed class DrainTests : IDisposable
         ILLMProvider provider,
         IEventRepository repository,
         IReadOnlyList<TestTool> toolFactories,
-        IMode profile,
+        IAgentProfile profile,
         AgentSkills skills,
         SecurityProfile? securityProfile,
         CancellationToken lifetime)
@@ -2487,7 +2478,7 @@ internal sealed class DrainTests : IDisposable
         ILLMProvider provider,
         IEventRepository repository,
         IReadOnlyList<IAgentTurnCompletionCallback> completionCallbacks,
-        IMode profile,
+        IAgentProfile profile,
         CancellationToken lifetime)
     {
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
@@ -2501,7 +2492,7 @@ internal sealed class DrainTests : IDisposable
         ILLMProvider provider,
         IEventRepository repository,
         IReadOnlyList<TestTool> toolFactories,
-        IMode? profile,
+        IAgentProfile? profile,
         int contextWindow,
         double inputPrice,
         double cachedInputPrice,
@@ -2523,7 +2514,12 @@ internal sealed class DrainTests : IDisposable
         return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [.. toolFactories.Select(tool => tool.Factory)], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), new AgentOutputFile(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile ?? dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
     }
 
-    private sealed class DrainProfile
+    private sealed class DrainProfile(
+        string id,
+        int maxTurns,
+        IReadOnlyList<string>? allowedTools,
+        IReadOnlySet<string> disabledTools,
+        bool readOnly)
     {
         public DrainProfile(int maxTurns)
             : this("test", maxTurns, null, new HashSet<string>(StringComparer.Ordinal), readOnly: false)
@@ -2538,23 +2534,12 @@ internal sealed class DrainTests : IDisposable
         {
         }
 
-        public DrainProfile(
-            string id,
-            int maxTurns,
-            IReadOnlyList<string>? allowedTools,
-            IReadOnlySet<string> disabledTools,
-            bool readOnly)
-        {
-            IAgentProfile profile = new AgentProfile(
-                id,
-                new ProfileConfig("Test prompt", "Test profile.", allowedTools, maxTurns, 3, readOnly, true, false, true, []),
-                [],
-                [],
-                disabledTools);
-            Mode = new NoopMode(profile, profile.SecurityProfile);
-        }
-
-        public IMode Mode { get; }
+        public IAgentProfile Profile { get; } = new AgentProfile(
+            id,
+            new ProfileConfig("Test prompt", "Test profile.", allowedTools, maxTurns, 3, readOnly, true, false, true, []),
+            [],
+            [],
+            disabledTools);
     }
 
     private sealed class GatedCompletionCallback : IAgentTurnCompletionCallback
@@ -2580,7 +2565,7 @@ internal sealed class DrainTests : IDisposable
                     null);
             }
 
-            return AgentTurnCompletionOutcome.Continue(null, null);
+            return AgentTurnCompletionOutcome.Continue(null);
         }
 
         internal Task WaitUntilEntered(CancellationToken cancellationToken) =>
