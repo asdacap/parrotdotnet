@@ -266,10 +266,16 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
     }
 
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
     public async Task Pending_child_questions_guard_completion_before_active_work(
+        bool questionsPromotedBeforeCompletion,
         CancellationToken cancellationToken)
     {
-        using var parentProvider = new HeldProvider("parent", LLMEvent.Completed("stop", 1, 0, 1, "premature", []), LLMEvent.Completed("stop", 1, 0, 1, "finished", []));
+        LLMEvent[] beforeCompletion = questionsPromotedBeforeCompletion
+            ? [LLMEvent.Completed("tool_calls", 1, 0, 1, string.Empty, [new LLMToolCall("missing-call", "missing_tool", "{}")])]
+            : [];
+        using var parentProvider = new HeldProvider("parent", [.. beforeCompletion, LLMEvent.Completed("stop", 1, 0, 1, "premature", []), LLMEvent.Completed("stop", 1, 0, 1, "finished", [])]);
         using var childProvider = new HeldProvider("child");
         var router = Router(parentProvider, childProvider);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -327,15 +333,20 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         _ = await WaitForPendingQuestions(ownedChildQuestions, parent, 2, cancellationToken);
         parentProvider.Release();
         await parentProvider.Arrived(cancellationToken);
+        if (questionsPromotedBeforeCompletion)
+        {
+            parentProvider.Release();
+            await parentProvider.Arrived(cancellationToken);
+        }
 
         var beforeAnswers = Events(subscription);
         _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnEnded)).IsEqualTo(0);
         _ = await Assert.That(beforeAnswers.Count(published =>
             published.AgentSessionId == "parent"
             && published.PayloadCase == Event.PayloadOneofCase.PendingChildQuestionReminderInjected)).IsEqualTo(1);
-        _ = await Assert.That(parentProvider.Requests[1].Messages).Contains(message =>
+        _ = await Assert.That(parentProvider.Requests[^1].Messages).Contains(message =>
             message.Role == LLMRole.Assistant && message.Content == "premature");
-        _ = await Assert.That(parentProvider.Requests[1].Messages).Contains(message =>
+        _ = await Assert.That(parentProvider.Requests[^1].Messages).Contains(message =>
             message.Role == LLMRole.System
             && message.Content.Contains($"- {firstChild.Name}", StringComparison.Ordinal)
             && message.Content.Contains($"- {secondChild.Name}", StringComparison.Ordinal)
