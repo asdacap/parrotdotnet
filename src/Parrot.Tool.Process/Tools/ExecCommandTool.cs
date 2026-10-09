@@ -1,6 +1,8 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Process;
 
 namespace Parrot.Tools;
@@ -12,7 +14,8 @@ internal sealed class ExecCommandTool(
     IProcessOwner processes,
     IAgentSession session,
     ToolWorkspace workspace,
-    ReadOnlyExecCommandClassifier readOnlyCommandClassifier) : ITool
+    ReadOnlyExecCommandClassifier readOnlyCommandClassifier,
+    IPromptTemplateCatalog templates) : ITool
 {
     internal const int LongCommandLength = 200;
     internal const int NamedCommandLength = 300;
@@ -77,14 +80,6 @@ internal sealed class ExecCommandTool(
             }
         }
 
-        if ((command.Trim().Contains('\n', StringComparison.Ordinal) || command.Length > NamedCommandLength)
-            && (name is null || string.IsNullOrWhiteSpace(description)))
-        {
-            return ToolResultFormatter.Error(
-                invocation,
-                $"multiline commands or commands longer than {NamedCommandLength} characters require 'name' and 'description'");
-        }
-
         if (TryRedundantChangeDirectory(command, out var target))
         {
             return ToolResultFormatter.Error(
@@ -111,7 +106,16 @@ internal sealed class ExecCommandTool(
                 new ShellProcessCompletionReport());
             var outcome = await process.Wait(yieldAfter, cancellationToken).ConfigureAwait(false);
 
-            return new ToolExecutionResult(outcome.Format(), outcome.YieldedProcess);
+            var text = outcome.Format();
+            if ((command.Trim().Contains('\n', StringComparison.Ordinal) || command.Length > NamedCommandLength)
+                && (name is null || string.IsNullOrWhiteSpace(description)))
+            {
+                text += "\n\n" + templates.Render("exec-command.metadata-reminder", [
+                    new PromptTemplateArgument("command_length", NamedCommandLength.ToString(CultureInfo.InvariantCulture)),
+                ]);
+            }
+
+            return new ToolExecutionResult(text, outcome.YieldedProcess);
         }
         catch (Exception failure) when (
             failure is SandboxUnavailableException or InvalidOperationException or IOException or PlatformNotSupportedException)

@@ -69,12 +69,14 @@ internal sealed class ExecCommandToolTests : IDisposable
             processes,
             session,
             new ToolWorkspace(_workspace),
-            new ReadOnlyExecCommandClassifier([]));
+            new ReadOnlyExecCommandClassifier([]),
+            TestModels.PromptTemplates);
         var selection = TestTurnSelection.Create(securityProfile);
         var factoryTool = new ExecCommandToolFactory(
             processes,
             new ToolWorkspace(_workspace),
-            TestModels.ToolDefinitions).Create(session);
+            TestModels.ToolDefinitions,
+            TestModels.PromptTemplates).Create(session);
         var writeStdinFactoryTool = new WriteStdinToolFactory(processes, new ResourceResolverFixture(null, null), TestModels.ToolDefinitions).Create(session);
         _ = await Assert.That(factoryTool.Name).IsEqualTo("exec_command");
         _ = await Assert.That(writeStdinFactoryTool.Name).IsEqualTo("write_stdin");
@@ -184,18 +186,42 @@ internal sealed class ExecCommandToolTests : IDisposable
         _ = await Assert.That(reusedSleepName.Text).EndsWith("s\n[stdout]\nfree");
 
         var longScript = JsonEncodedText.Encode("printf ok #" + new string('x', ExecCommandTool.NamedCommandLength));
-        const string longCommandRejection = "error: multiline commands or commands longer than 300 characters require 'name' and 'description'";
+        const string metadataReminder = "\n\nReminder: include 'name' and 'description' for multiline commands or commands longer than 300 characters.";
         var longWithoutName = await Execute(tool, $$"""{"command":"{{longScript}}","description":"print ok"}""", selection, cancellationToken);
         var longWithoutDescription = await Execute(tool, $$"""{"command":"{{longScript}}","name":"long"}""", selection, cancellationToken);
         var longWithBlankDescription = await Execute(tool, $$"""{"command":"{{longScript}}","name":"long","description":" "}""", selection, cancellationToken);
         var longWithNameAndDescription = await Execute(tool, $$"""{"command":"{{longScript}}","name":"long","description":"print ok"}""", selection, cancellationToken);
         var shortWithDescription = await Execute(tool, """{"command":"printf short","description":"print short"}""", selection, cancellationToken);
 
-        _ = await Assert.That(longWithoutName.Text).IsEqualTo(longCommandRejection);
-        _ = await Assert.That(longWithoutDescription.Text).IsEqualTo(longCommandRejection);
-        _ = await Assert.That(longWithBlankDescription.Text).IsEqualTo(longCommandRejection);
+        var longWithoutMetadata = await Execute(tool, $$"""{"command":"{{longScript}}"}""", selection, cancellationToken);
+        var multilineWithoutMetadata = await Execute(tool, "{\"command\":\"printf multi\\nprintf line; exit 7\"}", selection, cancellationToken);
+        var multilineWithMetadata = await Execute(tool, "{\"command\":\"printf multi\\nprintf line\",\"name\":\"multiline\",\"description\":\"print multiline\"}", selection, cancellationToken);
+        var blankName = await Execute(tool, $$"""{"command":"{{longScript}}","name":" "}""", selection, cancellationToken);
+        var shortWithoutMetadata = await Execute(tool, """{"command":"printf short"}""", selection, cancellationToken);
+
+        _ = await Assert.That(longWithoutName.Text).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(longWithoutName.Text).EndsWith("s\n[stdout]\nok" + metadataReminder);
+        _ = await Assert.That(longWithoutDescription.Text).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(longWithoutDescription.Text).EndsWith("s\n[stdout]\nok" + metadataReminder);
+        _ = await Assert.That(longWithBlankDescription.Text).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(longWithBlankDescription.Text).EndsWith("s\n[stdout]\nok" + metadataReminder);
+        _ = await Assert.That(longWithoutMetadata.Text).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(longWithoutMetadata.Text).EndsWith("s\n[stdout]\nok" + metadataReminder);
+        _ = await Assert.That(multilineWithoutMetadata.Text).StartsWith("Process exited with code 7 after ");
+        _ = await Assert.That(multilineWithoutMetadata.Text).EndsWith("s\n[stdout]\nmultiline" + metadataReminder);
         _ = await Assert.That(longWithNameAndDescription.Text).EndsWith("s\n[stdout]\nok");
+        _ = await Assert.That(multilineWithMetadata.Text).EndsWith("s\n[stdout]\nmultiline");
+        _ = await Assert.That(blankName.Text).IsEqualTo("error: process name must not be empty");
         _ = await Assert.That(shortWithDescription.Text).EndsWith("s\n[stdout]\nshort");
+        _ = await Assert.That(shortWithoutMetadata.Text).EndsWith("s\n[stdout]\nshort");
+
+        var yieldedWithoutDescription = await Execute(tool, "{\"command\":\"printf begun;\\nsleep 30\",\"name\":\"metadata-yield\",\"yield_after_ms\":0}", selection, cancellationToken);
+        _ = await Assert.That(yieldedWithoutDescription.Text).StartsWith("metadata-yield\nProcess output is streaming.");
+        _ = await Assert.That(yieldedWithoutDescription.Text).EndsWith(metadataReminder);
+        _ = await Assert.That(yieldedWithoutDescription.YieldedProcess).IsNotNull();
+        _ = await Assert.That(yieldedWithoutDescription.YieldedProcess?.Name).IsEqualTo("metadata-yield");
+        _ = await Execute(new InterruptProcessTool(processes, new ResourceResolverFixture(null, null)), """{"name":"metadata-yield","signal":9}""", selection, cancellationToken);
+        _ = await processes.Claim("metadata-yield").Wait(null, cancellationToken);
 
         var spilled = await Execute(tool, """{"command":"awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"x\" }'"}""", selection, cancellationToken);
         const string spillNotice = "\nTool output exceeded 64 KiB and was saved to ";
