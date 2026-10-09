@@ -62,6 +62,7 @@ internal sealed class CommandDispatcher(
         non-loopback listen also requires --unsafe-allow-external.
 
         --basic forces the minimal renderer; the default is the enhanced one.
+        --take-over reclaims the last session from an owner parrot cannot verify.
         --variant is a deprecated, nonpersistent reasoning-variant override.
 
         Bare `parrot` is `parrot chat`. In a terminal that opens a REPL; with a
@@ -353,7 +354,7 @@ internal sealed class CommandDispatcher(
             await error.WriteLineAsync("parrot: providers and models loaded".AsMemory(), cancellationToken).ConfigureAwait(false);
             await error.FlushAsync(cancellationToken).ConfigureAwait(false);
             return new Composition(
-                registry, configuration, Directory.GetCurrentDirectory(), Environment.MachineName, sessionHost, diagnostics);
+                registry, configuration, Directory.GetCurrentDirectory(), RuntimeIdentityCapture.HostKey(), sessionHost, diagnostics);
         }
         catch (LLMProviderException failure)
         {
@@ -590,6 +591,7 @@ internal sealed class CommandDispatcher(
         var tokenFile = string.Empty;
         var variant = (string?)null;
         var basic = false;
+        var takeOver = false;
         var words = new List<string>();
 
         for (var index = 1; index < arguments.Count; index++)
@@ -626,6 +628,10 @@ internal sealed class CommandDispatcher(
 
                 case "--basic":
                     basic = true;
+                    break;
+
+                case "--take-over":
+                    takeOver = true;
                     break;
 
                 default:
@@ -770,7 +776,7 @@ internal sealed class CommandDispatcher(
         }
 
         using var startup = new LocalChatStartup(
-            paths, Directory.GetCurrentDirectory(), Environment.MachineName, error, diagnostics.Global, OpenLocalClient, ConfigureFresh);
+            paths, Directory.GetCurrentDirectory(), RuntimeIdentityCapture.HostKey(), error, diagnostics.Global, OpenLocalClient, ConfigureFresh, takeOver);
         try
         {
             var (client, initialSession) = await startup.Open(prompt.Length == 0, cancellationToken).ConfigureAwait(false);

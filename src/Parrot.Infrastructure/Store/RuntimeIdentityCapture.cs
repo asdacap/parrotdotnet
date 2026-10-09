@@ -28,17 +28,11 @@ internal static class RuntimeIdentityCapture
     public static string FingerprintHost(string hostKey) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(hostKey)));
 
-    public static bool IsBootIdentityAvailable(string? bootIdentity)
+    public static string HostKey()
     {
-        if (bootIdentity is null or "unavailable")
-        {
-            return false;
-        }
-
-        const string legacyPrefix = "unavailable-";
-        return !bootIdentity.StartsWith(legacyPrefix, StringComparison.Ordinal)
-            || !long.TryParse(bootIdentity.AsSpan(legacyPrefix.Length), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var ticks)
-            || !bootIdentity.AsSpan(legacyPrefix.Length).SequenceEqual(ticks.ToString(CultureInfo.InvariantCulture));
+        const string machineIdentity = "/etc/machine-id";
+        var value = File.Exists(machineIdentity) ? File.ReadAllText(machineIdentity).Trim() : string.Empty;
+        return value.Length > 0 ? value : Environment.MachineName;
     }
 
     private static string ReadBootIdentity()

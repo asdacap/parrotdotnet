@@ -54,10 +54,10 @@ internal sealed class SessionStore(
     public AdmissionResult DiscoverLatest() =>
         new WorkingDirectoryClaim(paths.State, hostKey).DiscoverLatest(workingDirectory);
 
-    public Task<OpenedSession> Resume(UserSessionId id, bool interactivePermissions)
+    public Task<OpenedSession> Resume(UserSessionId id, bool interactivePermissions, bool takeOver)
     {
         var workspace = ResolveWorkspace(id);
-        var admission = Acquire(() => new WorkingDirectoryClaim(paths.State, hostKey).Resume(workingDirectory, id), id);
+        var admission = Acquire(() => new WorkingDirectoryClaim(paths.State, hostKey).Resume(workingDirectory, id, takeOver), id);
         return Open(null, modes.Default, interactivePermissions, workspace, admission);
     }
 

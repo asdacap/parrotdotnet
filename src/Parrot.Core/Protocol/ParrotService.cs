@@ -393,7 +393,7 @@ internal sealed class ParrotService(
             try
             {
                 var resumed = await _userSessions.Host(
-                    async () => (await store.Resume(id, request.InteractivePermissions).ConfigureAwait(false)).Session,
+                    async () => (await store.Resume(id, request.InteractivePermissions, request.TakeOver).ConfigureAwait(false)).Session,
                     session =>
                     {
                         trace.UserSessionId = session.Id;

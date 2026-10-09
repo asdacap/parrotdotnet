@@ -19,6 +19,8 @@ internal sealed class LocalChatStartupTests
     [Arguments("race", true, 1, 0)]
     [Arguments("recover", false, 1, 0)]
     [Arguments("recover-race", true, 1, 0)]
+    [Arguments("foreign", true, 1, 1)]
+    [Arguments("foreign-take-over", false, 1, 0)]
     public async Task Startup_selects_existing_sessions_before_configuring_fresh_settings(
         string scenario,
         bool interactivePermissions,
@@ -31,7 +33,9 @@ internal sealed class LocalChatStartupTests
         var service = new TestService(scenario, workspace);
         await using var localServer = await GrpcServer.StartLocal(service, workspace.LocalSocket, diagnostics.Log, cancellationToken);
         using var localClient = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{workspace.LocalSocket}"), null, diagnostics.Log);
-        await using var activation = scenario == "fresh" ? null : workspace.Admit();
+        await using var activation = scenario == "fresh"
+            ? null
+            : workspace.Admit(scenario.StartsWith("foreign", StringComparison.Ordinal) ? "foreign" : "host");
         if (scenario is "load" or "inactive-connect" or "recover-race")
         {
             if (activation is not null)
@@ -65,7 +69,8 @@ internal sealed class LocalChatStartupTests
                 _ = await Assert.That(error.ToString()).Contains("creating a new user session...");
                 configurations++;
                 return new CreateSessionRequest { Model = "fresh-model", Mode = "fresh-mode" };
-            });
+            },
+            scenario == "foreign-take-over");
 
         var (openedClient, session) = await startup.Open(interactivePermissions, cancellationToken);
 
@@ -96,6 +101,7 @@ internal sealed class LocalChatStartupTests
             _ = await Assert.That(service.Resumed?.UserSessionId).IsEqualTo("existing");
             _ = await Assert.That(service.Resumed?.WorkingDirectory).IsEqualTo(workspace.Root);
             _ = await Assert.That(service.Resumed?.InteractivePermissions).IsEqualTo(interactivePermissions);
+            _ = await Assert.That(service.Resumed?.TakeOver).IsEqualTo(scenario == "foreign-take-over");
         }
 
         if (scenario is "connect" or "inactive-connect" or "race" or "rejected" or "recover" or "recover-race")
@@ -106,7 +112,7 @@ internal sealed class LocalChatStartupTests
 
         var expectedAttachments = scenario switch
         {
-            "fresh" or "load" or "missing" => 0,
+            "fresh" or "load" or "missing" or "foreign" or "foreign-take-over" => 0,
             "race" or "recover-race" or "rejected" => 2,
             _ => 1,
         };
@@ -126,11 +132,14 @@ internal sealed class LocalChatStartupTests
             .IsEqualTo(expectedConfigurations == 1);
         _ = await Assert.That(diagnostic.Contains("restoring existing user session existing...", StringComparison.Ordinal))
             .IsEqualTo(expectedResumes > 0);
+        _ = await Assert.That(diagnostic.Contains("connecting to existing user session", StringComparison.Ordinal))
+            .IsEqualTo(scenario is not "fresh" and not "foreign" and not "foreign-take-over");
         if (scenario != "fresh")
         {
             _ = await Assert.That(diagnostic).Contains(scenario switch
             {
-                "load" or "recover" => "loaded existing user session existing",
+                "load" or "recover" or "foreign-take-over" => "loaded existing user session existing",
+                "foreign" => "run `parrot chat --take-over` to reclaim it; creating a new user session",
                 "connect" or "inactive-connect" or "race" or "recover-race" => "connected to existing user session existing",
                 _ => "unable to connect to existing user session existing",
             });
@@ -147,7 +156,7 @@ internal sealed class LocalChatStartupTests
     {
         using var diagnostics = new TransportDiagnosticsFixture();
         using var workspace = new TestWorkspace();
-        await using var activation = workspace.Admit();
+        await using var activation = workspace.Admit("host");
         var service = new TestService("cancel", workspace);
         await using var server = await GrpcServer.StartLocal(service, workspace.Resources.SocketPath, diagnostics.Log, cancellationToken);
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -169,7 +178,8 @@ internal sealed class LocalChatStartupTests
             {
                 configurations++;
                 throw new InvalidOperationException("Fresh settings must remain lazy.");
-            });
+            },
+            false);
         if (!duringAttach)
         {
             await stopping.CancelAsync();
@@ -206,7 +216,7 @@ internal sealed class LocalChatStartupTests
     {
         using var diagnostics = new TransportDiagnosticsFixture();
         using var workspace = new TestWorkspace();
-        await using var activation = workspace.Admit();
+        await using var activation = workspace.Admit("host");
         var service = new TestService(scenario, workspace);
         await using var localServer = await GrpcServer.StartLocal(service, workspace.LocalSocket, diagnostics.Log, cancellationToken);
         await using var ownerServer = await GrpcServer.StartLocal(service, workspace.Resources.SocketPath, diagnostics.Log, cancellationToken);
@@ -231,7 +241,8 @@ internal sealed class LocalChatStartupTests
             {
                 configurations++;
                 throw new InvalidOperationException("Fresh settings must remain lazy.");
-            });
+            },
+            false);
         var opening = startup.Open(true, stopping.Token);
         await service.ResumeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
         _ = await Assert.That(error.ToString()).Contains("restoring existing user session existing...");
@@ -289,9 +300,9 @@ internal sealed class LocalChatStartupTests
 
         public string LocalSocket => Path.Combine(Root, "local.sock");
 
-        public SessionActivationLease Admit()
+        public SessionActivationLease Admit(string hostKey)
         {
-            var admission = new WorkingDirectoryClaim(Paths.State, "host").CreateFresh(Root, Resources.Id);
+            var admission = new WorkingDirectoryClaim(Paths.State, hostKey).CreateFresh(Root, Resources.Id);
             var activation = admission.ActivationLease ?? throw new InvalidOperationException("Admission failed.");
             new SessionIndex(Resources).Publish(new SessionMeta
             {
@@ -357,7 +368,7 @@ internal sealed class LocalChatStartupTests
             }
 
             var admission = new WorkingDirectoryClaim(workspace.Paths.State, "host")
-                .Resume(workspace.Root, workspace.Resources.Id);
+                .Resume(workspace.Root, workspace.Resources.Id, request.TakeOver);
             await using var resumedActivation = admission.ActivationLease
                 ?? throw new RpcException(new Status(StatusCode.AlreadyExists, "Another runtime owns the session."));
 

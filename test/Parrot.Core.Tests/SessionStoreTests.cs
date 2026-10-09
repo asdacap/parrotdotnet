@@ -136,7 +136,7 @@ internal sealed class SessionStoreTests : IDisposable
 
         async Task<IUserSession> OpenSession() => resumedId is null
             ? await store.CreateFresh(router.Resolve(model.Selector), Modes().Default, false)
-            : (await store.Resume(UserSessionId.Parse(resumedId), false)).Session;
+            : (await store.Resume(UserSessionId.Parse(resumedId), false, false)).Session;
     }
 
     [Test]
@@ -225,7 +225,7 @@ internal sealed class SessionStoreTests : IDisposable
         _ = await Assert.That(failedLog).Contains("outcome=\"failed\"");
         log.Write(new DiagnosticEvent("test", "after-close", DiagnosticSeverity.Information));
         _ = await Assert.That(await File.ReadAllTextAsync(resources.LogPath)).IsEqualTo(failedLog);
-        var retry = claim.Resume(workingDirectory, id);
+        var retry = claim.Resume(workingDirectory, id, false);
         using var retryActivation = retry.ActivationLease;
         _ = await Assert.That(retryActivation).IsNotNull();
     }
@@ -456,7 +456,7 @@ internal sealed class SessionStoreTests : IDisposable
         {
             _ = await Assert.That(async () =>
             {
-                _ = await store.Resume(UserSessionId.Parse(id), false);
+                _ = await store.Resume(UserSessionId.Parse(id), false, false);
             }).Throws<InvalidOperationException>();
             var retry = new WorkingDirectoryClaim(new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")).State, "host").Resume(workingDirectory, id);
             _ = await Assert.That(retry.Disposition).IsEqualTo(ClaimDisposition.Resumed);
@@ -468,7 +468,7 @@ internal sealed class SessionStoreTests : IDisposable
             return;
         }
 
-        var opened = await store.Resume(UserSessionId.Parse(id), false);
+        var opened = await store.Resume(UserSessionId.Parse(id), false, false);
         await using var session = opened.Session;
         _ = await Assert.That(opened.Loaded).IsTrue();
         _ = await Assert.That(session.Mode.Profile.Id).IsEqualTo(ModeRegistry.Query);
@@ -484,7 +484,7 @@ internal sealed class SessionStoreTests : IDisposable
         var beforeContention = await File.ReadAllTextAsync(session.Resources.LogPath);
         _ = await Assert.That(async () =>
         {
-            _ = await store.Resume(UserSessionId.Parse(id), false);
+            _ = await store.Resume(UserSessionId.Parse(id), false, false);
         }).Throws<SessionAdmissionException>();
         _ = await Assert.That(await File.ReadAllTextAsync(session.Resources.LogPath)).IsEqualTo(beforeContention);
         var logDirectory = new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")).LogDirectory;

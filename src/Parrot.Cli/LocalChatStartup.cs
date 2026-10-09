@@ -15,7 +15,8 @@ internal sealed class LocalChatStartup(
     TextWriter error,
     IDiagnosticLog diagnostics,
     Func<CancellationToken, Task<GeneratedParrot.ParrotClient>> openLocalClient,
-    Func<GeneratedParrot.ParrotClient, CancellationToken, Task<CreateSessionRequest>> configureFresh) : IDisposable
+    Func<GeneratedParrot.ParrotClient, CancellationToken, Task<CreateSessionRequest>> configureFresh,
+    bool takeOver) : IDisposable
 {
     private GrpcTransportClient? _connection;
 
@@ -63,7 +64,8 @@ internal sealed class LocalChatStartup(
     {
         cancellationToken.ThrowIfCancellationRequested();
         await WriteProgress("looking for the workspace's latest user session...", cancellationToken).ConfigureAwait(false);
-        var candidate = new WorkingDirectoryClaim(paths.State, hostKey).DiscoverLatest(workingDirectory);
+        var claim = new WorkingDirectoryClaim(paths.State, hostKey);
+        var candidate = claim.DiscoverLatest(workingDirectory);
         GeneratedParrot.ParrotClient? localClient = null;
         if (candidate.Disposition == ClaimDisposition.Corrupt)
         {
@@ -72,13 +74,9 @@ internal sealed class LocalChatStartup(
 
         if (candidate.SessionId is { } sessionId)
         {
-            UserSession? attached = null;
-            try
-            {
-                attached = await Attach(sessionId, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception failure) when (failure is RpcException or TimeoutException or InvalidOperationException
-                or IOException or System.Net.Sockets.SocketException)
+            var unverifiedOwner = candidate.Disposition == ClaimDisposition.Live && !claim.IsActive(sessionId, workingDirectory);
+            var attached = unverifiedOwner ? null : await TryAttach(sessionId, false, cancellationToken).ConfigureAwait(false);
+            if (attached is null)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 localClient = await openLocalClient(cancellationToken).ConfigureAwait(false);
@@ -93,17 +91,15 @@ internal sealed class LocalChatStartup(
                     cancellationToken.ThrowIfCancellationRequested();
                 }
 
-                try
+                if (unverifiedOwner && !takeOver)
                 {
-                    attached = await Attach(sessionId, cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception retryFailure) when (retryFailure is RpcException or TimeoutException or InvalidOperationException
-                    or IOException or System.Net.Sockets.SocketException)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
                     await error.WriteLineAsync(
-                        $"parrot: unable to connect to existing user session {sessionId}: {retryFailure.Message}; creating a new user session".AsMemory(),
+                        $"parrot: user session {sessionId} is held by a process parrot cannot verify (another host, or one it cannot inspect); run `parrot chat --take-over` to reclaim it; creating a new user session".AsMemory(),
                         cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    attached = await TryAttach(sessionId, true, cancellationToken).ConfigureAwait(false);
                 }
             }
 
@@ -122,6 +118,27 @@ internal sealed class LocalChatStartup(
         var created = await localClient.CreateSessionAsync(request, cancellationToken: cancellationToken).ConfigureAwait(false);
         await WriteProgress($"created user session {created.Id}", cancellationToken).ConfigureAwait(false);
         return (localClient, created);
+    }
+
+    private async Task<UserSession?> TryAttach(UserSessionId sessionId, bool reportFailure, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await Attach(sessionId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception failure) when (failure is RpcException or TimeoutException or InvalidOperationException
+            or IOException or System.Net.Sockets.SocketException)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (reportFailure)
+            {
+                await error.WriteLineAsync(
+                    $"parrot: unable to connect to existing user session {sessionId}: {failure.Message}; creating a new user session".AsMemory(),
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            return null;
+        }
     }
 
     private async Task<UserSession> Attach(UserSessionId sessionId, CancellationToken cancellationToken)
@@ -161,6 +178,7 @@ internal sealed class LocalChatStartup(
                 UserSessionId = sessionId.Value,
                 WorkingDirectory = workingDirectory,
                 InteractivePermissions = interactivePermissions,
+                TakeOver = takeOver,
             },
             cancellationToken: cancellationToken).ConfigureAwait(false);
         await WriteProgress($"loaded existing user session {loaded.Id}", cancellationToken).ConfigureAwait(false);

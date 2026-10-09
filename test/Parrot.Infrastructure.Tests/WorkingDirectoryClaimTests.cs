@@ -45,10 +45,13 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
         var first = claim.CreateFresh(_workspace, "user-session-one");
 
         var second = claim.OpenDefault(_workspace);
+        var takeOver = claim.Resume(_workspace, UserSessionId.Parse("user-session-one"), takeOver: true);
 
         _ = await Assert.That(first.Disposition).IsEqualTo(ClaimDisposition.Fresh);
         _ = await Assert.That(second.Disposition).IsEqualTo(ClaimDisposition.Live);
         _ = await Assert.That(second.SessionId?.Value).IsEqualTo("user-session-one");
+        _ = await Assert.That(takeOver.Disposition).IsEqualTo(ClaimDisposition.Live);
+        _ = await Assert.That(takeOver.ActivationLease).IsNull();
         await ReleaseAsync(first.ActivationLease);
         await ReleaseAsync(second.ActivationLease);
     }
@@ -86,12 +89,16 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
         var local = new WorkingDirectoryClaim(_root, localIdentity);
 
         var result = local.OpenDefault(_workspace);
+        var takenOver = local.Resume(_workspace, UserSessionId.Parse("user-session-foreign"), takeOver: true);
 
         _ = await Assert.That(inspected).IsFalse();
         _ = await Assert.That(result.Disposition).IsEqualTo(ClaimDisposition.Live);
         _ = await Assert.That(result.SessionId?.Value).IsEqualTo("user-session-foreign");
+        _ = await Assert.That(takenOver.Disposition).IsEqualTo(ClaimDisposition.Resumed);
+        _ = await Assert.That(takenOver.ActivationLease).IsNotNull();
         await ReleaseAsync(foreignActivation.ActivationLease);
         await ReleaseAsync(result.ActivationLease);
+        await ReleaseAsync(takenOver.ActivationLease);
     }
 
     [Test]
@@ -117,7 +124,8 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
     [Arguments("boot", "unavailable")]
     [Arguments("unavailable", "boot")]
     [Arguments(null, "unavailable")]
-    public async Task Unavailable_boot_identity_uses_process_liveness(string? recordedBoot, string currentBoot)
+    [Arguments("other-boot", "boot")]
+    public async Task Boot_identity_does_not_override_process_liveness(string? recordedBoot, string currentBoot)
     {
         (ProcessIdentityStatus Status, string? Start, ClaimDisposition Expected)[] observations =
         [
@@ -174,49 +182,6 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
                 await ReleaseAsync(result.ActivationLease);
             }
         }
-    }
-
-    [Test]
-    [Arguments("other-boot")]
-    [Arguments("unavailable-")]
-    [Arguments("unavailable-not-a-tick")]
-    [Arguments("unavailable-123suffix")]
-    [Arguments("unavailable-+123")]
-    [Arguments("unavailable- 123")]
-    [Arguments("unavailable-123 ")]
-    [Arguments("unavailable-0123")]
-    [Arguments("unavailable-9223372036854775808")]
-    public async Task Available_boot_mismatch_fails_closed_without_inspecting_process(string recordedBoot)
-    {
-        var ownerRuntime = new RuntimeIdentity(
-            RuntimeIdentityCapture.FingerprintHost("host"),
-            recordedBoot,
-            4312,
-            "old-start",
-            "owner-runtime",
-            static _ => new ProcessIdentity(ProcessIdentityStatus.Found, "old-start"));
-        var owner = new WorkingDirectoryClaim(_root, ownerRuntime);
-        var activation = owner.CreateFresh(_workspace, "user-session-other-boot");
-        var inspected = false;
-        var currentRuntime = new RuntimeIdentity(
-            RuntimeIdentityCapture.FingerprintHost("host"),
-            "boot",
-            4312,
-            "new-start",
-            "current-runtime",
-            _ =>
-            {
-                inspected = true;
-                return new ProcessIdentity(ProcessIdentityStatus.Missing, null);
-            });
-        var claim = new WorkingDirectoryClaim(_root, currentRuntime);
-
-        var result = claim.OpenDefault(_workspace);
-
-        _ = await Assert.That(inspected).IsFalse();
-        _ = await Assert.That(result.Disposition).IsEqualTo(ClaimDisposition.Live);
-        _ = await Assert.That(result.ActivationLease).IsNull();
-        await ReleaseAsync(activation.ActivationLease);
     }
 
     [Test]

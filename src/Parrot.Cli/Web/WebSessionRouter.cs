@@ -38,11 +38,12 @@ internal sealed class WebSessionRouter(
         var startup = new LocalChatStartup(
             paths,
             workingDirectory,
-            Environment.MachineName,
+            RuntimeIdentityCapture.HostKey(),
             error,
             diagnostics,
             _ => Task.FromResult(local),
-            (_, _) => Task.FromResult(new CreateSessionRequest()));
+            (_, _) => Task.FromResult(new CreateSessionRequest()),
+            false);
         try
         {
             var (client, session) = await startup.Open(true, cancellationToken).ConfigureAwait(false);

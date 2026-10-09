@@ -176,6 +176,8 @@ parrot chat [text]              Interactive session, or one answer when text or 
 parrot chat --model <selector>  Model alias or provider/model[/variant] for a fresh session
 parrot chat --mode <id>         Foreground mode (profile) for a fresh session
 parrot chat --basic             Force the minimal line-based renderer
+parrot chat --take-over         Reclaim the last session from an owner parrot cannot verify,
+                                such as one on another host
 parrot chat --connect <address> [--token-file <path>]
                                 Connect to a served session (unix:/path, http or https)
 parrot serve [--listen <address>] [--token-file <path>] [--unsafe-allow-external]

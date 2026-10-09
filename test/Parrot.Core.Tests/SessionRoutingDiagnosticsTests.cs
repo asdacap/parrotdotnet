@@ -99,7 +99,7 @@ internal sealed class SessionRoutingDiagnosticsTests
             _ = await Assert.That(beforeResume).Contains("category=\"session\" event=\"closed\"");
             _ = await Assert.That(beforeResume.IndexOf("category=\"agent\" event=\"closed\"", StringComparison.Ordinal)
                 < beforeResume.IndexOf("event=\"producers_stopped\"", StringComparison.Ordinal)).IsTrue();
-            await using (var resumed = (await fixture.Store.Resume(UserSessionId.Parse(firstId), false)).Session)
+            await using (var resumed = (await fixture.Store.Resume(UserSessionId.Parse(firstId), false, false)).Session)
             {
                 _ = await Assert.That(resumed.Id).IsEqualTo(firstId);
                 var resumedLog = await File.ReadAllTextAsync(firstLogPath, cancellationToken);

@@ -124,7 +124,7 @@ internal sealed partial class WorkingDirectoryClaim
         return candidate.Disposition switch
         {
             ClaimDisposition.Fresh => CreateFresh(workingDirectory, UserSessionId.Generate()),
-            ClaimDisposition.Resumed when candidate.SessionId is { } selected => Resume(workingDirectory, selected),
+            ClaimDisposition.Resumed when candidate.SessionId is { } selected => Resume(workingDirectory, selected, false),
             _ => candidate,
         };
     }
@@ -155,13 +155,13 @@ internal sealed partial class WorkingDirectoryClaim
             }
         }
 
-        return Activate(intent, ClaimDisposition.Fresh);
+        return Activate(intent, ClaimDisposition.Fresh, false);
     }
 
     public AdmissionResult CreateFresh(string workingDirectory, string sessionId) =>
         CreateFresh(workingDirectory, UserSessionId.Parse(sessionId));
 
-    public AdmissionResult Resume(string workingDirectory, UserSessionId sessionId)
+    public AdmissionResult Resume(string workingDirectory, UserSessionId sessionId, bool takeOver)
     {
         ArgumentNullException.ThrowIfNull(sessionId);
         var canonical = Canonicalize(workingDirectory);
@@ -181,11 +181,11 @@ internal sealed partial class WorkingDirectoryClaim
             return new AdmissionResult(ClaimDisposition.Corrupt, sessionId, null, intent);
         }
 
-        return Activate(intent, ClaimDisposition.Resumed);
+        return Activate(intent, ClaimDisposition.Resumed, takeOver);
     }
 
     public AdmissionResult Resume(string workingDirectory, string sessionId) =>
-        Resume(workingDirectory, UserSessionId.Parse(sessionId));
+        Resume(workingDirectory, UserSessionId.Parse(sessionId), false);
 
     public ClaimResult Claim(string workingDirectory, string proposedSessionId, Func<int, bool> processIsAlive)
     {
@@ -296,7 +296,7 @@ internal sealed partial class WorkingDirectoryClaim
     [LibraryImport("libc", EntryPoint = "link", StringMarshalling = StringMarshalling.Utf8, SetLastError = true)]
     private static partial int Link(string existingPath, string newPath);
 
-    private AdmissionResult Activate(OpenIntent intent, ClaimDisposition success)
+    private AdmissionResult Activate(OpenIntent intent, ClaimDisposition success, bool takeOver)
     {
         var directory = ActivationDirectory(intent.SessionId);
         _ = Directory.CreateDirectory(directory);
@@ -305,7 +305,7 @@ internal sealed partial class WorkingDirectoryClaim
         {
             var head = Current(directory);
             var status = DetermineStatus(head);
-            if (status is ActivationStatus.Active or ActivationStatus.Uncertain)
+            if (status == ActivationStatus.Active || (status == ActivationStatus.Uncertain && !takeOver))
             {
                 return new AdmissionResult(ClaimDisposition.Live, intent.SessionId, null, intent);
             }
@@ -456,13 +456,6 @@ internal sealed partial class WorkingDirectoryClaim
                 _runtime.HostIdentity,
                 StringComparison.Ordinal);
         if (!hostMatches)
-        {
-            return ActivationStatus.Uncertain;
-        }
-
-        if (RuntimeIdentityCapture.IsBootIdentityAvailable(record.BootIdentity)
-            && RuntimeIdentityCapture.IsBootIdentityAvailable(_runtime.BootIdentity)
-            && !string.Equals(record.BootIdentity, _runtime.BootIdentity, StringComparison.Ordinal))
         {
             return ActivationStatus.Uncertain;
         }

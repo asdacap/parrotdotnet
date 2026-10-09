@@ -53,7 +53,8 @@ internal sealed class LocalSessionIntegrationTests
                 token.ThrowIfCancellationRequested();
                 configurations++;
                 return Task.FromResult(new CreateSessionRequest { Model = Selection, Mode = "query" });
-            }))
+            },
+            false))
         {
             var (_, opened) = await startup.Open(false, cancellationToken);
             _ = await Assert.That(opened.Id == original.Id).IsEqualTo(reachable);
@@ -134,7 +135,8 @@ internal sealed class LocalSessionIntegrationTests
                 token.ThrowIfCancellationRequested();
                 return Task.FromResult(replacement.Client);
             },
-            (client, token) => throw new InvalidOperationException("Reload must not configure fresh settings."));
+            (client, token) => throw new InvalidOperationException("Reload must not configure fresh settings."),
+            false);
         var (_, loaded) = await startup.Open(true, cancellationToken);
         _ = await Assert.That(loaded.Id).IsEqualTo(olderId);
         _ = await Assert.That(loaded.Loaded).IsTrue();
@@ -191,7 +193,8 @@ internal sealed class LocalSessionIntegrationTests
                     localOpens++;
                     return Task.FromResult(replacement.Client);
                 },
-                (client, token) => throw new InvalidOperationException("The retry must attach, not create."));
+                (client, token) => throw new InvalidOperationException("The retry must attach, not create."),
+                false);
             var (_, connected) = await startup.Open(false, cancellationToken);
             _ = await Assert.That(connected.Id).IsEqualTo(sessionId);
             _ = await Assert.That(localOpens).IsEqualTo(1);
