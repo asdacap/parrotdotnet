@@ -343,11 +343,15 @@ internal sealed class CommandDispatcher(
 
         try
         {
+            await error.WriteLineAsync("parrot: loading providers and models...".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await error.FlushAsync(cancellationToken).ConfigureAwait(false);
             Record("provider_catalog_start", null);
             var registry = await new ProviderRegistryBuilder(configuration, credentials, httpClients, browserOpener, modelsDev)
                 .Build(cancellationToken).ConfigureAwait(false);
 
             Record("provider_catalog_complete", null);
+            await error.WriteLineAsync("parrot: providers and models loaded".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await error.FlushAsync(cancellationToken).ConfigureAwait(false);
             return new Composition(
                 registry, configuration, Directory.GetCurrentDirectory(), Environment.MachineName, sessionHost, diagnostics);
         }
@@ -552,6 +556,8 @@ internal sealed class CommandDispatcher(
 
         try
         {
+            await error.WriteLineAsync("parrot: loading configuration...".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await error.FlushAsync(cancellationToken).ConfigureAwait(false);
             var paths = StatePaths.ResolveFromEnvironment();
             Record("configuration_start", null);
             var configuration = Configuration.Load(paths.ConfigFile, paths.PredefinedConfigFile);
@@ -670,6 +676,8 @@ internal sealed class CommandDispatcher(
                 return ExitUsage;
             }
 
+            await error.WriteLineAsync("parrot: opening a remote user session...".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await error.FlushAsync(cancellationToken).ConfigureAwait(false);
             using var remoteConnection = GrpcTransportClient.Connect(address, token, diagnostics.Global);
             var remote = remoteConnection.Client;
             if (variant is not null)

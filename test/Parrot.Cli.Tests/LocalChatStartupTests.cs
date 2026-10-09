@@ -59,11 +59,12 @@ internal sealed class LocalChatStartupTests
                 localOpens++;
                 return Task.FromResult(localClient.Client);
             },
-            (client, token) =>
+            async (client, token) =>
             {
                 token.ThrowIfCancellationRequested();
+                _ = await Assert.That(error.ToString()).Contains("creating a new user session...");
                 configurations++;
-                return Task.FromResult(new CreateSessionRequest { Model = "fresh-model", Mode = "fresh-mode" });
+                return new CreateSessionRequest { Model = "fresh-model", Mode = "fresh-mode" };
             });
 
         var (openedClient, session) = await startup.Open(interactivePermissions, cancellationToken);
@@ -118,11 +119,14 @@ internal sealed class LocalChatStartupTests
         _ = await Assert.That(log.Contains("fresh-model", StringComparison.Ordinal)).IsFalse();
         _ = await Assert.That(log.Contains("Attachment rejected.", StringComparison.Ordinal)).IsFalse();
         var diagnostic = error.ToString();
-        if (scenario == "fresh")
-        {
-            _ = await Assert.That(diagnostic).IsEmpty();
-        }
-        else
+        _ = await Assert.That(diagnostic).Contains("looking for the workspace's latest user session...");
+        _ = await Assert.That(diagnostic.Contains("creating a new user session...", StringComparison.Ordinal))
+            .IsEqualTo(expectedConfigurations == 1);
+        _ = await Assert.That(diagnostic.Contains("created user session new-session", StringComparison.Ordinal))
+            .IsEqualTo(expectedConfigurations == 1);
+        _ = await Assert.That(diagnostic.Contains("restoring existing user session existing...", StringComparison.Ordinal))
+            .IsEqualTo(expectedResumes > 0);
+        if (scenario != "fresh")
         {
             _ = await Assert.That(diagnostic).Contains(scenario switch
             {
@@ -175,6 +179,8 @@ internal sealed class LocalChatStartupTests
         if (duringAttach)
         {
             await service.AttachStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+            _ = await Assert.That(error.ToString()).Contains("connecting to existing user session existing...");
+            _ = await Assert.That(error.ToString().Contains("connected to existing", StringComparison.Ordinal)).IsFalse();
             await stopping.CancelAsync();
         }
 
@@ -184,7 +190,9 @@ internal sealed class LocalChatStartupTests
         _ = await Assert.That(service.CreateCount).IsEqualTo(0);
         _ = await Assert.That(service.ResumeCount).IsEqualTo(0);
         _ = await Assert.That(service.AttachStarted.Task.IsCompleted).IsEqualTo(duringAttach);
-        _ = await Assert.That(error.ToString()).IsEmpty();
+        _ = await Assert.That(error.ToString().Length > 0).IsEqualTo(duringAttach);
+        _ = await Assert.That(error.ToString().Contains("loaded existing", StringComparison.Ordinal)).IsFalse();
+        _ = await Assert.That(error.ToString().Contains("created user session", StringComparison.Ordinal)).IsFalse();
         _ = await Assert.That(diagnostics.Read()).Contains("event=\"local.open.complete\"");
         _ = await Assert.That(diagnostics.Read().Contains(workspace.Root, StringComparison.Ordinal)).IsFalse();
     }
@@ -226,6 +234,8 @@ internal sealed class LocalChatStartupTests
             });
         var opening = startup.Open(true, stopping.Token);
         await service.ResumeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        _ = await Assert.That(error.ToString()).Contains("restoring existing user session existing...");
+        _ = await Assert.That(error.ToString().Contains("loaded existing", StringComparison.Ordinal)).IsFalse();
         if (scenario == "cancel-retry")
         {
             await service.RetryStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
@@ -254,7 +264,9 @@ internal sealed class LocalChatStartupTests
         _ = await Assert.That(service.Resumed?.UserSessionId).IsEqualTo("existing");
         _ = await Assert.That(service.Resumed?.WorkingDirectory).IsEqualTo(workspace.Root);
         _ = await Assert.That(service.Resumed?.InteractivePermissions).IsTrue();
-        _ = await Assert.That(error.ToString()).IsEmpty();
+        _ = await Assert.That(error.ToString().Contains("loaded existing", StringComparison.Ordinal)).IsFalse();
+        _ = await Assert.That(error.ToString().Contains("creating a new user session", StringComparison.Ordinal)).IsFalse();
+        _ = await Assert.That(error.ToString().Contains("connected to existing", StringComparison.Ordinal)).IsFalse();
         _ = await Assert.That(diagnostics.Read()).Contains("event=\"local.open.complete\"");
         _ = await Assert.That(diagnostics.Read().Contains(workspace.Root, StringComparison.Ordinal)).IsFalse();
     }

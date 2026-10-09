@@ -62,6 +62,7 @@ internal sealed class LocalChatStartup(
         bool interactivePermissions, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        await WriteProgress("looking for the workspace's latest user session...", cancellationToken).ConfigureAwait(false);
         var candidate = new WorkingDirectoryClaim(paths.State, hostKey).DiscoverLatest(workingDirectory);
         GeneratedParrot.ParrotClient? localClient = null;
         if (candidate.Disposition == ClaimDisposition.Corrupt)
@@ -108,24 +109,25 @@ internal sealed class LocalChatStartup(
 
             if (attached is not null)
             {
-                await error.WriteLineAsync(
-                    $"parrot: connected to existing user session {attached.Id}".AsMemory(), cancellationToken)
-                    .ConfigureAwait(false);
+                await WriteProgress($"connected to existing user session {attached.Id}", cancellationToken).ConfigureAwait(false);
                 return ((_connection ?? throw new InvalidOperationException("the attached connection was closed")).Client, attached);
             }
         }
 
         cancellationToken.ThrowIfCancellationRequested();
         localClient ??= await openLocalClient(cancellationToken).ConfigureAwait(false);
+        await WriteProgress("creating a new user session...", cancellationToken).ConfigureAwait(false);
         var request = await configureFresh(localClient, cancellationToken).ConfigureAwait(false);
         request.InteractivePermissions = interactivePermissions;
         var created = await localClient.CreateSessionAsync(request, cancellationToken: cancellationToken).ConfigureAwait(false);
+        await WriteProgress($"created user session {created.Id}", cancellationToken).ConfigureAwait(false);
         return (localClient, created);
     }
 
     private async Task<UserSession> Attach(UserSessionId sessionId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        await WriteProgress($"connecting to existing user session {sessionId}...", cancellationToken).ConfigureAwait(false);
         var resources = new UserSessionResources(paths, sessionId, ProjectWorkspace.FromLaunchDirectory(workingDirectory));
         try
         {
@@ -152,6 +154,7 @@ internal sealed class LocalChatStartup(
         bool interactivePermissions,
         CancellationToken cancellationToken)
     {
+        await WriteProgress($"restoring existing user session {sessionId}...", cancellationToken).ConfigureAwait(false);
         var loaded = await localClient.ResumeSessionAsync(
             new ResumeSessionRequest
             {
@@ -160,8 +163,13 @@ internal sealed class LocalChatStartup(
                 InteractivePermissions = interactivePermissions,
             },
             cancellationToken: cancellationToken).ConfigureAwait(false);
-        await error.WriteLineAsync(
-            $"parrot: loaded existing user session {loaded.Id}".AsMemory(), cancellationToken).ConfigureAwait(false);
+        await WriteProgress($"loaded existing user session {loaded.Id}", cancellationToken).ConfigureAwait(false);
         return loaded;
+    }
+
+    private async Task WriteProgress(string message, CancellationToken cancellationToken)
+    {
+        await error.WriteLineAsync($"parrot: {message}".AsMemory(), cancellationToken).ConfigureAwait(false);
+        await error.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 }
