@@ -19,6 +19,7 @@ internal sealed class AgentSessionActivity(TimeProvider timeProvider)
     private long? _latestProviderActivity;
     private long? _requestSessionStarted;
     private TimeSpan? _requestSessionDuration;
+    private long _recentSequence;
     private long _requestSessionExecution;
     private long _toolExecution;
     private DrainState _state;
@@ -156,7 +157,8 @@ internal sealed class AgentSessionActivity(TimeProvider timeProvider)
                 recent[index] = new AgentSessionActivityEntrySnapshot(
                     entry.Kind,
                     entry.Content,
-                    GetElapsedTime(entry.Timestamp, timestamp));
+                    GetElapsedTime(entry.Timestamp, timestamp),
+                    entry.Sequence);
             }
 
             TimeSpan? providerActivityAge = _latestProviderActivity is { } providerActivity
@@ -209,7 +211,7 @@ internal sealed class AgentSessionActivity(TimeProvider timeProvider)
 
     private void AppendRecent(AgentSessionActivityEntryKind kind, string content, long timestamp)
     {
-        _recent.Add(new RecentEntry(kind, content, timestamp));
+        _recent.Add(new RecentEntry(kind, content, timestamp, ++_recentSequence));
         if (_recent.Count > RecentEntryLimit)
         {
             _recent.RemoveAt(0);
@@ -222,5 +224,5 @@ internal sealed class AgentSessionActivity(TimeProvider timeProvider)
         return elapsed < TimeSpan.Zero ? TimeSpan.Zero : elapsed;
     }
 
-    private sealed record RecentEntry(AgentSessionActivityEntryKind Kind, string Content, long Timestamp);
+    private sealed record RecentEntry(AgentSessionActivityEntryKind Kind, string Content, long Timestamp, long Sequence);
 }

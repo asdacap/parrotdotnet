@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -11,6 +12,8 @@ namespace Parrot.Tools;
 internal sealed class AgentStatusTool(IAgentResolver resolver) : ITool
 {
     private const long RecentEntriesTokenBudget = 1000;
+
+    private readonly ConcurrentDictionary<string, long> _reportedThrough = new(StringComparer.Ordinal);
 
     public string Name => "agent_status";
 
@@ -44,7 +47,13 @@ internal sealed class AgentStatusTool(IAgentResolver resolver) : ITool
         {
             var childScope = resolver.ResolveStatusTargetScope(name);
             var activity = childScope.Session.Activity.Capture();
-            return Task.FromResult<ToolExecutionResult>(Format(childScope, activity));
+            var reportedThrough = _reportedThrough.GetValueOrDefault(childScope.Session.SessionId);
+            if (activity.Recent.Count > 0)
+            {
+                _reportedThrough[childScope.Session.SessionId] = activity.Recent[^1].Sequence;
+            }
+
+            return Task.FromResult<ToolExecutionResult>(Format(childScope, activity, reportedThrough));
         }
         catch (AgentRegistryException failure)
         {
@@ -93,7 +102,7 @@ internal sealed class AgentStatusTool(IAgentResolver resolver) : ITool
         }
     }
 
-    private static void AppendRecent(StringBuilder report, AgentSessionActivitySnapshot activity)
+    private static void AppendRecent(StringBuilder report, AgentSessionActivitySnapshot activity, long reportedThrough)
     {
         _ = report.Append("\nRecent entries:");
         if (activity.Recent.Count == 0)
@@ -102,7 +111,15 @@ internal sealed class AgentStatusTool(IAgentResolver resolver) : ITool
             return;
         }
 
-        var entries = activity.Recent.Select(FormatRecentEntry).ToArray();
+        var alreadyReportedCount = activity.Recent.Count(entry => entry.Sequence <= reportedThrough);
+        var skippedCount = Math.Max(0, alreadyReportedCount - 1);
+        if (skippedCount > 0)
+        {
+            _ = report.Append("\n- ").Append(skippedCount)
+                .Append(" earlier entries already reported by a previous agent_status");
+        }
+
+        var entries = activity.Recent.Skip(skippedCount).Select(FormatRecentEntry).ToArray();
         var includedCount = 0;
         long tokens = 0;
         while (includedCount < entries.Length)
@@ -147,7 +164,7 @@ internal sealed class AgentStatusTool(IAgentResolver resolver) : ITool
         return string.Create(CultureInfo.InvariantCulture, $"{duration.TotalMilliseconds:F0}ms");
     }
 
-    private static string Format(IAgentSessionScope childScope, AgentSessionActivitySnapshot activity)
+    private static string Format(IAgentSessionScope childScope, AgentSessionActivitySnapshot activity, long reportedThrough)
     {
         var report = new StringBuilder("Agent status");
         _ = report.Append("\nName: ").Append(childScope.Session.Name);
@@ -155,7 +172,7 @@ internal sealed class AgentStatusTool(IAgentResolver resolver) : ITool
         _ = report.Append("\nLifecycle: ").Append(activity.State.ToString().ToLowerInvariant());
         AppendActivity(report, activity);
         AppendActive(report, childScope);
-        AppendRecent(report, activity);
+        AppendRecent(report, activity, reportedThrough);
         return report.ToString();
     }
 
