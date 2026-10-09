@@ -62,7 +62,7 @@ internal sealed class EnhancedAgentToolPresenterTests
             new ToolCallPresentation("agent_spawn", "{\"prompt\":\"inspect logs\",\"name\":\"scout\",\"scope\":\"storage layer\"}"),
             "{\"name\":\"scout\",\"status\":\"running\"}",
             "Start agent scout",
-            "♟ Start agent scout|  name: scout|  scope: storage layer|  fork: empty|  prompt: inspect logs",
+            "♟ Started scout|  scope: storage layer||  inspect logs",
         ];
         yield return () =>
         [
@@ -141,7 +141,7 @@ internal sealed class EnhancedAgentToolPresenterTests
     }
 
     [Test]
-    public async Task Agent_spawn_renders_empty_full_and_checkpoint_forks()
+    public async Task Agent_spawn_omits_absent_forks_and_renders_full_and_checkpoint_forks()
     {
         IToolPresenter presenter = new AgentSpawnToolPresenter();
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty);
@@ -163,10 +163,68 @@ internal sealed class EnhancedAgentToolPresenterTests
             terminal)
             ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(ScrollbackContext);
 
-        _ = await Assert.That(string.Join('|', omitted)).Contains("fork: empty");
-        _ = await Assert.That(string.Join('|', empty)).Contains("fork: empty");
+        _ = await Assert.That(string.Join('|', omitted)).DoesNotContain("fork:");
+        _ = await Assert.That(string.Join('|', empty)).DoesNotContain("fork:");
         _ = await Assert.That(string.Join('|', full)).Contains("fork: full");
         _ = await Assert.That(string.Join('|', checkpoint)).Contains("fork: before refactor");
+    }
+
+    [Test]
+    public async Task Agent_spawn_renders_compact_metadata_and_preserves_prompt_paragraphs()
+    {
+        IToolPresenter presenter = new AgentSpawnToolPresenter();
+        var call = new ToolCallPresentation(
+            "agent_spawn",
+            "{\"name\":\"scout\",\"agent\":\"explorer\",\"model\":\"low_llm\",\"fork\":\"full\",\"prompt\":\"Read only.\\n\\nKeep wording.\\nNext line.\"}");
+        var completed = (presenter.PresentTerminal(
+            call,
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty))
+            ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(ScrollbackContext);
+
+        _ = await Assert.That(string.Join('|', completed)).IsEqualTo(
+            "♟ Started scout|  explorer · low_llm · fork: full||  Read only.||  Keep wording.|  Next line.");
+    }
+
+    [Test]
+    public async Task Agent_spawn_keeps_the_full_prompt_and_wraps_under_activity_decoration()
+    {
+        IToolPresenter presenter = new AgentSpawnToolPresenter();
+        var prompt = string.Join("\\n", Enumerable.Repeat("one two three four five", 110));
+        var call = new ToolCallPresentation("agent_spawn", $"{{\"name\":\"scout\",\"prompt\":\"{prompt}\"}}");
+        var context = new ScrollbackRenderContext(24, new TerminalPalette(false))
+        {
+            Decoration = ActivityDecoration.Describe(24, 1, "child", string.Empty),
+        };
+        var completed = (presenter.PresentTerminal(
+            call,
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty))
+            ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(context);
+
+        _ = await Assert.That(completed[0]).IsEqualTo("  ♟ [child] Started");
+        _ = await Assert.That(completed[1]).IsEqualTo("    [child] scout");
+        _ = await Assert.That(completed.Count).IsGreaterThan(110);
+        _ = await Assert.That(completed.All(line => TerminalText.Width(line) <= context.Columns)).IsTrue();
+        _ = await Assert.That(completed[^1]).IsEqualTo("    [child] five");
+        _ = await Assert.That(string.Join('|', completed)).DoesNotContain("truncated");
+    }
+
+    [Test]
+    public async Task Agent_spawn_styles_only_the_name_and_metadata()
+    {
+        IToolPresenter presenter = new AgentSpawnToolPresenter();
+        var palette = new TerminalPalette(true);
+        var call = new ToolCallPresentation(
+            "agent_spawn",
+            "{\"name\":\"scout\",\"agent\":\"explorer\",\"prompt\":\"plain **prompt**\"}");
+        var completed = (presenter.PresentTerminal(
+            call,
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty))
+            ?? throw new InvalidOperationException("Terminal presentation missing.")).Render(new ScrollbackRenderContext(80, palette));
+
+        _ = await Assert.That(completed[0]).IsEqualTo("♟ Started \u001b[1mscout\u001b[0m");
+        _ = await Assert.That(completed[1]).IsEqualTo("  " + palette.Muted.Apply("explorer"));
+        _ = await Assert.That(completed[2]).IsEqualTo(string.Empty);
+        _ = await Assert.That(completed[3]).IsEqualTo("  plain **prompt**");
     }
 
     [Test]

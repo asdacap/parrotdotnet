@@ -238,7 +238,7 @@ internal sealed class ToolPresenterRegistryTests
             .Render(new ScrollbackRenderContext(32_768, new TerminalPalette(true)));
 
         _ = await Assert.That(string.Join('|', spawnLines))
-            .IsEqualTo("♟ Start agent worker|  name: worker|  fork: empty|  prompt: ship it");
+            .IsEqualTo("♟ Started worker||  ship it");
         _ = await Assert.That(readLines).Count().IsEqualTo(1);
         _ = await Assert.That(readLines[0]).Contains("\u001b[38;5;245m✓ read src/App.cs\u001b[0m");
         _ = await Assert.That(string.Join('\n', readLines)).DoesNotContain("12: class App");

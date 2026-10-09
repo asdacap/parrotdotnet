@@ -30,6 +30,19 @@ internal sealed class AgentSpawnToolPresenter : IToolPresenter
             && name.GetString() is { Length: > 0 } value
                 ? $"Start agent {value}"
                 : "Start agent";
+        if (status == ToolTerminalStatus.Succeeded)
+        {
+            var metadata = new List<string>();
+            AddMetadata(metadata, arguments.RootElement, "agent", string.Empty);
+            AddMetadata(metadata, arguments.RootElement, "model", string.Empty);
+            AddMetadata(metadata, arguments.RootElement, "scope", "scope: ");
+            AddMetadata(metadata, arguments.RootElement, "fork", "fork: ");
+            return new AgentSpawnScrollbackValue(
+                arguments.RootElement.TryGetProperty("name", out var agentName) ? agentName.GetString() ?? string.Empty : string.Empty,
+                string.Join(" · ", metadata),
+                arguments.RootElement.GetProperty("prompt").GetString() ?? string.Empty);
+        }
+
         var block = status is ToolTerminalStatus.Errored or ToolTerminalStatus.ReportedFailure
             ? terminal.DescribeBlock(ToolBlockKind.None)
             : ToolBlock.FromCompletedInput(CompletedInput(arguments.RootElement));
@@ -71,6 +84,16 @@ internal sealed class AgentSpawnToolPresenter : IToolPresenter
         return value.Length == 0 || string.Equals(value, "empty", StringComparison.Ordinal)
             ? "empty"
             : value;
+    }
+
+    private static void AddMetadata(List<string> values, JsonElement arguments, string name, string prefix)
+    {
+        if (arguments.TryGetProperty(name, out var property)
+            && property.ValueKind == JsonValueKind.String
+            && property.GetString() is { Length: > 0 } value)
+        {
+            values.Add(prefix + value);
+        }
     }
 
     private static void AddScalar(List<string> values, JsonElement arguments, string name)
