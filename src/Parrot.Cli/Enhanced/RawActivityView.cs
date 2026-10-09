@@ -407,6 +407,17 @@ internal sealed class RawActivityView(
                 break;
             }
 
+            case Event.PayloadOneofCase.InputAdmitted
+                when published.InputAdmitted.Delivery == Delivery.Steer
+                    && published.InputAdmitted.Source == InputSource.Monitor:
+                await commit(
+                    Wrap(
+                        GetNamedAgentSession(published.AgentSessionId),
+                        new ActivityNoticeScrollbackValue(TerminalIcons.StatusNotice, "Monitor notification received")),
+                    Snapshot(),
+                    cancellationToken).ConfigureAwait(false);
+                break;
+
             case Event.PayloadOneofCase.ActiveWorkReminderInjected when _hierarchy.IsChild(published.AgentSessionId):
                 await commit(
                     Wrap(

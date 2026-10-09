@@ -69,7 +69,11 @@ internal sealed class MonitorToolTests : IDisposable
         var messages = new List<string>();
         while (messages.Count < expected.Length)
         {
-            messages.Add(await session.Messages.Reader.ReadAsync(cancellationToken));
+            var (input, source) = await session.Messages.Reader.ReadAsync(cancellationToken);
+            messages.Add(input.Content);
+            _ = await Assert.That(input.Delivery).IsEqualTo(Delivery.Steer);
+            _ = await Assert.That(source).IsEqualTo(
+                messages.Count < expected.Length ? InputSource.Monitor : InputSource.Unspecified);
             if (interrupt && messages.Count == 1)
             {
                 _ = await interruptTool.Execute(new ToolInvocation("interrupt-call", """{"name":"watch","signal":15}"""), Selection(), cancellationToken);
@@ -161,7 +165,7 @@ internal sealed class MonitorToolTests : IDisposable
 
     private sealed class RecordingSession : IAgentSession
     {
-        public Channel<string> Messages { get; } = Channel.CreateUnbounded<string>();
+        public Channel<(AdmittedInput Input, InputSource Source)> Messages { get; } = Channel.CreateUnbounded<(AdmittedInput, InputSource)>();
 
         public string SessionId => "agent";
 
@@ -189,7 +193,7 @@ internal sealed class MonitorToolTests : IDisposable
             CancellationToken cancellationToken)
         {
             var input = new AdmittedInput(messageId, messageId, parts, delivery);
-            _ = Messages.Writer.TryWrite(input.Content);
+            _ = Messages.Writer.TryWrite((input, reason.Source));
             return Task.FromResult((new Admission(input, null), true));
         }
 
