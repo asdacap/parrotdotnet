@@ -48,7 +48,7 @@ model_aliases:
 # define all four aliases, and each target must select that provider.
 provider_model_alias_defaults:
   chatgpt:
-    low_llm: chatgpt/gpt-6-luna/medium
+    low_llm: chatgpt/gpt-6-luna/high
     medium_llm: chatgpt/gpt-6.1-sol/medium
     high_llm: chatgpt/gpt-6.1-sol/high
     xhigh_llm: chatgpt/gpt-6-astra/medium
@@ -67,7 +67,19 @@ provider_model_alias_defaults:
 
 # Model guidance keyed by provider/model[/variant] or a slash-delimited prefix.
 # Each property inherits from broader prefixes; an explicit empty string clears it.
-model_profiles: {}
+model_profiles:
+  chatgpt/gpt-6-luna/medium:
+    usage: "Very cheap. Feel free to use whenever it save time. Feel free to spawn multiple subagent of this model. However, quite dumb. Use for automation or very clear small coding task with clear unit-testable acceptance criteria"
+    system_prompt: "Do not decide on your own. You are the hand and feet of a higher level model. Do not deviate from instruction and do not omit detail when exploring."
+  chatgpt/gpt-6.1-sol/medium:
+    usage: "General purpose. A little bit short sighted. Relatively cheap. However, quite slow and not so capable, but in general is fine. Do spawn multiple subagent of this model to speed things up where possible. "
+    system_prompt: "Be careful of loosing the point. When thinking that something is a flaw, look at a higher level, the caller, and the system in general, that flaw may not actually be a flaw and addressing it may take more of the user's attention, causing a net reduction in productivity."
+  chatgpt/gpt-6.1-sol/high:
+    usage: "General purpose with deeper thinking. A little bit short sighted, tend to lose big picture and write unnecessary code. Do verify if code is too complicated."
+    system_prompt: "Be careful of loosing the point. When thinking that something is a flaw, look at a higher level, the caller, and the system in general, that flaw may not actually be a flaw and addressing it may take more of the user's attention, causing a net reduction in productivity."
+  chatgpt/gpt-6-astra/medium:
+    usage: "Nice model, however, quite expensive and slow. Will generally provide right answer. Use for consult or decision making. But try not to use much due to its speed and cost."
+    system_prompt: "You are considered an expert actor and should not do low level tasks on your own. Delegate any low level tasks. Your job is to delegate, inspect, think and decide."
 
 # CLI executable names to discover on PATH. Expected utilities should normally be
 # available; optional utilities are reported only when installed. User entries
