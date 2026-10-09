@@ -135,6 +135,28 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         _ = await Assert.That(truncated).DoesNotContain(new string('a', 2000));
         _ = await Assert.That(truncated).DoesNotContain("line one");
 
+        var repeated = (await tool.Execute(
+            new ToolInvocation("call", "{\"name\":\"child\"}"),
+            new TurnFixture(parent, router).Selection,
+            cancellationToken)).Text;
+
+        _ = await Assert.That(repeated).Contains("\n- 2 earlier entries already reported by a previous agent_status");
+        _ = await Assert.That(repeated).Contains(new string('b', 2000));
+        _ = await Assert.That(repeated).DoesNotContain("older entries omitted");
+
+        child.Activity.RecordAssistantMessage("fresh one");
+        child.Activity.RecordAssistantMessage("fresh two");
+        var aliased = (await tool.Execute(
+            new ToolInvocation("call", $$"""{"name":"/{{parent.Name}}/child"}"""),
+            new TurnFixture(parent, router).Selection,
+            cancellationToken)).Text;
+
+        _ = await Assert.That(aliased).Contains("\n- 2 earlier entries already reported by a previous agent_status");
+        _ = await Assert.That(aliased).Contains(new string('b', 2000));
+        _ = await Assert.That(aliased).Contains("fresh one");
+        _ = await Assert.That(aliased).Contains("fresh two");
+        _ = await Assert.That(aliased).DoesNotContain(new string('a', 2000));
+
         child.Activity.FinishTool(toolExecution);
         provider.Release();
         await registry.DisposeAsync();
