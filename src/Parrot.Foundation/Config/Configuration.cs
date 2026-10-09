@@ -20,6 +20,7 @@ internal sealed partial class Configuration(string path)
     private const string ModelAliasesKey = "model_aliases";
     private const string ModelPresetsKey = "model_presets";
     private const string ProviderModelAliasDefaultsKey = "provider_model_alias_defaults";
+    private const string ModelProfilesKey = "model_profiles";
     private const string ModelAugmentSystemPromptsKey = "model_augment_system_prompts";
     private const string ModelKey = "model";
     private const string SystemPromptsKey = "system_prompts";
@@ -73,8 +74,8 @@ internal sealed partial class Configuration(string path)
     public IReadOnlyDictionary<string, ProviderModelAliasDefaults> ProviderModelAliasDefaults { get; private set; } =
         new SortedDictionary<string, ProviderModelAliasDefaults>(StringComparer.Ordinal);
 
-    public IReadOnlyDictionary<string, string> ModelAugmentSystemPrompts { get; private set; } =
-        new SortedDictionary<string, string>(StringComparer.Ordinal);
+    public ModelProfiles ModelProfiles { get; private set; } =
+        new(new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal));
 
     public WebFetchConfig WebFetch { get; private set; } = new();
 
@@ -254,7 +255,7 @@ internal sealed partial class Configuration(string path)
             ModelAliases = ReadModelAliases(root),
             ModelPresets = ReadModelPresets(root),
             ProviderModelAliasDefaults = ReadProviderModelAliasDefaults(root),
-            ModelAugmentSystemPrompts = ReadModelAugmentSystemPrompts(root),
+            ModelProfiles = ReadModelProfiles(root),
             Providers = ReadProviders(root),
             WebFetch = ReadWebFetch(root),
             RequestLimits = ReadRequestLimits(root),
@@ -911,33 +912,69 @@ internal sealed partial class Configuration(string path)
         return arguments;
     }
 
-    private static SortedDictionary<string, string> ReadModelAugmentSystemPrompts(YamlMappingNode root)
+    private static ModelProfiles ReadModelProfiles(YamlMappingNode root)
     {
-        var prompts = new SortedDictionary<string, string>(StringComparer.Ordinal);
-
-        if (!Child(root, ModelAugmentSystemPromptsKey, out var node))
+        if (Child(root, ModelAugmentSystemPromptsKey, out _))
         {
-            return prompts;
+            throw new InvalidDataException(
+                $"{ModelAugmentSystemPromptsKey} is no longer supported; move each entry to {ModelProfilesKey}.<selector>.system_prompt");
+        }
+
+        var profiles = new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal);
+        if (!Child(root, ModelProfilesKey, out var node))
+        {
+            return new(profiles);
         }
 
         if (node is not YamlMappingNode configured)
         {
-            throw new InvalidDataException($"{ModelAugmentSystemPromptsKey} must be a mapping");
+            throw new InvalidDataException($"{ModelProfilesKey} must be a mapping");
         }
 
         foreach (var entry in configured.Children)
         {
-            if (entry.Key is not YamlScalarNode { Value: { } selector } ||
-                entry.Value is not YamlScalarNode { Value: { } prompt })
+            if (entry.Key is not YamlScalarNode { Value: { } selector })
             {
-                throw new InvalidDataException($"{ModelAugmentSystemPromptsKey} must contain string values");
+                throw new InvalidDataException($"{ModelProfilesKey} keys must be strings");
             }
 
-            ValidateModelSelector($"{ModelAugmentSystemPromptsKey} key", selector, allowEmpty: false);
-            prompts[selector] = prompt;
+            var field = $"{ModelProfilesKey}.{selector}";
+            if (selector.Length == 0 || !string.Equals(selector.Trim(), selector, StringComparison.Ordinal) ||
+                selector.Any(character => char.IsControl(character) && char.IsWhiteSpace(character)) ||
+                selector.Split('/').Any(segment => segment.Length == 0))
+            {
+                throw new InvalidDataException($"{field} key must be a trimmed slash-delimited prefix without empty segments or control whitespace");
+            }
+
+            if (entry.Value is not YamlMappingNode fields)
+            {
+                throw new InvalidDataException($"{field} must be a mapping");
+            }
+
+            ValidateKeys(fields, field, "usage", "system_prompt");
+            profiles[selector] = new(
+                ReadModelProfileProperty(fields, "usage", field),
+                ReadModelProfileProperty(fields, "system_prompt", field));
         }
 
-        return prompts;
+        return new(profiles);
+    }
+
+    private static string? ReadModelProfileProperty(YamlMappingNode fields, string key, string field)
+    {
+        if (!Child(fields, key, out var node))
+        {
+            return null;
+        }
+
+        if (node is not YamlScalarNode scalar)
+        {
+            throw new InvalidDataException($"{field}.{key} must be a string or null");
+        }
+
+        return scalar.Style == ScalarStyle.Plain && scalar.Value is null or "" or "null" or "Null" or "NULL" or "~"
+            ? null
+            : scalar.Value;
     }
 
     private static ModelAliasIconConfig? ReadModelAliasIcon(YamlMappingNode fields, string name)

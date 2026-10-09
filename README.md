@@ -456,8 +456,8 @@ add new keys without replacing unrelated entries. Provider keys must follow the
 same namespaced key rules as runtime system-prompt providers. A configured key
 that collides with a runtime provider is rejected rather than replacing the
 runtime provider. This map is separate from `profiles.<id>.prompt`, which is
-mode-specific guidance, and `model_augment_system_prompts`, which augments the
-prompt for selected model selectors.
+mode-specific guidance, and `model_profiles`, which supplies usage guidance
+and additional system instructions by selected canonical model.
 
 Profiles are configured under `profiles`. Each profile has two independent
 selectability flags: `is_user_selectable` controls foreground mode listing and
@@ -1284,7 +1284,7 @@ model_aliases:
   low_llm:
     model_string: provider/model/low
     usage: Low cost or routine work
-    augment_system_prompt: null
+    augment_system_prompt: Additional alias instructions
     # Optional compaction trigger for this alias; percentages use the model context window.
     context_limit: 80%
   review_llm:
@@ -1294,19 +1294,52 @@ model_aliases:
 # Optional global compaction trigger (an alias context_limit takes precedence).
 context_limit: 100k
 
-model_augment_system_prompts:
-  provider/model/low: Additional system guidance
+model_profiles:
+  provider:
+    usage: General provider guidance
+    system_prompt: General provider instructions
+  provider/model:
+    usage: Guidance for this model
+  provider/model/high:
+    system_prompt: Instructions for this variant
 ```
 
 `model_string` is the canonical target. An empty target is valid: it defines a
 disabled, unconfigured alias, which is shown in the model-alias picker and
 reported as a startup warning. Selecting it fails clearly until it is
-configured. `usage` is required after predefined and user fields are merged.
-Alias names are ordinal, case-sensitive identifiers: they must be nonempty,
-already trimmed, and contain no `/`. Targets and canonical augmentation keys
-must be trimmed `provider/model[/variant]` selectors with no empty or control
-whitespace path segment. Aliases cannot chain or refer to themselves; an alias
-target must be a canonical selector accepted by a configured provider.
+configured. Alias `usage` is required after predefined and user fields are
+merged. Alias names are ordinal, case-sensitive identifiers: they must be
+nonempty, already trimmed, and contain no `/`. Targets must be trimmed
+`provider/model[/variant]` selectors with no empty or control-whitespace path
+segment. Aliases cannot chain or refer to themselves; an alias target must be a
+canonical selector accepted by a configured provider.
+
+`model_profiles` keys are ordinal, case-sensitive slash-delimited prefixes of
+the resolved canonical selector. Matching chooses the longest key that is the
+whole selector or ends before a `/` boundary. For example, `provider/model`
+matches `provider/model/high` but not `provider/model2`; `provider` applies to
+all models from that provider. Prefixes may include nested model IDs, such as
+`openrouter/vendor/model/high`. Keys must be trimmed and have no empty path
+segments. A profile may contain either or both of these optional properties:
+
+- `usage` adds model-specific advice to the alias's usage in the agent-facing
+  model-alias list. The alias usage appears first, then model usage on a new
+  line. This does not change the `/model-alias` picker text.
+- `system_prompt` adds model-specific instructions to the normal agent
+  instructions.
+
+Each property falls back independently through broader matching prefixes.
+Omitted or YAML `null` properties inherit from a broader profile. An explicit
+empty string (`''` or `""`) stops fallback for that property and contributes
+nothing. A more specific value replaces that property's broader value; matching
+profiles are not concatenated.
+
+For a selected model, normal instructions are followed by the resolved model
+profile's nonempty `system_prompt`, then by the selected alias's nonempty
+`augment_system_prompt`. Both are appended as distinct sections. Direct model
+selection has no alias section. An empty alias `augment_system_prompt` no longer
+suppresses model-profile instructions. Model profiles are loaded with
+configuration and are not hot-reloaded; restart after changing them.
 
 The requested selector remains the session's identity. Thus a session selected
 as `high_llm` continues to display and persist `high_llm`, while the provider
@@ -1347,14 +1380,30 @@ as an indented `NAME = MODEL_STRING` line, ordered ordinally by alias name. A
 remote CLI queries and updates that authoritative server configuration; it does
 not modify its own local configuration instead.
 
-Aliases can also tailor the system prompt. For a matched alias, a non-null
-`augment_system_prompt` wins, including an explicit empty string, which
-suppresses augmentation. `null` (or omission) falls through to
-`model_augment_system_prompts`: first an exact canonical selector key, then its
-canonical base `provider/model` key. An explicit empty alias value is therefore
-different from `null`. Direct canonical selectors retain the same exact-then-
-base augmentation behavior, and remain compatible with unlisted models that
-the provider accepts.
+### Migrating model prompt configuration
+
+Move each old scalar prompt entry to the `system_prompt` property of its model
+profile. For example:
+
+```yaml
+# Before
+model_augment_system_prompts:
+  provider/model/high: Additional instructions
+
+# After
+model_profiles:
+  provider/model/high:
+    system_prompt: Additional instructions
+```
+
+`model_augment_system_prompts` is no longer supported. Configuration containing
+that key is rejected with a migration message; the application does not migrate
+configuration files automatically and does not provide a legacy fallback. If an
+alias previously set `augment_system_prompt: ''` to suppress a model-map prompt,
+that value now omits only the alias prompt. To suppress broader model-profile
+instructions, set `system_prompt: ''` on a more specific model profile. This
+applies to every alias targeting that model. The alias prompt is now appended
+after the model prompt when nonempty.
 
 ## Child agents, processes, and queues
 

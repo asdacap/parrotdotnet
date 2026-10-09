@@ -1,5 +1,6 @@
 using Parrot.Config;
 using Parrot.Context;
+using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Store;
 
@@ -19,7 +20,10 @@ internal sealed class TestSystemPromptFixture(string workingDirectory, string co
             new OptionalCliUtilitiesProvider(EmptyCliUtilities(), TestModels.PromptTemplates),
             new SessionIdentityProvider(),
             new SubagentsProvider(new TestProfileFixture().Registry, TestModels.PromptTemplates),
-            new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal), TestModels.PromptTemplates),
+            new ModelPromptProvider(
+                new ModelProfiles(new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal)),
+                TestModels.Route(new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"))),
+                TestModels.PromptTemplates),
             new SecurityProfileProvider([], new SandboxGate(enabled: true), TestModels.PromptTemplates),
         ]);
 

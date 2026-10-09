@@ -1600,17 +1600,138 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
-    public async Task Model_augment_system_prompts_are_a_canonical_selector_map()
+    public async Task Model_profiles_resolve_each_property_from_the_closest_prefix()
     {
-        var prompts = Load(Write("""
-            model_augment_system_prompts:
-              openai/gpt-5: First prompt
-              anthropic/claude-sonnet: Second prompt
-            """)).ModelAugmentSystemPrompts;
+        var profiles = Load(Write("""
+            model_profiles:
+              provider:
+                usage: Provider usage
+                system_prompt: Provider prompt
+              provider/vendor/model:
+                system_prompt: Model prompt
+              provider/vendor/model/high:
+                usage: Variant usage
+                system_prompt: null
+              provider/vendor/model/low:
+                usage: ''
+                system_prompt: ''
+            """)).ModelProfiles;
 
-        _ = await Assert.That(prompts).Count().IsEqualTo(2);
-        _ = await Assert.That(prompts["openai/gpt-5"]).IsEqualTo("First prompt");
-        _ = await Assert.That(prompts["anthropic/claude-sonnet"]).IsEqualTo("Second prompt");
+        _ = await Assert.That(profiles.Resolve("provider/vendor/model/high"))
+            .IsEqualTo(new ModelProfileConfig("Variant usage", "Model prompt"));
+        _ = await Assert.That(profiles.Resolve("provider/vendor/model"))
+            .IsEqualTo(new ModelProfileConfig("Provider usage", "Model prompt"));
+        _ = await Assert.That(profiles.Resolve("provider/vendor/model/low"))
+            .IsEqualTo(new ModelProfileConfig(string.Empty, string.Empty));
+        _ = await Assert.That(profiles.Resolve("provider/vendor/model60"))
+            .IsEqualTo(new ModelProfileConfig("Provider usage", "Provider prompt"));
+        _ = await Assert.That(profiles.Resolve("Provider/vendor/model"))
+            .IsEqualTo(new ModelProfileConfig(null, null));
+        _ = await Assert.That(profiles.Resolve("unknown/model"))
+            .IsEqualTo(new ModelProfileConfig(null, null));
+    }
+
+    [Test]
+    public async Task Model_profiles_capture_entries_and_preserve_default_alias_guidance()
+    {
+        var entries = new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal)
+        {
+            ["provider"] = new("Provider usage", "Provider prompt"),
+        };
+        var profiles = new ModelProfiles(entries);
+        entries["provider"] = new("Changed usage", "Changed prompt");
+
+        _ = await Assert.That(profiles.Resolve("provider/model"))
+            .IsEqualTo(new ModelProfileConfig("Provider usage", "Provider prompt"));
+
+        var defaults = Load(Write(string.Empty)).ModelAliases;
+        var configuration = Load(Write("""
+            model_aliases:
+              low_llm:
+                model_string: provider/model
+            model_profiles:
+              provider/model:
+                usage: Model usage
+            """));
+
+        _ = await Assert.That(configuration.ModelAliases["low_llm"].Usage).IsEqualTo(defaults["low_llm"].Usage);
+        _ = await Assert.That(configuration.ModelAliases["low_llm"].ModelString).IsEqualTo("provider/model");
+        _ = await Assert.That(configuration.ModelProfiles.Resolve("provider/model"))
+            .IsEqualTo(new ModelProfileConfig("Model usage", null));
+    }
+
+    [Test]
+    [Arguments("null")]
+    [Arguments("Null")]
+    [Arguments("NULL")]
+    [Arguments("~")]
+    [Arguments("")]
+    public async Task Model_profile_yaml_null_properties_inherit(string value)
+    {
+        var profiles = Load(Write($"""
+            model_profiles:
+              provider:
+                usage: Parent usage
+                system_prompt: Parent prompt
+              provider/model:
+                usage: {value}
+                system_prompt: {value}
+            """)).ModelProfiles;
+
+        _ = await Assert.That(profiles.Resolve("provider/model"))
+            .IsEqualTo(new ModelProfileConfig("Parent usage", "Parent prompt"));
+    }
+
+    [Test]
+    public async Task Model_profile_quoted_null_is_a_string_and_missing_properties_contribute_nothing()
+    {
+        var configuration = Load(Write("""
+            model_profiles:
+              provider/model:
+                usage: 'null'
+                system_prompt: '~'
+              provider/empty: {}
+            """));
+
+        _ = await Assert.That(configuration.ModelProfiles.Resolve("provider/model"))
+            .IsEqualTo(new ModelProfileConfig("null", "~"));
+        _ = await Assert.That(configuration.ModelProfiles.Resolve("provider/empty"))
+            .IsEqualTo(new ModelProfileConfig(null, null));
+        _ = await Assert.That(Load(Write(string.Empty)).ModelProfiles.Resolve("provider/model"))
+            .IsEqualTo(new ModelProfileConfig(null, null));
+    }
+
+    [Test]
+    [Arguments("model_profiles: []", "model_profiles")]
+    [Arguments("model_profiles: null", "model_profiles")]
+    [Arguments("model_profiles:\n  '': {}", "model_profiles")]
+    [Arguments("model_profiles:\n  ' provider': {}", "model_profiles")]
+    [Arguments("model_profiles:\n  'provider ': {}", "model_profiles")]
+    [Arguments("model_profiles:\n  provider//model: {}", "model_profiles")]
+    [Arguments("model_profiles:\n  /provider: {}", "model_profiles")]
+    [Arguments("model_profiles:\n  provider/: {}", "model_profiles")]
+    [Arguments("model_profiles:\n  \"provider\\tmodel\": {}", "model_profiles")]
+    [Arguments("model_profiles:\n  provider: scalar", "model_profiles.provider")]
+    [Arguments("model_profiles:\n  provider:\n    unknown: value", "model_profiles.provider")]
+    [Arguments("model_profiles:\n  provider:\n    usage: []", "model_profiles.provider.usage")]
+    [Arguments("model_profiles:\n  provider:\n    system_prompt: {}", "model_profiles.provider.system_prompt")]
+    public async Task Invalid_model_profiles_are_rejected_with_field_diagnostics(string content, string field)
+    {
+        var exception = Assert.Throws<InvalidDataException>(() => Load(Write(content)));
+
+        _ = await Assert.That(exception.Message).Contains(field);
+    }
+
+    [Test]
+    [Arguments("model_augment_system_prompts: {}")]
+    [Arguments("model_augment_system_prompts: null")]
+    [Arguments("model_augment_system_prompts:\n  provider/model: Legacy prompt\nmodel_profiles:\n  provider/model:\n    system_prompt: New prompt")]
+    public async Task Legacy_model_prompts_require_manual_migration(string content)
+    {
+        var exception = Assert.Throws<InvalidDataException>(() => Load(Write(content)));
+
+        _ = await Assert.That(exception.Message).Contains("model_augment_system_prompts is no longer supported");
+        _ = await Assert.That(exception.Message).Contains("model_profiles.<selector>.system_prompt");
     }
 
     [Test]

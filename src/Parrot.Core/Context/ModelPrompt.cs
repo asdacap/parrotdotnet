@@ -5,7 +5,7 @@ using Scriban.Runtime;
 
 namespace Parrot.Context;
 
-internal sealed class ModelPrompt(IReadOnlyDictionary<string, string> augmentations, IPromptTemplateCatalog templates) : ISystemPrompt
+internal sealed class ModelPrompt(ModelProfiles profiles, IModelRouter router, IPromptTemplateCatalog templates) : ISystemPrompt
 {
     private AliasSection? _aliasSection;
 
@@ -16,34 +16,41 @@ internal sealed class ModelPrompt(IReadOnlyDictionary<string, string> augmentati
     public string Build(AgentTurnSelection selection)
     {
         ArgumentNullException.ThrowIfNull(selection);
-        var aliasSnapshot = selection.ResolvedModel.AliasSnapshot;
-        if (_aliasSection is not { } aliasSection || !ReferenceEquals(aliasSection.Snapshot, aliasSnapshot))
+        var routingSnapshot = selection.ResolvedModel.RoutingSnapshot;
+        if (_aliasSection is not { } aliasSection || !ReferenceEquals(aliasSection.Snapshot, routingSnapshot))
         {
-            aliasSection = new AliasSection(aliasSnapshot, RenderAliases(aliasSnapshot));
+            aliasSection = new AliasSection(routingSnapshot, RenderAliases(routingSnapshot));
             _aliasSection = aliasSection;
         }
 
-        var sections = new List<string> { aliasSection.Text };
-
-        var augmentation = Augmentation(selection.ResolvedModel);
-        if (!string.IsNullOrEmpty(augmentation))
-        {
-            sections.Add(augmentation);
-        }
-
-        return string.Join("\n\n", sections.Where(section => section.Length > 0));
+        var modelPrompt = profiles.Resolve(selection.ResolvedModel.CanonicalModel.Selector).SystemPrompt;
+        string?[] sections = [aliasSection.Text, modelPrompt, selection.ResolvedModel.Alias?.AugmentSystemPrompt];
+        return string.Join("\n\n", sections.Where(section => !string.IsNullOrEmpty(section)));
     }
 
-    private string RenderAliases(ModelAliasSnapshot snapshot)
+    private string RenderAliases(ModelRoutingSnapshot snapshot)
     {
         var aliases = new ScriptArray();
-        foreach (var alias in snapshot.Definitions.Values.Where(alias => alias.ModelString.Length > 0))
+        foreach (var alias in snapshot.Aliases.Definitions.Values.Where(alias => alias.ModelString.Length > 0))
         {
+            string? modelUsage = null;
+            try
+            {
+                var resolved = router.ResolveFrom(snapshot, alias.Name);
+                modelUsage = profiles.Resolve(resolved.CanonicalModel.Selector).Usage;
+            }
+            catch (LLMProviderException)
+            {
+            }
+
+            var usage = string.IsNullOrEmpty(modelUsage)
+                ? alias.Usage
+                : string.IsNullOrEmpty(alias.Usage) ? modelUsage : $"{alias.Usage}\n{modelUsage}";
             aliases.Add(new ScriptObject
             {
                 ["name"] = alias.Name,
                 ["model"] = alias.ModelString,
-                ["usage"] = alias.Usage,
+                ["usage"] = usage,
             });
         }
 
@@ -52,20 +59,5 @@ internal sealed class ModelPrompt(IReadOnlyDictionary<string, string> augmentati
             : string.Empty;
     }
 
-    private string? Augmentation(ResolvedModelSelection selection)
-    {
-        if (selection.Alias?.AugmentSystemPrompt is { } aliasAugmentation)
-        {
-            return aliasAugmentation;
-        }
-
-        if (augmentations.TryGetValue(selection.CanonicalModel.Selector, out var exact))
-        {
-            return exact;
-        }
-
-        return augmentations.GetValueOrDefault(selection.CanonicalBase);
-    }
-
-    private sealed record AliasSection(ModelAliasSnapshot Snapshot, string Text);
+    private sealed record AliasSection(ModelRoutingSnapshot Snapshot, string Text);
 }

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
@@ -347,7 +348,10 @@ internal sealed class CompactorAndContextTests : IDisposable
             new TestProfileFixture().Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []));
 
-        var built = new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal), TestModels.PromptTemplates)
+        var built = new ModelPromptProvider(
+                new ModelProfiles(new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal)),
+                TestModels.Route(new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"))),
+                TestModels.PromptTemplates)
             .Materialize(AgentIdentity.Main("session", "main", TestModels.PromptTemplates))
             .Build(selection);
 
@@ -358,7 +362,7 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
-    public async Task Model_prompt_context_prefers_alias_then_exact_then_base_augmentation()
+    public async Task Model_prompt_context_appends_alias_after_exact_or_base_model_guidance()
     {
         var provider = new UnusedProvider();
         var baseModel = new LLMModel("model", provider.Id);
@@ -367,11 +371,12 @@ internal sealed class CompactorAndContextTests : IDisposable
         var alias = new ModelAliasDefinition("preferred", model.Selector, "primary", "alias augmentation", null);
         var snapshot = new ModelAliasSnapshot([alias]);
         var prompt = new ModelPromptProvider(
-            new Dictionary<string, string>(StringComparer.Ordinal)
+            new ModelProfiles(new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal)
             {
-                [model.Selector] = "exact augmentation",
-                [$"{provider.Id}/{baseModel.Id}"] = "base augmentation",
-            },
+                [model.Selector] = new(null, "exact augmentation"),
+                [$"{provider.Id}/{baseModel.Id}"] = new(null, "base augmentation"),
+            }),
+            TestModels.Route(model),
             TestModels.PromptTemplates)
             .Materialize(AgentIdentity.Main("session", "main", TestModels.PromptTemplates));
         var aliasBuilt = prompt.Build(new AgentTurnSelection(
@@ -402,10 +407,11 @@ internal sealed class CompactorAndContextTests : IDisposable
                 new TestProfileFixture().Profile,
                 SecurityProfile.Compose(readOnly: false, [], [], [])));
         var baseOnly = new ModelPromptProvider(
-            new Dictionary<string, string>(StringComparer.Ordinal)
+            new ModelProfiles(new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal)
             {
-                [$"{provider.Id}/{baseModel.Id}"] = "base augmentation",
-            },
+                [$"{provider.Id}/{baseModel.Id}"] = new(null, "base augmentation"),
+            }),
+            TestModels.Route(model),
             TestModels.PromptTemplates)
             .Materialize(AgentIdentity.Main("session", "main", TestModels.PromptTemplates))
             .Build(new AgentTurnSelection(
@@ -419,17 +425,94 @@ internal sealed class CompactorAndContextTests : IDisposable
                 SecurityProfile.Compose(readOnly: false, [], [], [])));
 
         _ = await Assert.That(aliasBuilt).Contains("alias augmentation");
-        _ = await Assert.That(aliasBuilt).DoesNotContain("exact augmentation");
-        _ = await Assert.That(suppressed).DoesNotContain("augmentation");
+        _ = await Assert.That(aliasBuilt).Contains("exact augmentation\n\nalias augmentation");
+        _ = await Assert.That(suppressed).Contains("exact augmentation");
         _ = await Assert.That(exactBuilt).Contains("exact augmentation");
         _ = await Assert.That(exactBuilt).DoesNotContain("base augmentation");
         _ = await Assert.That(baseOnly).Contains("base augmentation");
     }
 
     [Test]
+    [Arguments(null)]
+    [Arguments("")]
+    [Arguments("Alias instructions")]
+    public async Task Model_profile_guidance_uses_captured_routes_and_preserves_unavailable_aliases(string? aliasPrompt)
+    {
+        var provider = new UnusedProvider();
+        var model = new ProviderModel(provider, new LLMModel("vendor/model", provider.Id), new Parrot.Llm.ModelVariant("high", "high"));
+        var router = TestModels.Route(model);
+        var aliases = new ModelAliasSnapshot([
+            new("alpha", model.Selector, "Alpha usage", aliasPrompt, null),
+            new("beta", model.Selector, "Beta usage", null, null),
+            new("disabled", string.Empty, "Disabled usage", null, null),
+            new("gamma", "unused/vendor/model", "Gamma usage", null, null),
+            new("unavailable", "missing/model", "Unavailable usage", null, null),
+        ]);
+        var original = new ModelRoutingSnapshot(model.Selector, aliases, 1);
+        var retargeted = new ModelRoutingSnapshot(
+            model.Selector,
+            new ModelAliasSnapshot([
+                new("alpha", "unused/unlisted", "Alpha usage", aliasPrompt, null),
+            ]),
+            2);
+        var profiles = new ModelProfiles(new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal)
+        {
+            [provider.Id] = new("Provider usage", "Provider instructions"),
+            ["unused/vendor/model"] = new(null, "Model instructions"),
+            [model.Selector] = new("Variant usage", null),
+            ["unused/unlisted"] = new(string.Empty, string.Empty),
+        });
+        var prompt = new ModelPromptProvider(profiles, router, TestModels.PromptTemplates)
+            .Materialize(AgentIdentity.Main("session", "main", TestModels.PromptTemplates));
+
+        string Render(ModelRoutingSnapshot snapshot, string selector)
+        {
+            var resolved = router.ResolveFrom(snapshot, selector);
+            return prompt.Build(new AgentTurnSelection(
+                new ModelSelector(selector),
+                resolved,
+                new TestProfileFixture().Profile,
+                SecurityProfile.Compose(readOnly: false, [], [], [])));
+        }
+
+        var initial = Render(original, "alpha");
+        var direct = Render(original, model.Selector);
+        var changed = Render(retargeted, "alpha");
+        var originalAgain = Render(original, "alpha");
+
+        _ = await Assert.That(initial).Contains("Alpha usage\nVariant usage");
+        _ = await Assert.That(initial).Contains("Beta usage\nVariant usage");
+        _ = await Assert.That(initial).Contains("Gamma usage\nProvider usage");
+        _ = await Assert.That(initial).Contains("Unavailable usage");
+        _ = await Assert.That(initial).DoesNotContain("Disabled usage");
+        _ = await Assert.That(initial).DoesNotContain("Provider instructions");
+        _ = await Assert.That(initial).Contains("Model instructions");
+        _ = await Assert.That(direct).Contains("Model instructions");
+        _ = await Assert.That(direct).DoesNotContain("Alias instructions");
+        _ = await Assert.That(changed).Contains("Alpha usage");
+        _ = await Assert.That(changed).DoesNotContain("Variant usage");
+        _ = await Assert.That(changed).DoesNotContain("Provider usage");
+        _ = await Assert.That(changed).DoesNotContain("Model instructions");
+        _ = await Assert.That(changed).DoesNotContain("Provider instructions");
+        _ = await Assert.That(originalAgain).IsEqualTo(initial);
+        if (!string.IsNullOrEmpty(aliasPrompt))
+        {
+            _ = await Assert.That(initial).EndsWith($"Model instructions\n\n{aliasPrompt}");
+            _ = await Assert.That(changed).EndsWith(aliasPrompt);
+        }
+        else
+        {
+            _ = await Assert.That(initial).EndsWith("Model instructions");
+        }
+    }
+
+    [Test]
     public async Task Model_prompt_context_excludes_the_selected_profile_prompt()
     {
-        var built = new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal), TestModels.PromptTemplates)
+        var built = new ModelPromptProvider(
+                new ModelProfiles(new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal)),
+                TestModels.Route(new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"))),
+                TestModels.PromptTemplates)
             .Materialize(AgentIdentity.Main("session", "main", TestModels.PromptTemplates))
             .Build(new SelectionFixture(new ProfileFixture(null, new HashSet<string>(StringComparer.Ordinal)).Profile).Value);
 

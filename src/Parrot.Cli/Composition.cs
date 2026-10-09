@@ -173,6 +173,7 @@ internal partial class Composition
                 ctx.Inject<ProfileRegistry>(out var profiles);
                 ctx.Inject<CliUtilityAvailability>(out var cliUtilities);
                 ctx.Inject<SandboxGate>(out var sandboxGate);
+                ctx.Inject<IModelRouter>(out var router);
                 List<ISystemPromptProvider> systemPromptProviders =
                 [
                     .. configuration.SystemPrompts.Select(
@@ -185,7 +186,7 @@ internal partial class Composition
                     new OptionalCliUtilitiesProvider(cliUtilities, configuration.PromptTemplates),
                     new SessionIdentityProvider(),
                     new SubagentsProvider(profiles, configuration.PromptTemplates),
-                    new ModelPromptProvider(configuration.ModelAugmentSystemPrompts, configuration.PromptTemplates),
+                    new ModelPromptProvider(configuration.ModelProfiles, router, configuration.PromptTemplates),
                     new SecurityProfileProvider(
                         configuration.SandboxRules,
                         sandboxGate,
