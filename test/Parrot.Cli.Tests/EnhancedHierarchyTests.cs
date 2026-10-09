@@ -112,6 +112,76 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
+    [Arguments("root", "↻ Monitor notification received")]
+    [Arguments("child", "  ↻ [worker] Monitor notification received")]
+    public async Task Monitor_receipt_is_committed_once_at_the_receiving_agent_level(
+        string receivingAgent, string expected, CancellationToken cancellationToken)
+    {
+        await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);
+        await fixture.View.Render(
+            new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await fixture.View.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" },
+            },
+            cancellationToken);
+        fixture.Committed.Clear();
+
+        await fixture.View.Render(
+            new Event
+            {
+                AgentSessionId = receivingAgent,
+                InputAdmitted = new InputAdmitted
+                {
+                    InputId = "batch",
+                    Delivery = Delivery.Steer,
+                    Source = InputSource.Monitor,
+                    Content = "Monitor watch (ticks):\nfirst\nsecond",
+                },
+            },
+            cancellationToken);
+        await fixture.View.Render(
+            new Event { AgentSessionId = receivingAgent, InputPromoted = new InputPromoted { InputId = "batch" } },
+            cancellationToken);
+
+        _ = await Assert.That(fixture.Committed).HasSingleItem();
+        _ = await Assert.That(fixture.Committed[0]).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments(InputSource.Unspecified, Delivery.Steer)]
+    [Arguments((InputSource)999, Delivery.Steer)]
+    [Arguments(InputSource.Monitor, Delivery.Queue)]
+    [Arguments(InputSource.Monitor, Delivery.Unspecified)]
+    public async Task Other_admissions_do_not_commit_monitor_receipts(
+        InputSource source, Delivery delivery, CancellationToken cancellationToken)
+    {
+        await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);
+        await fixture.View.Render(
+            new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        fixture.Committed.Clear();
+
+        await fixture.View.Render(
+            new Event
+            {
+                AgentSessionId = "root",
+                InputAdmitted = new InputAdmitted
+                {
+                    Delivery = delivery,
+                    Source = source,
+                    Content = "Monitor watch (ticks):\nnot a tagged steer batch",
+                },
+            },
+            cancellationToken);
+
+        _ = await Assert.That(fixture.Committed).IsEmpty();
+    }
+
+    [Test]
     public async Task Agent_notices_are_committed_at_the_owning_agent_level(CancellationToken cancellationToken)
     {
         await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);

@@ -256,7 +256,7 @@ internal sealed partial class AgentSession
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var ownedExecution = new OwnedExecutionReservation(AdmitParts(parts, messageId, Delivery.Steer), cancellationToken);
+        var ownedExecution = new OwnedExecutionReservation(AdmitParts(parts, messageId, Delivery.Steer, InputSource.Unspecified), cancellationToken);
         admitted?.Invoke(ownedExecution.Admission);
         var (_, selectedDrain) = WakeSelected(
             new IncomingActivity(string.Empty, null), ownedExecution, cancellationToken);
@@ -444,7 +444,7 @@ internal sealed partial class AgentSession
         IncomingActivity activity,
         CancellationToken cancellationToken)
     {
-        var admission = AdmitParts(parts, messageId, delivery);
+        var admission = AdmitParts(parts, messageId, delivery, activity.Source);
 
         // Only a real admission has an event; a re-send of one already taken
         // has nothing new to publish, but still wakes, because the sender
@@ -459,7 +459,7 @@ internal sealed partial class AgentSession
         return (admission, followUp, selectedDrain);
     }
 
-    private Admission AdmitParts(IReadOnlyList<ConversationPart> parts, string messageId, Delivery delivery) =>
+    private Admission AdmitParts(IReadOnlyList<ConversationPart> parts, string messageId, Delivery delivery, InputSource source) =>
         eventRepository.AdmitParts(
             SessionId,
             messageId,
@@ -473,6 +473,7 @@ internal sealed partial class AgentSession
                     MessageId = input.MessageId,
                     Content = input.Content,
                     Delivery = input.Delivery,
+                    Source = source,
                 };
                 admitted.Parts.AddRange(input.Parts.Select(ToProtocol));
                 return new Event

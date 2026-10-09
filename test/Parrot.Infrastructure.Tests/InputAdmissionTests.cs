@@ -238,6 +238,54 @@ internal sealed class InputAdmissionTests : IDisposable
         _ = await Assert.That(_repository.Messages(Session)).IsEmpty();
     }
 
+    [Test]
+    [Arguments(InputSource.Unspecified)]
+    [Arguments(InputSource.Monitor)]
+    public async Task Admission_source_is_recorded_once_and_survives_promotion(InputSource source)
+    {
+        var admitted = _repository.AdmitParts(
+            Session,
+            "msg-source",
+            [ConversationPart.TextPart("notification")],
+            Delivery.Steer,
+            input => new Event
+            {
+                Id = Identifier.EventId(),
+                AgentSessionId = Session,
+                InputAdmitted = new InputAdmitted
+                {
+                    InputId = input.Id,
+                    MessageId = input.MessageId,
+                    Content = input.Content,
+                    Delivery = input.Delivery,
+                    Source = source,
+                },
+            });
+        var retried = _repository.AdmitParts(
+            Session,
+            "msg-source",
+            [ConversationPart.TextPart("notification")],
+            Delivery.Steer,
+            static _ => throw new InvalidOperationException("A retry must not compose another event."));
+
+        _ = await Assert.That(retried.Created).IsFalse();
+        _ = await Assert.That(retried.Input.Id).IsEqualTo(admitted.Input.Id);
+        _ = await Assert.That(_repository.Replay().Single().InputAdmitted.Source).IsEqualTo(source);
+        _ = await Assert.That(Promote(Delivery.Steer)).IsEqualTo(1);
+        var replayed = _repository.Replay().Single(published => published.PayloadCase == Event.PayloadOneofCase.InputAdmitted);
+        _ = await Assert.That(replayed.InputAdmitted.Source).IsEqualTo(source);
+        _ = await Assert.That(replayed).IsEqualTo(admitted.Published);
+    }
+
+    [Test]
+    public async Task Legacy_admission_without_source_decodes_as_unspecified()
+    {
+        var admitted = InputAdmitted.Parser.ParseFrom((byte[])[0x20, 0x01]);
+
+        _ = await Assert.That(admitted.Delivery).IsEqualTo(Delivery.Steer);
+        _ = await Assert.That(admitted.Source).IsEqualTo(InputSource.Unspecified);
+    }
+
     private static Delivery Other(Delivery delivery) =>
         delivery == Delivery.Steer ? Delivery.Queue : Delivery.Steer;
 

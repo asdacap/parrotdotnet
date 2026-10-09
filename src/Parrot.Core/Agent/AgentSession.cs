@@ -466,7 +466,7 @@ internal sealed partial class AgentSession(
         ArgumentNullException.ThrowIfNull(parts);
         ArgumentException.ThrowIfNullOrWhiteSpace(messageId);
 
-        var admission = AdmitParts(parts, messageId, delivery);
+        var admission = AdmitParts(parts, messageId, delivery, InputSource.Unspecified);
         if (admission.Published is not null)
         {
             await eventBroker.PublishWithCancellation(admission.Published, cancellationToken).ConfigureAwait(false);

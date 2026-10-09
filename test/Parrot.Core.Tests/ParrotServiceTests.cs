@@ -1318,8 +1318,37 @@ internal sealed class ParrotServiceTests : IDisposable
         var none = await ReplayedInputs(service, new ListenRequest { UserSessionId = session.Id }, cancellationToken);
 
         _ = await Assert.That(all.Select(published => published.InputAdmitted.MessageId)).IsEquivalentTo(["msg-first", "msg-second"]);
+        _ = await Assert.That(all.All(published => published.InputAdmitted.Source == InputSource.Unspecified)).IsTrue();
         _ = await Assert.That(after.Select(published => published.InputAdmitted.MessageId)).IsEquivalentTo(["msg-second"]);
         _ = await Assert.That(none).IsEmpty();
+    }
+
+    [Test]
+    [Arguments(InputSource.Unspecified)]
+    [Arguments(InputSource.Monitor)]
+    public async Task Incoming_source_survives_admission_and_listener_replay(
+        InputSource source, CancellationToken cancellationToken)
+    {
+        var sessions = new DirectAgentSessions();
+        await using var service = Service(Store(sessions));
+        var context = new InProcessServerCallContext(cancellationToken);
+        var session = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
+        var agent = sessions.Sessions.Single();
+        var activity = new IncomingActivity("watch", "monitor watch event") { Source = source };
+        var parts = new[] { ConversationPart.TextPart("first\nsecond") };
+
+        var sent = await agent.Send(parts, "msg-monitor", Delivery.Steer, activity, cancellationToken);
+        var retried = await agent.Send(parts, "msg-monitor", Delivery.Steer, activity, cancellationToken);
+        var replayed = await ReplayedInputs(
+            service, new ListenRequest { UserSessionId = session.Id, Replay = true }, cancellationToken);
+
+        _ = await Assert.That(sent.Admission.Created).IsTrue();
+        _ = await Assert.That(sent.Admission.Published?.InputAdmitted.Source).IsEqualTo(source);
+        _ = await Assert.That(retried.Admission.Created).IsFalse();
+        _ = await Assert.That(replayed).HasSingleItem();
+        _ = await Assert.That(replayed[0].InputAdmitted.Source).IsEqualTo(source);
+        _ = await Assert.That(replayed[0].InputAdmitted.Delivery).IsEqualTo(Delivery.Steer);
+        _ = await Assert.That(replayed[0].InputAdmitted.Content).IsEqualTo("first\nsecond");
     }
 
     [Test]

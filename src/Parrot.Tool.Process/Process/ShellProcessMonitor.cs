@@ -176,7 +176,7 @@ internal sealed class ShellProcessMonitor(
                 [ConversationPart.TextPart(text)],
                 Identifier.MessageId(),
                 Delivery.Steer,
-                new IncomingActivity(state.Name, $"monitor {state.Name} event"),
+                new IncomingActivity(state.Name, $"monitor {state.Name} event") { Source = InputSource.Monitor },
                 lifetime)
             .ConfigureAwait(false);
         _events += count;

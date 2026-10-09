@@ -814,15 +814,21 @@ message SessionUsageSnapshot {
   double output_cost         = 8;
 }
 
-// The user's own prompt, accepted but not yet part of the conversation. It is
-// on the stream because more than one client can watch a session, and a client
-// that did not send the prompt has no other way to learn of it.
+enum InputSource {
+  INPUT_SOURCE_UNSPECIFIED = 0;
+  INPUT_SOURCE_MONITOR = 1;
+}
+
+// Incoming input, accepted but not yet part of the conversation. It is on the
+// stream because more than one client can watch a session, and a client that
+// did not send the input has no other way to learn of it.
 message InputAdmitted {
   string   input_id   = 1;
   string   message_id = 2;
   string   content    = 3;
   Delivery delivery   = 4;
   repeated MessageContentPart parts = 5;
+  InputSource source = 6;
 }
 
 // The same prompt, now in the conversation. The content is not repeated: the

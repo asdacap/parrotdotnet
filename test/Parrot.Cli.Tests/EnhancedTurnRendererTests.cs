@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Parrot.Cli.Enhanced;
+using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
 using Parrot.Protocol;
 
@@ -280,6 +281,82 @@ internal sealed class EnhancedTurnRendererTests
         _ = await Assert.That(committed[3]).Contains("Status prompt injected");
         _ = await Assert.That(committed[4]).Contains("Final provider request prompt injected");
         _ = await Assert.That(committed[5]).Contains("Tool availability restored prompt injected");
+    }
+
+    [Test]
+    public async Task Turn_stream_commits_only_monitor_receipts_without_contents_or_promotion_duplicates(
+        CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        Event[] events =
+        [
+            new() { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
+            new()
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" },
+            },
+            new()
+            {
+                AgentSessionId = "root",
+                InputAdmitted = new InputAdmitted { Delivery = Delivery.Steer, Content = "old untagged notification" },
+            },
+            new()
+            {
+                AgentSessionId = "root",
+                InputAdmitted = new InputAdmitted
+                {
+                    InputId = "root-batch",
+                    Delivery = Delivery.Steer,
+                    Source = InputSource.Monitor,
+                    Content = "Monitor watch (ticks):\nfirst\nsecond",
+                },
+            },
+            new()
+            {
+                AgentSessionId = "child",
+                InputAdmitted = new InputAdmitted
+                {
+                    InputId = "child-batch",
+                    Delivery = Delivery.Steer,
+                    Source = InputSource.Monitor,
+                    Content = "Monitor child-watch (ticks):\nthird",
+                },
+            },
+            new() { AgentSessionId = "root", InputPromoted = new InputPromoted { InputId = "root-batch" } },
+            new() { AgentSessionId = "child", InputPromoted = new InputPromoted { InputId = "child-batch" } },
+            new() { AgentSessionId = "root", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+            new() { AgentSessionId = "root", ModeTurnCompleted = new ModeTurnCompleted() },
+        ];
+        foreach (var published in events)
+        {
+            await stream.WriteAsync(published, cancellationToken);
+        }
+
+        stream.Complete();
+        await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var terminal = new TestTerminal(driver.Input, output, error, 120);
+        var completed = await new EnhancedTurnRenderer(terminal).RenderSessionTurn(
+            stream.Reader,
+            fixture.View.Prepare,
+            fixture.View.Render,
+            fixture.View.ReplaceContent,
+            fixture.View.CommitContent,
+            new ForegroundTurn(),
+            cancellationToken);
+
+        _ = await Assert.That(completed).IsTrue();
+        _ = await Assert.That(error.ToString()).IsEmpty();
+        _ = await Assert.That(fixture.Committed.Where(line => line.Contains("Monitor notification received", StringComparison.Ordinal)))
+            .IsEquivalentTo(["↻ Monitor notification received", "  ↻ [worker] Monitor notification received"]);
+        _ = await Assert.That(fixture.CommittedText).DoesNotContain("old untagged notification");
+        _ = await Assert.That(fixture.CommittedText).DoesNotContain("watch");
+        _ = await Assert.That(fixture.CommittedText).DoesNotContain("first");
+        _ = await Assert.That(fixture.CommittedText).DoesNotContain("second");
+        _ = await Assert.That(fixture.CommittedText).DoesNotContain("third");
     }
 
     [Test]
