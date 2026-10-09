@@ -135,7 +135,8 @@ internal sealed class ShellProcessOwner(
                 agent.ParentSessionId,
                 agent.ParentSessionName,
                 agent.Depth,
-                Stopwatch.GetTimestamp());
+                Stopwatch.GetTimestamp(),
+                report.ActivityKind);
 
             var process = new ManagedShellProcess(state, agent, execution, _inventory, report, diagnostics, _lifetime.Token);
             _processes[name] = process;

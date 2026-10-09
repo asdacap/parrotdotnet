@@ -72,6 +72,7 @@ internal static class ShellProcessInventoryProtocol
             ParentAgentName = state.ParentAgentName,
             Depth = state.Depth,
             ElapsedMs = state.ElapsedMilliseconds,
+            ActivityKind = state.ActivityKind,
         });
         return Validate(new Event { ShellProcessSnapshot = snapshot });
     }

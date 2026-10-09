@@ -1410,6 +1410,7 @@ internal sealed class RawActivityView(
             ParentAgentName = string.Empty,
             Depth = _hierarchy.GetDepth(published.AgentSessionId),
             ElapsedMs = 0,
+            ActivityKind = yielded.ActivityKind,
         };
         var state = new ProcessState(
             process,

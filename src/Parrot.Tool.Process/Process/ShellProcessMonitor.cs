@@ -31,6 +31,8 @@ internal sealed class ShellProcessMonitor(
 
     public bool BlocksTurn => false;
 
+    public ShellProcessActivityKind ActivityKind => ShellProcessActivityKind.Monitor;
+
     public async Task Observe(ActiveShellProcessState state, IProcessExecution execution, CancellationToken lifetime)
     {
         try

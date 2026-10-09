@@ -34,7 +34,7 @@ internal sealed class ShellProcessInventory(AgentIdentity identity) : IDisposabl
             _feed.Publish(CaptureLocked());
         }
 
-        return new YieldedShellProcess(process.ProcessId, process.Name, InstanceId, visibleRevision, null, null);
+        return new YieldedShellProcess(process.ProcessId, process.Name, InstanceId, visibleRevision, null, null, process.ActivityKind);
     }
 
     public void Complete(string processId, long? elapsedMilliseconds)

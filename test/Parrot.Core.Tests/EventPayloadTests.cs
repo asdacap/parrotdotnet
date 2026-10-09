@@ -475,7 +475,9 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
-    public async Task Tool_finished_roundtrips_a_yielded_process_handoff()
+    [Arguments(ShellProcessActivityKind.Execution)]
+    [Arguments(ShellProcessActivityKind.Monitor)]
+    public async Task Tool_finished_roundtrips_a_yielded_process_handoff(ShellProcessActivityKind activityKind)
     {
         var source = new Event
         {
@@ -492,6 +494,7 @@ internal sealed class EventPayloadTests
                     VisibleRevision = 3,
                     StdoutPath = "/state/stdout",
                     StderrPath = "/state/stderr",
+                    ActivityKind = activityKind,
                 },
             },
         };
@@ -502,6 +505,7 @@ internal sealed class EventPayloadTests
         _ = await Assert.That(roundtripped.ToolFinished.YieldedProcess.ProcessId).IsEqualTo("process-1");
         _ = await Assert.That(roundtripped.ToolFinished.YieldedProcess.InventoryInstanceId).IsEqualTo("inventory-1");
         _ = await Assert.That(roundtripped.ToolFinished.YieldedProcess.VisibleRevision).IsEqualTo(3UL);
+        _ = await Assert.That(roundtripped.ToolFinished.YieldedProcess.ActivityKind).IsEqualTo(activityKind);
         _ = await Assert.That(roundtripped.ToolFinished.YieldedProcess.HasStdoutPath).IsTrue();
         _ = await Assert.That(roundtripped.ToolFinished.YieldedProcess.StdoutPath).IsEqualTo("/state/stdout");
         _ = await Assert.That(roundtripped.ToolFinished.YieldedProcess.HasStderrPath).IsTrue();
@@ -514,6 +518,8 @@ internal sealed class EventPayloadTests
                 YieldedProcess = new YieldedShellProcess { ProcessId = "process-2" },
             },
         }.ToByteArray());
+        _ = await Assert.That(pathless.ToolFinished.YieldedProcess.ActivityKind).IsEqualTo(ShellProcessActivityKind.Execution);
+        _ = await Assert.That(ActiveShellProcess.Parser.ParseFrom([]).ActivityKind).IsEqualTo(ShellProcessActivityKind.Execution);
         _ = await Assert.That(pathless.ToolFinished.YieldedProcess.HasStdoutPath).IsFalse();
         _ = await Assert.That(pathless.ToolFinished.YieldedProcess.HasStderrPath).IsFalse();
     }

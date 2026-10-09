@@ -660,6 +660,11 @@ message ProviderCallUsage {
   int64 output_tokens = 2;
 }
 
+enum ShellProcessActivityKind {
+  SHELL_PROCESS_ACTIVITY_KIND_EXECUTION = 0;
+  SHELL_PROCESS_ACTIVITY_KIND_MONITOR = 1;
+}
+
 message ActiveShellProcess {
   string process_id              = 1;
   string name                    = 2;
@@ -672,6 +677,7 @@ message ActiveShellProcess {
   int32 depth                    = 9;
   int64 elapsed_ms               = 10;
   string description             = 11;
+  ShellProcessActivityKind activity_kind = 12;
 }
 
 // A complete in-memory inventory. Chunks sharing an instance and revision are
@@ -897,6 +903,7 @@ message YieldedShellProcess {
   uint64 visible_revision      = 4;
   optional string stdout_path  = 5;
   optional string stderr_path  = 6;
+  ShellProcessActivityKind activity_kind = 7;
 }
 
 message ToolCancelled {
