@@ -1,5 +1,6 @@
 using Parrot.Cli.Enhanced;
 using Parrot.Cli.Enhanced.Tools;
+using Parrot.Core.Tests;
 using Parrot.Protocol;
 
 namespace Parrot.Cli.Tests;
@@ -403,6 +404,130 @@ internal sealed class ShellProcessActivityTests
         _ = await Assert.That(activity.Commits).IsEmpty();
     }
 
+    [Test]
+    [Arguments(0, true)]
+    [Arguments(5, true)]
+    [Arguments(6, false)]
+    [Arguments(11, false)]
+    [Arguments(12, true)]
+    public async Task Monitor_marker_blinks_without_moving_or_restyling_content(int frame, bool visible)
+    {
+        var time = new ControlledTimeProvider();
+        var process = new ActiveShellProcess
+        {
+            ProcessId = "process",
+            Name = "watch",
+            Command = "echo events",
+            Description = "Watch events",
+            ActivityKind = ShellProcessActivityKind.Monitor,
+        };
+        foreach (var columns in new[] { 160, 24 })
+        {
+            var context = new LiveBufferRenderContext(columns, new TerminalPalette(true));
+            var reference = new ShellProcessLiveValue(process, time.GetTimestamp(), time, 0).Render(context);
+            var rendered = new ShellProcessLiveValue(process, time.GetTimestamp(), time, frame).Render(context);
+            _ = await Assert.That(rendered.Lines.Count).IsEqualTo(reference.Lines.Count);
+            _ = await Assert.That(rendered.Lines[0].Text[..2]).IsEqualTo(visible ? "◉ " : "  ");
+            for (var index = 0; index < rendered.Lines.Count; index++)
+            {
+                _ = await Assert.That(rendered.Lines[index].Text[2..]).IsEqualTo(reference.Lines[index].Text[2..]);
+                _ = await Assert.That(TerminalText.Width(rendered.Lines[index].Text)).IsEqualTo(TerminalText.Width(reference.Lines[index].Text));
+                _ = await Assert.That(rendered.Lines[index].Style).IsEqualTo(reference.Lines[index].Style);
+            }
+
+            _ = await Assert.That(rendered.Retention).IsEqualTo(LiveBufferRetention.Fixed);
+        }
+    }
+
+    [Test]
+    [Arguments(ShellProcessActivityKind.Execution)]
+    [Arguments((ShellProcessActivityKind)99)]
+    public async Task Non_monitor_kind_preserves_spinner(ShellProcessActivityKind activityKind)
+    {
+        var time = new ControlledTimeProvider();
+        var process = new ActiveShellProcess { ProcessId = "process", Command = "sleep 20", ActivityKind = activityKind };
+        for (var frame = 0; frame < 13; frame++)
+        {
+            var rendered = new ShellProcessLiveValue(process, time.GetTimestamp(), time, frame).Render(Context);
+            _ = await Assert.That(rendered.Lines[0].Text[..2]).IsEqualTo($"{TerminalIcons.SpinnerFrames[frame % TerminalIcons.SpinnerFrames.Length]} ");
+            _ = await Assert.That(rendered.Lines[0].Text[2..]).IsEqualTo("$ sleep 20 (process process running 0s)");
+        }
+    }
+
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Monitor_kind_survives_either_event_order_and_completion(bool inventoryFirst, CancellationToken cancellationToken)
+    {
+        await using var activity = new ProcessActivity();
+        await activity.Start("call", "echo events", cancellationToken);
+        var snapshot = new ShellProcessSnapshot
+        {
+            OwnerAgentSessionId = "main",
+            InventoryInstanceId = "inventory",
+            Revision = 1,
+            Processes =
+            {
+                new ActiveShellProcess
+                {
+                    ProcessId = "process",
+                    Name = "watch",
+                    Command = "echo events",
+                    OriginToolCallId = "call",
+                    OwnerAgentSessionId = "main",
+                    OwnerAgentName = "main",
+                    ActivityKind = ShellProcessActivityKind.Monitor,
+                },
+            },
+        };
+        if (inventoryFirst)
+        {
+            await activity.Replace(snapshot, cancellationToken);
+        }
+
+        await activity.FinishWithKind("call", "watch", "process", "inventory", 1, ShellProcessActivityKind.Monitor, cancellationToken);
+        _ = await Assert.That(activity.Draws[^1]).StartsWith("◉ ");
+        if (!inventoryFirst)
+        {
+            await activity.Replace(snapshot, cancellationToken);
+        }
+
+        _ = await Assert.That(activity.Draws[^1]).StartsWith("◉ ");
+        _ = await Assert.That(activity.Draws[^1].Split("process watch running", StringSplitOptions.None).Length).IsEqualTo(2);
+        _ = await Assert.That(activity.Commits).IsEmpty();
+        await activity.Replace(
+            new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 2, CompletedProcesses = { new CompletionFixture("process", 7_123).Completion } },
+            cancellationToken);
+        _ = await Assert.That(activity.Commits).HasSingleItem();
+        _ = await Assert.That(activity.Commits[0]).IsEqualTo("$ echo events (7s)");
+        _ = await Assert.That(activity.Draws[^1]).DoesNotContain("process watch running");
+    }
+
+    [Test]
+    public async Task Inventory_only_monitor_and_exec_use_distinct_markers_and_remove_cleanly(CancellationToken cancellationToken)
+    {
+        await using var activity = new ProcessActivity();
+        await activity.Replace(
+            new ShellProcessSnapshot
+            {
+                OwnerAgentSessionId = "main",
+                InventoryInstanceId = "inventory",
+                Revision = 1,
+                Processes =
+                {
+                    new ActiveShellProcess { ProcessId = "monitor", Name = "watch", Command = "echo events", OwnerAgentSessionId = "main", ActivityKind = ShellProcessActivityKind.Monitor },
+                    new ActiveShellProcess { ProcessId = "exec", Name = "exec", Command = "sleep 20", OwnerAgentSessionId = "main" },
+                },
+            },
+            cancellationToken);
+        var rows = activity.Draws[^1].Split('|');
+        _ = await Assert.That(rows.Single(static row => row.Contains("process watch running", StringComparison.Ordinal))).StartsWith("◉ ");
+        _ = await Assert.That(rows.Single(static row => row.Contains("process exec running", StringComparison.Ordinal))).StartsWith("⠋ ");
+        _ = await Assert.That(activity.Commits).IsEmpty();
+        await activity.Replace(new ShellProcessSnapshot { OwnerAgentSessionId = "main", InventoryInstanceId = "inventory", Revision = 2, Removed = true }, cancellationToken);
+        _ = await Assert.That(activity.Draws[^1]).DoesNotContain("running");
+    }
+
     private static string Render(IReadOnlyList<ILiveBufferItem> items) =>
         string.Join('|', items.SelectMany(item => item.Render(Context).Lines).Select(static line => line.Text));
 
@@ -498,6 +623,16 @@ internal sealed class ShellProcessActivityTests
             string inventoryId,
             ulong revision,
             CancellationToken cancellationToken) =>
+            FinishWithKind(callId, name, processId, inventoryId, revision, ShellProcessActivityKind.Execution, cancellationToken);
+
+        public Task FinishWithKind(
+            string callId,
+            string name,
+            string processId,
+            string inventoryId,
+            ulong revision,
+            ShellProcessActivityKind activityKind,
+            CancellationToken cancellationToken) =>
             _view.Render(
                 new Event
                 {
@@ -512,6 +647,7 @@ internal sealed class ShellProcessActivityTests
                             Name = name,
                             InventoryInstanceId = inventoryId,
                             VisibleRevision = revision,
+                            ActivityKind = activityKind,
                         },
                     },
                 },

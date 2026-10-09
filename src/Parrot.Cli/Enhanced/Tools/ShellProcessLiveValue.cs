@@ -15,7 +15,9 @@ internal sealed class ShellProcessLiveValue(
         var name = process.Name.Length == 0 ? process.ProcessId : process.Name;
         var summary = ExecCommandToolPresenter.Summarize(name, process.Description, process.Command);
         var label = $"$ {summary} (process {name} running {DurationText.Format(elapsedMilliseconds / 1000)})";
-        var marker = TerminalIcons.SpinnerFrames[frame % TerminalIcons.SpinnerFrames.Length].ToString();
+        var marker = process.ActivityKind == ShellProcessActivityKind.Monitor
+            ? ((frame / 6) % 2 == 0 ? TerminalIcons.Monitor : string.Empty)
+            : TerminalIcons.SpinnerFrames[frame % TerminalIcons.SpinnerFrames.Length].ToString();
         var lines = context.Decoration.Apply(
                 marker,
                 TerminalText.LayoutWords(TerminalText.Sanitize(label), context.Decoration.ContentColumns(context.Columns)).Take(10))

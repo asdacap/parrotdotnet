@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Parrot.Protocol;
 
 namespace Parrot.Process;
 
@@ -13,7 +14,8 @@ internal sealed record ActiveShellProcessState(
     string ParentAgentSessionId,
     string ParentAgentName,
     int Depth,
-    long StartedTimestamp)
+    long StartedTimestamp,
+    ShellProcessActivityKind ActivityKind)
 {
     public long ElapsedMilliseconds =>
         Math.Max(0, checked((long)Stopwatch.GetElapsedTime(StartedTimestamp).TotalMilliseconds));

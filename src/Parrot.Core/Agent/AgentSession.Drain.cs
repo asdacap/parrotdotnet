@@ -1586,6 +1586,7 @@ internal sealed partial class AgentSession
                     Name = yielded.Name,
                     InventoryInstanceId = yielded.InventoryInstanceId,
                     VisibleRevision = yielded.VisibleRevision,
+                    ActivityKind = yielded.ActivityKind,
                 };
                 if (yielded.StdoutPath is { } stdoutPath)
                 {

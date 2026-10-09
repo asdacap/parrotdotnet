@@ -14,6 +14,7 @@ internal static class TerminalIcons
     public const string Agent = "♟";
     public const string Reasoning = "✦";
     public const string Shell = "$";
+    public const string Monitor = "◉";
     public const string StatusNotice = "↻";
     public const string ToolRequest = "⚙";
     public const string SpinnerFrames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";

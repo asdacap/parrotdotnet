@@ -4,6 +4,7 @@ using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
+using Parrot.Protocol;
 using Parrot.Security;
 using Parrot.State;
 using Parrot.Store;
@@ -106,6 +107,8 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         _ = await Assert.That(string.Join('|', observations.Select(item => item.Name)))
             .IsEqualTo("first-only|shared|shared");
 
+        _ = await Assert.That(firstProcess.Yield().ActivityKind).IsEqualTo(ShellProcessActivityKind.Execution);
+        _ = await Assert.That(first.CaptureInventory().Processes.All(static process => process.ActivityKind == ShellProcessActivityKind.Execution)).IsTrue();
         _ = await Assert.That(first.CaptureInventory().Processes.Count).IsEqualTo(2);
         _ = await Assert.That(second.CaptureInventory().Processes).HasSingleItem();
         var settlement = first.Settle();
@@ -383,7 +386,9 @@ internal sealed class ShellProcessOwnersTests : IDisposable
     }
 
     [Test]
-    public async Task Inventory_protocol_chunks_active_and_completed_records_deterministically()
+    [Arguments(ShellProcessActivityKind.Execution)]
+    [Arguments(ShellProcessActivityKind.Monitor)]
+    public async Task Inventory_protocol_chunks_active_and_completed_records_deterministically(ShellProcessActivityKind activityKind)
     {
         var active = new ActiveShellProcessState(
             "active-b",
@@ -396,7 +401,8 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             string.Empty,
             string.Empty,
             0,
-            System.Diagnostics.Stopwatch.GetTimestamp());
+            System.Diagnostics.Stopwatch.GetTimestamp(),
+            activityKind);
         var inventory = new ShellProcessInventorySnapshot(
             "agent-id",
             "inventory",
@@ -415,6 +421,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             .IsEqualTo("0,1,2");
         _ = await Assert.That(chunks.All(static chunk => chunk.ShellProcessSnapshot.ChunkCount == 3)).IsTrue();
         _ = await Assert.That(chunks[0].ShellProcessSnapshot.Processes[0].ProcessId).IsEqualTo("active-b");
+        _ = await Assert.That(chunks[0].ShellProcessSnapshot.Processes[0].ActivityKind).IsEqualTo(activityKind);
         _ = await Assert.That(chunks[1].ShellProcessSnapshot.CompletedProcesses[0].ProcessId)
             .IsEqualTo("completed-a");
         _ = await Assert.That(chunks[1].ShellProcessSnapshot.CompletedProcesses[0].ElapsedMs).IsEqualTo(5_001);

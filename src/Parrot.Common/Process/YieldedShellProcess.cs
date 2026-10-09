@@ -1,3 +1,5 @@
+using Parrot.Protocol;
+
 namespace Parrot.Process;
 
 internal sealed record YieldedShellProcess(
@@ -6,4 +8,5 @@ internal sealed record YieldedShellProcess(
     string InventoryInstanceId,
     ulong VisibleRevision,
     string? StdoutPath,
-    string? StderrPath);
+    string? StderrPath,
+    ShellProcessActivityKind ActivityKind);

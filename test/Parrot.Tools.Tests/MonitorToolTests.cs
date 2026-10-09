@@ -60,6 +60,12 @@ internal sealed class MonitorToolTests : IDisposable
         var interruptTool = new InterruptProcessToolFactory(processes, new ResourceResolverFixture(null, null), TestModels.ToolDefinitions).Create(session);
 
         var started = await tool.Execute(new ToolInvocation("monitor-call", arguments), Selection(), cancellationToken);
+        _ = await Assert.That(started.YieldedProcess?.ActivityKind).IsEqualTo(ShellProcessActivityKind.Monitor);
+        if (interrupt)
+        {
+            _ = await Assert.That(processes.CaptureInventory().Processes.Single().ActivityKind).IsEqualTo(ShellProcessActivityKind.Monitor);
+        }
+
         var messages = new List<string>();
         while (messages.Count < expected.Length)
         {
