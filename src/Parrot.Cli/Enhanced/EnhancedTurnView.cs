@@ -171,7 +171,7 @@ internal sealed class EnhancedTurnView(
                 return foreground.IsTerminal(published) ? true : null;
 
             case Event.PayloadOneofCase.TurnFailed:
-                if (foreground.IsTerminal(published))
+                if (foreground.IsMain(published.AgentSessionId))
                 {
                     await error.WriteLineAsync(
                         $"{Red}  {TerminalText.Sanitize(published.TurnFailed.Message)}{Reset}".AsMemory(),

@@ -96,6 +96,10 @@ internal sealed class CompactCommandTests
 
         public Task SelectMode(string mode, CancellationToken cancellationToken) => Task.CompletedTask;
 
+        public Task LoadExisting(
+            UserSession replacement, Func<Action, CancellationToken, Task> bind, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task StartNew(string model, string mode, CancellationToken cancellationToken) => Task.CompletedTask;
 
         public Task SetGoal(string goal, CancellationToken cancellationToken) => Task.CompletedTask;

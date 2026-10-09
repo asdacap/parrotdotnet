@@ -706,7 +706,7 @@ internal sealed class CommandDispatcher(
             if (remoteRawTerminal is null)
             {
                 var cli = new BasicCli(
-                    remote,
+                    remoteConnection.Invoker,
                     interrupts,
                     remoteCredentials,
                     remoteCredentialPresets,
@@ -727,7 +727,7 @@ internal sealed class CommandDispatcher(
 
             var remoteTerminal = new ConsoleTerminal(output, error, remoteRawTerminal);
             var remoteChat = new EnhancedComposition(
-                remote,
+                remoteConnection.Invoker,
                 interrupts,
                 remoteCredentials,
                 remoteCredentialPresets,
@@ -753,13 +753,22 @@ internal sealed class CommandDispatcher(
         using var credentials = new FileCredentialStore(paths.CredentialsFile);
         var credentialPresets = new CredentialPresets(paths.CredentialPresetDirectory);
         Composition? composition = null;
+        GeneratedParrot.ParrotClient? localClient = null;
+        CallInvoker? localInvoker = null;
         async Task<GeneratedParrot.ParrotClient> OpenLocalClient(CancellationToken token)
         {
+            if (localClient is not null)
+            {
+                return localClient;
+            }
+
             composition = await BuildComposition(credentials, configuration, new LocalUserSessionHost(), token)
                 .ConfigureAwait(false)
                 ?? throw new InvalidOperationException("cannot initialize local providers");
             await WarnAboutMissingCliUtilities(composition.CliUtilities, token).ConfigureAwait(false);
-            return new GeneratedParrot.ParrotClient(new InProcessCallInvoker(composition.Service));
+            localInvoker = new InProcessCallInvoker(composition.Service);
+            localClient = new GeneratedParrot.ParrotClient(localInvoker);
+            return localClient;
         }
 
         var invalidVariant = false;
@@ -775,11 +784,21 @@ internal sealed class CommandDispatcher(
             return new CreateSessionRequest { Model = model, Mode = mode };
         }
 
+        async Task<CallInvoker> OpenLocalInvoker(CancellationToken token)
+        {
+            _ = await OpenLocalClient(token).ConfigureAwait(false);
+            return localInvoker ?? throw new InvalidOperationException("the local session service was not opened");
+        }
+
+        var workingDirectory = Directory.GetCurrentDirectory();
+        using var navigation = new LocalTerminalSessionNavigation(paths, workingDirectory, diagnostics.Global, OpenLocalInvoker);
         using var startup = new LocalChatStartup(
-            paths, Directory.GetCurrentDirectory(), RuntimeIdentityCapture.HostKey(), error, diagnostics.Global, OpenLocalClient, ConfigureFresh, takeOver);
+            paths, workingDirectory, RuntimeIdentityCapture.HostKey(), error, diagnostics.Global, OpenLocalClient, ConfigureFresh, takeOver);
         try
         {
-            var (client, initialSession) = await startup.Open(prompt.Length == 0, cancellationToken).ConfigureAwait(false);
+            var (_, initialSession) = await startup.Open(prompt.Length == 0, cancellationToken).ConfigureAwait(false);
+            var initialInvoker = startup.AttachedInvoker ?? localInvoker
+                ?? throw new InvalidOperationException("the initial session connection was not opened");
             model = initialSession.Model;
             mode = initialSession.Mode;
             var providerIds = ProviderRegistryBuilder.BuildableProviderIds(configuration);
@@ -788,7 +807,7 @@ internal sealed class CommandDispatcher(
             if (rawTerminal is null)
             {
                 var cli = new BasicCli(
-                    client,
+                    initialInvoker,
                     interrupts,
                     credentials,
                     credentialPresets,
@@ -804,13 +823,13 @@ internal sealed class CommandDispatcher(
                     error,
                     attachments,
                     diagnostics.Global)
-                { InitialSession = initialSession };
+                { InitialSession = initialSession, Navigation = navigation };
                 return await cli.Run(cancellationToken).ConfigureAwait(false);
             }
 
             var terminal = new ConsoleTerminal(output, error, rawTerminal);
             var enhancedChat = new EnhancedComposition(
-                client,
+                initialInvoker,
                 interrupts,
                 credentials,
                 credentialPresets,
@@ -820,6 +839,7 @@ internal sealed class CommandDispatcher(
                 new EnhancedChatRequest(new CreateSessionRequest { Model = model, Mode = mode }, prompt)
                 {
                     InitialSession = initialSession,
+                    Navigation = navigation,
                 },
                 terminal,
                 attachments,

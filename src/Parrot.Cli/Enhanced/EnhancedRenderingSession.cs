@@ -130,11 +130,18 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
 
     internal Task RunUpdates(CancellationToken cancellationToken) => _updates.Run(cancellationToken);
 
-    internal Task<bool> Run(IAsyncStreamReader<Event> stream, CancellationToken cancellationToken)
+    internal Task<bool> Run(IAsyncStreamReader<Event> stream, CancellationToken cancellationToken) =>
+        RunWithReplay(stream, static () => false, cancellationToken);
+
+    internal Task<bool> RunWithReplay(
+        IAsyncStreamReader<Event> stream,
+        Func<bool> isReplaying,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(isReplaying);
         var usageStream = new ProviderCallUsageStreamReader(stream, ObserveProviderCallUsage);
-        return RunCore(new SessionUsageSnapshotStreamReader(usageStream, ObserveSessionUsage), cancellationToken);
+        return RunCore(new SessionUsageSnapshotStreamReader(usageStream, ObserveSessionUsage), isReplaying, cancellationToken);
     }
 
     internal async Task ReplaceInput(
@@ -259,6 +266,39 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
         await _renderer.Clear(CancellationToken.None).ConfigureAwait(false);
     }
 
+    private static async Task RenderPlanReport(
+        PlanCompleted plan,
+        RawActivityView activity,
+        CancellationToken cancellationToken)
+    {
+        if (plan.Markdown.Length > 0)
+        {
+            await activity.CommitContent(
+                new MarkdownScrollbackValue(plan.Markdown),
+                [],
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        if (plan.TaskDeclarations.Count > 0)
+        {
+            if (AgentTaskDeclarationFormatter.Format(plan.TaskDeclarations).Count > 0)
+            {
+                await activity.CommitContent(
+                    new AgentTaskDeclarationScrollbackValue(plan.TaskDeclarations),
+                    [],
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+        else if (plan.TaskTree is { RootNodes.Count: > 0 }
+            && AgentTaskProgressFormatter.Format(plan.TaskTree).Count > 0)
+        {
+            await activity.CommitContent(
+                new AgentTaskProgressScrollbackValue(plan.TaskTree),
+                [],
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private Task InvalidateRate(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -312,6 +352,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
 
     private async Task<bool> RunCore(
         IAsyncStreamReader<Event> stream,
+        Func<bool> isReplaying,
         CancellationToken cancellationToken)
     {
         await using var activity = new RawActivityView(
@@ -333,6 +374,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
 
                 async Task Prepare(Event published, CancellationToken token)
                 {
+                    _foreground.ObserveReplay(isReplaying());
                     _foreground.Observe(published);
                     if (published.PayloadCase == Event.PayloadOneofCase.TurnFailed
                         && _foreground.IsTerminal(published))
@@ -342,16 +384,23 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
                     else if (published.PayloadCase == Event.PayloadOneofCase.PlanCompleted
                              && _foreground.IsMain(published.AgentSessionId))
                     {
-                        plan = published.PlanCompleted;
+                        if (!_foreground.IsReplaying)
+                        {
+                            plan = published.PlanCompleted;
+                        }
                     }
 
-                    if (published.PayloadCase == Event.PayloadOneofCase.TurnStarted
+                    if (!_foreground.IsReplaying && published.PayloadCase == Event.PayloadOneofCase.TurnStarted
                         && _foreground.IsMain(published.AgentSessionId))
                     {
                         await _startMainTurn(token).ConfigureAwait(false);
                     }
 
-                    await ObserveRenderingEvent(published, token).ConfigureAwait(false);
+                    if (!_foreground.IsReplaying)
+                    {
+                        await ObserveRenderingEvent(published, token).ConfigureAwait(false);
+                    }
+
                     await StopSpinner().ConfigureAwait(false);
                     await activity.Prepare(published, token).ConfigureAwait(false);
                 }
@@ -359,7 +408,17 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
                 async Task Render(Event published, CancellationToken token)
                 {
                     await activity.Render(published, token).ConfigureAwait(false);
-                    await _observeEvent(published, token).ConfigureAwait(false);
+                    if (!_foreground.IsReplaying)
+                    {
+                        await _observeEvent(published, token).ConfigureAwait(false);
+                    }
+
+                    if (_foreground.IsReplaying && published.PayloadCase == Event.PayloadOneofCase.PlanCompleted
+                        && _foreground.IsMain(published.AgentSessionId))
+                    {
+                        await RenderPlanReport(published.PlanCompleted, activity, token).ConfigureAwait(false);
+                    }
+
                     _ = _updates.Invalidate();
                 }
 
@@ -380,32 +439,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
                 await _finishTurn(cancellationToken).ConfigureAwait(false);
                 if (plan is not null)
                 {
-                    if (plan.Markdown.Length > 0)
-                    {
-                        await activity.CommitContent(
-                            new MarkdownScrollbackValue(plan.Markdown),
-                            [],
-                            cancellationToken).ConfigureAwait(false);
-                    }
-
-                    if (plan.TaskDeclarations.Count > 0)
-                    {
-                        if (AgentTaskDeclarationFormatter.Format(plan.TaskDeclarations).Count > 0)
-                        {
-                            await activity.CommitContent(
-                                new AgentTaskDeclarationScrollbackValue(plan.TaskDeclarations),
-                                [],
-                                cancellationToken).ConfigureAwait(false);
-                        }
-                    }
-                    else if (plan.TaskTree is { RootNodes.Count: > 0 }
-                        && AgentTaskProgressFormatter.Format(plan.TaskTree).Count > 0)
-                    {
-                        await activity.CommitContent(
-                            new AgentTaskProgressScrollbackValue(plan.TaskTree),
-                            [],
-                            cancellationToken).ConfigureAwait(false);
-                    }
+                    await RenderPlanReport(plan, activity, cancellationToken).ConfigureAwait(false);
 
                     await _completePlan(plan, cancellationToken).ConfigureAwait(false);
                 }

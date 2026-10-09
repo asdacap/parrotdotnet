@@ -20,6 +20,8 @@ internal sealed class LocalChatStartup(
 {
     private GrpcTransportClient? _connection;
 
+    public CallInvoker? AttachedInvoker => _connection?.Invoker;
+
     public async Task<(GeneratedParrot.ParrotClient Client, UserSession Session)> Open(
         bool interactivePermissions,
         CancellationToken cancellationToken)

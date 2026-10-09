@@ -78,6 +78,17 @@ internal sealed class TestSlashSession(string model) : ISlashSession
         return Task.CompletedTask;
     }
 
+    public Task LoadExisting(
+        UserSession replacement, Func<Action, CancellationToken, Task> bind, CancellationToken cancellationToken) =>
+        bind(
+            () =>
+            {
+                Id = replacement.Id;
+                Model = replacement.Model;
+                Mode = replacement.Mode;
+            },
+            cancellationToken);
+
     public Task StartNew(string model, string mode, CancellationToken cancellationToken)
     {
         Id = "session-1";

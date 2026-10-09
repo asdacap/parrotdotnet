@@ -18,6 +18,48 @@ internal static class SlashCommands
         IReadOnlyList<string> providerIds,
         Func<CancellationToken, Task> refreshSkillCompletion,
         IDiagnosticLog diagnostics)
+        => CreateCore(client, dialog, session, activity, applicationExit, credentials, credentialPresets, oauth, providerIds, refreshSkillCompletion, diagnostics, []);
+
+    public static SlashCommandRegistry CreateTerminal(
+        GeneratedParrot.ParrotClient client,
+        ISlashDialog dialog,
+        ISlashSession session,
+        ISlashActivity activity,
+        IApplicationExit? applicationExit,
+        ICredentialStore credentials,
+        CredentialPresets credentialPresets,
+        IOAuthClient oauth,
+        IReadOnlyList<string> providerIds,
+        Func<CancellationToken, Task> refreshSkillCompletion,
+        IDiagnosticLog diagnostics,
+        ITerminalSessionController navigation)
+        => CreateCore(
+            client,
+            dialog,
+            session,
+            activity,
+            applicationExit,
+            credentials,
+            credentialPresets,
+            oauth,
+            providerIds,
+            refreshSkillCompletion,
+            diagnostics,
+            [new WorkspaceSessionsCommand(navigation, session, activity, dialog)]);
+
+    private static SlashCommandRegistry CreateCore(
+        GeneratedParrot.ParrotClient client,
+        ISlashDialog dialog,
+        ISlashSession session,
+        ISlashActivity activity,
+        IApplicationExit? applicationExit,
+        ICredentialStore credentials,
+        CredentialPresets credentialPresets,
+        IOAuthClient oauth,
+        IReadOnlyList<string> providerIds,
+        Func<CancellationToken, Task> refreshSkillCompletion,
+        IDiagnosticLog diagnostics,
+        IReadOnlyList<ISlashCommand> terminalCommands)
     {
         var commands = new List<ISlashCommand>();
         var registry = new SlashCommandRegistry(commands, dialog);
@@ -50,6 +92,7 @@ internal static class SlashCommands
         commands.Add(new SetContextLimitCommand(session, dialog));
         commands.Add(new SkillsCommand(session, activity, dialog, refreshSkillCompletion));
         commands.Add(new VersionCommand(dialog));
+        commands.AddRange(terminalCommands);
         return registry;
     }
 }

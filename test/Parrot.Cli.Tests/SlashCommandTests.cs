@@ -29,6 +29,7 @@ internal sealed class SlashCommandTests
         _ = await Assert.That(string.Join('|', registry.Commands.Select(command => command.Name)))
             .IsEqualTo("/auth|/auth-preset-select|/auth-preset-set|/clear|/compact|/effort|/exit|/goal|/standing-instruction|/help|/mode|/model|/model-alias|/model-preset-select|/model-preset-set|/models|/modes|/sessions|/status|/sandbox_enable|/set-context-limit|/skills|/version");
         _ = await Assert.That(registry.Commands.All(command => command.Summary.Length > 0)).IsTrue();
+        _ = await Assert.That(registry.Find("/workspace-sessions")).IsNull();
 
         _ = dialog.Select((string?)null);
         await registry.Dispatch("/auth sentinel-argument", CancellationToken.None);
@@ -43,6 +44,36 @@ internal sealed class SlashCommandTests
             .And.Contains("/model-preset-set");
         _ = await Assert.That(string.Join('|', registry.Complete("/model-preset-s").Select(command => command.Name)))
             .IsEqualTo("/model-preset-select|/model-preset-set");
+    }
+
+    [Test]
+    public async Task Terminal_factory_exposes_workspace_picker_in_help_and_completion(CancellationToken cancellationToken)
+    {
+        using var application = new CancellationTokenSource();
+        using var http = new HttpClient();
+        var dialog = new TestSlashDialog();
+        using var diagnostics = new TransportDiagnosticsFixture();
+        var registry = SlashCommands.CreateTerminal(
+            new GeneratedParrot.ParrotClient(new ScriptedInvoker()),
+            dialog,
+            new TestSlashSession("provider/old"),
+            new TestSlashActivity(),
+            new ApplicationExit(application),
+            new UnusedCredentials(),
+            new CredentialPresets(Path.Combine(Path.GetTempPath(), "parrot-unused-credential-presets")),
+            new OpenAiOAuthClient(http, new UnusedBrowser(), new OpenAiOAuthOptions()),
+            ["provider"],
+            static _ => Task.CompletedTask,
+            diagnostics.Log,
+            new UnusedNavigation());
+
+        _ = await Assert.That(registry.Find("/workspace-sessions")).IsNotNull();
+        _ = await Assert.That(registry.Complete("/workspace-").Single().Name).IsEqualTo("/workspace-sessions");
+        var completion = new Parrot.Cli.Enhanced.SlashCommandCompletion(registry);
+        completion.Refresh("/workspace-");
+        _ = await Assert.That(completion.Commands.Single().Name).IsEqualTo("/workspace-sessions");
+        await registry.Dispatch("/help", cancellationToken);
+        _ = await Assert.That(string.Join('|', dialog.Shown)).Contains("/workspace-sessions");
     }
 
     [Test]
@@ -80,6 +111,13 @@ internal sealed class SlashCommandTests
         _ = await Assert.That(registry.Find("/test")).IsSameReferenceAs(command);
         _ = await Assert.That(registry.Find("/unknown")).IsNull();
         _ = await Assert.That(string.Join('|', dialog.Errors)).IsEqualTo("unknown command /unknown, try /help");
+    }
+
+    private sealed class UnusedNavigation : ITerminalSessionController
+    {
+        public Task<Parrot.Protocol.ListSessionsResponse> List(CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task Load(string userSessionId, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     private sealed class CompletionCommand(string name) : ISlashCommand

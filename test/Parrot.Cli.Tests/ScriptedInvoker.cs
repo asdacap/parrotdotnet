@@ -11,6 +11,7 @@ internal sealed class ScriptedInvoker : CallInvoker
     // The production stream, not a second implementation of it: both halves of
     // an in-process stream are what ChannelStreamWriter already is.
     private readonly Dictionary<string, ChannelStreamWriter<Event>> _activeEvents = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<Event>> _replayHistory = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<Event>> _eventsAwaitingListeners = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<QueueState>> _initialQueues = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<PendingQuestion>> _pendingQuestions = new(StringComparer.Ordinal);
@@ -39,6 +40,12 @@ internal sealed class ScriptedInvoker : CallInvoker
     private int _pendingPermissionLists;
 
     public bool FailQuestionListing { get; set; }
+
+    public StatusCode? ListenFailure { get; set; }
+
+    public bool FailPermissionCancellationOnce { get; set; }
+
+    public TaskCompletionSource PermissionCancellationPending { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public IReadOnlyList<string> Sent
     {
@@ -355,6 +362,14 @@ internal sealed class ScriptedInvoker : CallInvoker
         }
     }
 
+    public void SetReplayHistory(string userSessionId, IReadOnlyList<Event> history)
+    {
+        lock (_gate)
+        {
+            _replayHistory[userSessionId] = [.. history.Select(published => published.Clone())];
+        }
+    }
+
     public void SetInitialQueues(string userSessionId, params QueueState[] queues)
     {
         lock (_gate)
@@ -530,6 +545,17 @@ internal sealed class ScriptedInvoker : CallInvoker
                 lock (_gate)
                 {
                     _pendingPermissionLists++;
+                    if (FailPermissionCancellationOnce)
+                    {
+                        FailPermissionCancellationOnce = false;
+                        return new AsyncUnaryCall<TResponse>(
+                            (Task<TResponse>)(object)FailPermissionCancellation(options.CancellationToken),
+                            Task.FromResult(new Metadata()),
+                            static () => Status.DefaultSuccess,
+                            static () => [],
+                            static () => { });
+                    }
+
                     listedPermissions.Permissions.Add(
                         GetPendingPermissions(listPermissions.UserSessionId).Select(permission => permission.Clone()));
                 }
@@ -683,11 +709,34 @@ internal sealed class ScriptedInvoker : CallInvoker
             _listenedTo.Add(listen.UserSessionId);
         }
 
+        if (ListenFailure is { } listenFailure)
+        {
+            var failed = new ChannelStreamWriter<Event>();
+            failed.Fault(new RpcException(new Status(listenFailure, "selected stream failed")));
+            return new AsyncServerStreamingCall<TResponse>(
+                (IAsyncStreamReader<TResponse>)failed.Reader,
+                Task.FromResult(new Metadata()),
+                static () => Status.DefaultSuccess,
+                static () => [],
+                failed.Complete);
+        }
+
         ChannelStreamWriter<Event> events;
         lock (_gate)
         {
             events = new ChannelStreamWriter<Event>();
             _activeEvents[listen.UserSessionId] = events;
+            if (listen.Replay && _replayHistory.TryGetValue(listen.UserSessionId, out var history))
+            {
+                foreach (var published in history)
+                {
+                    if (!events.TryWrite(published.Clone()))
+                    {
+                        throw new InvalidOperationException("the scripted stream rejected persisted history");
+                    }
+                }
+            }
+
             if (!events.TryWrite(InitialQueueSnapshot(listen.UserSessionId)))
             {
                 throw new InvalidOperationException("the scripted stream rejected its initial queue snapshot");
@@ -756,6 +805,21 @@ internal sealed class ScriptedInvoker : CallInvoker
             static () => Status.DefaultSuccess,
             static () => [],
             static () => { });
+
+    private async Task<ListPendingPermissionsResponse> FailPermissionCancellation(CancellationToken cancellationToken)
+    {
+        PermissionCancellationPending.SetResult();
+        try
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw new InvalidOperationException("old reconciliation teardown failed");
+        }
+
+        throw new InvalidOperationException("the pending permission test call did not cancel");
+    }
 
     private Event InitialQueueSnapshot(string userSessionId)
     {

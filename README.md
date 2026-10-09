@@ -1874,6 +1874,7 @@ non-interactive commands and ordinary stdin/stdout pipes instead.
 | `/goal [text]` | argument | Set or clear the session goal |
 | `/sandbox_enable <true\|false>` | argument | Enable or disable the OS process sandbox for this process |
 | `/models`, `/modes`, `/sessions` | listing | List models, modes, or sessions on this server |
+| `/workspace-sessions` | terminal picker | Select a session from the current launch-directory workspace, newest first, with creation date/time and local UTC offset. Loads inactive sessions or attaches to running ones after the current turn finishes. |
 | `/status` | listing | Show the agent status prompt and subscription usage |
 | `/help`, `/version`, `/exit` | other | List commands, print the version, leave the session |
 

@@ -9,4 +9,6 @@ internal sealed class EnhancedChatRequest(CreateSessionRequest session, string p
     public string Prompt { get; } = prompt;
 
     public UserSession? InitialSession { get; init; }
+
+    public ITerminalSessionNavigation? Navigation { get; init; }
 }

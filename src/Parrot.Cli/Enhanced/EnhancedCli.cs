@@ -11,7 +11,7 @@ using GeneratedParrot = Parrot.Protocol.Parrot;
 namespace Parrot.Cli.Enhanced;
 
 internal sealed class EnhancedCli(
-    GeneratedParrot.ParrotClient client,
+    CallInvoker initialInvoker,
     Interrupts interrupts,
     EnhancedChatRequest request,
     ICredentialStore credentials,
@@ -36,12 +36,16 @@ internal sealed class EnhancedCli(
     private static readonly TimeSpan QuestionReconciliationInterval = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan SubmitDelay = TimeSpan.FromMilliseconds(100);
 
+    private readonly TerminalSessionCallInvoker _routing = new(initialInvoker);
+
     private readonly Channel<bool> _interrupts =
         Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
 
     private volatile bool _busy;
     private volatile bool _interruptRequested;
     private Func<UserSession, CancellationToken, Task>? _replaceSession;
+
+    private GeneratedParrot.ParrotClient Client => _routing.Client;
 
     public async Task<int> Run(CancellationToken cancellationToken)
     {
@@ -52,7 +56,7 @@ internal sealed class EnhancedCli(
         try
         {
             request.Session.InteractivePermissions = request.Prompt.Length == 0;
-            session = request.InitialSession ?? await client.CreateSessionAsync(request.Session, cancellationToken: cancellationToken);
+            session = request.InitialSession ?? await Client.CreateSessionAsync(request.Session, cancellationToken: cancellationToken);
         }
         catch (RpcException failure) when (failure.StatusCode == StatusCode.InvalidArgument)
         {
@@ -153,7 +157,7 @@ internal sealed class EnhancedCli(
     {
         using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var session = SlashSession.Create(
-            client, initialSession, configuration, !exitOnFirstCompletion, new CliSlashSessionBinding(BindSession));
+            Client, initialSession, configuration, !exitOnFirstCompletion, new CliSlashSessionBinding(BindSession));
         var activeSession = initialSession;
         var rendering = Task.CompletedTask;
         var interrupting = Interrupting(session, listening.Token);
@@ -163,11 +167,12 @@ internal sealed class EnhancedCli(
         var pendingSubmit = (PendingSubmit?)null;
         var binding = (EnhancedListenBinding?)null;
         var planRequests = Channel.CreateUnbounded<PlanCompletionRequest>();
-        var questionRequests = new QuestionInteractionPresenter(client);
-        var permissions = new PermissionInteractionPresenter(client);
-        var skillCompletion = new SkillCompletion(client);
+        var questionRequests = new QuestionInteractionPresenter(Client);
+        var permissions = new PermissionInteractionPresenter(Client);
+        var skillCompletion = new SkillCompletion(Client);
         PermissionInteractionPresenter.Session? permissionSession = null;
         var reconcilingPermissions = Task.CompletedTask;
+        var permissionReconciliationCancellation = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
         var questionReconciliationCancellation = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
         var questionSession = questionRequests.Attach(activeSession.Id);
         var reconcilingQuestions = questionRequests.Reconcile(questionSession, questionReconciliationCancellation.Token);
@@ -232,7 +237,7 @@ internal sealed class EnhancedCli(
 
         async Task StartTurn(string entered)
         {
-            var message = await attachments.Prepare(client, session.Id, session.Mode, entered, _busy ? Delivery.Steer : Delivery.Queue, terminal.Error, cancellationToken)
+            var message = await attachments.Prepare(Client, session.Id, session.Mode, entered, _busy ? Delivery.Steer : Delivery.Queue, terminal.Error, cancellationToken)
                 .ConfigureAwait(false);
             if (message is null)
             {
@@ -246,14 +251,49 @@ internal sealed class EnhancedCli(
                 [new PromptValue(editor.Prompt)],
                 binding?.Token ?? cancellationToken,
                 cancellationToken).ConfigureAwait(false);
-            _ = await client.SendMessageAsync(message, cancellationToken: cancellationToken);
+            _ = await Client.SendMessageAsync(message, cancellationToken: cancellationToken);
         }
 
-        async Task StartRendering(AsyncServerStreamingCall<Event> activeCall, CancellationToken streamToken)
+        async Task StartRendering(AsyncServerStreamingCall<Event> activeCall, Func<bool> isReplaying, CancellationToken streamToken)
         {
-            firstTurnCompleted = await renderingSession.Run(
+            firstTurnCompleted = await renderingSession.RunWithReplay(
                 activeCall.ResponseStream,
+                isReplaying,
                 streamToken).ConfigureAwait(false);
+        }
+
+        var interactionsStopped = false;
+
+        async Task StopInteractions()
+        {
+            if (interactionsStopped)
+            {
+                return;
+            }
+
+            interactionsStopped = true;
+            await questionReconciliationCancellation.CancelAsync().ConfigureAwait(false);
+            await permissionReconciliationCancellation.CancelAsync().ConfigureAwait(false);
+            try
+            {
+                await Task.WhenAll(reconcilingQuestions.WaitAsync(CancellationToken.None), reconcilingPermissions.WaitAsync(CancellationToken.None)).ConfigureAwait(false);
+            }
+            finally
+            {
+                questionReconciliationCancellation.Dispose();
+                permissionReconciliationCancellation.Dispose();
+            }
+        }
+
+        void AttachInteractions(UserSession replacement)
+        {
+            interactionsStopped = false;
+            questionReconciliationCancellation = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
+            permissionReconciliationCancellation = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
+            questionSession = questionRequests.Attach(replacement.Id);
+            permissionSession = permissions.Attach(replacement.Id);
+            reconcilingQuestions = questionRequests.Reconcile(questionSession, questionReconciliationCancellation.Token);
+            reconcilingPermissions = permissions.Reconcile(permissionReconciliationCancellation.Token);
         }
 
         async Task ReplaceSession(UserSession replacement, CancellationToken token)
@@ -265,28 +305,93 @@ internal sealed class EnhancedCli(
             }
 
             await renderingSession.StopSpinner().ConfigureAwait(false);
+            await StopInteractions().ConfigureAwait(false);
             await binding.DisposeAsync().ConfigureAwait(false);
             await renderingSession.ResetForSession(CancellationToken.None).ConfigureAwait(false);
-            await questionReconciliationCancellation.CancelAsync().ConfigureAwait(false);
-            await reconcilingQuestions.ConfigureAwait(false);
-            questionReconciliationCancellation.Dispose();
             activeSession = replacement;
-            questionReconciliationCancellation = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
-            questionSession = questionRequests.Attach(replacement.Id);
-            reconcilingQuestions = questionRequests.Reconcile(questionSession, questionReconciliationCancellation.Token);
-            permissionSession = permissions.Attach(replacement.Id);
+            AttachInteractions(replacement);
             await skillCompletion.RefreshCatalog(replacement.Id, token).ConfigureAwait(false);
-            binding = EnhancedListenBinding.Open(client, replacement.Id, StartRendering, listening.Token);
+            binding = EnhancedListenBinding.Open(Client, replacement.Id, StartRendering, listening.Token);
             rendering = binding.Rendering;
             _busy = false;
             _interruptRequested = false;
         }
 
+        async Task ReplaceExisting(
+            UserSession replacement,
+            GeneratedParrot.ParrotClient targetClient,
+            Action commit,
+            CancellationToken token)
+        {
+            if (binding is null)
+            {
+                throw new InvalidOperationException("the enhanced session stream is not running");
+            }
+
+            var prepared = await PreparedSessionStream.Open(targetClient, replacement.Id, listening.Token, token)
+                .ConfigureAwait(false);
+            var previousSession = activeSession;
+            var previousInvoker = _routing.Target;
+            var previousClient = new GeneratedParrot.ParrotClient(previousInvoker);
+            var replacing = false;
+            var previousBinding = binding;
+            var previousStreamStopped = false;
+            try
+            {
+                token.ThrowIfCancellationRequested();
+                replacing = true;
+                await renderingSession.StopSpinner().ConfigureAwait(false);
+                await StopInteractions().ConfigureAwait(false);
+                previousStreamStopped = true;
+                await previousBinding.DisposeAsync().ConfigureAwait(false);
+                await renderingSession.ResetForSession(CancellationToken.None).ConfigureAwait(false);
+                commit();
+                activeSession = replacement;
+                AttachInteractions(replacement);
+                await skillCompletion.RefreshCatalog(replacement.Id, listening.Token).ConfigureAwait(false);
+                _busy = false;
+                _interruptRequested = false;
+                prepared.SetReplayCompletion(busy => _busy = busy);
+                binding = EnhancedListenBinding.StartPrepared(prepared, StartRendering);
+                rendering = binding.Rendering;
+            }
+            catch
+            {
+                await prepared.DisposeAsync().ConfigureAwait(false);
+                if (replacing)
+                {
+                    try
+                    {
+                        await StopInteractions().ConfigureAwait(false);
+                        if (!previousStreamStopped)
+                        {
+                            await previousBinding.DisposeAsync().ConfigureAwait(false);
+                        }
+                    }
+                    finally
+                    {
+                        _routing.Target = previousInvoker;
+                        activeSession = previousSession;
+                        AttachInteractions(previousSession);
+                        await skillCompletion.RefreshCatalog(previousSession.Id, listening.Token).ConfigureAwait(false);
+                        binding = EnhancedListenBinding.Open(previousClient, previousSession.Id, StartRendering, listening.Token);
+                        rendering = binding.Rendering;
+                    }
+                }
+
+                throw;
+            }
+        }
+
+        using var navigation = request.Navigation ?? new ExplicitRemoteTerminalSessionNavigation(initialInvoker);
+        using var sessionController = new TerminalSessionController(
+            navigation, _routing, session, initialSession, ReplaceExisting);
+
         _replaceSession = ReplaceSession;
         var liveInput = EnhancedLiveInputHost.Create(terminal, renderingSession.ReplaceInput);
         ISlashDialog dialog = new EnhancedSlashDialog(liveInput, renderingSession.Commit);
-        var commands = SlashCommands.Create(
-            client,
+        var commands = SlashCommands.CreateTerminal(
+            Client,
             dialog,
             session,
             new SlashActivity(() => _busy),
@@ -296,7 +401,8 @@ internal sealed class EnhancedCli(
             oauthClient,
             providerIds,
             token => skillCompletion.RefreshCatalog(session.Id, token),
-            diagnostics);
+            diagnostics,
+            sessionController);
         var slashCompletion = new SlashCommandCompletion(commands);
 
         Task DrawPrompt(CancellationToken token)
@@ -456,9 +562,9 @@ internal sealed class EnhancedCli(
             await SetBracketedPaste(output, true, cancellationToken).ConfigureAwait(false);
             await SetKeyboardEnhancement(output, true, cancellationToken).ConfigureAwait(false);
             permissionSession = permissions.Attach(activeSession.Id);
-            reconcilingPermissions = permissions.Reconcile(listening.Token);
+            reconcilingPermissions = permissions.Reconcile(permissionReconciliationCancellation.Token);
             await skillCompletion.RefreshCatalog(activeSession.Id, cancellationToken).ConfigureAwait(false);
-            binding = EnhancedListenBinding.Open(client, activeSession.Id, StartRendering, listening.Token);
+            binding = EnhancedListenBinding.Open(Client, activeSession.Id, StartRendering, listening.Token);
             rendering = binding.Rendering;
             if (initialSession.Loaded && request.InitialSession is null && !exitOnFirstCompletion)
             {
@@ -467,7 +573,7 @@ internal sealed class EnhancedCli(
                     cancellationToken).ConfigureAwait(false);
             }
 
-            var aliasWarnings = await ModelAliasWarnings.List(client, cancellationToken).ConfigureAwait(false);
+            var aliasWarnings = await ModelAliasWarnings.List(Client, cancellationToken).ConfigureAwait(false);
             if (aliasWarnings.Count > 0)
             {
                 await renderingSession.Commit(
@@ -585,7 +691,7 @@ internal sealed class EnhancedCli(
                 }
                 else if (received.Kind == TerminalKeyKind.Mode)
                 {
-                    var mode = await NextMode(client, session.Mode, dialog, cancellationToken)
+                    var mode = await NextMode(Client, session.Mode, dialog, cancellationToken)
                         .ConfigureAwait(false);
                     if (mode is not null)
                     {
@@ -641,9 +747,16 @@ internal sealed class EnhancedCli(
                     }
                     finally
                     {
-                        await questionReconciliationCancellation.CancelAsync().ConfigureAwait(false);
-                        await Task.WhenAll(interrupting, reconcilingPermissions, reconcilingQuestions).ConfigureAwait(false);
-                        questionReconciliationCancellation.Dispose();
+                        try
+                        {
+                            await StopInteractions().ConfigureAwait(false);
+                            await interrupting.ConfigureAwait(false);
+                        }
+                        finally
+                        {
+                            questionReconciliationCancellation.Dispose();
+                            permissionReconciliationCancellation.Dispose();
+                        }
                     }
                 }
             }
@@ -672,7 +785,7 @@ internal sealed class EnhancedCli(
         CancellationToken cancellationToken)
     {
         using var lifetime = new PendingQuestionLifetime(
-            client,
+            Client,
             userSessionId,
             pending.Id,
             QuestionReconciliationInterval,
@@ -810,7 +923,7 @@ internal sealed class EnhancedCli(
 
             try
             {
-                _ = await client.ReplyQuestionAsync(reply, cancellationToken: cancellationToken).ConfigureAwait(false);
+                _ = await Client.ReplyQuestionAsync(reply, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
             catch (RpcException failure) when (failure.StatusCode == StatusCode.InvalidArgument)
             {
@@ -875,7 +988,7 @@ internal sealed class EnhancedCli(
     {
         try
         {
-            _ = await client.RejectQuestionAsync(
+            _ = await Client.RejectQuestionAsync(
                 new RejectQuestionRequest
                 {
                     UserSessionId = userSessionId,
@@ -937,7 +1050,7 @@ internal sealed class EnhancedCli(
                 }
 
                 _busy = true;
-                _ = await client.SendMessageAsync(
+                _ = await Client.SendMessageAsync(
                     new SendMessageRequest { UserSessionId = session.Id, Text = feedback.Trim(), Delivery = Delivery.Queue }, cancellationToken: cancellationToken).ConfigureAwait(false);
                 return;
             }
@@ -956,7 +1069,7 @@ internal sealed class EnhancedCli(
             if (choice.Action?.Prompt.Length > 0)
             {
                 _busy = true;
-                _ = await client.SendMessageAsync(
+                _ = await Client.SendMessageAsync(
                     new SendMessageRequest { UserSessionId = session.Id, Text = choice.Action.Prompt, Delivery = Delivery.Queue }, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
         }
@@ -974,7 +1087,7 @@ internal sealed class EnhancedCli(
             {
                 if (_interrupts.Reader.TryRead(out _))
                 {
-                    _ = await client.InterruptAsync(
+                    _ = await Client.InterruptAsync(
                         new InterruptRequest { UserSessionId = session.Id },
                         cancellationToken: cancellationToken);
                 }

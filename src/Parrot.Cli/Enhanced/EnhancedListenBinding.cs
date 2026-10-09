@@ -6,44 +6,31 @@ namespace Parrot.Cli.Enhanced;
 
 internal sealed class EnhancedListenBinding : IAsyncDisposable
 {
-    private readonly AsyncServerStreamingCall<Event> _call;
-    private readonly CancellationTokenSource _cancellation;
+    private readonly PreparedSessionStream _stream;
     private bool _disposed;
 
     private EnhancedListenBinding(
-        AsyncServerStreamingCall<Event> call,
-        CancellationTokenSource cancellation,
-        Func<AsyncServerStreamingCall<Event>, CancellationToken, Task> render)
+        PreparedSessionStream stream,
+        Func<AsyncServerStreamingCall<Event>, Func<bool>, CancellationToken, Task> render)
     {
-        _call = call;
-        _cancellation = cancellation;
-        Rendering = render(call, cancellation.Token);
+        _stream = stream;
+        Rendering = render(stream.Call, () => stream.IsReplaying, stream.Token);
     }
 
-    public CancellationToken Token => _cancellation.Token;
+    public CancellationToken Token => _stream.Token;
 
     public Task Rendering { get; }
 
     public static EnhancedListenBinding Open(
         GeneratedParrot.ParrotClient client,
         string userSessionId,
-        Func<AsyncServerStreamingCall<Event>, CancellationToken, Task> render,
-        CancellationToken cancellationToken)
-    {
-        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        try
-        {
-            var call = client.Listen(
-                new ListenRequest { UserSessionId = userSessionId },
-                cancellationToken: cancellation.Token);
-            return new(call, cancellation, render);
-        }
-        catch
-        {
-            cancellation.Dispose();
-            throw;
-        }
-    }
+        Func<AsyncServerStreamingCall<Event>, Func<bool>, CancellationToken, Task> render,
+        CancellationToken cancellationToken) =>
+        new(PreparedSessionStream.OpenLive(client, userSessionId, cancellationToken), render);
+
+    public static EnhancedListenBinding StartPrepared(
+        PreparedSessionStream stream,
+        Func<AsyncServerStreamingCall<Event>, Func<bool>, CancellationToken, Task> render) => new(stream, render);
 
     public async ValueTask DisposeAsync()
     {
@@ -53,9 +40,20 @@ internal sealed class EnhancedListenBinding : IAsyncDisposable
         }
 
         _disposed = true;
-        await _cancellation.CancelAsync().ConfigureAwait(false);
-        await Rendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-        _call.Dispose();
-        _cancellation.Dispose();
+        await _stream.Cancel().ConfigureAwait(false);
+        try
+        {
+            await Rendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_stream.Token.IsCancellationRequested)
+        {
+        }
+        catch (RpcException failure) when (_stream.Token.IsCancellationRequested && failure.StatusCode == StatusCode.Cancelled)
+        {
+        }
+        finally
+        {
+            await _stream.DisposeAsync().ConfigureAwait(false);
+        }
     }
 }

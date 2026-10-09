@@ -29,6 +29,12 @@ internal interface ISlashSession
     /// <summary>Creates a session and replaces the CLI binding, restoring the current session if binding fails.</summary>
     Task StartNew(string model, string mode, CancellationToken cancellationToken);
 
+    /// <summary>Commits an existing session with its terminal binding and restores the current session on failure.</summary>
+    Task LoadExisting(
+        UserSession replacement,
+        Func<Action, CancellationToken, Task> bind,
+        CancellationToken cancellationToken);
+
     Task SetGoal(string goal, CancellationToken cancellationToken);
 
     Task ClearGoal(CancellationToken cancellationToken);

@@ -432,6 +432,94 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    [Arguments(" ")]
+    [Arguments("relative-workspace")]
+    [Arguments("missing-workspace")]
+    [Arguments("invalid\0workspace")]
+    public async Task Session_listing_rejects_invalid_nonempty_workspace_filters(
+        string directory,
+        CancellationToken cancellationToken)
+    {
+        await using var service = Service(Store());
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+        _ = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection }, cancellationToken: cancellationToken);
+        var requested = directory == "missing-workspace" ? Path.Combine(_root, directory) : directory;
+
+        var failure = await Assert.That(async () => await client.ListSessionsAsync(
+            new ListSessionsRequest { WorkingDirectory = requested }, cancellationToken: cancellationToken))
+            .Throws<RpcException>();
+
+        _ = await Assert.That(failure?.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        var unfiltered = await client.ListSessionsAsync(new ListSessionsRequest(), cancellationToken: cancellationToken);
+        _ = await Assert.That(unfiltered.Sessions.Count).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Session_listing_matches_physical_launch_directory_not_repository_or_subdirectories(
+        CancellationToken cancellationToken)
+    {
+        var workspace = EnsureDirectory(Path.Combine(_root, "work"));
+        _ = Directory.CreateDirectory(Path.Combine(workspace, ".git"));
+        var subdirectory = EnsureDirectory(Path.Combine(workspace, "child"));
+        var nestedResources = new UserSessionResources(
+            new StatePaths(_root, _root, _root),
+            UserSessionId.Parse("user-session-nested"),
+            ProjectWorkspace.FromLaunchDirectory(subdirectory));
+        new SessionIndex(nestedResources).Publish(new SessionMeta
+        {
+            Id = nestedResources.Id.Value,
+            WorkingDirectory = subdirectory,
+            ProviderId = "scripted",
+            Model = Selection,
+            Mode = "build",
+            CreatedAt = "2026-07-28T02:00:00Z",
+        });
+        var worktree = EnsureDirectory(Path.Combine(_root, "worktree"));
+        await File.WriteAllTextAsync(Path.Combine(worktree, ".git"), $"gitdir: {Path.Combine(workspace, ".git")}", cancellationToken);
+        var link = Path.Combine(_root, "workspace-link");
+        _ = Directory.CreateSymbolicLink(link, workspace);
+        PublishMeta("user-session-other", "other", Selection, "build", "2026-07-28T02:00:00Z");
+        await using var service = Service(Store());
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+        var created = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection }, cancellationToken: cancellationToken);
+
+        var linked = await client.ListSessionsAsync(
+            new ListSessionsRequest { WorkingDirectory = link }, cancellationToken: cancellationToken);
+        var nested = await client.ListSessionsAsync(
+            new ListSessionsRequest { WorkingDirectory = Path.Combine(link, "child") }, cancellationToken: cancellationToken);
+        var separate = await client.ListSessionsAsync(
+            new ListSessionsRequest { WorkingDirectory = worktree }, cancellationToken: cancellationToken);
+        var unfiltered = await client.ListSessionsAsync(new ListSessionsRequest(), cancellationToken: cancellationToken);
+
+        _ = await Assert.That(linked.Sessions.Select(item => item.UserSessionId)).IsEquivalentTo([created.Id]);
+        _ = await Assert.That(nested.Sessions.Select(item => item.UserSessionId)).IsEquivalentTo([nestedResources.Id.Value]);
+        _ = await Assert.That(separate.Sessions).IsEmpty();
+        _ = await Assert.That(unfiltered.Sessions.Count).IsEqualTo(3);
+    }
+
+    [Test]
+    public async Task Session_listing_excludes_invalid_catalog_workspaces_from_filtered_results(
+        CancellationToken cancellationToken)
+    {
+        var workspace = EnsureDirectory(Path.Combine(_root, "work"));
+        PublishMeta("user-session-missing-workspace", "other", Selection, "build", "2026-07-28T02:00:00Z");
+        Directory.Delete(Path.Combine(_root, "inactive-work"));
+        await using var service = Service(Store());
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+        var created = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection }, cancellationToken: cancellationToken);
+
+        var filtered = await client.ListSessionsAsync(
+            new ListSessionsRequest { WorkingDirectory = workspace }, cancellationToken: cancellationToken);
+        var unfiltered = await client.ListSessionsAsync(new ListSessionsRequest(), cancellationToken: cancellationToken);
+
+        _ = await Assert.That(filtered.Sessions.Select(item => item.UserSessionId)).IsEquivalentTo([created.Id]);
+        _ = await Assert.That(unfiltered.Sessions.Count).IsEqualTo(2);
+    }
+
+    [Test]
     public async Task Resume_and_concurrent_attach_preserve_the_exact_session_without_new_activation(
         CancellationToken cancellationToken)
     {
@@ -443,6 +531,7 @@ internal sealed class ParrotServiceTests : IDisposable
                 new CreateSessionRequest { Model = Selection, Mode = ModeRegistry.Plan },
                 new InProcessServerCallContext(cancellationToken));
             sessionId = created.Id;
+            _ = await Assert.That(created.WorkingDirectory).IsEqualTo(workspace);
         }
 
         await using var owner = Service(Store());
@@ -470,8 +559,10 @@ internal sealed class ParrotServiceTests : IDisposable
         _ = await Assert.That(resumed.Loaded).IsTrue();
         _ = await Assert.That(resumed.Model).IsEqualTo(Selection);
         _ = await Assert.That(resumed.Mode).IsEqualTo(ModeRegistry.Plan);
+        _ = await Assert.That(resumed.WorkingDirectory).IsEqualTo(workspace);
         _ = await Assert.That(attached.All(item => item.Id == sessionId
-            && item.Model == resumed.Model && item.Mode == resumed.Mode && !item.Loaded)).IsTrue();
+            && item.Model == resumed.Model && item.Mode == resumed.Mode && !item.Loaded
+            && item.WorkingDirectory == workspace)).IsTrue();
         _ = await Assert.That(Directory.GetFiles(activationDirectory).Length).IsEqualTo(activationFiles);
         _ = await Assert.That(Directory.GetDirectories(Path.Combine(_root, "sessions")).Length).IsEqualTo(1);
         _ = await Assert.That(string.CompareOrdinal(FindMeta(sessionId).LastOpenedAt, metadata.LastOpenedAt) >= 0).IsTrue();

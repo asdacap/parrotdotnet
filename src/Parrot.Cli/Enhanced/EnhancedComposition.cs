@@ -1,9 +1,9 @@
+using Grpc.Core;
 using Parrot.Auth;
 using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
 using Parrot.Diagnostics;
 using Pure.DI;
-using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Enhanced;
 
@@ -12,7 +12,7 @@ internal partial class EnhancedComposition
     internal static void Setup() =>
         DI.Setup(nameof(EnhancedComposition))
             .Hint(Hint.Resolve, "Off")
-            .Arg<GeneratedParrot.ParrotClient>("client")
+            .Arg<CallInvoker>("client")
             .Arg<Interrupts>("interrupts")
             .Arg<ICredentialStore>("credentials")
             .Arg<CredentialPresets>("credentialPresets")

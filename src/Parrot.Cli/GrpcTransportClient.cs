@@ -24,10 +24,13 @@ internal sealed class GrpcTransportClient : IDisposable
         _channel = channel;
         _httpClient = httpClient;
         _handler = handler;
-        Client = new(channel);
+        Invoker = channel.CreateCallInvoker();
+        Client = new(Invoker);
     }
 
     public GeneratedParrot.ParrotClient Client { get; }
+
+    public CallInvoker Invoker { get; }
 
     public static GrpcTransportClient Connect(TransportAddress address, TransportToken? token, IDiagnosticLog diagnostics)
     {

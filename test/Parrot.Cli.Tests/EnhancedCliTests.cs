@@ -8,7 +8,6 @@ using Parrot.Config;
 using Parrot.Core.Tests;
 using Parrot.Protocol;
 using Parrot.Tools;
-using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Tests;
 
@@ -109,7 +108,7 @@ internal sealed class EnhancedCliTests
         var renderer = new EnhancedTurnRenderer(terminal);
         using var diagnostics = new TransportDiagnosticsFixture();
         var cli = new EnhancedCli(
-            new GeneratedParrot.ParrotClient(invoker),
+            invoker,
             new Interrupts(stopping),
             new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
             new UnusedCredentials(),
@@ -161,7 +160,7 @@ internal sealed class EnhancedCliTests
         var renderer = new EnhancedTurnRenderer(terminal);
         using var diagnostics = new TransportDiagnosticsFixture();
         var cli = new EnhancedCli(
-            new GeneratedParrot.ParrotClient(invoker),
+            invoker,
             new Interrupts(stopping),
             new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
             new UnusedCredentials(),
@@ -1232,7 +1231,7 @@ internal sealed class EnhancedCliTests
         var renderer = new EnhancedTurnRenderer(terminal);
         using var diagnostics = new TransportDiagnosticsFixture();
         var cli = new EnhancedCli(
-            new GeneratedParrot.ParrotClient(invoker),
+            invoker,
             new Interrupts(stopping),
             new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
             new UnusedCredentials(),

@@ -6,6 +6,10 @@ internal sealed class ForegroundTurn
 {
     private readonly AgentSessionHierarchy _hierarchy = new();
 
+    public bool IsReplaying { get; private set; }
+
+    public void ObserveReplay(bool replaying) => IsReplaying = replaying;
+
     public void Observe(Event published) => _hierarchy.Observe(published);
 
     public void Reset() => _hierarchy.Reset();
@@ -15,6 +19,7 @@ internal sealed class ForegroundTurn
     public bool IsChild(string agentSessionId) => _hierarchy.IsChild(agentSessionId);
 
     public bool IsTerminal(Event published) =>
-        published.PayloadCase is Event.PayloadOneofCase.ModeTurnCompleted or Event.PayloadOneofCase.TurnFailed
+        !IsReplaying
+        && published.PayloadCase is Event.PayloadOneofCase.ModeTurnCompleted or Event.PayloadOneofCase.TurnFailed
         && IsMain(published.AgentSessionId);
 }

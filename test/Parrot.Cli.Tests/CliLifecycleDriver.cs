@@ -1,10 +1,10 @@
+using Grpc.Core;
 using Parrot.Agent;
 using Parrot.Auth;
 using Parrot.Cli.Enhanced;
 using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
 using Parrot.Tools;
-using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Tests;
 
@@ -95,6 +95,10 @@ internal sealed class CliLifecycleDriver : IDisposable
 
     public bool InputRedirected { get; init; }
 
+    public CallInvoker? InitialInvoker { private get; init; }
+
+    public ITerminalSessionNavigation? Navigation { private get; init; }
+
     public TextWriter? OutputWriter { private get; init; }
 
     public void Resize(int columns) =>
@@ -151,7 +155,6 @@ internal sealed class CliLifecycleDriver : IDisposable
 
     public Task<int> Drive(CancellationToken cancellationToken)
     {
-        var client = new GeneratedParrot.ParrotClient(Invoker);
         if (_enhanced)
         {
             var terminal = new TestTerminal(Input, _output, _error, _columns);
@@ -159,9 +162,13 @@ internal sealed class CliLifecycleDriver : IDisposable
             var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
             var renderer = new EnhancedTurnRenderer(terminal);
             return new EnhancedCli(
-                client,
+                InitialInvoker ?? Invoker,
                 Interrupts,
-                _enhancedRequest,
+                new EnhancedChatRequest(_enhancedRequest.Session, _enhancedRequest.Prompt)
+                {
+                    InitialSession = _enhancedRequest.InitialSession,
+                    Navigation = Navigation ?? _enhancedRequest.Navigation,
+                },
                 new UnusedCredentials(),
                 new CredentialPresets(Path.Combine(Path.GetTempPath(), "parrot-unused-credential-presets")),
                 new OpenAiOAuthClient(Http, new UnusedBrowser(), new OpenAiOAuthOptions()),
@@ -177,7 +184,7 @@ internal sealed class CliLifecycleDriver : IDisposable
         }
 
         return new BasicCli(
-                client,
+                InitialInvoker ?? Invoker,
                 Interrupts,
                 new UnusedCredentials(),
                 new CredentialPresets(Path.Combine(Path.GetTempPath(), "parrot-unused-credential-presets")),
@@ -193,7 +200,7 @@ internal sealed class CliLifecycleDriver : IDisposable
                 _error,
                 Attachments(_configuration),
                 _diagnostics.Log)
-        { InitialSession = _enhancedRequest.InitialSession }.Run(cancellationToken);
+        { InitialSession = _enhancedRequest.InitialSession, Navigation = Navigation ?? _enhancedRequest.Navigation }.Run(cancellationToken);
     }
 
     public void Dispose()

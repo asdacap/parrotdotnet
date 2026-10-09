@@ -112,6 +112,25 @@ internal sealed class SlashSession(
         return configured.Skill;
     }
 
+    public async Task LoadExisting(
+        UserSession replacement,
+        Func<Action, CancellationToken, Task> bind,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(replacement);
+        ArgumentNullException.ThrowIfNull(bind);
+        var previous = _current;
+        try
+        {
+            await bind(() => _current = replacement, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            _current = previous;
+            throw;
+        }
+    }
+
     public async Task StartNew(string model, string mode, CancellationToken cancellationToken)
     {
         var session = await client.CreateSessionAsync(

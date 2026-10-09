@@ -94,6 +94,39 @@ internal sealed class LocalSessionIntegrationTests
 
     [Test]
     [Timeout(30_000)]
+    public async Task Workspace_navigation_restores_exact_inactive_session_then_attaches_existing_owner(CancellationToken cancellationToken)
+    {
+        using var diagnostics = new TransportDiagnosticsFixture();
+        using var workspace = new TestWorkspace();
+        string inactiveId;
+        await using (var initial = new TestRuntime(workspace, true))
+        {
+            inactiveId = (await initial.Client.CreateSessionAsync(
+                new CreateSessionRequest { Model = Selection, Mode = "plan" }, cancellationToken: cancellationToken)).Id;
+        }
+
+        await using var local = new TestRuntime(workspace, true);
+        using ITerminalSessionNavigation navigation = new LocalTerminalSessionNavigation(
+            workspace.Paths,
+            workspace.Root,
+            diagnostics.Log,
+            _ => Task.FromResult(local.Invoker));
+        using var restored = await navigation.Open(new Parrot.Protocol.UserSession(), inactiveId, cancellationToken);
+        _ = await Assert.That(restored.Session.Id).IsEqualTo(inactiveId);
+        _ = await Assert.That(restored.Session.Loaded).IsTrue();
+        _ = await Assert.That(restored.Session.Mode).IsEqualTo("plan");
+        _ = await Assert.That(restored.Session.WorkingDirectory).IsEqualTo(workspace.Root);
+
+        using var attached = await navigation.Open(restored.Session, inactiveId, cancellationToken);
+        _ = await Assert.That(attached.Session.Id).IsEqualTo(inactiveId);
+        _ = await Assert.That(attached.Session.Loaded).IsFalse();
+        var listed = await navigation.List(attached.Session, cancellationToken);
+        _ = await Assert.That(listed.Sessions.Select(item => item.UserSessionId)).IsEquivalentTo([inactiveId]);
+        _ = await Assert.That(Directory.GetDirectories(Path.Combine(workspace.Paths.State, "sessions")).Length).IsEqualTo(1);
+    }
+
+    [Test]
+    [Timeout(30_000)]
     public async Task Reconnecting_older_session_updates_recency_and_owner_shutdown_allows_same_id_reload(
         CancellationToken cancellationToken)
     {
@@ -327,12 +360,15 @@ internal sealed class LocalSessionIntegrationTests
                 reachable ? new LocalUserSessionHost() : new UnexposedUserSessionHost(),
                 new SandboxGate(enabled: true),
                 _diagnostics.Global);
-            Client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(_service));
+            Invoker = new InProcessCallInvoker(_service);
+            Client = new GeneratedParrot.ParrotClient(Invoker);
         }
 
         public SessionStore Store { get; }
 
         public GeneratedParrot.ParrotClient Client { get; }
+
+        public CallInvoker Invoker { get; }
 
         public async ValueTask DisposeAsync()
         {

@@ -95,6 +95,9 @@ internal sealed class PermissionInteractionPresenter(GeneratedParrot.ParrotClien
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
+        catch (RpcException failure) when (cancellationToken.IsCancellationRequested && failure.StatusCode == StatusCode.Cancelled)
+        {
+        }
     }
 
     public async Task Present(Request request, ISlashDialog dialog, CancellationToken cancellationToken)

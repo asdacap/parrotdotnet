@@ -308,7 +308,10 @@ internal sealed class ParrotService(
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(context);
 
-        var workspace = request.WorkingDirectory.Length == 0 ? null : CanonicalWorkspace(request.WorkingDirectory);
+        var workspace = request.WorkingDirectory.Length == 0
+            ? null
+            : CanonicalWorkspace(request.WorkingDirectory)
+                ?? throw new RpcException(new Status(StatusCode.InvalidArgument, "a valid workspace directory is required"));
         var response = new ListSessionsResponse();
         response.Sessions.AddRange(sessionCatalog.List()
             .Where(entry => workspace is null || CanonicalWorkspace(entry.WorkingDirectory) == workspace)
@@ -920,7 +923,7 @@ internal sealed class ParrotService(
     {
         try
         {
-            return WorkingDirectoryClaim.Canonicalize(workingDirectory);
+            return ProjectWorkspace.FromLaunchDirectory(workingDirectory).PhysicalIdentity;
         }
         catch (Exception failure) when (failure is ArgumentException or IOException or UnauthorizedAccessException)
         {
