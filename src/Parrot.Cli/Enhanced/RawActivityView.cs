@@ -160,6 +160,25 @@ internal sealed class RawActivityView(
         await CommitReasoning(state, cancellationToken).ConfigureAwait(false);
     }
 
+    // A replayed yield names an inventory from whichever server run spawned it.
+    // Every live inventory is snapshotted before the listen preamble ends, so
+    // one still unconfirmed by then belongs to a process that is long gone.
+    public async Task RetireUnconfirmedProcesses(CancellationToken cancellationToken)
+    {
+        using var renderingLock = await _rendering.Lock(cancellationToken).ConfigureAwait(false);
+        foreach (var (ownerAgentSessionId, inventory) in _processInventories.Where(static entry => !entry.Value.Confirmed))
+        {
+            if (inventory.InstanceId is { } instanceId)
+            {
+                _ = inventory.RetiredInstances.Add(instanceId);
+            }
+
+            ClearOwnerProcesses(ownerAgentSessionId);
+        }
+
+        await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task ReplaceProcesses(
         ShellProcessSnapshot snapshot,
         CancellationToken cancellationToken)
@@ -1374,6 +1393,7 @@ internal sealed class RawActivityView(
             _ = inventory.RetiredInstances.Add(inventory.InstanceId);
             ClearOwnerProcesses(published.AgentSessionId);
             inventory.Revision = 0;
+            inventory.Confirmed = false;
         }
 
         inventory.InstanceId = yielded.InventoryInstanceId;
@@ -1439,6 +1459,8 @@ internal sealed class RawActivityView(
 
         public ulong Revision { get; set; }
 
+        public bool Confirmed { get; set; }
+
         public HashSet<string> RetiredInstances { get; } = new(StringComparer.Ordinal);
 
         public bool Accept(string instanceId, ulong revision, bool removed, out bool replaced)
@@ -1457,6 +1479,7 @@ internal sealed class RawActivityView(
 
             InstanceId = instanceId;
             Revision = revision;
+            Confirmed = true;
             if (removed)
             {
                 _ = RetiredInstances.Add(instanceId);

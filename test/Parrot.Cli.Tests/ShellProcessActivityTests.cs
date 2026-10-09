@@ -368,6 +368,41 @@ internal sealed class ShellProcessActivityTests
         _ = await Assert.That(activity.Commits[1]).Contains("second command");
     }
 
+    [Test]
+    public async Task Preamble_end_retires_processes_without_a_live_inventory(CancellationToken cancellationToken)
+    {
+        await using var activity = new ProcessActivity();
+        await activity.Yield("call", "sleep 20", "stale-process", "stale-process", "previous-run", 1, cancellationToken);
+        await activity.Replace(
+            new ShellProcessSnapshot
+            {
+                OwnerAgentSessionId = "child",
+                InventoryInstanceId = "child-inventory",
+                Revision = 1,
+                Processes =
+                {
+                    new ActiveShellProcess
+                    {
+                        ProcessId = "live-process",
+                        Name = "live-process",
+                        Command = "live command",
+                        OwnerAgentSessionId = "child",
+                        OwnerAgentName = "worker",
+                        ParentAgentSessionId = "main",
+                        Depth = 1,
+                    },
+                },
+            },
+            cancellationToken);
+        _ = await Assert.That(activity.Draws[^1]).Contains("stale-process running");
+
+        await activity.RetireUnconfirmedProcesses(cancellationToken);
+
+        _ = await Assert.That(activity.Draws[^1]).DoesNotContain("stale-process running");
+        _ = await Assert.That(activity.Draws[^1]).Contains("live-process running");
+        _ = await Assert.That(activity.Commits).IsEmpty();
+    }
+
     private static string Render(IReadOnlyList<ILiveBufferItem> items) =>
         string.Join('|', items.SelectMany(item => item.Render(Context).Lines).Select(static line => line.Text));
 
@@ -498,6 +533,9 @@ internal sealed class ShellProcessActivityTests
 
         public Task Replace(ShellProcessSnapshot snapshot, CancellationToken cancellationToken) =>
             _view.ReplaceProcesses(snapshot, cancellationToken);
+
+        public Task RetireUnconfirmedProcesses(CancellationToken cancellationToken) =>
+            _view.RetireUnconfirmedProcesses(cancellationToken);
 
         private Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken cancellationToken)
         {

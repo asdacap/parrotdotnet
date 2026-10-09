@@ -140,8 +140,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(isReplaying);
-        var usageStream = new ProviderCallUsageStreamReader(stream, ObserveProviderCallUsage);
-        return RunCore(new SessionUsageSnapshotStreamReader(usageStream, ObserveSessionUsage), isReplaying, cancellationToken);
+        return RunCore(new ProviderCallUsageStreamReader(stream, ObserveProviderCallUsage), isReplaying, cancellationToken);
     }
 
     internal async Task ReplaceInput(
@@ -360,7 +359,18 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
             CommitBody,
             _toolPresenters,
             UpdateMainAgentActivity);
-        var queueStream = new QueueSnapshotStreamReader(new RootLifecycleFilterStreamReader(stream), activity.ReplaceQueues);
+        var preamble = true;
+        var usageStream = new SessionUsageSnapshotStreamReader(stream, async (snapshot, token) =>
+        {
+            if (preamble)
+            {
+                preamble = false;
+                await activity.RetireUnconfirmedProcesses(token).ConfigureAwait(false);
+            }
+
+            await ObserveSessionUsage(snapshot, token).ConfigureAwait(false);
+        });
+        var queueStream = new QueueSnapshotStreamReader(new RootLifecycleFilterStreamReader(usageStream), activity.ReplaceQueues);
         var renderedStream = new ShellProcessSnapshotStreamReader(queueStream, activity.ReplaceProcesses);
         using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var animation = activity.Run(animating.Token);
