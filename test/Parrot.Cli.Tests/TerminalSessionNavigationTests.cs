@@ -58,14 +58,14 @@ internal sealed class TerminalSessionNavigationTests
 
     [Test]
     [Timeout(15_000)]
-    public async Task Local_listing_and_missing_socket_resume_use_exact_local_workspace(CancellationToken cancellationToken)
+    public async Task Local_listing_and_missing_socket_resume_take_over_exact_local_session(CancellationToken cancellationToken)
     {
         var root = Path.Combine(Path.GetTempPath(), "nav", Guid.NewGuid().ToString("N")[..8]);
         _ = Directory.CreateDirectory(root);
         try
         {
             using var diagnostics = new TransportDiagnosticsFixture();
-            var invoker = new NavigationInvoker();
+            var invoker = new NavigationInvoker { RequireTakeOver = true };
             using ITerminalSessionNavigation navigation = new LocalTerminalSessionNavigation(
                 new StatePaths(root, root, root),
                 root,
@@ -298,6 +298,8 @@ internal sealed class TerminalSessionNavigationTests
 
         public StatusCode? ResumeFailure { get; init; }
 
+        public bool RequireTakeOver { get; init; }
+
         public string? ReturnedId { get; init; }
 
         public string? ListedWorkspace { get; private set; }
@@ -332,6 +334,11 @@ internal sealed class TerminalSessionNavigationTests
                     break;
                 case ResumeSessionRequest resumed:
                     Resumed = resumed;
+                    if (RequireTakeOver && !resumed.TakeOver)
+                    {
+                        throw new RpcException(new Status(StatusCode.AlreadyExists, "unverifiable owner requires takeover"));
+                    }
+
                     if (ResumeFailure is { } resumeFailure)
                     {
                         throw new RpcException(new Status(resumeFailure, "resume failed"));

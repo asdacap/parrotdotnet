@@ -48,6 +48,7 @@ internal sealed class LocalTerminalSessionNavigation(
                     UserSessionId = userSessionId,
                     WorkingDirectory = workingDirectory,
                     InteractivePermissions = true,
+                    TakeOver = true,
                 },
                 cancellationToken: cancellationToken).ConfigureAwait(false);
             Validate(selected, userSessionId);
