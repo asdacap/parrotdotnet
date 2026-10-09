@@ -284,7 +284,7 @@ prompt_templates:
     required_arguments: [available, estimated_tokens, context_limit, cadence, trigger]
   status.context-limit:
     engine: scriban
-    template: 'Context: {{ if available }}{{ usage }}% used{{ else }}unavailable{{ end }} ({{ estimated_tokens }} estimated tokens / {{ context_limit }} model context window); reminders every {{ cadence }}%; automatic compaction triggers strictly above {{ trigger_tokens }} tokens.'
+    template: 'Context: {{ if available }}{{ usage }}%{{ else }}unavailable{{ end }} ({{ estimated_tokens }} / {{ context_limit }} tokens); auto-compact: >{{ trigger_tokens }} tokens.'
     allowed_arguments: [available, usage, estimated_tokens, context_limit, cadence, trigger, trigger_tokens]
     required_arguments: [available, estimated_tokens, context_limit, cadence, trigger_tokens]
   status.statistics:

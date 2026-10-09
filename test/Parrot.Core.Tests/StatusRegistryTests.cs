@@ -82,8 +82,8 @@ internal sealed class StatusRegistryTests
             new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"),
             CancellationToken.None);
 
-        _ = await Assert.That(observation.Text).Contains("1M model context window")
-            .And.Contains($"strictly above {expectedTrigger} tokens");
+        _ = await Assert.That(observation.Text).IsEqualTo(
+            $"Context: 10% (100k / 1M tokens); auto-compact: >{expectedTrigger} tokens.");
         _ = await Assert.That(snapshot.ExceedsTrigger).IsFalse();
         _ = await Assert.That(snapshot.ExceedsCompactionTrigger(100_001)).IsEqualTo(triggerTokens is not null);
         _ = await Assert.That(snapshot.ExceedsInputLimit).IsFalse();
