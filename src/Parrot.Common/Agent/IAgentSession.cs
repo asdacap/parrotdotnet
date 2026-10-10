@@ -36,13 +36,11 @@ internal interface IAgentSession : IAsyncDisposable
 
     AgentSelection CurrentSelection();
 
-    /// <summary>Caches the resolved model for the current selection.</summary>
-    void UseResolvedSelection(ResolvedModelSelection selectedModel);
-
     /// <summary>Wakes the session to resume durable pending work.</summary>
     void Recover();
 
-    void UpdateSelection(AgentSelection selection);
+    /// <summary>Updates the selection and caches a supplied model resolution; otherwise retains it only for the same requested model.</summary>
+    void UpdateSelection(AgentSelection selection, ResolvedModelSelection? selectedModel);
 
     /// <summary>Offers incoming activity to the drain and reports whether a follow-up was scheduled.</summary>
     bool Wake(IncomingActivity? activity);

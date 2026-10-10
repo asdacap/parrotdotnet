@@ -193,7 +193,7 @@ internal sealed partial class AgentSession
                             _started = true;
                             if (selection is not null)
                             {
-                                UpdateSelection(selection);
+                                UpdateSelection(selection, null);
                             }
 
                             execution = ExecuteOwned(parts, messageId, admitted, cancellationToken);

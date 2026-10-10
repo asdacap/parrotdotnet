@@ -129,27 +129,19 @@ internal sealed partial class AgentSession(
         }
     }
 
-    public void UpdateSelection(AgentSelection selection)
+    public void UpdateSelection(AgentSelection selection, ResolvedModelSelection? selectedModel)
     {
         ArgumentNullException.ThrowIfNull(selection);
 
         lock (_selectionGate)
         {
-            if (!string.Equals(_selection.RequestedModel.Value, selection.RequestedModel.Value, StringComparison.Ordinal))
+            if (selectedModel is not null
+                || !string.Equals(_selection.RequestedModel.Value, selection.RequestedModel.Value, StringComparison.Ordinal))
             {
-                _resolvedSelection = null;
+                _resolvedSelection = selectedModel;
             }
 
             _selection = selection;
-        }
-    }
-
-    public void UseResolvedSelection(ResolvedModelSelection selectedModel)
-    {
-        ArgumentNullException.ThrowIfNull(selectedModel);
-        lock (_selectionGate)
-        {
-            _resolvedSelection = selectedModel;
         }
     }
 

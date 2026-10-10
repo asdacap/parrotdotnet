@@ -149,11 +149,9 @@ internal sealed class AgentInterruptToolTests
 
         public AgentSelection CurrentSelection() => throw new NotSupportedException();
 
-        public void UseResolvedSelection(ResolvedModelSelection selectedModel) => throw new NotSupportedException();
-
         public void Recover() => throw new NotSupportedException();
 
-        public void UpdateSelection(AgentSelection selection) => throw new NotSupportedException();
+        public void UpdateSelection(AgentSelection selection, ResolvedModelSelection? selectedModel) => throw new NotSupportedException();
 
         public bool Wake(IncomingActivity? activity) => throw new NotSupportedException();
 

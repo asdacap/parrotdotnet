@@ -1164,7 +1164,7 @@ internal sealed class DrainTests : IDisposable
         provider.Release();
         _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
-        session.UpdateSelection(new AgentSelection(session.CurrentSelection().RequestedModel, secondProfile, secondProfile.SecurityProfile));
+        session.UpdateSelection(new AgentSelection(session.CurrentSelection().RequestedModel, secondProfile, secondProfile.SecurityProfile), null);
         _ = await session.Send([ConversationPart.TextPart("second prompt")], "msg-2", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(string.Join(" | ", provider.Requests[1].Tools.Select(tool => tool.Name)))
@@ -1204,7 +1204,7 @@ internal sealed class DrainTests : IDisposable
 
         _ = await session.Send([ConversationPart.TextPart("first prompt")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
-        session.UpdateSelection(new AgentSelection(session.CurrentSelection().RequestedModel, readOnly, readOnly.SecurityProfile));
+        session.UpdateSelection(new AgentSelection(session.CurrentSelection().RequestedModel, readOnly, readOnly.SecurityProfile), null);
         provider.Release();
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(string.Join(" | ", factory.RecordingTool.Selections.Select(SelectionSummary)))
