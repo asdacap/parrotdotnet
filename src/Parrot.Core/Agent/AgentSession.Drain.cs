@@ -175,6 +175,7 @@ internal sealed partial class AgentSession
         {
             Task<AgentExecution>? activeExecution = null;
             Task<AgentExecution>? execution = null;
+            var steerIntoWait = false;
             lock (_executionGate)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -208,11 +209,30 @@ internal sealed partial class AgentSession
                 {
                     activeExecution = _execution;
                 }
+
+                lock (_drainLifecycle.Gate)
+                {
+                    steerIntoWait = activeExecution is not null && _incomingInputWait is not null;
+                }
             }
 
             if (execution is not null)
             {
                 return await execution.ConfigureAwait(false);
+            }
+
+            // A turn blocked in wait is waiting for input, so queuing behind it
+            // would hold this prompt until the wait times out.
+            if (steerIntoWait)
+            {
+                var steered = await AdmitPartsAndWake(
+                    parts,
+                    messageId,
+                    Delivery.Steer,
+                    new IncomingActivity(string.Empty, null),
+                    cancellationToken).ConfigureAwait(false);
+                admitted?.Invoke(steered.Admission);
+                return await steered.SelectedDrain.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
 
             if (activeExecution is null)

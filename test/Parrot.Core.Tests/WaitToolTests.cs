@@ -284,6 +284,35 @@ internal sealed class WaitToolTests : IAsyncDisposable
         _ = await Assert.That(lifecycle.Length).IsEqualTo(2);
     }
 
+    [Test]
+    public async Task A_queued_message_steers_into_a_turn_blocked_in_wait(CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed("tool_calls", 1, 0, 1, string.Empty, [new LLMToolCall("wait-call", "wait", "{}")]),
+            LLMEvent.Completed("stop", 1, 0, 1, "done", []));
+        var time = new ManualTimeProvider();
+        var registry = PrepareRegistry(new EventRepository(_database));
+        var factory = new Parrot.Tools.WaitToolFactory([], time, TestModels.ToolDefinitions);
+        await using var scope = Session(provider, [factory], selectedRepository: null, registry);
+        var session = scope.Session;
+
+        _ = await session.Send(
+            [ConversationPart.TextPart("first")], "message-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await time.WaitForTimer(cancellationToken);
+        var queued = session.SendAndWaitForResult(
+            [ConversationPart.TextPart("queued")], "message-2", selection: null, admitted: null, cancellationToken);
+        await provider.Arrived(cancellationToken);
+
+        var request = provider.Requests[1];
+        _ = await Assert.That(request.Messages.Count(message => message.Content == "queued")).IsEqualTo(1);
+        _ = await Assert.That(request.Messages.Single(message => message.Role == LLMRole.Tool).Content)
+            .IsEqualTo("wait interrupted");
+        provider.Release();
+        _ = await Assert.That(await queued).IsEqualTo("done");
+    }
+
     private static bool IsWaiting(IAgentSession session) => session.Activity.Capture().State != DrainState.Idle;
 
     private UserSessionResources QueueResources(string sessionId) => new(
