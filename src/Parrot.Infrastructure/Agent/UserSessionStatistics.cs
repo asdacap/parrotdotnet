@@ -35,7 +35,7 @@ internal sealed class UserSessionStatistics(AgentStatisticsReplay replay, IEvent
     {
         lock (_gate)
         {
-            return CaptureUsageLocked(root);
+            return CaptureUsageLocked(root.CaptureStatistics());
         }
     }
 
@@ -44,8 +44,8 @@ internal sealed class UserSessionStatistics(AgentStatisticsReplay replay, IEvent
         Event fact,
         AgentUsageIncrement increment,
         Action<AgentUsageIncrement> apply,
-        IAgentSession agent,
-        IAgentSession root)
+        AgentSessionStatistics agent,
+        AgentSessionStatistics root)
     {
         lock (_gate)
         {
@@ -61,9 +61,9 @@ internal sealed class UserSessionStatistics(AgentStatisticsReplay replay, IEvent
             broker.Publish(new Event
             {
                 AgentSessionId = fact.AgentSessionId,
-                AgentStatisticsUpdated = AgentStatisticsUpdatedEvent.From(agent.CaptureStatistics().ToSelfStatistics()),
+                AgentStatisticsUpdated = AgentStatisticsUpdatedEvent.From(agent.Capture().ToSelfStatistics()),
             });
-            broker.Publish(new Event { SessionUsageSnapshot = CaptureUsageLocked(root) });
+            broker.Publish(new Event { SessionUsageSnapshot = CaptureUsageLocked(root.Capture()) });
         }
     }
 
@@ -86,9 +86,8 @@ internal sealed class UserSessionStatistics(AgentStatisticsReplay replay, IEvent
         return false;
     }
 
-    private SessionUsageSnapshot CaptureUsageLocked(IAgentSession root)
+    private SessionUsageSnapshot CaptureUsageLocked(AgentSessionStatisticsSnapshot statistics)
     {
-        var statistics = root.CaptureStatistics();
         var totals = statistics.Cumulative.Totals;
         return new()
         {

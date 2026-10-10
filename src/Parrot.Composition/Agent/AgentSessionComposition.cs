@@ -363,6 +363,12 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<IAgentSessionScope>(out var scope);
                 return new AgentResolver(arguments.Identity, parentScope, scope, arguments.Registry);
             })
+            .Bind<ProviderTokenBudget>().As(Lifetime.Scoped).To<ProviderTokenBudget>()
+            .Bind<AgentConversation>().As(Lifetime.Scoped).To<AgentConversation>()
+            .Bind<AgentEventEmitter>().As(Lifetime.Scoped).To<AgentEventEmitter>()
+            .Bind<AgentUsageRecorder>().As(Lifetime.Scoped).To<AgentUsageRecorder>()
+            .Bind<ProviderCall>().As(Lifetime.Scoped).To<ProviderCall>()
+            .Bind<ToolBatchSettlement>().As(Lifetime.Scoped).To<ToolBatchSettlement>()
             .Bind<IAgentSession>().As(Lifetime.Scoped).To<AgentSession>()
             .Bind<IGoalService>().As(Lifetime.Scoped).To<GoalService>()
             .Root<IAgentSession>("Session")

@@ -144,6 +144,73 @@ internal static class TestModels
             ProjectWorkspace.FromLaunchDirectory(root));
     }
 
+    public static AgentSession ComposeSession(
+        AgentIdentity identity,
+        IAgentParentScope parentScope,
+        ModelSelector model,
+        IModelRouter router,
+        IEventBroker eventBroker,
+        IAgentHistory history,
+        IUserSessionStatistics userStatistics,
+        AgentSessionStatistics statistics,
+        IReadOnlyList<IToolFactory> toolFactories,
+        ISystemPrompt systemPrompt,
+        ToolOutputBlobStore toolOutputBlobs,
+        AgentOutputFile outputFile,
+        CompactionGroupBlobStore compactionGroupBlobs,
+        Compactor compactor,
+        ProviderSessions providerSessions,
+        ContextCadence contextCadence,
+        IPromptTemplateCatalog promptTemplates,
+        IChildQuestionCoordinator childQuestions,
+        IExitReminder exitReminder,
+        IAgentProfile profile,
+        IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
+        AgentSessionSecurity security,
+        Skills.AgentSkills skills,
+        RequestLimitsConfig requestLimits,
+        IRuntimeStatus status,
+        AgentSessionActivity activity,
+        Diagnostics.IDiagnosticLog diagnostics,
+        CancellationToken lifetime)
+    {
+        var conversation = new AgentConversation(history);
+        var eventEmitter = new AgentEventEmitter(identity, history, eventBroker, diagnostics);
+        var usage = new AgentUsageRecorder(identity, parentScope, userStatistics, statistics, history, eventBroker);
+        var providerTokenBudget = new ProviderTokenBudget();
+        return new AgentSession(
+            identity,
+            parentScope,
+            model,
+            router,
+            eventBroker,
+            history,
+            statistics,
+            conversation,
+            eventEmitter,
+            new ProviderCall(identity, providerSessions, providerTokenBudget, eventBroker, outputFile, activity, eventEmitter, usage),
+            new ToolBatchSettlement(identity, history, conversation, eventBroker, eventEmitter, usage, toolOutputBlobs, promptTemplates, requestLimits, activity, diagnostics),
+            providerTokenBudget,
+            toolFactories,
+            systemPrompt,
+            outputFile,
+            compactionGroupBlobs,
+            compactor,
+            providerSessions,
+            contextCadence,
+            promptTemplates,
+            childQuestions,
+            exitReminder,
+            profile,
+            turnCompletionCallbacks,
+            security,
+            skills,
+            status,
+            activity,
+            diagnostics,
+            lifetime);
+    }
+
     public static IAgentHistory History(EventRepository repository, string agentSessionId) =>
         new AgentHistoryView(repository, agentSessionId);
 

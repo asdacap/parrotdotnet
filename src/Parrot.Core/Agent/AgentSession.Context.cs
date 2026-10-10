@@ -17,7 +17,7 @@ internal sealed partial class AgentSession
 
         EnsureEpoch();
         var tools = PermittedTools(selection);
-        return EstimateContextForHistory(selection, _systemPrompt.Build(selection), tools.Definitions, [.. _history]);
+        return EstimateContextForHistory(selection, _systemPrompt.Build(selection), tools.Definitions, [.. conversation]);
     }
 
     public async Task<string> ObserveStatus(CancellationToken cancellationToken)
@@ -47,7 +47,7 @@ internal sealed partial class AgentSession
         ArgumentNullException.ThrowIfNull(result);
 
         var tools = PermittedTools(selection);
-        var history = RestoreHistory(agentHistory);
+        var history = new AgentConversation(agentHistory);
         var formattedResult = promptTemplates.Render(
             "tool-result.text",
             [new PromptTemplateArgument("value", result)]);
@@ -70,7 +70,7 @@ internal sealed partial class AgentSession
         var tools = PermittedTools(selection);
         EnsureEpoch();
         var instructions = _systemPrompt.Build(selection);
-        var before = EstimateContextForHistory(selection, instructions, tools.Definitions, [.. _history]);
+        var before = EstimateContextForHistory(selection, instructions, tools.Definitions, [.. conversation]);
         if (before.InputLimit <= 0)
         {
             return new ContextCompactionResult(before, false);
@@ -86,13 +86,13 @@ internal sealed partial class AgentSession
             selection,
             compacted.Instructions,
             tools.Definitions,
-            [.. _history]);
+            [.. conversation]);
         return new ContextCompactionResult(after, compacted.Reduced);
     }
 
     private List<LLMMessage> HistoryWithNextPromotion()
     {
-        var history = new List<LLMMessage>(_history);
+        var history = new List<LLMMessage>(conversation);
         history.AddRange(agentHistory.InputsForNextPromotion()
             .Select(input => LLMMessage.User(agentHistory.Materialize(input.Parts))));
         return history;
@@ -159,8 +159,8 @@ internal sealed partial class AgentSession
             selection.ResolvedModel,
             instructions,
             tools,
-            _history);
-        var calibratedInputTokens = _providerTokenBudget.EstimateInputTokens(
+            conversation);
+        var calibratedInputTokens = providerTokenBudget.EstimateInputTokens(
             selection.ResolvedModel.CanonicalModel.Selector,
             context.EstimatedTokens);
         if (context.ExceedsTrigger
@@ -172,7 +172,7 @@ internal sealed partial class AgentSession
                 selection.ResolvedModel,
                 instructions,
                 tools,
-                _history);
+                conversation);
             EnsureRequestFitsAfterCompaction(context);
         }
 
@@ -185,7 +185,7 @@ internal sealed partial class AgentSession
         var crossedPercentage = contextCadence.Observe(
             context,
             selection.ResolvedModel.CanonicalModel.Selector,
-            _history.Count);
+            conversation.Count);
         if (crossedPercentage is { } percentage)
         {
             instructions = await InjectContextReminder(
@@ -210,7 +210,7 @@ internal sealed partial class AgentSession
     {
         var selectedModel = selection.ResolvedModel.CanonicalModel;
         var reminder = RenderContextReminder(context, percentage);
-        LLMMessage[] candidateHistory = [.. _history, LLMMessage.System(reminder)];
+        LLMMessage[] candidateHistory = [.. conversation, LLMMessage.System(reminder)];
         var insertedContext = compactor.EstimateSelectedContext(selection.ResolvedModel, instructions, tools, candidateHistory);
         if (!insertedContext.IsAvailable)
         {
@@ -220,7 +220,7 @@ internal sealed partial class AgentSession
         if (insertedContext.ExceedsInputLimit || insertedContext.ExceedsTrigger)
         {
             var compacted = await CompactEpoch(selection, null, tools, instructions, cancellationToken).ConfigureAwait(false);
-            var compactedContext = compactor.EstimateSelectedContext(selection.ResolvedModel, compacted.Instructions, tools, _history);
+            var compactedContext = compactor.EstimateSelectedContext(selection.ResolvedModel, compacted.Instructions, tools, conversation);
             EnsureRequestFitsAfterCompaction(compactedContext);
             return compacted.Instructions;
         }
@@ -229,13 +229,13 @@ internal sealed partial class AgentSession
         var published = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
         if (!agentHistory.AppendContextReminder(published, checkpoint, context.UsagePercent.GetValueOrDefault(), reminder))
         {
-            contextCadence.Acknowledge(insertedContext, selectedModel.Selector, _history.Count);
+            contextCadence.Acknowledge(insertedContext, selectedModel.Selector, conversation.Count);
             return instructions;
         }
 
-        _history.Add(LLMMessage.System(reminder));
-        var persistedContext = compactor.EstimateSelectedContext(selection.ResolvedModel, instructions, tools, _history);
-        contextCadence.Acknowledge(persistedContext, selectedModel.Selector, _history.Count);
+        conversation.Add(LLMMessage.System(reminder));
+        var persistedContext = compactor.EstimateSelectedContext(selection.ResolvedModel, instructions, tools, conversation);
+        contextCadence.Acknowledge(persistedContext, selectedModel.Selector, conversation.Count);
         await eventBroker.PublishWithCancellation(published, CancellationToken.None).ConfigureAwait(false);
         return instructions;
     }
@@ -279,7 +279,7 @@ internal sealed partial class AgentSession
             AgentSessionId = SessionId,
             CorrelationId = started.Id,
         });
-        await EmitEvent(started, null, null, CancellationToken.None).ConfigureAwait(false);
+        await eventEmitter.Emit(started, null, null, CancellationToken.None).ConfigureAwait(false);
 
         try
         {
@@ -299,7 +299,7 @@ internal sealed partial class AgentSession
             }
 
             compactionGroups.AddRange(effective.Groups.Select(group => new CompactionGroup(
-                [.. group.Items.Select(item => RestoreMessage(agentHistory, item))],
+                [.. group.Items.Select(item => conversation.Materialize(item))],
                 group.EndWatermark,
                 group.AssistantSequence > 0 && activeCheckpoints.Contains(group.AssistantSequence),
                 group.IsComplete)));
@@ -307,7 +307,7 @@ internal sealed partial class AgentSession
                 this,
                 selection,
                 selection.Profile,
-                EstimateContextForHistory(selection, instructions, tools, [.. _history]),
+                EstimateContextForHistory(selection, instructions, tools, [.. conversation]),
                 cancellationToken).ConfigureAwait(false);
             var fixedStatus = LLMMessage.System(statusContent);
             var compacted = await compactor.CompactWithProviderSessions(
@@ -320,11 +320,11 @@ internal sealed partial class AgentSession
                 fixedStatus,
                 compactionGroupBlobs,
                 _providerSessions,
-                (llmEvent, token) => EmitEvent(TranslateProviderEvent(llmEvent), null, null, token),
+                providerCall.EmitRetry,
                 cancellationToken).ConfigureAwait(false);
             var currentWatermark = effective.Snapshot?.Watermark ?? 0;
             if ((compacted is null || compacted.Watermark <= currentWatermark)
-                && Compactor.EstimateInputTokens(selectedModel, instructions, tools, _history) > selectedModel.Model.InputTokenLimit)
+                && Compactor.EstimateInputTokens(selectedModel, instructions, tools, conversation) > selectedModel.Model.InputTokenLimit)
             {
                 throw new InvalidOperationException("The conversation has no safe compaction boundary before the input limit.");
             }
@@ -362,18 +362,17 @@ internal sealed partial class AgentSession
                 }
 
                 reduced = true;
-                _providerTokenBudget.Reset();
-                _history.Clear();
-                _history.AddRange(RestoreHistory(agentHistory));
+                providerTokenBudget.Reset();
+                conversation.Reload();
                 var persistedContext = compactor.EstimateSelectedContext(
                     selection.ResolvedModel,
                     instructions,
                     tools,
-                    _history);
+                    conversation);
                 contextCadence.Acknowledge(
                     persistedContext,
                     selectedModel.Selector,
-                    _history.Count);
+                    conversation.Count);
                 await eventBroker.PublishWithCancellation(statusInjected, CancellationToken.None).ConfigureAwait(false);
             }
 
@@ -383,7 +382,7 @@ internal sealed partial class AgentSession
                 AgentSessionId = SessionId,
                 CompactionFinished = new CompactionFinished(),
             };
-            await EmitEvent(finished, null, null, CancellationToken.None).ConfigureAwait(false);
+            await eventEmitter.Emit(finished, null, null, CancellationToken.None).ConfigureAwait(false);
             diagnostics.Write(new("compaction", "finished", DiagnosticSeverity.Information)
             {
                 AgentSessionId = SessionId,
@@ -410,7 +409,7 @@ internal sealed partial class AgentSession
                 AgentSessionId = SessionId,
                 CompactionFailed = new CompactionFailed { Message = failure.Message },
             };
-            await EmitEvent(failed, null, null, CancellationToken.None).ConfigureAwait(false);
+            await eventEmitter.Emit(failed, null, null, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
     }
@@ -423,7 +422,7 @@ internal sealed partial class AgentSession
             AgentSessionId = SessionId,
         };
         agentHistory.AppendFinalProviderRequestPrompt(published, content);
-        _history.Add(LLMMessage.System(content));
+        conversation.Add(LLMMessage.System(content));
         await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
     }
 
@@ -439,7 +438,7 @@ internal sealed partial class AgentSession
             return;
         }
 
-        _history.Add(LLMMessage.System(_toolAvailabilityRestoredPrompt));
+        conversation.Add(LLMMessage.System(_toolAvailabilityRestoredPrompt));
         await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
     }
 
@@ -466,7 +465,7 @@ internal sealed partial class AgentSession
                 StatusInjected = new StatusInjected(),
             };
             agentHistory.AppendSystemPrompt(published, content);
-            _history.Add(LLMMessage.System(content));
+            conversation.Add(LLMMessage.System(content));
             _epochContext.InitialStatusPending = false;
             await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
             return selection;
@@ -501,7 +500,7 @@ internal sealed partial class AgentSession
                 continue;
             }
 
-            _history.Add(LLMMessage.System(content));
+            conversation.Add(LLMMessage.System(content));
             await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
         }
 

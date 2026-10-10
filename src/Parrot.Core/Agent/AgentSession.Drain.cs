@@ -1,11 +1,10 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Parrot.Config;
-using Parrot.Context;
 using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Questions;
+using Parrot.Security;
 using Parrot.Store;
 using Parrot.Tools;
 
@@ -47,6 +46,8 @@ internal sealed partial class AgentSession
         var selected = ResolvePolicySelection();
         return selected with { SecurityProfile = security.Capture(selected.SecurityProfile) };
     }
+
+    private SecurityProfile CaptureSecurity() => CaptureSelection().SecurityProfile;
 
     private AgentTurnSelection CaptureTurnSelection()
     {
@@ -295,7 +296,7 @@ internal sealed partial class AgentSession
 
         try
         {
-            await EmitEvent(started, null, null, CancellationToken.None).ConfigureAwait(false);
+            await eventEmitter.Emit(started, null, null, CancellationToken.None).ConfigureAwait(false);
             if (ownedExecution is not null)
             {
                 if (ownedExecution.Admission.Published is not null)
@@ -378,7 +379,7 @@ internal sealed partial class AgentSession
 
             try
             {
-                await EmitEvent(terminal, null, null, CancellationToken.None).ConfigureAwait(false);
+                await eventEmitter.Emit(terminal, null, null, CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception failure)
             {
@@ -623,11 +624,8 @@ internal sealed partial class AgentSession
         CancellationToken cancellationToken)
     {
         var answer = string.Empty;
-        var providerRequests = 0;
+        var budget = new TurnBudget();
         var completionRetryPending = false;
-        var interrupted = false;
-        var finalPhaseActive = false;
-        var settlementExtensions = 0;
         ToolSnapshot? activeTools = null;
         string? turnId = null;
         var turnStarted = Stopwatch.GetTimestamp();
@@ -646,7 +644,7 @@ internal sealed partial class AgentSession
 
                 // Looking is not consuming. A pending status remains pending
                 // while an idle drain has no input that could reach a provider.
-                if (!completionRetryPending && !Answerable() && !agentHistory.HasPendingInputs())
+                if (!completionRetryPending && !conversation.IsAnswerable() && !agentHistory.HasPendingInputs())
                 {
                     return AgentExecution.Succeeded(answer);
                 }
@@ -656,7 +654,7 @@ internal sealed partial class AgentSession
                     _skills.EndTurn();
                     activeSelection = CaptureTurnSelection();
                     var resolved = activeSelection.ResolvedModel;
-                    providerRequests = 0;
+                    budget.BeginTurn();
                     turnOpen = true;
                     _providerSessions.BeginTurn();
                     var aliasIcon = resolved.Alias?.Icon;
@@ -677,7 +675,7 @@ internal sealed partial class AgentSession
                         AgentSessionId = SessionId,
                         CorrelationId = turnId,
                     });
-                    await EmitEvent(started, null, null, cancellationToken).ConfigureAwait(false);
+                    await eventEmitter.Emit(started, null, null, cancellationToken).ConfigureAwait(false);
                     EnsureEpoch();
                     activeSelection = await InjectStatus(activeSelection, cancellationToken).ConfigureAwait(false);
                     _skills.BeginTurn();
@@ -694,28 +692,21 @@ internal sealed partial class AgentSession
                     throw new AgentRegistryException("turn selection is unavailable");
                 }
 
-                var maxTurns = activeSelection.Profile.MaxTurns;
-                interrupted |= TurnInterruption.Consume();
-                if (providerRequests >= maxTurns + settlementExtensions && !interrupted)
+                var phase = budget.Admit(activeSelection.Profile.MaxTurns, TurnInterruption.Consume());
+                if (phase is null)
                 {
                     await Fail(_runawayMessage, string.Empty, cancellationToken).ConfigureAwait(false);
                     FinishTurn("failed", "runaway");
                     return AgentExecution.Failed(_runawayMessage);
                 }
 
-                // Final phase: the budget ran out or the model asked to stop via
-                // agent_interrupt. Settlement tools stay; everything else goes.
-                // Each settlement batch grants one more final request, bounded by
-                // MaxSettlementExtensions, then the turn fails as a runaway.
-                var finalPhase = interrupted || providerRequests + 1 >= maxTurns;
-                var snapshot = finalPhase
+                var snapshot = phase.FinalPhase
                     ? activeTools.EnabledAfterInterruption()
                     : activeTools;
-                if (finalPhase && !finalPhaseActive)
+                if (phase.EntersFinalPhase)
                 {
-                    finalPhaseActive = true;
                     await InjectFinalProviderRequestPrompt(
-                        interrupted ? _finalProviderRequestAfterInterruptionPrompt : _finalProviderRequestPrompt,
+                        phase.Interrupted ? _finalProviderRequestAfterInterruptionPrompt : _finalProviderRequestPrompt,
                         cancellationToken).ConfigureAwait(false);
                 }
 
@@ -723,21 +714,21 @@ internal sealed partial class AgentSession
                     activeSelection,
                     snapshot.Definitions,
                     cancellationToken).ConfigureAwait(false);
-                var messages = new List<LLMMessage>(_history);
-                providerRequests++;
-                var completed = await Call(activeSelection, snapshot, instructions, messages, cancellationToken)
+                var messages = new List<LLMMessage>(conversation);
+                var attempt = budget.CountRequest();
+                var completed = await providerCall.Stream(activeSelection, snapshot, instructions, messages, cancellationToken)
                     .ConfigureAwait(false);
 
                 if (completed.FinishReason == "length" && completed.ToolCalls.Count > 0)
                 {
-                    await RecordRetryNotice(_truncatedToolCallPrompt, providerRequests, cancellationToken).ConfigureAwait(false);
+                    await RecordRetryNotice(_truncatedToolCallPrompt, attempt, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
                 if (completed.ToolCalls.Count > 0
                     && completed.ToolCalls.Any(call => !IsValidToolCallArguments(call.ArgumentsJson)))
                 {
-                    await RecordRetryNotice(_invalidToolCallPrompt, providerRequests, cancellationToken).ConfigureAwait(false);
+                    await RecordRetryNotice(_invalidToolCallPrompt, attempt, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
@@ -755,10 +746,10 @@ internal sealed partial class AgentSession
                         [ConversationPart.TextPart(completed.AssistantText)],
                         completed.ToolCalls,
                         string.Empty);
-                    _history.Add(LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls));
+                    conversation.Add(LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls));
                     await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
                     Activity.RecordAssistantMessage(completed.AssistantText);
-                    await EmitEvent(
+                    await eventEmitter.Emit(
                         new Event
                         {
                             Id = Identifier.EventId(),
@@ -771,20 +762,17 @@ internal sealed partial class AgentSession
                         null,
                         null,
                         cancellationToken).ConfigureAwait(false);
-                    await ReconcileToolBatches(
+                    await toolBatches.Reconcile(
                         activeSelection,
                         snapshot,
+                        CaptureSecurity,
                         cancellationToken).ConfigureAwait(false);
 
-                    if (finalPhase)
+                    if (phase.FinalPhase && !budget.TryExtendSettlement())
                     {
-                        settlementExtensions++;
-                        if (settlementExtensions > MaxSettlementExtensions)
-                        {
-                            await Fail(_runawayMessage, string.Empty, cancellationToken).ConfigureAwait(false);
-                            FinishTurn("failed", "runaway");
-                            return AgentExecution.Failed(_runawayMessage);
-                        }
+                        await Fail(_runawayMessage, string.Empty, cancellationToken).ConfigureAwait(false);
+                        FinishTurn("failed", "runaway");
+                        return AgentExecution.Failed(_runawayMessage);
                     }
 
                     continue;
@@ -829,10 +817,10 @@ internal sealed partial class AgentSession
                             ?? throw new InvalidOperationException("A retry outcome requires a system message.");
                         if (retryOutcome.RetainCandidateAssistant)
                         {
-                            _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
+                            conversation.Add(LLMMessage.Assistant(completed.AssistantText, []));
                         }
 
-                        _history.Add(LLMMessage.System(systemMessage));
+                        conversation.Add(LLMMessage.System(systemMessage));
                         if (retryOutcome.RetainCandidateAssistant)
                         {
                             Activity.RecordAssistantMessage(completed.AssistantText);
@@ -843,16 +831,13 @@ internal sealed partial class AgentSession
                             completionRetryPending = retryPending;
                         }
 
-                        providerRequests = 0;
-                        interrupted = false;
-                        finalPhaseActive = false;
-                        settlementExtensions = 0;
+                        budget.Restart();
                         continue;
                     }
 
                     answer = completed.AssistantText;
                     completionRetryPending = false;
-                    _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
+                    conversation.Add(LLMMessage.Assistant(completed.AssistantText, []));
                     var ended = new Event
                     {
                         Id = Identifier.EventId(),
@@ -864,7 +849,7 @@ internal sealed partial class AgentSession
                             OutputTokens = CaptureStatistics().Self.Totals.OutputTokens,
                         },
                     };
-                    await EmitEvent(ended, "assistant", completed.AssistantText, cancellationToken)
+                    await eventEmitter.Emit(ended, "assistant", completed.AssistantText, cancellationToken)
                         .ConfigureAwait(false);
                     FinishTurn("completed", null);
                     Activity.RecordAssistantMessage(completed.AssistantText);
@@ -893,7 +878,7 @@ internal sealed partial class AgentSession
             // ending, because it is one.
             if (turnOpen)
             {
-                _history.Add(LLMMessage.Assistant(_interruptedNote, []));
+                conversation.Add(LLMMessage.Assistant(_interruptedNote, []));
 
                 var ended = new Event
                 {
@@ -906,7 +891,7 @@ internal sealed partial class AgentSession
                         OutputTokens = CaptureStatistics().Self.Totals.OutputTokens,
                     },
                 };
-                await EmitEvent(ended, "assistant", _interruptedNote, CancellationToken.None)
+                await eventEmitter.Emit(ended, "assistant", _interruptedNote, CancellationToken.None)
                     .ConfigureAwait(false);
                 Activity.RecordAssistantMessage(_interruptedNote);
             }
@@ -963,7 +948,7 @@ internal sealed partial class AgentSession
                 InputPromoted = new InputPromoted { InputId = input.Id, MessageId = input.MessageId },
             });
 
-        if (promoted.Count == 0 && !Answerable())
+        if (promoted.Count == 0 && !conversation.IsAnswerable())
         {
             promoted = agentHistory.PromoteNextQueue(
                 input => new Event
@@ -977,7 +962,7 @@ internal sealed partial class AgentSession
         foreach (var promotion in promoted)
         {
             _skills.Select(promotion.Input.Parts);
-            _history.Add(LLMMessage.User(agentHistory.Materialize(promotion.Input.Parts)));
+            conversation.Add(LLMMessage.User(agentHistory.Materialize(promotion.Input.Parts)));
             await eventBroker.PublishWithCancellation(promotion.Published, cancellationToken).ConfigureAwait(false);
         }
 
@@ -1002,7 +987,7 @@ internal sealed partial class AgentSession
             SkillContextInjected = new SkillContextInjected(),
         };
         _ = agentHistory.AppendMessage(published, LLMMessage.User(rendering.Content), ConversationOrigin.System);
-        _history.Add(LLMMessage.User(rendering.Content));
+        conversation.Add(LLMMessage.User(rendering.Content));
         await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
         foreach (var loadedSkillPath in rendering.LoadedPaths)
         {
@@ -1012,19 +997,10 @@ internal sealed partial class AgentSession
                 AgentSessionId = SessionId,
                 SkillLoaded = new SkillLoadedEvent { Path = loadedSkillPath },
             };
-            await EmitEvent(loaded, null, null, cancellationToken).ConfigureAwait(false);
+            await eventEmitter.Emit(loaded, null, null, cancellationToken).ConfigureAwait(false);
         }
     }
 
-    // Whether the model owes an answer. A history ending in a user prompt or a
-    // tool result is unanswered; one ending in an assistant message is not.
-    private bool Answerable() =>
-        _history.LastOrDefault(message => message.Role != LLMRole.System)?.Role is LLMRole.User or LLMRole.Tool;
-
-    // Every call the model made gets a result, even when the turn is stopped
-    // part-way through: a provider rejects a history holding a call with no
-    // answer, so an interrupt that left one behind would break every later
-    // prompt rather than only this turn (principle 6).
     private ToolSnapshot MaterializeTools()
     {
         if (_epochContext.Tools is not null)
@@ -1049,7 +1025,8 @@ internal sealed partial class AgentSession
     private async Task ReconcileToolBatchesUsingCurrentConfiguration(CancellationToken cancellationToken)
     {
         var selection = CaptureTurnSelection();
-        await ReconcileToolBatches(selection, PermittedTools(selection), cancellationToken).ConfigureAwait(false);
+        await toolBatches.Reconcile(selection, PermittedTools(selection), CaptureSecurity, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private ToolSnapshot PermittedTools(AgentTurnSelection selection) =>
@@ -1077,534 +1054,8 @@ internal sealed partial class AgentSession
             },
         };
         _ = agentHistory.AppendMessage(published, LLMMessage.System(notice), ConversationOrigin.System);
-        _history.Add(LLMMessage.System(notice));
+        conversation.Add(LLMMessage.System(notice));
         await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async Task ReconcileToolBatches(
-        AgentTurnSelection selection,
-        ToolSnapshot snapshot,
-        CancellationToken cancellationToken)
-    {
-        // Everything at or before the watermark was settled by an earlier pass,
-        // so only the first pass after a restart walks the whole conversation.
-        var conversation = agentHistory.ConversationAfter(_settledConversationSequence);
-        var batches = conversation.Where(item => item.Role == LLMRole.Assistant && item.ToolCalls.Count > 0).ToArray();
-        var terminals = agentHistory.ToolTerminalsOfCalls(
-                [.. batches.SelectMany(batch => batch.ToolCalls).Select(call => call.Id)])
-            .ToDictionary(terminal => terminal.ToolCallId, StringComparer.Ordinal);
-
-        foreach (var batch in batches)
-        {
-            var imageBudget = new ToolCycleImageBudget(requestLimits.ImageBytesPerToolCycle, promptTemplates);
-            var hasPendingCalls = batch.ToolCalls.Any(call => !terminals.ContainsKey(call.Id));
-            foreach (var settledCall in batch.ToolCalls)
-            {
-                if (!hasPendingCalls || !terminals.TryGetValue(settledCall.Id, out var settledTerminal))
-                {
-                    continue;
-                }
-
-                if (settledTerminal.Status == ToolExecutionStatus.ImageBudgetExceeded)
-                {
-                    imageBudget.RestoreExceeded();
-                }
-
-                foreach (var part in settledTerminal.ResultParts.Where(part => part.Kind == ConversationPartKind.ImageArtifact))
-                {
-                    var artifact = agentHistory.ResolveImageArtifact(part.ArtifactId)
-                        ?? throw new InvalidDataException("A settled tool image artifact is missing.");
-                    imageBudget.RestoreAccepted(artifact.ByteLength);
-                }
-            }
-
-            var stopped = false;
-            var callIndex = 0;
-            while (callIndex < batch.ToolCalls.Count)
-            {
-                var call = batch.ToolCalls[callIndex];
-                if (terminals.TryGetValue(call.Id, out var restoredTerminal))
-                {
-                    RestoreToolSettlement(batch.Sequence, restoredTerminal);
-                    stopped |= restoredTerminal.Status == ToolExecutionStatus.Cancelled;
-                    callIndex++;
-                    continue;
-                }
-
-                if (stopped || cancellationToken.IsCancellationRequested)
-                {
-                    var cancelled = CancelTool(call);
-                    await SettleTool(batch.Sequence, cancelled, terminals).ConfigureAwait(false);
-                    stopped = true;
-                    callIndex++;
-                    continue;
-                }
-
-                if (!IsParallelSafe(snapshot, batch.Sequence, call))
-                {
-                    var settlement = await Invoke(selection, snapshot, batch.Sequence, call, imageBudget, cancellationToken)
-                        .ConfigureAwait(false);
-                    await SettleTool(batch.Sequence, settlement, terminals).ConfigureAwait(false);
-                    stopped |= settlement.Terminal.Status == ToolExecutionStatus.Cancelled;
-                    callIndex++;
-                    continue;
-                }
-
-                var runEnd = callIndex;
-                var executions = new Dictionary<string, Task<(Event Published, ToolExecutionTerminal Terminal)>>(
-                    StringComparer.Ordinal);
-                while (runEnd < batch.ToolCalls.Count)
-                {
-                    var candidate = batch.ToolCalls[runEnd];
-                    if (!IsParallelSafe(snapshot, batch.Sequence, candidate))
-                    {
-                        break;
-                    }
-
-                    if (terminals.TryGetValue(candidate.Id, out var candidateTerminal))
-                    {
-                        if (candidateTerminal.Status == ToolExecutionStatus.Cancelled)
-                        {
-                            break;
-                        }
-
-                        runEnd++;
-                        continue;
-                    }
-
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        break;
-                    }
-
-                    executions.Add(
-                        candidate.Id,
-                        Invoke(selection, snapshot, batch.Sequence, candidate, imageBudget, cancellationToken));
-                    runEnd++;
-                }
-
-                if (runEnd == callIndex)
-                {
-                    continue;
-                }
-
-                var settlements = await Task.WhenAll(executions.Values).ConfigureAwait(false);
-                var settlementsByCall = settlements.ToDictionary(
-                    settlement => settlement.Terminal.ToolCallId,
-                    StringComparer.Ordinal);
-                while (callIndex < runEnd)
-                {
-                    call = batch.ToolCalls[callIndex];
-                    if (terminals.TryGetValue(call.Id, out restoredTerminal))
-                    {
-                        RestoreToolSettlement(batch.Sequence, restoredTerminal);
-                    }
-                    else
-                    {
-                        var settlement = settlementsByCall[call.Id];
-                        await SettleTool(batch.Sequence, settlement, terminals).ConfigureAwait(false);
-                        stopped |= settlement.Terminal.Status == ToolExecutionStatus.Cancelled;
-                    }
-
-                    callIndex++;
-                }
-            }
-
-            var images = batch.ToolCalls
-                .Select(call => terminals[call.Id])
-                .Where(terminal => terminal.Status == ToolExecutionStatus.Finished)
-                .SelectMany(terminal => terminal.ResultParts)
-                .Where(part => part.Kind == ConversationPartKind.ImageArtifact)
-                .ToArray();
-            if (images.Length > 0 && !agentHistory.HasToolSynthetic(batch.Sequence))
-            {
-                var published = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
-                if (agentHistory.AppendToolSynthetic(published, batch.Sequence, images) is { } synthetic)
-                {
-                    _history.Add(RestoreMessage(agentHistory, synthetic));
-                }
-
-                await eventBroker.PublishWithCancellation(published, CancellationToken.None).ConfigureAwait(false);
-            }
-        }
-
-        if (conversation.Count > 0)
-        {
-            _settledConversationSequence = conversation[^1].Sequence;
-        }
-    }
-
-    private void RestoreToolSettlement(long assistantSequence, ToolExecutionTerminal terminal)
-    {
-        if (agentHistory.AppendToolSettlement(
-                new Event { Id = Identifier.EventId(), AgentSessionId = SessionId },
-                assistantSequence,
-                terminal) is { } result)
-        {
-            _history.Add(RestoreMessage(agentHistory, result));
-        }
-    }
-
-    private async Task SettleTool(
-        long assistantSequence,
-        (Event Published, ToolExecutionTerminal Terminal) settlement,
-        Dictionary<string, ToolExecutionTerminal> terminals)
-    {
-        if (agentHistory.AppendToolSettlement(settlement.Published, assistantSequence, settlement.Terminal) is { } result)
-        {
-            _history.Add(RestoreMessage(agentHistory, result));
-        }
-
-        await eventBroker.PublishWithCancellation(settlement.Published, CancellationToken.None).ConfigureAwait(false);
-        terminals.Add(settlement.Terminal.ToolCallId, settlement.Terminal);
-    }
-
-    // Streams one provider call: deltas go out as events, and the terminal
-    // Completed is returned so the loop can decide what to do next.
-    private async Task<LLMEvent> Call(
-        AgentTurnSelection? selection,
-        ToolSnapshot snapshot,
-        string instructions,
-        IReadOnlyList<LLMMessage> messages,
-        CancellationToken cancellationToken)
-    {
-        var selectedModel = selection?.ResolvedModel.CanonicalModel
-            ?? throw new AgentRegistryException("turn selection is unavailable");
-        var estimatedInputTokens = Compactor.EstimateInputTokens(selectedModel, instructions, snapshot.Definitions, messages);
-        var maximumOutputTokens = _providerTokenBudget.CalculateMaximumOutputTokens(
-            selectedModel.Selector,
-            estimatedInputTokens,
-            selectedModel.Model);
-
-        var request = new LLMRequest
-        {
-            Model = selectedModel.ModelId,
-            MaxOutputTokens = maximumOutputTokens,
-            Instructions = instructions,
-            Messages = messages,
-            Tools = snapshot.Definitions,
-            Reasoning = selectedModel.Reasoning,
-        };
-
-        var completed = LLMEvent.Completed(string.Empty, 0, 0, 0, string.Empty, []);
-        uint requestAttempt = 0;
-        var awaitingFirstData = false;
-        var streamedText = false;
-        var fragments = new StreamedFragmentBuffer();
-        var events = _providerSessions.Get(selectedModel.Provider)
-            .Call(request, cancellationToken)
-            .GetAsyncEnumerator(cancellationToken);
-
-        try
-        {
-            Activity.BeginProviderRequest();
-            while (await MoveNextFlushingFragments(events, fragments, cancellationToken).ConfigureAwait(false))
-            {
-                var llmEvent = events.Current;
-                if (llmEvent.Kind is not (LLMEventKind.TextDelta or LLMEventKind.ReasoningDelta))
-                {
-                    await CommitProviderEvent(fragments.EndStream(), cancellationToken).ConfigureAwait(false);
-                }
-
-                if (llmEvent.Kind is LLMEventKind.HttpRequestStarted or LLMEventKind.HttpResponseHeadersReceived)
-                {
-                    if (llmEvent.Kind == LLMEventKind.HttpRequestStarted)
-                    {
-                        requestAttempt++;
-                    }
-
-                    awaitingFirstData = llmEvent.Kind == LLMEventKind.HttpResponseHeadersReceived;
-                    PublishProviderRequestPhase(
-                        llmEvent.Kind == LLMEventKind.HttpRequestStarted
-                            ? ProviderRequestPhase.Requesting
-                            : ProviderRequestPhase.HeadersReceived,
-                        requestAttempt);
-                    continue;
-                }
-
-                if (llmEvent.Kind == LLMEventKind.Retry)
-                {
-                    awaitingFirstData = false;
-                    PublishProviderRequestPhase(ProviderRequestPhase.Idle, requestAttempt);
-                    if (streamedText)
-                    {
-                        await outputFile.Append("\n[retry]\n").ConfigureAwait(false);
-                        streamedText = false;
-                    }
-                }
-
-                if (awaitingFirstData && llmEvent.Kind switch
-                {
-                    LLMEventKind.TextDelta or LLMEventKind.ReasoningDelta => llmEvent.Text.Length > 0,
-                    LLMEventKind.ToolCallDelta => llmEvent.ToolCallId.Length > 0
-                        || llmEvent.ToolName.Length > 0 || llmEvent.Text.Length > 0,
-                    _ => false,
-                })
-                {
-                    awaitingFirstData = false;
-                    PublishProviderRequestPhase(ProviderRequestPhase.Idle, requestAttempt);
-                }
-
-                if (llmEvent.Kind == LLMEventKind.Completed)
-                {
-                    _providerTokenBudget.ObserveUsage(selectedModel.Selector, estimatedInputTokens, llmEvent);
-                    RecordRequestUsage(selectedModel, request.Reasoning, llmEvent);
-                    eventBroker.PublishTransient(
-                        new Event
-                        {
-                            Id = Identifier.EventId(),
-                            AgentSessionId = SessionId,
-                            ProviderCallUsage = new ProviderCallUsage
-                            {
-                                InputTokens = Math.Max(0, llmEvent.InputTokens),
-                                OutputTokens = Math.Max(0, llmEvent.OutputTokens),
-                            },
-                        });
-                    completed = llmEvent;
-                    continue;
-                }
-
-                streamedText |= llmEvent.Kind == LLMEventKind.TextDelta && llmEvent.Text.Length > 0;
-                Activity.ObserveProviderEvent(llmEvent);
-                foreach (var ready in fragments.Add(TranslateProviderEvent(llmEvent)))
-                {
-                    await CommitProviderEvent(ready, cancellationToken).ConfigureAwait(false);
-                }
-            }
-
-            await CommitProviderEvent(fragments.EndStream(), cancellationToken).ConfigureAwait(false);
-            return completed;
-        }
-        catch (Exception)
-        {
-            // What was streamed before the failure is still kept and shown.
-            await CommitProviderEvent(fragments.EndStream(), CancellationToken.None).ConfigureAwait(false);
-            throw;
-        }
-        finally
-        {
-            await events.DisposeAsync().ConfigureAwait(false);
-            PublishProviderRequestPhase(ProviderRequestPhase.Idle, requestAttempt);
-            Activity.FinishProviderRequest();
-            if (streamedText)
-            {
-                await outputFile.Append("\n").ConfigureAwait(false);
-            }
-        }
-    }
-
-    // A stalled stream must not keep a held fragment past its hold, so waiting
-    // for the next event also waits on the hold.
-    private async Task<bool> MoveNextFlushingFragments(
-        IAsyncEnumerator<LLMEvent> events,
-        StreamedFragmentBuffer fragments,
-        CancellationToken cancellationToken)
-    {
-        var next = events.MoveNextAsync();
-        if (next.IsCompleted || !fragments.IsHolding)
-        {
-            return await next.ConfigureAwait(false);
-        }
-
-        var pending = next.AsTask();
-        using (var hold = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
-        {
-            var held = Task.Delay(fragments.RemainingHold, hold.Token);
-            if (await Task.WhenAny(pending, held).ConfigureAwait(false) == held && held.IsCompletedSuccessfully)
-            {
-                await CommitProviderEvent(fragments.Take(), cancellationToken).ConfigureAwait(false);
-            }
-
-            await hold.CancelAsync().ConfigureAwait(false);
-        }
-
-        return await pending.ConfigureAwait(false);
-    }
-
-    private async Task CommitProviderEvent(Event? published, CancellationToken cancellationToken)
-    {
-        if (published is null)
-        {
-            return;
-        }
-
-        if (published.PayloadCase == Event.PayloadOneofCase.TextChunk && published.TextChunk.Fragment.Length > 0)
-        {
-            await outputFile.Append(published.TextChunk.Fragment).ConfigureAwait(false);
-        }
-
-        await EmitEvent(published, null, null, cancellationToken).ConfigureAwait(false);
-    }
-
-    private void PublishProviderRequestPhase(ProviderRequestPhase phase, uint attempt) =>
-        eventBroker.PublishTransient(new Event
-        {
-            Id = Identifier.EventId(),
-            AgentSessionId = SessionId,
-            ProviderRequestPhaseChanged = new ProviderRequestPhaseChangedEvent { Phase = phase, Attempt = attempt },
-        });
-
-    private async Task<(Event Published, ToolExecutionTerminal Terminal)> Invoke(
-        AgentTurnSelection selection,
-        ToolSnapshot snapshot,
-        long assistantSequence,
-        LLMToolCall call,
-        ToolCycleImageBudget imageBudget,
-        CancellationToken cancellationToken)
-    {
-        var started = new Event
-        {
-            Id = Identifier.EventId(),
-            AgentSessionId = SessionId,
-            ToolStarted = new ToolStarted { ToolCallId = call.Id, ToolName = call.Name },
-        };
-        await EmitEvent(started, null, null, CancellationToken.None).ConfigureAwait(false);
-
-        var tool = snapshot.Find(call.Name);
-        var invocationStarted = Stopwatch.GetTimestamp();
-        diagnostics.Write(new("tool", "started", DiagnosticSeverity.Information)
-        {
-            AgentSessionId = SessionId,
-            CorrelationId = call.Id,
-            ToolName = tool?.Name,
-        });
-        if (tool is null)
-        {
-            diagnostics.Write(new("tool", "finished", DiagnosticSeverity.Warning)
-            {
-                AgentSessionId = SessionId,
-                CorrelationId = call.Id,
-                Outcome = "unknown_tool",
-                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(invocationStarted).TotalMilliseconds,
-            });
-            return FailTool(call, $"unknown tool {call.Name}");
-        }
-
-        try
-        {
-            var effective = CaptureSelection();
-            var invocationSelection = selection with { SecurityProfile = effective.SecurityProfile };
-            var invocation = new ToolInvocation(call.Id, call.ArgumentsJson, assistantSequence)
-            {
-                PromptTemplates = promptTemplates,
-                ImageBudget = imageBudget,
-            };
-            ToolExecutionResult result;
-            var execution = Activity.BeginTool(tool.Name);
-            try
-            {
-                RecordToolUsage(assistantSequence, call);
-                result = await tool.Execute(invocation, invocationSelection, cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                Activity.FinishTool(execution);
-            }
-
-            if (result.Outcome == ToolExecutionOutcome.ImageBudgetExceeded)
-            {
-                var failure = FailTool(call, result.Text);
-                return (failure.Published, failure.Terminal with { Status = ToolExecutionStatus.ImageBudgetExceeded });
-            }
-
-            var text = promptTemplates.Render(
-                "tool-result.text",
-                [new PromptTemplateArgument("value", result.Text)]);
-            if (ToolOutputBlobStore.IsOversized(text))
-            {
-                text = await toolOutputBlobs.Persist(text, CancellationToken.None).ConfigureAwait(false);
-            }
-
-            var terminal = new ToolFinished { ToolCallId = call.Id, ToolName = call.Name, Result = text };
-            terminal.Artifacts.AddRange(result.ImageArtifacts.Select(ArtifactReference.FromMetadata));
-            if (result.YieldedProcess is { } yielded)
-            {
-                terminal.YieldedProcess = Protocol.YieldedShellProcess.FromProcess(yielded);
-            }
-
-            var finished = new Event
-            {
-                Id = Identifier.EventId(),
-                AgentSessionId = SessionId,
-                ToolFinished = terminal,
-            };
-            var parts = new List<ConversationPart> { ConversationPart.TextPart(text) };
-            parts.AddRange(result.ImageArtifacts.Select(ConversationPart.ImageArtifact));
-            diagnostics.Write(new("tool", "finished", DiagnosticSeverity.Information)
-            {
-                AgentSessionId = SessionId,
-                CorrelationId = call.Id,
-                ToolName = tool.Name,
-                Outcome = result.YieldedProcess is null ? "completed" : "yielded",
-                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(invocationStarted).TotalMilliseconds,
-            });
-            return (finished, new ToolExecutionTerminal(
-                call.Id,
-                call.Name,
-                ToolExecutionStatus.Finished,
-                parts,
-                text));
-        }
-        catch (OperationCanceledException)
-        {
-            diagnostics.Write(new("tool", "finished", DiagnosticSeverity.Information)
-            {
-                AgentSessionId = SessionId,
-                CorrelationId = call.Id,
-                ToolName = tool.Name,
-                Outcome = "cancelled",
-                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(invocationStarted).TotalMilliseconds,
-            });
-            return CancelTool(call);
-        }
-        catch (Exception failure)
-        {
-            diagnostics.Write(new("tool", "finished", DiagnosticSeverity.Error)
-            {
-                AgentSessionId = SessionId,
-                CorrelationId = call.Id,
-                ToolName = tool.Name,
-                Outcome = "failed",
-                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
-                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(invocationStarted).TotalMilliseconds,
-            });
-            return FailTool(call, failure.Message);
-        }
-    }
-
-    private (Event Published, ToolExecutionTerminal Terminal) CancelTool(LLMToolCall call)
-    {
-        var cancelled = new Event
-        {
-            Id = Identifier.EventId(),
-            AgentSessionId = SessionId,
-            ToolCancelled = new ToolCancelled { ToolCallId = call.Id, ToolName = call.Name },
-        };
-        return (cancelled, new ToolExecutionTerminal(
-            call.Id,
-            call.Name,
-            ToolExecutionStatus.Cancelled,
-            [ConversationPart.TextPart(_interruptedResult)],
-            _interruptedResult));
-    }
-
-    private (Event Published, ToolExecutionTerminal Terminal) FailTool(LLMToolCall call, string message)
-    {
-        var failed = new Event
-        {
-            Id = Identifier.EventId(),
-            AgentSessionId = SessionId,
-            ToolError = new ToolError { ToolCallId = call.Id, ToolName = call.Name, Message = message },
-        };
-        var result = promptTemplates.Render(
-            "tool-result.error",
-            [new PromptTemplateArgument("message", message)]);
-        return (failed, new ToolExecutionTerminal(
-            call.Id,
-            call.Name,
-            ToolExecutionStatus.Error,
-            [ConversationPart.TextPart(result)],
-            result));
     }
 
     private async Task Fail(string message, string providerResponseBody, CancellationToken cancellationToken)
@@ -1619,6 +1070,6 @@ internal sealed partial class AgentSession
                 ProviderResponseBody = providerResponseBody,
             },
         };
-        await EmitEvent(failed, null, null, cancellationToken).ConfigureAwait(false);
+        await eventEmitter.Emit(failed, null, null, cancellationToken).ConfigureAwait(false);
     }
 }

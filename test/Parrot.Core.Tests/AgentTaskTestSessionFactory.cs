@@ -79,7 +79,7 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
                 exitReminder,
                 history,
                 eventBroker).Callbacks;
-            IAgentSession session = new AgentSession(
+            IAgentSession session = TestModels.ComposeSession(
             identity,
             sessionParentScope,
             model,

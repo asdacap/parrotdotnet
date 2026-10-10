@@ -67,8 +67,47 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
         using IAgentQueues queues = new AgentQueues(identity, null, resources, children, static queueIdentity => new QueueInventory(queueIdentity), diagnostics.Log);
         queues.Initialize();
         var questions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), children, templates);
+        var parentScope = AgentSessionParentScope.Root();
+        var history = new AgentHistoryView(repository, identity.SessionId);
+        var statistics = repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId);
+        var outputFile = new AgentOutputFile(_root);
+        var providerSessions = new ProviderSessions(diagnostics.Log, identity.SessionId, null);
+        var activity = new AgentSessionActivity(TimeProvider.System);
+        var conversation = new AgentConversation(history);
+        var eventEmitter = new AgentEventEmitter(identity, history, broker, diagnostics.Log);
+        var usage = new AgentUsageRecorder(identity, parentScope, repository.GetRuntimeStatistics(), statistics, history, broker);
+        var providerTokenBudget = new ProviderTokenBudget();
         await using IAgentSession agent = new AgentSession(
-            identity, AgentSessionParentScope.Root(), new ModelSelector("provider/model"), router, broker, new AgentHistoryView(repository, identity.SessionId), repository.GetRuntimeStatistics(), repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId), [], new ConfiguredSystemPromptProvider("test:integration", "Reply briefly.").Materialize(identity), new ToolOutputBlobStore(_root), new AgentOutputFile(_root), new CompactionGroupBlobStore(resources.AgentScratch(identity.NamePath)), new Compactor(int.MaxValue, 30, 60_000, 1024, templates), new ProviderSessions(diagnostics.Log, identity.SessionId, null), new ContextCadence(), templates, questions, new ExitReminder(new AgentHistoryView(repository, identity.SessionId), broker, templates, identity.SessionId), profile, [], new AgentSessionSecurity(profile.SecurityProfile, resources.Workspace, resources.AgentsDirectory), new Skills.AgentSkills(new Skills.SkillCatalog([], () => (SkillConfiguration.Default, 0L)), templates), new RequestLimitsConfig(), status, new AgentSessionActivity(TimeProvider.System), diagnostics.Log, cancellationToken);
+            identity,
+            parentScope,
+            new ModelSelector("provider/model"),
+            router,
+            broker,
+            history,
+            statistics,
+            conversation,
+            eventEmitter,
+            new ProviderCall(identity, providerSessions, providerTokenBudget, broker, outputFile, activity, eventEmitter, usage),
+            new ToolBatchSettlement(identity, history, conversation, broker, eventEmitter, usage, new ToolOutputBlobStore(_root), templates, new RequestLimitsConfig(), activity, diagnostics.Log),
+            providerTokenBudget,
+            [],
+            new ConfiguredSystemPromptProvider("test:integration", "Reply briefly.").Materialize(identity),
+            outputFile,
+            new CompactionGroupBlobStore(resources.AgentScratch(identity.NamePath)),
+            new Compactor(int.MaxValue, 30, 60_000, 1024, templates),
+            providerSessions,
+            new ContextCadence(),
+            templates,
+            questions,
+            new ExitReminder(new AgentHistoryView(repository, identity.SessionId), broker, templates, identity.SessionId),
+            profile,
+            [],
+            new AgentSessionSecurity(profile.SecurityProfile, resources.Workspace, resources.AgentsDirectory),
+            new Skills.AgentSkills(new Skills.SkillCatalog([], () => (SkillConfiguration.Default, 0L)), templates),
+            status,
+            activity,
+            diagnostics.Log,
+            cancellationToken);
         queues.Attach(agent);
 
         using var output = new StringWriter();

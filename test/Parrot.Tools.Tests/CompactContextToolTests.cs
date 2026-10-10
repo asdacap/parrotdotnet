@@ -181,7 +181,7 @@ internal sealed class CompactContextToolTests : IDisposable
             new CompactContextToolFactory(TestModels.PromptTemplates, TestModels.ToolDefinitions),
             new FixedToolFactory(new SettledTool("other result")),
         };
-        return new AgentSession(
+        return TestModels.ComposeSession(
             identity,
             AgentSessionParentScope.Root(),
             new ModelSelector(model.Selector),

@@ -18,6 +18,6 @@ internal interface IUserSessionStatistics
         Event fact,
         AgentUsageIncrement increment,
         Action<AgentUsageIncrement> apply,
-        IAgentSession agent,
-        IAgentSession root);
+        AgentSessionStatistics agent,
+        AgentSessionStatistics root);
 }

@@ -68,7 +68,7 @@ internal sealed class AgentOperationDiagnosticsTests : IDisposable
         var identity = AgentIdentity.Main("agent-diagnostics", "main", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, events, repository, cancellationToken);
         IToolFactory toolFactory = new FixedToolFactory(tool);
-        await using IAgentSession session = new AgentSession(
+        await using IAgentSession session = TestModels.ComposeSession(
             identity,
             AgentSessionParentScope.Root(),
             new ModelSelector(model.Selector),

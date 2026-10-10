@@ -29,11 +29,14 @@ internal sealed partial class AgentSession(
     IModelRouter router,
     IEventBroker eventBroker,
     IAgentHistory agentHistory,
-    IUserSessionStatistics userStatistics,
     AgentSessionStatistics statistics,
+    AgentConversation conversation,
+    AgentEventEmitter eventEmitter,
+    ProviderCall providerCall,
+    ToolBatchSettlement toolBatches,
+    ProviderTokenBudget providerTokenBudget,
     [InjectionTag("toolFactories")] IReadOnlyList<IToolFactory> toolFactories,
     ISystemPrompt systemPrompt,
-    ToolOutputBlobStore toolOutputBlobs,
     AgentOutputFile outputFile,
     CompactionGroupBlobStore compactionGroupBlobs,
     Compactor compactor,
@@ -46,7 +49,6 @@ internal sealed partial class AgentSession(
     [InjectionTag("turnCompletionCallbacks")] IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
     AgentSessionSecurity security,
     AgentSkills skills,
-    RequestLimitsConfig requestLimits,
     IRuntimeStatus status,
     AgentSessionActivity activity,
     IDiagnosticLog diagnostics,
@@ -55,7 +57,6 @@ internal sealed partial class AgentSession(
     private const string InterruptedFinish = "interrupted";
     private const int MaxAgentMessageBytes = 1024 * 1024;
     private const int MaxAgentResultBytes = 1024 * 1024;
-    private const int MaxSettlementExtensions = 4;
 
     private readonly string _runawayMessage = promptTemplates.Render("agent-session.runaway", []);
     private readonly string _truncatedToolCallPrompt = promptTemplates.Render("agent-session.truncated-tool-call", []);
@@ -63,17 +64,13 @@ internal sealed partial class AgentSession(
     private readonly string _finalProviderRequestPrompt = promptTemplates.Render("agent-session.final-request", []);
     private readonly string _finalProviderRequestAfterInterruptionPrompt = promptTemplates.Render("agent-session.final-request-interrupted", []);
     private readonly string _toolAvailabilityRestoredPrompt = promptTemplates.Render("agent-session.tools-restored", []);
-    private readonly string _interruptedResult = promptTemplates.Render("agent-session.interrupted-result", []);
-    private readonly string _interruptedNote = promptTemplates.Render("agent-session.interrupted-note", []);
 
     // What the conversation records where the answer would have been. Without
     // it the history ends on the prompt that was stopped, and the next drain
     // reads that as a question still owed an answer -- so interrupting a turn
     // would start it again.
+    private readonly string _interruptedNote = promptTemplates.Render("agent-session.interrupted-note", []);
 
-    // The conversation, carried across turns so the agent remembers. The system
-    // context is sampled once per epoch and prefixed at each turn.
-    private readonly List<LLMMessage> _history = RestoreHistory(agentHistory);
     private readonly DrainLifecycle _drainLifecycle = new();
 
     private readonly EpochContext _epochContext = new(identity.Depth > 0);
@@ -92,13 +89,11 @@ internal sealed partial class AgentSession(
         ?? throw new ArgumentNullException(nameof(systemPrompt));
 
     private readonly ProviderSessions _providerSessions = providerSessions;
-    private readonly ProviderTokenBudget _providerTokenBudget = new();
 
     private readonly AgentSessionStatistics _statistics = statistics;
 
     private AgentSelection _selection = new(model, profile, security.Policy());
     private ResolvedModelSelection? _resolvedSelection;
-    private long _settledConversationSequence;
     private bool _disposing;
     private bool _started;
     private Task<AgentExecution> _execution = Task.FromResult(AgentExecution.Succeeded(string.Empty));
@@ -495,24 +490,6 @@ internal sealed partial class AgentSession(
         return value[..characters];
     }
 
-    private static List<LLMMessage> RestoreHistory(IAgentHistory source)
-    {
-        var context = source.CompactionHistory();
-        if (context is null)
-        {
-            return [.. source.Conversation().Select(item => RestoreMessage(source, item))];
-        }
-
-        var history = new List<LLMMessage> { LLMMessage.System(context.Snapshot.Summary) };
-        if (context.Status is not null)
-        {
-            history.Add(RestoreMessage(source, context.Status));
-        }
-
-        history.AddRange(context.Tail.Select(item => RestoreMessage(source, item)));
-        return history;
-    }
-
     private static List<LLMMessage> ReplaceFixedStatus(
         IReadOnlyList<LLMMessage> history,
         string content)
@@ -534,21 +511,6 @@ internal sealed partial class AgentSession(
             throw new InvalidOperationException(
                 "The compacted conversation exceeds the selected model input limit.");
         }
-    }
-
-    private static LLMMessage RestoreMessage(IAgentHistory source, ConversationItem item) => new()
-    {
-        Role = item.Role,
-        Contents = source.Materialize(item.Parts),
-        ToolCalls = item.ToolCalls,
-        ToolCallId = item.ToolCallId,
-    };
-
-    private static bool IsParallelSafe(ToolSnapshot snapshot, long assistantSequence, LLMToolCall call)
-    {
-        var tool = snapshot.Find(call.Name);
-        return tool is not null
-            && tool.IsParallelSafe(new ToolInvocation(call.Id, call.ArgumentsJson, assistantSequence));
     }
 
     private static async Task AwaitForcedCompaction(ForcedCompactionRequest request) =>

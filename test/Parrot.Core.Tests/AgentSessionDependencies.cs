@@ -62,7 +62,7 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
         CompactionGroupBlobStore compactionGroupBlobs,
         Compactor compactor,
         CancellationToken lifetime) =>
-        new(
+        TestModels.ComposeSession(
             identity,
             AgentSessionParentScope.Root(),
             new ModelSelector(model.Selector),

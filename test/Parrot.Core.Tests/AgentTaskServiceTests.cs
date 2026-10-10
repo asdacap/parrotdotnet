@@ -1153,7 +1153,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
         _registries.Add(registry);
         var identity = AgentIdentity.Main("agent-task-parent", "parent", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
-        using var parentScope = TestAgentSessionScope.Build(identity, AgentSessionParentLink.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) => new AgentSession(
+        using var parentScope = TestAgentSessionScope.Build(identity, AgentSessionParentLink.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) => TestModels.ComposeSession(
             identity,
             sessionParentScope,
             new ModelSelector($"{provider.Id}/model"),

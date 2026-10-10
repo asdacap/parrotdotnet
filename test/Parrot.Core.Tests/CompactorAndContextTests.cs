@@ -767,7 +767,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
         var toolFactory = new FixedToolFactory(new SettledTool(new string('r', 32_000)));
         var profile = new ProfileFixture(allowedTools: ["settled"], disabledTools: new HashSet<string>(StringComparer.Ordinal)).Profile;
-        await using IAgentSession session = new AgentSession(
+        await using IAgentSession session = TestModels.ComposeSession(
             identity,
             AgentSessionParentScope.Root(),
             new ModelSelector(model.Selector),
