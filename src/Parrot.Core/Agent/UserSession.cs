@@ -278,6 +278,7 @@ internal sealed class UserSession : IUserSession
             }
         }
 
+        PublishMetadata();
         Diagnostics.Write(new("session", "selection_updated", DiagnosticSeverity.Information));
     }
 
@@ -400,6 +401,9 @@ internal sealed class UserSession : IUserSession
     public Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken) =>
         Main().Compact(targetContextSize, cancellationToken);
 
+    public Task<string> ObserveStatus(CancellationToken cancellationToken) =>
+        Main().ObserveStatus(cancellationToken);
+
     // Runs past the request that admitted it, bounded by the session lifetime.
     // A failure before admission belongs to that request; after it, only the
     // diagnostics can hear about it. However an admitted run ends, it ends with
@@ -483,6 +487,23 @@ internal sealed class UserSession : IUserSession
     {
         _ = _eventRepository.Append(published, null, null);
         await _eventBroker.PublishWithCancellation(published, _lifetime.Token).ConfigureAwait(false);
+    }
+
+    private void PublishMetadata()
+    {
+        lock (Resources.MetadataGate)
+        {
+            var index = new SessionIndex(Resources);
+            var current = index.Find()
+                ?? throw new InvalidOperationException($"Session metadata for '{Id}' does not belong to this session.");
+            index.Publish(current with
+            {
+                ProviderId = ProviderId,
+                Model = CanonicalModel,
+                Selector = Model,
+                Mode = Mode.Profile.Id,
+            });
+        }
     }
 
     private AgentSelection Selection() => new(_model, Mode.Profile, Mode.Profile.SecurityProfile);

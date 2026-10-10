@@ -20,6 +20,17 @@ internal sealed partial class AgentSession
         return EstimateContextForHistory(selection, _systemPrompt.Build(selection), tools.Definitions, [.. _history]);
     }
 
+    public async Task<string> ObserveStatus(CancellationToken cancellationToken)
+    {
+        var selected = ResolvePolicySelection();
+        var resolved = ResolveModel(selected);
+        var selection = new AgentTurnSelection(resolved.RequestedSelector, resolved, selected.Profile, selected.SecurityProfile);
+        var observed = await status.ObserveWithContext(this, selection, selection.Profile, EstimateContext(selection), cancellationToken)
+            .ConfigureAwait(false);
+        var statistics = await status.ObserveStatistics(this, selection, cancellationToken).ConfigureAwait(false);
+        return string.Join("\n\n", new[] { observed, statistics }.Where(text => !string.IsNullOrWhiteSpace(text)));
+    }
+
     public IReadOnlyList<LLMToolDefinition> AdvertisedToolDefinitions(AgentTurnSelection selection)
     {
         ArgumentNullException.ThrowIfNull(selection);

@@ -44,11 +44,15 @@ internal sealed class SkillCatalog(
         return Capture();
     }
 
-    public void Configure(string path, bool enabled)
+    public SkillMetadata Configure(string path, bool enabled)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        (_configure ?? throw new InvalidOperationException("skill configuration is unavailable"))(path, enabled);
-        Invalidate();
+        var skill = Refresh().Skills.FirstOrDefault(candidate => PathsEqual(candidate.Path, path))
+            ?? throw new KeyNotFoundException("skill path is not present in this session catalog");
+        (_configure ?? throw new InvalidOperationException("skill configuration is unavailable"))(skill.Path, enabled);
+        return Refresh().Skills.FirstOrDefault(candidate => PathsEqual(candidate.Path, skill.Path))
+            ?? throw new KeyNotFoundException(
+                "skill configuration was persisted, but the skill is no longer present in this session catalog");
     }
 
     public void Invalidate()
@@ -63,5 +67,20 @@ internal sealed class SkillCatalog(
     {
         _configure = configure ?? throw new ArgumentNullException(nameof(configure));
         return this;
+    }
+
+    private static bool PathsEqual(string left, string right)
+    {
+        try
+        {
+            return string.Equals(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(left)),
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)),
+                PlatformPath.Comparison);
+        }
+        catch (Exception failure) when (failure is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
     }
 }

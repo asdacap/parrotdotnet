@@ -15,24 +15,6 @@ internal sealed class SessionStore(
     ModeRegistry modes,
     DiagnosticLogs diagnostics)
 {
-    public static void Publish(IUserSession session)
-    {
-        lock (session.Resources.MetadataGate)
-        {
-            var index = new SessionIndex(session.Resources);
-            var current = index.Find()
-                ?? throw new InvalidOperationException(
-                    $"Session metadata for '{session.Id}' does not belong to this session.");
-            index.Publish(current with
-            {
-                ProviderId = session.ProviderId,
-                Model = session.CanonicalModel,
-                Selector = session.Model,
-                Mode = session.Mode.Profile.Id,
-            });
-        }
-    }
-
     public static void RecordOpened(IUserSession session)
     {
         ArgumentNullException.ThrowIfNull(session);

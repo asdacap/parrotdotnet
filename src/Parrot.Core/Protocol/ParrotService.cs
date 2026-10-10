@@ -9,7 +9,6 @@ using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Questions;
 using Parrot.Skills;
-using Parrot.Statuses;
 using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
@@ -188,11 +187,7 @@ internal sealed class ParrotService(
             var selected = modelConfiguration.SelectPreset(
                 request.Name,
                 session.Model,
-                selectedModel =>
-                {
-                    session.UpdateSelection(selectedModel);
-                    SessionStore.Publish(session);
-                });
+                session.UpdateSelection);
 
             return Task.FromResult(new SelectModelPresetResponse
             {
@@ -273,19 +268,16 @@ internal sealed class ParrotService(
         }
 
         var session = Find(request.UserSessionId);
-        var snapshot = session.SkillCatalog.Refresh();
-        var skill = snapshot.Skills.FirstOrDefault(candidate => PathsEqual(candidate.Path, request.Path))
-            ?? throw new RpcException(new Status(StatusCode.NotFound, "skill path is not present in this session catalog"));
         try
         {
-            session.SkillCatalog.Configure(skill.Path, request.Enabled);
-            var refreshed = session.SkillCatalog.Refresh();
-            var configured = refreshed.Skills.FirstOrDefault(candidate => PathsEqual(candidate.Path, skill.Path))
-                ?? throw new RpcException(new Status(
-                    StatusCode.NotFound,
-                    "skill configuration was persisted, but the skill is no longer present in this session catalog"));
-
-            return Task.FromResult(new ConfigureSkillResponse { Skill = ToProtocol(configured) });
+            return Task.FromResult(new ConfigureSkillResponse
+            {
+                Skill = ToProtocol(session.SkillCatalog.Configure(request.Path, request.Enabled)),
+            });
+        }
+        catch (KeyNotFoundException failure)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, failure.Message));
         }
         catch (InvalidDataException failure)
         {
@@ -488,7 +480,6 @@ internal sealed class ParrotService(
         }
 
         found.Update(selectedModel, selectedMode);
-        SessionStore.Publish(found);
 
         return Task.FromResult(UserSessionMapping.Map(found, false));
     }
@@ -855,25 +846,10 @@ internal sealed class ParrotService(
             context.CancellationToken.ThrowIfCancellationRequested();
             var found = Find(request.UserSessionId);
             trace.Diagnostics = found.Diagnostics;
-            var scope = found.Registry.SnapshotScopes()
-                .FirstOrDefault(static scope => scope.Session.Depth == 0)
-                ?? throw new RpcException(new Status(StatusCode.NotFound, "the user session has no agent session"));
-
-            var agent = scope.Session;
-            var captured = agent.ResolvePolicySelection();
-            var resolved = router.Resolve(captured.RequestedModel.Value);
-            var usageLines = UsageLines(resolved, context.CancellationToken);
-            var selection = new AgentTurnSelection(resolved.RequestedSelector, resolved, captured.Profile, captured.SecurityProfile);
-            var status = await scope.GetService<IRuntimeStatus>()
-                .ObserveWithContext(agent, selection, selection.Profile, agent.EstimateContext(selection), context.CancellationToken)
-                .ConfigureAwait(false);
-            var statistics = await scope.GetService<IRuntimeStatus>()
-                .ObserveStatistics(agent, selection, context.CancellationToken)
-                .ConfigureAwait(false);
-
+            var usageLines = UsageLines(router.Resolve(found.Model), context.CancellationToken);
             var response = new SessionStatusResponse
             {
-                Status = string.Join("\n\n", new[] { status, statistics }.Where(text => !string.IsNullOrWhiteSpace(text))),
+                Status = await found.ObserveStatus(context.CancellationToken).ConfigureAwait(false),
             };
             response.UsageLines.AddRange(await usageLines.ConfigureAwait(false));
             return response;
@@ -1102,21 +1078,6 @@ internal sealed class ParrotService(
         }
 
         return result;
-    }
-
-    private static bool PathsEqual(string left, string right)
-    {
-        try
-        {
-            return string.Equals(
-                Path.TrimEndingDirectorySeparator(Path.GetFullPath(left)),
-                Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)),
-                PlatformPath.Comparison);
-        }
-        catch (Exception failure) when (failure is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            return false;
-        }
     }
 
     private static string Limit(string value) => value.Length <= 4096 ? value : value[..4096];

@@ -476,7 +476,7 @@ internal sealed class SessionStoreTests : IDisposable
         _ = await Assert.That(session.Resources.SocketPath).IsEqualTo(Path.Combine(session.Resources.Root, "parrot.sock"));
         SessionStore.RecordOpened(session);
         var recorded = index.Find()?.LastOpenedAt;
-        SessionStore.Publish(session);
+        session.Update(null, null);
         _ = await Assert.That(index.Find()?.LastOpenedAt).IsEqualTo(recorded);
         _ = await Assert.That(string.IsNullOrEmpty(recorded)).IsFalse();
         _ = await Assert.That(index.Find()?.CreatedAt).IsEqualTo("2026-01-01T00:00:00Z");

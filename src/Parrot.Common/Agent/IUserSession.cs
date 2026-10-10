@@ -72,4 +72,7 @@ internal interface IUserSession : IAsyncDisposable
     Task ClearGoal(CancellationToken cancellationToken);
 
     Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken);
+
+    /// <summary>Observes the foreground agent's full status for display.</summary>
+    Task<string> ObserveStatus(CancellationToken cancellationToken);
 }

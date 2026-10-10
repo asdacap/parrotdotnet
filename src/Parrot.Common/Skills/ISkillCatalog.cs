@@ -9,8 +9,11 @@ internal interface ISkillCatalog
     /// <summary>Invalidates and captures a fresh discovered skill snapshot.</summary>
     SkillSnapshot Refresh();
 
-    /// <summary>Persists whether a discovered skill is enabled.</summary>
-    void Configure(string path, bool enabled);
+    /// <summary>
+    /// Persists whether the discovered skill at <paramref name="path"/> is enabled and returns its refreshed metadata.
+    /// Throws KeyNotFoundException when the skill is not discovered before or after the change.
+    /// </summary>
+    SkillMetadata Configure(string path, bool enabled);
 
     /// <summary>Invalidates the cached discovered snapshot.</summary>
     void Invalidate();

@@ -108,6 +108,9 @@ internal interface IAgentSession : IAsyncDisposable
 
     ContextSnapshot EstimateContext(AgentTurnSelection selection);
 
+    /// <summary>Observes the current selection's full status, context and statistics for display.</summary>
+    Task<string> ObserveStatus(CancellationToken cancellationToken);
+
     /// <summary>Materializes tools allowed by the captured selection.</summary>
     IReadOnlyList<LLMToolDefinition> AdvertisedToolDefinitions(AgentTurnSelection selection);
 

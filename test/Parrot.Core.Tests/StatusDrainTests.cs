@@ -459,6 +459,13 @@ internal sealed class StatusDrainTests : IDisposable
         var paths = new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data"));
         var workspace = ProjectWorkspace.FromLaunchDirectory(_root);
         var resources = new UserSessionResources(paths, UserSessionId.Parse(ownerId), workspace);
+        new SessionIndex(resources).Publish(new SessionMeta
+        {
+            Id = ownerId,
+            WorkingDirectory = workspace.LaunchDirectory,
+            ProviderId = string.Empty,
+            Model = string.Empty,
+        });
         var diagnostics = (IDiagnosticLog?)FileDiagnosticLog.OpenSession(resources, "test", TextWriter.Null, TimeProvider.System);
         try
         {

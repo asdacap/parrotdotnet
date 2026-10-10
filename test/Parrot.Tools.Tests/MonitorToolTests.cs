@@ -249,6 +249,8 @@ internal sealed class MonitorToolTests : IDisposable
 
         public ContextSnapshot EstimateContext(AgentTurnSelection selection) => throw new NotSupportedException();
 
+        public Task<string> ObserveStatus(CancellationToken cancellationToken) => throw new NotSupportedException();
+
         public IReadOnlyList<LLMToolDefinition> AdvertisedToolDefinitions(AgentTurnSelection selection) => throw new NotSupportedException();
 
         public ContextSnapshot EstimateContextForTools(AgentTurnSelection selection, IReadOnlyList<LLMToolDefinition> tools) => throw new NotSupportedException();
