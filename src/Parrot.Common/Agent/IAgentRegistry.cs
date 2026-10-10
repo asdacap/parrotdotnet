@@ -14,7 +14,6 @@ internal interface IAgentRegistry : IAsyncDisposable
     /// <summary>Captures current scopes by traversing registered roots and their child topology.</summary>
     IReadOnlyList<IAgentSessionScope> SnapshotScopes();
 
-    /// <summary>Attaches the shared runtime observer once.</summary>
     /// <summary>Registers a root scope with a unique session identity.</summary>
     void RegisterRootScope(IAgentSessionScope scope);
 
@@ -32,7 +31,6 @@ internal interface IAgentRegistry : IAsyncDisposable
     /// <summary>Reserves capacity for a retained agent while the registry accepts work.</summary>
     RetainedAgentReservation ReserveRetainedAgent();
 
-    /// <summary>Returns the attached observer, failing if unattached or shutting down.</summary>
     /// <summary>Tests scope identity among registered roots and descendants.</summary>
     bool ContainsScope(IAgentSessionScope candidate);
 
