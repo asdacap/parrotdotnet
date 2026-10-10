@@ -392,8 +392,25 @@ internal sealed class UserSession : IUserSession
     public Task ClearGoal(CancellationToken cancellationToken) =>
         MainScope().Goals.ClearGoal(cancellationToken);
 
-    public Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken) =>
-        Main().Compact(targetContextSize, cancellationToken);
+    public Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_lifetime.IsCancellationRequested)
+        {
+            throw new AgentRegistryException("the user session is shutting down");
+        }
+
+        var scope = MainScope();
+        var work = scope.GetService<AgentSessionWork>();
+        lock (work.Gate)
+        {
+            var completion = work.Enqueue(
+                (selection, operationCancellation) => scope.Session.Compact(selection, targetContextSize, operationCancellation),
+                cancellationToken);
+            scope.Session.Recover();
+            return completion;
+        }
+    }
 
     public Task<string> ObserveStatus(CancellationToken cancellationToken) =>
         Main().ObserveStatus(cancellationToken);

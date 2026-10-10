@@ -71,6 +71,7 @@ internal interface IUserSession : IAsyncDisposable
 
     Task ClearGoal(CancellationToken cancellationToken);
 
+    /// <summary>Queues foreground compaction at a drain boundary and waits for it, using the selected policy when the target is null.</summary>
     Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken);
 
     /// <summary>Observes the foreground agent's full status for display.</summary>

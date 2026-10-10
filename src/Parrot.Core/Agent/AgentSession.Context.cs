@@ -59,7 +59,7 @@ internal sealed partial class AgentSession
             history);
     }
 
-    public async Task<ContextCompactionResult> CompactFromTool(
+    public async Task<ContextCompactionResult> Compact(
         AgentTurnSelection selection,
         ContextSize? targetContextSize,
         CancellationToken cancellationToken)
@@ -96,54 +96,6 @@ internal sealed partial class AgentSession
         history.AddRange(agentHistory.InputsForNextPromotion()
             .Select(input => LLMMessage.User(agentHistory.Materialize(input.Parts))));
         return history;
-    }
-
-    private bool HasForcedCompactions()
-    {
-        lock (_drainLifecycle.Gate)
-        {
-            return _forcedCompactions.Count > 0;
-        }
-    }
-
-    private async Task RunForcedCompactions(CancellationToken cancellationToken)
-    {
-        while (true)
-        {
-            ForcedCompactionRequest? request;
-            lock (_drainLifecycle.Gate)
-            {
-                _ = _forcedCompactions.TryDequeue(out request);
-            }
-
-            if (request is null)
-            {
-                return;
-            }
-
-            try
-            {
-                using var operation = CancellationTokenSource.CreateLinkedTokenSource(
-                    cancellationToken,
-                    request.CancellationToken);
-                operation.Token.ThrowIfCancellationRequested();
-                await ReconcileToolBatchesUsingCurrentConfiguration(operation.Token).ConfigureAwait(false);
-                var selection = CaptureTurnSelection();
-                var tools = PermittedTools(selection);
-                EnsureEpoch();
-                var instructions = _systemPrompt.Build(selection);
-                _ = await CompactEpoch(selection, request.TargetContextSize, tools.Definitions, instructions, operation.Token).ConfigureAwait(false);
-                _ = request.Completion.TrySetResult();
-            }
-            catch (OperationCanceledException failure)
-            {
-                _ = request.Completion.TrySetCanceled(failure.CancellationToken);
-            }
-            catch (Exception failure)
-            {
-                _ = request.Completion.TrySetException(failure);
-            }
-        }
     }
 
     // Sampled at the start of an epoch, not every turn, and compaction starts a

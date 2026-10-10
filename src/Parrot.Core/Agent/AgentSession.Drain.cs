@@ -501,6 +501,12 @@ internal sealed partial class AgentSession
         }
     }
 
+    private async Task<AgentTurnSelection> PrepareScheduledWork(CancellationToken cancellationToken)
+    {
+        await ReconcileToolBatchesUsingCurrentConfiguration(cancellationToken).ConfigureAwait(false);
+        return CaptureTurnSelection();
+    }
+
     private async Task<AgentExecution> Drain(
         OwnedExecutionReservation? ownedExecution,
         CancellationToken cancellationToken)
@@ -530,7 +536,7 @@ internal sealed partial class AgentSession
                     if (started)
                     {
                         ownedExecution?.CancellationToken.ThrowIfCancellationRequested();
-                        await RunForcedCompactions(cancellationToken).ConfigureAwait(false);
+                        await scheduledWork.Run(PrepareScheduledWork, cancellationToken).ConfigureAwait(false);
                     }
 
                     pass = started
@@ -583,7 +589,7 @@ internal sealed partial class AgentSession
                     // recovered or otherwise pre-existing input cannot be stranded.
                     if (pass.Status == AgentExecutionStatus.Succeeded
                         && !cancellationToken.IsCancellationRequested
-                        && (_forcedCompactions.Count > 0 || _drainLifecycle.Wake || agentHistory.HasPendingInputs()))
+                        && (scheduledWork.HasPending || _drainLifecycle.Wake || agentHistory.HasPendingInputs()))
                     {
                         _drainLifecycle.Wake = false;
                         continue;
@@ -626,10 +632,7 @@ internal sealed partial class AgentSession
         }
 
         _drainLifecycle.Cancellation = null;
-        while (_forcedCompactions.TryDequeue(out var forcedCompaction))
-        {
-            _ = forcedCompaction.Completion.TrySetCanceled(cancellationToken);
-        }
+        scheduledWork.CancelPending(cancellationToken);
 
         _drainLifecycle.State = DrainState.Idle;
         Activity.ChangeState(DrainState.Idle);
@@ -656,7 +659,7 @@ internal sealed partial class AgentSession
         {
             while (true)
             {
-                if (!turnOpen && HasForcedCompactions())
+                if (!turnOpen && scheduledWork.HasPending)
                 {
                     return AgentExecution.Succeeded(answer);
                 }

@@ -40,6 +40,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
             _services.Register<IAgentTaskService>(_composition.AgentTasks);
             _services.Register<IChildQuestion>(_composition.ChildQuestion);
             _services.Register<IRuntimeStatus>(_composition.Status);
+            _services.Register(_composition.ScheduledWork);
             ChildRegistry = _composition.ChildRegistry;
             ParentScope = _composition.ParentScope;
             ChildQuestions = _composition.ChildQuestions;
