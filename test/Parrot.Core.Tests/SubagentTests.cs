@@ -1119,18 +1119,22 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             _ = await Assert.That(() => rootResolver.ResolveResource(path)).Throws<AgentRegistryException>();
         }
 
-        nestedDuplicate.UpdateSelection(new AgentSelection(
-            nestedDuplicate.CurrentSelection().RequestedModel,
-            new AgentProfile("restricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
-            SecurityProfile.Compose(readOnly: true, [], [], [])));
+        nestedDuplicate.UpdateSelection(
+            new AgentSelection(
+                nestedDuplicate.CurrentSelection().RequestedModel,
+                new AgentProfile("restricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
+                SecurityProfile.Compose(readOnly: true, [], [], [])),
+            null);
         var deniedResource = await Assert.That(() => nestedResolver.ResolveResource($"/{root.Name}/shell1")).Throws<AgentRegistryException>();
         _ = await Assert.That(deniedResource?.Message).IsEqualTo("cannot access resources of a more permissive agent");
         var deniedRelativeResource = await Assert.That(() => nestedResolver.ResolveResource("../../shell1")).Throws<AgentRegistryException>();
         _ = await Assert.That(deniedRelativeResource?.Message).IsEqualTo("cannot access resources of a more permissive agent");
-        duplicate.UpdateSelection(new AgentSelection(
-            duplicate.CurrentSelection().RequestedModel,
-            new AgentProfile("unrestricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
-            SecurityProfile.Compose(readOnly: false, [], [], [])));
+        duplicate.UpdateSelection(
+            new AgentSelection(
+                duplicate.CurrentSelection().RequestedModel,
+                new AgentProfile("unrestricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
+                SecurityProfile.Compose(readOnly: false, [], [], [])),
+            null);
         ITool restrictedSend = new AgentSendTool(nestedDuplicate.Identity, nestedResolver, nestedDuplicate, TestModels.AgentSend);
         var deniedSend = (await restrictedSend.Execute(
             new ToolInvocation("restricted-send", """{"name":"parent/parent/duplicate","message":"disallowed delegation"}"""),
@@ -1176,10 +1180,12 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var childScope = Spawn(rootScope, "child");
         var grandchildScope = Spawn(childScope, "grandchild");
         var grandchild = grandchildScope.Session;
-        grandchild.UpdateSelection(new AgentSelection(
-            grandchild.CurrentSelection().RequestedModel,
-            new AgentProfile("restricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
-            SecurityProfile.Compose(readOnly: true, [], [], [])));
+        grandchild.UpdateSelection(
+            new AgentSelection(
+                grandchild.CurrentSelection().RequestedModel,
+                new AgentProfile("restricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
+                SecurityProfile.Compose(readOnly: true, [], [], [])),
+            null);
         var resolver = new AgentResolver(grandchild.Identity, grandchildScope.ParentScope, grandchildScope, registry);
         ITool send = new AgentSendTool(grandchild.Identity, resolver, grandchild, new AgentSendConfig(toParent));
         var path = absolute ? $"/{root.Name}" : "parent/parent";
@@ -1430,7 +1436,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         await using var registry = TestModels.Registry(
             sessions, _broker, _repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, cancellationToken);
         await using var parent = Session(provider, 0, "agent", registry, cancellationToken);
-        parent.UpdateSelection(new AgentSelection(parent.CurrentSelection().RequestedModel, new AgentProfile("parent", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: true, [], [], [])));
+        parent.UpdateSelection(new AgentSelection(parent.CurrentSelection().RequestedModel, new AgentProfile("parent", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: true, [], [], [])), null);
 
         var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(new AgentLaunchRequest(
             parent,
@@ -1474,10 +1480,10 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         await using var registry = TestModels.Registry(
             sessions, _broker, _repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, cancellationToken);
         await using var parent = Session(provider, 0, "agent", registry, cancellationToken);
-        parent.UpdateSelection(new AgentSelection(parent.CurrentSelection().RequestedModel, new AgentProfile(ModeRegistry.Build, new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: false, [], [], [])));
+        parent.UpdateSelection(new AgentSelection(parent.CurrentSelection().RequestedModel, new AgentProfile(ModeRegistry.Build, new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: false, [], [], [])), null);
         ITool spawn = new AgentSpawnTool(TestModels.ScopeOf(parent), new RouterFixture(provider, []).Router);
         var capturedSelection = new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection;
-        parent.UpdateSelection(parent.CurrentSelection() with { RequestedModel = new ModelSelector("stepped/replacement") });
+        parent.UpdateSelection(parent.CurrentSelection() with { RequestedModel = new ModelSelector("stepped/replacement") }, null);
 
         _ = (await spawn.Execute(new ToolInvocation("test-call", """{"prompt":"do the subtask","agent":"worker","name":"worker-helper"}"""), capturedSelection, cancellationToken)).Text;
         await provider.Arrived(cancellationToken);
@@ -1505,7 +1511,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var sessions = new TestAgentSessions(router);
         await using var registry = TestModels.Registry(sessions, _broker, _repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, cancellationToken);
         await using var parent = Session(provider, 0, "agent", registry, cancellationToken);
-        parent.UpdateSelection(parent.CurrentSelection() with { RequestedModel = new ModelSelector("fast") });
+        parent.UpdateSelection(parent.CurrentSelection() with { RequestedModel = new ModelSelector("fast") }, null);
         ITool spawn = new AgentSpawnTool(TestModels.ScopeOf(parent), router);
 
         foreach (var arguments in new[]
@@ -2113,7 +2119,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
         releaseConstruction.Set();
         var child = await spawning;
-        root.UpdateSelection(new AgentSelection(root.CurrentSelection().RequestedModel, new AgentProfile("root", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: true, [], [], [])));
+        root.UpdateSelection(new AgentSelection(root.CurrentSelection().RequestedModel, new AgentProfile("root", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: true, [], [], [])), null);
 
         _ = await Assert.That(child.ResolvePolicySelection().SecurityProfile.ReadOnly).IsTrue();
         var childRecursion = await Assert.That(() => TestModels.ScopeOf(child).AgentSpawner.SpawnScope(new AgentLaunchRequest(

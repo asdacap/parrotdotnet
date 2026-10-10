@@ -200,7 +200,7 @@ internal sealed class UserSession : IUserSession
             session.RefreshAgentHistories();
 
             var main = session.InitializeMain();
-            main.UseResolvedSelection(model);
+            main.UpdateSelection(main.CurrentSelection(), model);
             main.Recover();
             session.Diagnostics.Write(new("session", "recovered", DiagnosticSeverity.Information));
             return session;
@@ -269,11 +269,7 @@ internal sealed class UserSession : IUserSession
                 CanonicalModel = model.CanonicalModel.Selector;
             }
 
-            _main?.Session.UpdateSelection(Selection());
-            if (model is not null)
-            {
-                _main?.Session.UseResolvedSelection(model);
-            }
+            _main?.Session.UpdateSelection(Selection(), model);
         }
 
         PublishMetadata();

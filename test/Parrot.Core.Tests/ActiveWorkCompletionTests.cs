@@ -446,7 +446,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         _ = await rootQueues.Push("parent-open", ["pending"], QueueDirection.Back, false, cancellationToken);
         _ = await rootQueues.Push("parent-closed", ["pending"], QueueDirection.Back, true, cancellationToken);
         var monitoredProfile = new CompletionProfile(enforce: true, maxTurns: 2).Profile;
-        monitored.UpdateSelection(new AgentSelection(new ModelSelector("monitored/model"), monitoredProfile, monitoredProfile.SecurityProfile));
+        monitored.UpdateSelection(new AgentSelection(new ModelSelector("monitored/model"), monitoredProfile, monitoredProfile.SecurityProfile), null);
         var sibling = TestModels.ScopeOf(root).AgentSpawner.SpawnScope(new AgentLaunchRequest(
             root,
             new TurnFixture(root, router).Selection,

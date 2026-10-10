@@ -175,10 +175,12 @@ internal sealed class AgentSpawner : IAgentSpawner
                 $"child agent '{scope.Session.Name}' is busy; wait for it to finish or use agent_send");
         }
 
-        scope.Session.UpdateSelection(SelectChild(
-            scope.Session.ResolvePolicyLineage(),
-            _authority.ResolveChildProfile(request.RequestedProfile),
-            request.Model));
+        scope.Session.UpdateSelection(
+            SelectChild(
+                scope.Session.ResolvePolicyLineage(),
+                _authority.ResolveChildProfile(request.RequestedProfile),
+                request.Model),
+            null);
         return scope;
     }
 
