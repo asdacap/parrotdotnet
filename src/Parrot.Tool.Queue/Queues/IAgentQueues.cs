@@ -15,7 +15,7 @@ internal interface IAgentQueues : IDisposable
     /// <summary>Gets the owned store, whose lifetime ends with this queue owner.</summary>
     IQueueStore Local { get; }
 
-    /// <summary>Attaches inventory before the owner is used.</summary>
+    /// <summary>Attaches inventory before the owner is used; the root first clears stale child queues.</summary>
     void Initialize();
 
     QueueInventorySnapshot CaptureInventory();

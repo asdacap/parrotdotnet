@@ -29,7 +29,16 @@ internal sealed class AgentQueues(
 
     internal IAgentQueues? Parent { get; } = parent;
 
-    public void Initialize() => Local.AttachInventory(Identity, _inventory);
+    // The root starts each user session without the previous run's child queues.
+    public void Initialize()
+    {
+        if (Identity.Depth == 0 && Directory.Exists(resources.AgentQueueRootDirectory))
+        {
+            Directory.Delete(resources.AgentQueueRootDirectory, recursive: true);
+        }
+
+        Local.AttachInventory(Identity, _inventory);
+    }
 
     public QueueInventorySnapshot CaptureInventory() => _inventory.Capture();
 

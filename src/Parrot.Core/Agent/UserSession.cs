@@ -111,10 +111,6 @@ internal sealed class UserSession : IUserSession
             return ValueTask.CompletedTask;
         });
         _ = Directory.CreateDirectory(Resources.ScratchDirectory);
-        if (Directory.Exists(Resources.AgentQueueRootDirectory))
-        {
-            Directory.Delete(Resources.AgentQueueRootDirectory, recursive: true);
-        }
 
         _agentSessions = agentSessionFactories.Create(this);
         var retainedAgents = new RetainedAgentBudget(1024);
