@@ -6,8 +6,7 @@ internal abstract record AgentTurnCompletionOutcome
     {
     }
 
-    internal static AgentTurnCompletionOutcome Continue(IDisposable? completionReservation) =>
-        new ContinueOutcome(completionReservation);
+    internal static AgentTurnCompletionOutcome Continue() => new ContinueOutcome();
 
     internal static AgentTurnCompletionOutcome Retry(
         string systemMessage,
@@ -15,7 +14,7 @@ internal abstract record AgentTurnCompletionOutcome
         bool? completionRetryPending) =>
         new RetryOutcome(systemMessage, retainCandidateAssistant, completionRetryPending);
 
-    internal sealed record ContinueOutcome(IDisposable? CompletionReservation) : AgentTurnCompletionOutcome;
+    internal sealed record ContinueOutcome : AgentTurnCompletionOutcome;
 
     internal sealed record RetryOutcome(
         string SystemMessage,

@@ -1216,7 +1216,6 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null),
             new Parrot.Context.ContextCadence(),
             TestModels.PromptTemplates,
-            childQuestions,
             dependencies.ExitReminder,
             dependencies.Profile,
             new TestCompletionCallbacksFixture(childQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, TestModels.History(_repository, identity.SessionId), _broker).Callbacks,

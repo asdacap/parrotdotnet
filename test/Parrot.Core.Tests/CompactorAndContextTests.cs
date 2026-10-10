@@ -785,7 +785,6 @@ internal sealed class CompactorAndContextTests : IDisposable
             new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null),
             new ContextCadence(),
             TestModels.PromptTemplates,
-            dependencies.ChildQuestions,
             dependencies.ExitReminder,
             profile,
             new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, TestModels.History(repository, identity.SessionId), broker).Callbacks,

@@ -259,19 +259,10 @@ internal sealed class DrainTests : IDisposable
         using var provider = new SteppedProvider(Answer("retry candidate"), Answer("final candidate"));
         var repository = new EventRepository(_database);
         var calls = new List<string>();
-        using var firstReservation = new TrackingDisposable();
-        using var terminalReservation = new TrackingDisposable();
-        var firstReservationWasDisposedBeforeSecondAttempt = false;
-        var first = new RecordingCompletionCallback((candidate, invocation) =>
+        var first = new RecordingCompletionCallback((candidate, _) =>
         {
             calls.Add($"first:{candidate.MessageId}");
-            if (invocation == 1)
-            {
-                return AgentTurnCompletionOutcome.Continue(firstReservation);
-            }
-
-            firstReservationWasDisposedBeforeSecondAttempt = firstReservation.Disposed;
-            return AgentTurnCompletionOutcome.Continue(terminalReservation);
+            return AgentTurnCompletionOutcome.Continue();
         });
         var second = new RecordingCompletionCallback((candidate, invocation) =>
         {
@@ -281,12 +272,12 @@ internal sealed class DrainTests : IDisposable
                     "retry",
                     false,
                     null)
-                : AgentTurnCompletionOutcome.Continue(null);
+                : AgentTurnCompletionOutcome.Continue();
         });
         var third = new RecordingCompletionCallback((candidate, _) =>
         {
             calls.Add($"third:{candidate.MessageId}");
-            return AgentTurnCompletionOutcome.Continue(null);
+            return AgentTurnCompletionOutcome.Continue();
         });
         var session = SessionWithCompletionCallbacks(
             provider,
@@ -308,9 +299,6 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(callbackNames).IsEqualTo("first,second,first,second,third");
         _ = await Assert.That(calls[0].Split(':')[1]).IsEqualTo(calls[1].Split(':')[1]);
         _ = await Assert.That(calls[0].Split(':')[1]).IsNotEqualTo(calls[2].Split(':')[1]);
-        _ = await Assert.That(firstReservationWasDisposedBeforeSecondAttempt).IsTrue();
-        _ = await Assert.That(firstReservation.Disposed).IsTrue();
-        _ = await Assert.That(terminalReservation.Disposed).IsTrue();
         _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnStarted)).IsEqualTo(1);
         _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
     }
@@ -369,7 +357,7 @@ internal sealed class DrainTests : IDisposable
                 "keep going",
                 false,
                 null)
-            : AgentTurnCompletionOutcome.Continue(null));
+            : AgentTurnCompletionOutcome.Continue());
         await using var session = SessionWithCompletionCallbacks(
             provider,
             repository,
@@ -2410,7 +2398,6 @@ internal sealed class DrainTests : IDisposable
             new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null),
             new ContextCadence(),
             TestModels.PromptTemplates,
-            dependencies.ChildQuestions,
             dependencies.ExitReminder,
             profile,
             new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, TestModels.History(repository, identity.SessionId), _broker).Callbacks,
@@ -2457,7 +2444,6 @@ internal sealed class DrainTests : IDisposable
             new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null),
             new ContextCadence(),
             TestModels.PromptTemplates,
-            dependencies.ChildQuestions,
             dependencies.ExitReminder,
             dependencies.Profile,
             new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, TestModels.History(repository, identity.SessionId), _broker).Callbacks,
@@ -2481,7 +2467,7 @@ internal sealed class DrainTests : IDisposable
         var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
         _dependencies.Add(dependencies);
-        return TestModels.ComposeSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, TestModels.History(repository, identity.SessionId), repository.GetRuntimeStatistics(), repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId), [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), new AgentOutputFile(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile, completionCallbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, TestModels.EmptySkills(TestModels.PromptTemplates), new RequestLimitsConfig(), dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
+        return TestModels.ComposeSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, TestModels.History(repository, identity.SessionId), repository.GetRuntimeStatistics(), repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId), [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), new AgentOutputFile(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ExitReminder, profile, completionCallbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, TestModels.EmptySkills(TestModels.PromptTemplates), new RequestLimitsConfig(), dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
     }
 
     private IAgentSession Session(
@@ -2507,7 +2493,7 @@ internal sealed class DrainTests : IDisposable
         });
         var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
-        return TestModels.ComposeSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, TestModels.History(repository, identity.SessionId), repository.GetRuntimeStatistics(), repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId), [.. toolFactories.Select(tool => tool.Factory)], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), new AgentOutputFile(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile ?? dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, TestModels.History(repository, identity.SessionId), _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, TestModels.EmptySkills(TestModels.PromptTemplates), new RequestLimitsConfig(), dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
+        return TestModels.ComposeSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, TestModels.History(repository, identity.SessionId), repository.GetRuntimeStatistics(), repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId), [.. toolFactories.Select(tool => tool.Factory)], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), new AgentOutputFile(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ExitReminder, profile ?? dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, TestModels.History(repository, identity.SessionId), _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, TestModels.EmptySkills(TestModels.PromptTemplates), new RequestLimitsConfig(), dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
     }
 
     private sealed class DrainProfile(
@@ -2559,7 +2545,7 @@ internal sealed class DrainTests : IDisposable
                     null);
             }
 
-            return AgentTurnCompletionOutcome.Continue(null);
+            return AgentTurnCompletionOutcome.Continue();
         }
 
         internal Task WaitUntilEntered(CancellationToken cancellationToken) =>
@@ -2594,13 +2580,6 @@ internal sealed class DrainTests : IDisposable
             AgentTurnSelection selection,
             CancellationToken cancellationToken) =>
             Task.FromResult<ToolExecutionResult>("survived");
-    }
-
-    private sealed class TrackingDisposable : IDisposable
-    {
-        public bool Disposed { get; private set; }
-
-        public void Dispose() => Disposed = true;
     }
 
     private sealed class GatedTool(string name, bool parallelSafe) : ITool

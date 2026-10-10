@@ -4,7 +4,6 @@ using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Llm.Wire;
 using Parrot.Protocol;
-using Parrot.Questions;
 using Parrot.Security;
 using Parrot.Store;
 using Parrot.Tools;
@@ -362,50 +361,34 @@ internal sealed partial class AgentSession
             }
         }
 
-        ChildQuestionCompletionAttempt terminalCompletionAttempt;
-        while (true)
+        var elapsedMilliseconds = (long)(Activity.Capture().RequestSessionDuration ?? TimeSpan.Zero).TotalMilliseconds;
+        var terminal = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
+        if (completed.Status == AgentExecutionStatus.Succeeded)
         {
-            terminalCompletionAttempt = childQuestions.BeginCompletion();
-            if (terminalCompletionAttempt.Reminder is null)
+            terminal.AgentFinished = new AgentFinished
             {
-                break;
-            }
-
-            terminalCompletionAttempt.Dispose();
-            completed = BoundResult(await WaitForDrainResult().ConfigureAwait(false));
+                ParentAgentSessionId = identity.ParentSessionId,
+                Name = Name,
+                ElapsedMs = elapsedMilliseconds,
+            };
+        }
+        else
+        {
+            terminal.AgentFailed = new AgentFailed
+            {
+                ParentAgentSessionId = identity.ParentSessionId,
+                Name = Name,
+                Message = completed.Error,
+            };
         }
 
-        using (terminalCompletionAttempt)
+        try
         {
-            var elapsedMilliseconds = (long)(Activity.Capture().RequestSessionDuration ?? TimeSpan.Zero).TotalMilliseconds;
-            var terminal = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
-            if (completed.Status == AgentExecutionStatus.Succeeded)
-            {
-                terminal.AgentFinished = new AgentFinished
-                {
-                    ParentAgentSessionId = identity.ParentSessionId,
-                    Name = Name,
-                    ElapsedMs = elapsedMilliseconds,
-                };
-            }
-            else
-            {
-                terminal.AgentFailed = new AgentFailed
-                {
-                    ParentAgentSessionId = identity.ParentSessionId,
-                    Name = Name,
-                    Message = completed.Error,
-                };
-            }
-
-            try
-            {
-                await eventEmitter.Emit(terminal, null, null, CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception failure)
-            {
-                completed = AgentExecution.Failed(BoundResult(failure.Message));
-            }
+            await eventEmitter.Emit(terminal, null, null, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            completed = AgentExecution.Failed(BoundResult(failure.Message));
         }
 
         diagnostics.Write(new("agent", "execution_finished", completed.Status == AgentExecutionStatus.Failed ? DiagnosticSeverity.Error : DiagnosticSeverity.Information)
@@ -826,90 +809,66 @@ internal sealed partial class AgentSession
                     Identifier.MessageId(),
                     completed.AssistantText,
                     activeSelection.Profile);
-                List<IDisposable> completionReservations = [];
                 AgentTurnCompletionOutcome.RetryOutcome? retryOutcome = null;
-                try
+                foreach (var callback in _turnCompletionCallbacks)
                 {
-                    foreach (var callback in _turnCompletionCallbacks)
-                    {
-                        var outcome = await callback.Complete(completionCandidate, cancellationToken)
-                            .ConfigureAwait(false);
-                        switch (outcome)
-                        {
-                            case AgentTurnCompletionOutcome.ContinueOutcome continuation:
-                                if (continuation.CompletionReservation is { } completionReservation)
-                                {
-                                    completionReservations.Add(completionReservation);
-                                }
-
-                                break;
-                            case AgentTurnCompletionOutcome.RetryOutcome retry:
-                                retryOutcome = retry;
-                                break;
-                        }
-
-                        if (retryOutcome is not null)
-                        {
-                            break;
-                        }
-                    }
-
+                    var outcome = await callback.Complete(completionCandidate, cancellationToken)
+                        .ConfigureAwait(false);
+                    retryOutcome = outcome as AgentTurnCompletionOutcome.RetryOutcome;
                     if (retryOutcome is not null)
                     {
-                        var systemMessage = retryOutcome.SystemMessage
-                            ?? throw new InvalidOperationException("A retry outcome requires a system message.");
-                        if (retryOutcome.RetainCandidateAssistant)
-                        {
-                            conversation.Add(LLMMessage.Assistant(completed.AssistantText, []));
-                        }
-
-                        conversation.Add(LLMMessage.System(systemMessage));
-                        if (retryOutcome.RetainCandidateAssistant)
-                        {
-                            Activity.RecordAssistantMessage(completed.AssistantText);
-                        }
-
-                        if (retryOutcome.CompletionRetryPending is { } retryPending)
-                        {
-                            completionRetryPending = retryPending;
-                        }
-
-                        budget.Restart();
-                        continue;
+                        break;
                     }
-
-                    answer = completed.AssistantText;
-                    completionRetryPending = false;
-                    conversation.Add(LLMMessage.Assistant(completed.AssistantText, []));
-                    var ended = new Event
-                    {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                        TurnEnded = new TurnEnded
-                        {
-                            FinishReason = completed.FinishReason,
-                            InputTokens = CaptureStatistics().Self.Totals.InputTokens,
-                            OutputTokens = CaptureStatistics().Self.Totals.OutputTokens,
-                        },
-                    };
-                    await eventEmitter.Emit(ended, "assistant", completed.AssistantText, cancellationToken)
-                        .ConfigureAwait(false);
-                    FinishTurn("completed", null);
-                    Activity.RecordAssistantMessage(completed.AssistantText);
-
-                    // Back to the top rather than out: a queued prompt is promoted
-                    // exactly here, where the turn would otherwise stop.
-                    turnOpen = false;
-                    activeSelection = null;
-                    activeTools = null;
                 }
-                finally
+
+                if (retryOutcome is not null)
                 {
-                    foreach (var completionReservation in completionReservations)
+                    var systemMessage = retryOutcome.SystemMessage
+                        ?? throw new InvalidOperationException("A retry outcome requires a system message.");
+                    if (retryOutcome.RetainCandidateAssistant)
                     {
-                        completionReservation.Dispose();
+                        conversation.Add(LLMMessage.Assistant(completed.AssistantText, []));
                     }
+
+                    conversation.Add(LLMMessage.System(systemMessage));
+                    if (retryOutcome.RetainCandidateAssistant)
+                    {
+                        Activity.RecordAssistantMessage(completed.AssistantText);
+                    }
+
+                    if (retryOutcome.CompletionRetryPending is { } retryPending)
+                    {
+                        completionRetryPending = retryPending;
+                    }
+
+                    budget.Restart();
+                    continue;
                 }
+
+                answer = completed.AssistantText;
+                completionRetryPending = false;
+                conversation.Add(LLMMessage.Assistant(completed.AssistantText, []));
+                var ended = new Event
+                {
+                    Id = Identifier.EventId(),
+                    AgentSessionId = SessionId,
+                    TurnEnded = new TurnEnded
+                    {
+                        FinishReason = completed.FinishReason,
+                        InputTokens = CaptureStatistics().Self.Totals.InputTokens,
+                        OutputTokens = CaptureStatistics().Self.Totals.OutputTokens,
+                    },
+                };
+                await eventEmitter.Emit(ended, "assistant", completed.AssistantText, cancellationToken)
+                    .ConfigureAwait(false);
+                FinishTurn("completed", null);
+                Activity.RecordAssistantMessage(completed.AssistantText);
+
+                // Back to the top rather than out: a queued prompt is promoted
+                // exactly here, where the turn would otherwise stop.
+                turnOpen = false;
+                activeSelection = null;
+                activeTools = null;
             }
         }
         catch (OperationCanceledException)

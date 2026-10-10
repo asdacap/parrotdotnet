@@ -80,7 +80,6 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
             new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null),
             new ContextCadence(),
             TestModels.PromptTemplates,
-            ChildQuestions,
             ExitReminder,
             Profile,
             new TestCompletionCallbacksFixture(ChildQuestions, ActiveWorkReminder, ExitReminder, TestModels.History(eventRepository, identity.SessionId), eventBroker).Callbacks,

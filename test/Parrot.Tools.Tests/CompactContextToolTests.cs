@@ -199,7 +199,6 @@ internal sealed class CompactContextToolTests : IDisposable
             new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null),
             new ContextCadence(),
             TestModels.PromptTemplates,
-            dependencies.ChildQuestions,
             dependencies.ExitReminder,
             dependencies.Profile,
             new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, TestModels.History(repository, identity.SessionId), broker).Callbacks,

@@ -86,7 +86,6 @@ internal sealed class AgentOperationDiagnosticsTests : IDisposable
             new ProviderSessions(diagnostics, identity.SessionId, null),
             new ContextCadence(),
             TestModels.PromptTemplates,
-            dependencies.ChildQuestions,
             dependencies.ExitReminder,
             dependencies.Profile,
             new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, TestModels.History(repository, identity.SessionId), events).Callbacks,

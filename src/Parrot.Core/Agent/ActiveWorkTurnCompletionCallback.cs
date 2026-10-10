@@ -16,7 +16,7 @@ internal sealed class ActiveWorkTurnCompletionCallback(
         var reminder = activeWorkReminder.Build();
         if (reminder is null)
         {
-            return AgentTurnCompletionOutcome.Continue(null);
+            return AgentTurnCompletionOutcome.Continue();
         }
 
         var published = new Event

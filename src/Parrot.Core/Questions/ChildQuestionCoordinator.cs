@@ -12,7 +12,6 @@ internal sealed class ChildQuestionCoordinator(
     IPromptTemplateCatalog promptTemplates) : IChildQuestionCoordinator
 {
     private readonly Lock _gate = new();
-    private TaskCompletionSource? _completionReservation;
     private bool _disposed;
 
     public async Task<QuestionReply> Ask(IAgentSession askingChild, IReadOnlyList<QuestionDefinition> questions, CancellationToken cancellationToken)
@@ -35,28 +34,11 @@ internal sealed class ChildQuestionCoordinator(
 
         var parent = ownerScope.RequireOwnerScope().Session;
         var question = childScope.GetService<IChildQuestion>();
-        OpenChildQuestion? open = null;
-
-        while (open is null)
+        OpenChildQuestion open;
+        lock (_gate)
         {
-            Task? completion = null;
-            lock (_gate)
-            {
-                ObjectDisposedException.ThrowIf(_disposed, this);
-                if (_completionReservation is not null)
-                {
-                    completion = _completionReservation.Task;
-                }
-                else
-                {
-                    open = question.Open(copied);
-                }
-            }
-
-            if (completion is not null)
-            {
-                await completion.WaitAsync(cancellationToken).ConfigureAwait(false);
-            }
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            open = question.Open(copied);
         }
 
         try
@@ -98,41 +80,20 @@ internal sealed class ChildQuestionCoordinator(
             ? Pending()
             : [];
 
-    public ChildQuestionCompletionAttempt BeginCompletion()
+    public string? CompletionReminder()
     {
         lock (_gate)
         {
             if (_disposed)
             {
-                return ChildQuestionCompletionAttempt.Reserve(static () => { });
+                return null;
             }
 
             var pending = SnapshotOpenQuestions()
                 .OrderBy(item => item.AskingAgentName, StringComparer.Ordinal)
                 .ToArray();
-            if (pending.Length > 0)
-            {
-                return ChildQuestionCompletionAttempt.Block(FormatCompletionReminder(pending));
-            }
-
-            if (_completionReservation is not null)
-            {
-                throw new InvalidOperationException("the parent already owns a completion reservation");
-            }
-
-            _completionReservation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            return ChildQuestionCompletionAttempt.Reserve(ReleaseCompletion);
+            return pending.Length > 0 ? FormatCompletionReminder(pending) : null;
         }
-    }
-
-    public ChildQuestionCompletionAttempt BeginParentCompletion(IAgentSession parent)
-    {
-        if (!string.Equals(parent.SessionId, ownerScope.OwnerSessionId, StringComparison.Ordinal))
-        {
-            throw new QuestionException("only the owning parent may complete child questions");
-        }
-
-        return BeginCompletion();
     }
 
     public void Reply(string childName, QuestionReply reply)
@@ -155,7 +116,6 @@ internal sealed class ChildQuestionCoordinator(
 
     public void Dispose()
     {
-        TaskCompletionSource? reservation;
         lock (_gate)
         {
             if (_disposed)
@@ -164,15 +124,11 @@ internal sealed class ChildQuestionCoordinator(
             }
 
             _disposed = true;
-            reservation = _completionReservation;
-            _completionReservation = null;
             foreach (var child in children.SnapshotChildScopes())
             {
                 child.GetService<IChildQuestion>().Close();
             }
         }
-
-        _ = reservation?.TrySetResult();
     }
 
     private IEnumerable<PendingChildQuestionRequest> SnapshotOpenQuestions() =>
@@ -191,18 +147,6 @@ internal sealed class ChildQuestionCoordinator(
         return promptTemplates.Render(
             "agent-session.pending-child-question-reminder",
             [new PromptTemplateArgument("children", childNames.ToString())]);
-    }
-
-    private void ReleaseCompletion()
-    {
-        TaskCompletionSource? reservation;
-        lock (_gate)
-        {
-            reservation = _completionReservation;
-            _completionReservation = null;
-        }
-
-        _ = reservation?.TrySetResult();
     }
 
     private string FormatSteer(string askingAgentName, OpenChildQuestion open)

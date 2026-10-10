@@ -97,7 +97,6 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
             new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null),
             new Parrot.Context.ContextCadence(),
             TestModels.PromptTemplates,
-            childQuestions,
             exitReminder,
             profile,
             completionCallbacks,

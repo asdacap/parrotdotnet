@@ -8,7 +8,6 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
-using Parrot.Questions;
 using Parrot.Queues;
 using Parrot.Security;
 using Parrot.State;
@@ -66,7 +65,6 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
         await using var children = new ChildRegistry(identity, QueueChildAdmissionValidator.Validate);
         using IAgentQueues queues = new AgentQueues(identity, null, resources, children, static queueIdentity => new QueueInventory(queueIdentity), diagnostics.Log);
         queues.Initialize();
-        var questions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), children, templates);
         var parentScope = AgentSessionParentScope.Root();
         var history = new AgentHistoryView(repository, identity.SessionId);
         var statistics = repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId);
@@ -99,7 +97,6 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
             providerSessions,
             new ContextCadence(),
             templates,
-            questions,
             profile,
             [],
             new AgentSessionSecurity(profile.SecurityProfile, resources.Workspace, resources.AgentsDirectory),
@@ -207,7 +204,6 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
             subscription.Dispose();
             await forwarding;
             _ = await displaying;
-            questions.Dispose();
         }
 
         async Task ForwardEvents()

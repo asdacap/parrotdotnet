@@ -401,11 +401,10 @@ internal sealed partial class SubagentTests
         _ = await Assert.That(coordinator.PendingForParent(parent)).Count().IsEqualTo(2);
         await provider.Arrived(cancellationToken);
 
-        var reminder = coordinator.BeginParentCompletion(parent);
-        _ = await Assert.That(reminder.Reminder).IsNotNull();
-        _ = await Assert.That(reminder.Reminder).Contains(first.Name);
-        _ = await Assert.That(reminder.Reminder).Contains(second.Name);
-        reminder.Dispose();
+        var reminder = coordinator.CompletionReminder();
+        _ = await Assert.That(reminder).IsNotNull();
+        _ = await Assert.That(reminder).Contains(first.Name);
+        _ = await Assert.That(reminder).Contains(second.Name);
         coordinator.ReplyFromParent(TestModels.ScopeOf(parent).ParentScope, first.Name, new QuestionReply([new QuestionAnswer("yes")]));
         coordinator.ReplyFromParent(TestModels.ScopeOf(parent).ParentScope, second.Name, new QuestionReply([new QuestionAnswer("yes")]));
         _ = await Task.WhenAll(firstAsking, secondAsking);
@@ -467,41 +466,6 @@ internal sealed partial class SubagentTests
         _ = await Assert.That(childQuestions.PendingForParent(root)).IsEmpty();
         provider.Release();
         await root.DisposeAsync();
-    }
-
-    [Test]
-    public async Task Cancellation_while_waiting_for_parent_completion_reservation_is_deterministic(
-        CancellationToken cancellationToken)
-    {
-        using var provider = new SteppedProvider();
-        var router = new RouterFixture(provider, []).Router;
-        await using var registry = TestModels.Registry(
-            new TestAgentSessions(router),
-            _broker,
-            _repository,
-            new TestProfileFixture().Registry,
-            TestModels.PromptTemplates,
-            cancellationToken);
-        await using var parent = Session(provider, 0, "reservation-parent", registry, cancellationToken);
-        var coordinator = TestModels.CreateChildQuestions(TestModels.ScopeOf(parent));
-        var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(new AgentLaunchRequest(
-            parent,
-            new TurnFixture(parent, router).Selection,
-            "worker",
-            parent.CurrentSelection().RequestedModel,
-            "reservation-child",
-            string.Empty,
-            HistoryForkSelection.Parse(string.Empty),
-            new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic,
-            new AgentHistorySource.Parent())).Session;
-        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using var reservation = coordinator.BeginParentCompletion(parent);
-        var asking = coordinator.Ask(child, [new QuestionDefinition("Continue", "reserved", [new Parrot.Questions.QuestionOption("Yes", string.Empty)], false, false)], stopping.Token);
-
-        await stopping.CancelAsync();
-        _ = await Assert.That(asking).Throws<OperationCanceledException>();
-        _ = await Assert.That(coordinator.PendingForParent(parent)).IsEmpty();
     }
 
     private static async Task<PendingChildQuestionRequest> WaitForChildQuestion(

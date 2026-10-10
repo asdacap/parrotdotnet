@@ -6,7 +6,6 @@ using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
-using Parrot.Questions;
 using Parrot.Skills;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -44,7 +43,6 @@ internal sealed partial class AgentSession(
     ProviderSessions providerSessions,
     ContextCadence contextCadence,
     IPromptTemplateCatalog promptTemplates,
-    IChildQuestionCoordinator childQuestions,
     IAgentProfile profile,
     [InjectionTag("turnCompletionCallbacks")] IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
     AgentSessionSecurity security,

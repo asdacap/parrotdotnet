@@ -15,25 +15,14 @@ internal sealed class PendingChildQuestionTurnCompletionCallback(
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        ChildQuestionCompletionAttempt? completionAttempt = null;
-        try
+        if (childQuestions.CompletionReminder() is not { } reminder)
         {
-            completionAttempt = childQuestions.BeginCompletion();
-            if (completionAttempt.Reminder is { } reminder)
-            {
-                var published = new Event { Id = Identifier.EventId(), AgentSessionId = candidate.SessionId };
-                history.AppendPendingChildQuestionReminder(published, candidate.AssistantText, reminder);
-                await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
-                return AgentTurnCompletionOutcome.Retry(reminder, true, true);
-            }
+            return AgentTurnCompletionOutcome.Continue();
+        }
 
-            var outcome = AgentTurnCompletionOutcome.Continue(completionAttempt);
-            completionAttempt = null;
-            return outcome;
-        }
-        finally
-        {
-            completionAttempt?.Dispose();
-        }
+        var published = new Event { Id = Identifier.EventId(), AgentSessionId = candidate.SessionId };
+        history.AppendPendingChildQuestionReminder(published, candidate.AssistantText, reminder);
+        await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
+        return AgentTurnCompletionOutcome.Retry(reminder, true, true);
     }
 }

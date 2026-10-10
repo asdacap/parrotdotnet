@@ -16,7 +16,7 @@ internal sealed class ExitReminderTurnCompletionCallback(
         var reminder = exitReminder.Build();
         if (reminder is null)
         {
-            return AgentTurnCompletionOutcome.Continue(null);
+            return AgentTurnCompletionOutcome.Continue();
         }
 
         var published = new Event { Id = Identifier.EventId(), AgentSessionId = candidate.SessionId };
