@@ -224,12 +224,6 @@ internal sealed class MonitorToolTests : IDisposable
             TimeProvider timeProvider,
             CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task SetExitReminder(string title, string description, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<bool> ClearExitReminder(string title, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
         public Task<AgentSendResult> SendTextMessage(string message, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task<string> SendAndWaitForResult(

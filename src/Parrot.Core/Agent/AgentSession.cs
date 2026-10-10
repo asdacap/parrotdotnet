@@ -45,7 +45,6 @@ internal sealed partial class AgentSession(
     ContextCadence contextCadence,
     IPromptTemplateCatalog promptTemplates,
     IChildQuestionCoordinator childQuestions,
-    IExitReminder exitReminder,
     IAgentProfile profile,
     [InjectionTag("turnCompletionCallbacks")] IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
     AgentSessionSecurity security,
@@ -321,12 +320,6 @@ internal sealed partial class AgentSession(
             cancellationToken).ConfigureAwait(false);
         return (admitted.Admission, admitted.FollowUp);
     }
-
-    public Task SetExitReminder(string title, string description, CancellationToken cancellationToken) =>
-        exitReminder.Set(title, description, cancellationToken);
-
-    public Task<bool> ClearExitReminder(string title, CancellationToken cancellationToken) =>
-        exitReminder.Clear(title, cancellationToken);
 
     public async Task<AgentSendResult> SendTextMessage(string message, CancellationToken cancellationToken)
     {

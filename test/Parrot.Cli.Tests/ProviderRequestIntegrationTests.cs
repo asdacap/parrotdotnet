@@ -100,7 +100,6 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
             new ContextCadence(),
             templates,
             questions,
-            new ExitReminder(new AgentHistoryView(repository, identity.SessionId), broker, templates, identity.SessionId),
             profile,
             [],
             new AgentSessionSecurity(profile.SecurityProfile, resources.Workspace, resources.AgentsDirectory),

@@ -151,7 +151,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
             _session = session;
             _services.Register(TestModels.ScheduledWorkOf(session));
             ParentScope.ValidateOwnerScope(this);
-            GoalsState = new GoalService(session, _promptTemplates);
+            GoalsState = new GoalService(session, TestModels.ExitReminderOf(session), _promptTemplates);
             _queues.Attach(session);
         }
     }

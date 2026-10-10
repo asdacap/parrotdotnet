@@ -20,6 +20,7 @@ internal static class TestModels
 {
     private static readonly ConditionalWeakTable<IAgentSession, IAgentSessionScope> Scopes = [];
     private static readonly ConditionalWeakTable<IAgentSession, AgentSessionWork> ScheduledWork = [];
+    private static readonly ConditionalWeakTable<IAgentSession, IExitReminder> ExitReminders = [];
 
     private static readonly Configuration LoadedConfiguration = LoadConfiguration();
 
@@ -203,7 +204,6 @@ internal static class TestModels
             contextCadence,
             promptTemplates,
             childQuestions,
-            exitReminder,
             profile,
             turnCompletionCallbacks,
             security,
@@ -213,12 +213,17 @@ internal static class TestModels
             diagnostics,
             lifetime);
         ScheduledWork.Add(session, scheduledWork);
+        ExitReminders.Add(session, exitReminder);
         return session;
     }
 
     public static AgentSessionWork ScheduledWorkOf(IAgentSession session) => ScheduledWork.GetValue(
         session,
         static _ => throw new InvalidOperationException("session work is not registered"));
+
+    public static IExitReminder ExitReminderOf(IAgentSession session) => ExitReminders.GetValue(
+        session,
+        static _ => throw new InvalidOperationException("session exit reminder is not registered"));
 
     public static IAgentHistory History(EventRepository repository, string agentSessionId) =>
         new AgentHistoryView(repository, agentSessionId);

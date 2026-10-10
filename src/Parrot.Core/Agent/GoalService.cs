@@ -6,6 +6,7 @@ namespace Parrot.Agent;
 
 internal sealed class GoalService(
     IAgentSession session,
+    IExitReminder exitReminder,
     IPromptTemplateCatalog promptTemplates) : IGoalService
 {
     private const string GoalTitle = "goal";
@@ -15,7 +16,7 @@ internal sealed class GoalService(
         var reminder = promptTemplates.Render(
             "goal.root-reminder",
             [new PromptTemplateArgument("goal", goal)]);
-        await session.SetExitReminder(GoalTitle, reminder, cancellationToken).ConfigureAwait(false);
+        await exitReminder.Set(GoalTitle, reminder, cancellationToken).ConfigureAwait(false);
         var notice = promptTemplates.Render(
             "goal.root-reminder-notice",
             [new PromptTemplateArgument("reminder", reminder)]);
@@ -28,5 +29,5 @@ internal sealed class GoalService(
     }
 
     public Task ClearGoal(CancellationToken cancellationToken) =>
-        session.ClearExitReminder(GoalTitle, cancellationToken);
+        exitReminder.Clear(GoalTitle, cancellationToken);
 }
