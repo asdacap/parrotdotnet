@@ -19,6 +19,7 @@ namespace Parrot.Core.Tests;
 internal static class TestModels
 {
     private static readonly ConditionalWeakTable<IAgentSession, IAgentSessionScope> Scopes = [];
+    private static readonly ConditionalWeakTable<IAgentSession, AgentSessionWork> ScheduledWork = [];
 
     private static readonly Configuration LoadedConfiguration = LoadConfiguration();
 
@@ -178,7 +179,8 @@ internal static class TestModels
         var eventEmitter = new AgentEventEmitter(identity, history, eventBroker, diagnostics);
         var usage = new AgentUsageRecorder(identity, parentScope, userStatistics, statistics, history, eventBroker);
         var providerTokenBudget = new ProviderTokenBudget();
-        return new AgentSession(
+        var scheduledWork = new AgentSessionWork();
+        var session = new AgentSession(
             identity,
             parentScope,
             model,
@@ -190,6 +192,7 @@ internal static class TestModels
             eventEmitter,
             new ProviderCall(identity, providerSessions, providerTokenBudget, eventBroker, outputFile, activity, eventEmitter, usage),
             new ToolBatchSettlement(identity, history, conversation, eventBroker, eventEmitter, usage, toolOutputBlobs, promptTemplates, requestLimits, activity, diagnostics),
+            scheduledWork,
             providerTokenBudget,
             toolFactories,
             systemPrompt,
@@ -209,7 +212,13 @@ internal static class TestModels
             activity,
             diagnostics,
             lifetime);
+        ScheduledWork.Add(session, scheduledWork);
+        return session;
     }
+
+    public static AgentSessionWork ScheduledWorkOf(IAgentSession session) => ScheduledWork.GetValue(
+        session,
+        static _ => throw new InvalidOperationException("session work is not registered"));
 
     public static IAgentHistory History(EventRepository repository, string agentSessionId) =>
         new AgentHistoryView(repository, agentSessionId);

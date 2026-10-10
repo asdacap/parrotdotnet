@@ -50,9 +50,6 @@ internal interface IAgentSession : IAsyncDisposable
     /// <summary>Interrupts current work and waits for the drain to unwind.</summary>
     Task Interrupt(CancellationToken cancellationToken);
 
-    /// <summary>Queues compaction within the session drain, using a one-off target or the selected policy when null.</summary>
-    Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken);
-
     /// <summary>Resolves the current selection's security policy through its ancestor lineage.</summary>
     AgentSelection ResolvePolicySelection();
 
@@ -120,8 +117,8 @@ internal interface IAgentSession : IAsyncDisposable
         string toolCallId,
         string result);
 
-    /// <summary>Compacts inline with a one-off target (null uses selected policy) and reports the resulting estimate.</summary>
-    Task<ContextCompactionResult> CompactFromTool(
+    /// <summary>Compacts inline within the owning drain with a one-off target (null uses selected policy) and reports the resulting estimate.</summary>
+    Task<ContextCompactionResult> Compact(
         AgentTurnSelection selection,
         ContextSize? targetContextSize,
         CancellationToken cancellationToken);

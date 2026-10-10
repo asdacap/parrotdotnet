@@ -37,7 +37,7 @@ internal sealed class CompactContextTool(
             return ToolResultFormatter.Error(invocation, failure.Message);
         }
 
-        var operation = await session.CompactFromTool(selection, target, cancellationToken).ConfigureAwait(false);
+        var operation = await session.Compact(selection, target, cancellationToken).ConfigureAwait(false);
         var context = operation.Context;
         var result = RenderResult(operation.Reduced, context);
         const int maximumConvergenceAttempts = 8;

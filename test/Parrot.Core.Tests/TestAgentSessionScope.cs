@@ -149,6 +149,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
             ObjectDisposedException.ThrowIf(_shutdown is not null, this);
             ParentScope.Validate(session.Identity);
             _session = session;
+            _services.Register(TestModels.ScheduledWorkOf(session));
             ParentScope.ValidateOwnerScope(this);
             GoalsState = new GoalService(session, _promptTemplates);
             _queues.Attach(session);

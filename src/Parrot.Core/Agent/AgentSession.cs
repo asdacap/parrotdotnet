@@ -34,6 +34,7 @@ internal sealed partial class AgentSession(
     AgentEventEmitter eventEmitter,
     ProviderCall providerCall,
     ToolBatchSettlement toolBatches,
+    AgentSessionWork scheduledWork,
     ProviderTokenBudget providerTokenBudget,
     [InjectionTag("toolFactories")] IReadOnlyList<IToolFactory> toolFactories,
     ISystemPrompt systemPrompt,
@@ -71,13 +72,10 @@ internal sealed partial class AgentSession(
     // would start it again.
     private readonly string _interruptedNote = promptTemplates.Render("agent-session.interrupted-note", []);
 
-    private readonly DrainLifecycle _drainLifecycle = new();
+    private readonly DrainLifecycle _drainLifecycle = new(scheduledWork.Gate);
 
     private readonly EpochContext _epochContext = new(identity.Depth > 0);
 
-    // Compaction runs inside the drain so it cannot mutate history concurrently
-    // with a turn. Callers enqueue requests under the drain gate and wake that drain.
-    private readonly Queue<ForcedCompactionRequest> _forcedCompactions = [];
     private readonly IReadOnlyList<IAgentTurnCompletionCallback> _turnCompletionCallbacks =
         turnCompletionCallbacks ?? throw new ArgumentNullException(nameof(turnCompletionCallbacks));
 
@@ -233,41 +231,12 @@ internal sealed partial class AgentSession(
         {
             _disposing = true;
             _drainLifecycle.Wake = false;
+            scheduledWork.Close();
         }
 
         await Interrupt(CancellationToken.None).ConfigureAwait(false);
         await _providerSessions.Close().ConfigureAwait(false);
         await outputFile.Close().ConfigureAwait(false);
-    }
-
-    public Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var request = new ForcedCompactionRequest(targetContextSize, cancellationToken);
-
-        lock (_drainLifecycle.Gate)
-        {
-            if (_disposing || lifetime.IsCancellationRequested)
-            {
-                throw new AgentRegistryException("the user session is shutting down");
-            }
-
-            _forcedCompactions.Enqueue(request);
-            if (_drainLifecycle.Cancellation is not null)
-            {
-                _drainLifecycle.Wake = true;
-            }
-            else
-            {
-                var cancellation = new DrainLifecycle.DrainCancellation(lifetime, CancellationToken.None);
-                _drainLifecycle.Cancellation = cancellation;
-                _drainLifecycle.State = DrainState.Running;
-                Activity.ChangeState(DrainState.Running);
-                _drainLifecycle.Drain = Drain(null, cancellation.Token);
-            }
-        }
-
-        return AwaitForcedCompaction(request);
     }
 
     public AgentSelection ResolvePolicySelection()
@@ -513,9 +482,6 @@ internal sealed partial class AgentSession(
         }
     }
 
-    private static async Task AwaitForcedCompaction(ForcedCompactionRequest request) =>
-        await request.Completion.Task.WaitAsync(request.CancellationToken).ConfigureAwait(false);
-
     // The drain state -- the task, its cancellation, the wake flag and the
     // state itself -- is shared with whatever thread admits or interrupts, and
     // the gate is the whole of its synchronisation.
@@ -543,9 +509,9 @@ internal sealed partial class AgentSession(
         }
     }
 
-    private sealed class DrainLifecycle
+    private sealed class DrainLifecycle(Lock gate)
     {
-        internal Lock Gate { get; } = new();
+        internal Lock Gate { get; } = gate;
 
         internal DrainState State { get; set; }
 
@@ -602,15 +568,5 @@ internal sealed partial class AgentSession(
         internal void ReleaseStartup(bool started) => _startup.TrySetResult(started);
 
         internal Task<bool> WaitForStartup() => _startup.Task.WaitAsync(CancellationToken.None);
-    }
-
-    private sealed class ForcedCompactionRequest(ContextSize? targetContextSize, CancellationToken cancellationToken)
-    {
-        internal ContextSize? TargetContextSize { get; } = targetContextSize;
-
-        internal CancellationToken CancellationToken { get; } = cancellationToken;
-
-        internal TaskCompletionSource Completion { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 }

@@ -213,8 +213,6 @@ internal sealed class MonitorToolTests : IDisposable
 
         public Task Interrupt(CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task Compact(ContextSize? targetContextSize, CancellationToken cancellationToken) => throw new NotSupportedException();
-
         public AgentSelection ResolvePolicySelection() => throw new NotSupportedException();
 
         public AgentPolicyLineage ResolvePolicyLineage() => throw new NotSupportedException();
@@ -257,7 +255,7 @@ internal sealed class MonitorToolTests : IDisposable
 
         public ContextSnapshot EstimateContextAfterToolResult(AgentTurnSelection selection, string toolCallId, string result) => throw new NotSupportedException();
 
-        public Task<ContextCompactionResult> CompactFromTool(AgentTurnSelection selection, ContextSize? targetContextSize, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<ContextCompactionResult> Compact(AgentTurnSelection selection, ContextSize? targetContextSize, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }

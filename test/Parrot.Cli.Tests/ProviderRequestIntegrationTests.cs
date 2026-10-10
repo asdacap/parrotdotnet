@@ -89,6 +89,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
             eventEmitter,
             new ProviderCall(identity, providerSessions, providerTokenBudget, broker, outputFile, activity, eventEmitter, usage),
             new ToolBatchSettlement(identity, history, conversation, broker, eventEmitter, usage, new ToolOutputBlobStore(_root), templates, new RequestLimitsConfig(), activity, diagnostics.Log),
+            new AgentSessionWork(),
             providerTokenBudget,
             [],
             new ConfiguredSystemPromptProvider("test:integration", "Reply briefly.").Materialize(identity),
