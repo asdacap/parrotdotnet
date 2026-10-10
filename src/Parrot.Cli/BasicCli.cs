@@ -169,7 +169,7 @@ internal sealed class BasicCli(
             var published = stream.Current;
             await beforeRender(published, cancellationToken).ConfigureAwait(false);
 
-            if (!textEndsLine && published.PayloadCase is
+            if (!textEndsLine && (published is { PayloadCase: Event.PayloadOneofCase.AgentNotice, AgentNotice.Notice.Length: > 0 } || published.PayloadCase is
                 Event.PayloadOneofCase.ToolStarted or
                 Event.PayloadOneofCase.ToolFinished or
                 Event.PayloadOneofCase.ToolCancelled or
@@ -180,14 +180,8 @@ internal sealed class BasicCli(
                 Event.PayloadOneofCase.CompactionStarted or
                 Event.PayloadOneofCase.CompactionFinished or
                 Event.PayloadOneofCase.CompactionFailed or
-                Event.PayloadOneofCase.ActiveWorkReminderInjected or
-                Event.PayloadOneofCase.ExitReminderChanged or
-                Event.PayloadOneofCase.ExitReminderInjected or
-                Event.PayloadOneofCase.ContextReminderInjected or
-                Event.PayloadOneofCase.FinalProviderRequestPromptInjected or
-                Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected or
                 Event.PayloadOneofCase.SkillLoaded or
-                Event.PayloadOneofCase.AgentTaskProgressSnapshot)
+                Event.PayloadOneofCase.AgentTaskProgressSnapshot))
             {
                 await output.WriteLineAsync().ConfigureAwait(false);
                 textEndsLine = true;
@@ -206,39 +200,8 @@ internal sealed class BasicCli(
                         .ConfigureAwait(false);
                     break;
 
-                case Event.PayloadOneofCase.StatusInjected:
-                    await output.WriteLineAsync("↻ Status prompt injected".AsMemory(), cancellationToken)
-                        .ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.ActiveWorkReminderInjected:
-                    await output.WriteLineAsync("↻ Active work reminder injected".AsMemory(), cancellationToken)
-                        .ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.ExitReminderChanged:
-                    await output.WriteLineAsync(
-                        $"↻ {ExitReminderNotice(published.ExitReminderChanged)}".AsMemory(), cancellationToken)
-                        .ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.ExitReminderInjected:
-                    await output.WriteLineAsync("↻ Exit reminder injected".AsMemory(), cancellationToken)
-                        .ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.ContextReminderInjected:
-                    await output.WriteLineAsync($"↻ Context reminder injected ({published.ContextReminderInjected.UsagePercent}% context used)".AsMemory(), cancellationToken)
-                        .ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.FinalProviderRequestPromptInjected:
-                    await output.WriteLineAsync("↻ Final provider request prompt injected".AsMemory(), cancellationToken)
-                        .ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected:
-                    await output.WriteLineAsync("↻ Tool availability restored prompt injected".AsMemory(), cancellationToken)
+                case Event.PayloadOneofCase.AgentNotice when published.AgentNotice.Notice.Length > 0:
+                    await output.WriteLineAsync($"↻ {published.AgentNotice.Notice}".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
                     break;
 
@@ -395,11 +358,6 @@ internal sealed class BasicCli(
 
         return (false, null);
     }
-
-    private static string ExitReminderNotice(ExitReminderChanged changed) =>
-        changed.StateCase == ExitReminderChanged.StateOneofCase.Description
-            ? $"Exit reminder set: {changed.Title}: {changed.Description}"
-            : $"Exit reminder cleared: {changed.Title}";
 
     private static string Summarise(TurnEnded ended) =>
         $"turn ended ({ended.FinishReason}, {ended.InputTokens} total in / {ended.OutputTokens} total out)";

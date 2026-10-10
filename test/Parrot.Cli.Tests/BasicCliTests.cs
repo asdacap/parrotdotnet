@@ -6,10 +6,10 @@ internal sealed class BasicCliTests
 {
     public static IEnumerable<Func<object?[]>> Notifications()
     {
-        yield return () => [new Event[] { new() { StatusInjected = new StatusInjected() } }, "↻ Status prompt injected"];
+        yield return () => [new Event[] { new() { AgentNotice = new AgentNotice { Kind = "status", Notice = "Status prompt injected" } } }, "↻ Status prompt injected"];
         yield return () =>
         [
-            new Event[] { Draft(), new() { ActiveWorkReminderInjected = new ActiveWorkReminderInjected() } },
+            new Event[] { Draft(), new() { AgentNotice = new AgentNotice { Kind = "active_work_reminder", Notice = "Active work reminder injected" } } },
             "draft\n↻ Active work reminder injected",
         ];
         yield return () =>
@@ -17,18 +17,18 @@ internal sealed class BasicCliTests
             new Event[]
             {
                 Draft(),
-                new() { ExitReminderChanged = new ExitReminderChanged { Title = "port", Description = "finish the port" } },
+                new() { AgentNotice = new AgentNotice { Kind = "exit_reminder_changed", Notice = "Exit reminder set: port: finish the port" } },
             },
             "draft\n↻ Exit reminder set: port: finish the port",
         ];
         yield return () =>
         [
-            new Event[] { Draft(), new() { ExitReminderChanged = new ExitReminderChanged { Title = "port", Cleared = true } } },
+            new Event[] { Draft(), new() { AgentNotice = new AgentNotice { Kind = "exit_reminder_changed", Notice = "Exit reminder cleared: port" } } },
             "draft\n↻ Exit reminder cleared: port",
         ];
         yield return () =>
         [
-            new Event[] { Draft(), new() { ContextReminderInjected = new ContextReminderInjected { UsagePercent = 27 } } },
+            new Event[] { Draft(), new() { AgentNotice = new AgentNotice { Kind = "context_reminder", Notice = "Context reminder injected (27% context used)" } } },
             "draft\n↻ Context reminder injected (27% context used)",
         ];
         yield return () =>
@@ -36,8 +36,9 @@ internal sealed class BasicCliTests
             new Event[]
             {
                 Draft(),
-                new() { FinalProviderRequestPromptInjected = new FinalProviderRequestPromptInjected() },
-                new() { ToolAvailabilityRestoredPromptInjected = new ToolAvailabilityRestoredPromptInjected() },
+                new() { AgentNotice = new AgentNotice { Kind = "final_provider_request_prompt", Notice = "Final provider request prompt injected" } },
+                new() { AgentNotice = new AgentNotice { Kind = "tool_availability_restored_prompt", Notice = "Tool availability restored prompt injected" } },
+                new() { AgentNotice = new AgentNotice { Kind = "skill_context" } },
                 new() { SkillLoaded = new SkillLoadedEvent { Path = "/skills/example/SKILL.md" } },
             },
             "draft\n↻ Final provider request prompt injected\n↻ Tool availability restored prompt injected\n↻ Skill loaded: /skills/example/SKILL.md",

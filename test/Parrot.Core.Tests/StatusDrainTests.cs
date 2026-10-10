@@ -43,7 +43,7 @@ internal sealed class StatusDrainTests : IDisposable
             await session.Interrupt(cancellationToken);
             _ = await Assert.That(repository.PendingStatus(agentSessionId) is not null).IsTrue();
 
-            var firstStatus = ObservePayload(session, Event.PayloadOneofCase.StatusInjected, cancellationToken);
+            var firstStatus = ObservePayload(session, published => published.AgentNotice?.Kind == "status", cancellationToken);
             _ = await session.Send([ConversationPart.TextPart("first prompt")], "message-1", Delivery.Steer, cancellationToken);
             await provider.Arrived(cancellationToken);
             await firstStatus;
@@ -164,27 +164,28 @@ internal sealed class StatusDrainTests : IDisposable
         await provider.Arrived(cancellationToken);
 
         var repairing = repository.Replay();
-        var repairDiagnostic = repairing.Single(published =>
-            published.PayloadCase == Event.PayloadOneofCase.PlanValidationRepairInjected).PlanValidationRepairInjected.Diagnostic;
+        var repairNotice = repairing.Single(published =>
+            published.AgentNotice?.Kind == "plan_validation_repair").AgentNotice.Notice;
         _ = await Assert.That(repairing.Any(published =>
             published.PayloadCase == Event.PayloadOneofCase.PlanCompleted)).IsFalse();
         _ = await Assert.That(repairing.Count(published =>
             published.PayloadCase == Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
         _ = await Assert.That(provider.Requests[1].Messages[^1].Role).IsEqualTo(LLMRole.User);
-        _ = await Assert.That(provider.Requests[1].Messages[^1].Content).IsEqualTo(repairDiagnostic);
+        _ = await Assert.That(repairNotice)
+            .IsEqualTo($"Retrying after plan validation failure: {provider.Requests[1].Messages[^1].Content}");
         var repairingActivity = sessions.Sessions.Single().Activity.Capture();
         _ = await Assert.That(repairingActivity.Recent).Count().IsEqualTo(1);
         _ = await Assert.That(repairingActivity.Recent[0].Content).IsEqualTo("candidate");
 
         time.Advance(TimeSpan.FromSeconds(2));
         await File.WriteAllTextAsync(planArtifact, "# Repaired", cancellationToken);
-        var turnCompleted = ObservePayload(session, Event.PayloadOneofCase.ModeTurnCompleted, cancellationToken);
+        var turnCompleted = ObservePayload(session, published => published.PayloadCase == Event.PayloadOneofCase.ModeTurnCompleted, cancellationToken);
         provider.Release();
         await turnCompleted;
 
         var completed = repository.Replay().ToArray();
         var repair = Array.FindIndex(completed, published =>
-            published.PayloadCase == Event.PayloadOneofCase.PlanValidationRepairInjected);
+            published.AgentNotice?.Kind == "plan_validation_repair");
         var plan = Array.FindIndex(completed, published =>
             published.PayloadCase == Event.PayloadOneofCase.PlanCompleted);
         var firstEnded = Array.FindIndex(completed, published =>
@@ -248,7 +249,7 @@ internal sealed class StatusDrainTests : IDisposable
 
         _ = await session.Send([ConversationPart.TextPart("plan")], "message", Delivery.Queue, cancellationToken);
         await provider.Arrived(cancellationToken);
-        var turnCompleted = ObservePayload(session, Event.PayloadOneofCase.ModeTurnCompleted, cancellationToken);
+        var turnCompleted = ObservePayload(session, published => published.PayloadCase == Event.PayloadOneofCase.ModeTurnCompleted, cancellationToken);
         provider.Release();
         await turnCompleted;
 
@@ -384,12 +385,12 @@ internal sealed class StatusDrainTests : IDisposable
 
     private static async Task ObservePayload(
         Parrot.Agent.IUserSession session,
-        Event.PayloadOneofCase payload,
+        Func<Event, bool> match,
         CancellationToken cancellationToken)
     {
         await foreach (var published in session.Listen(null, cancellationToken).ConfigureAwait(false))
         {
-            if (published.PayloadCase == payload)
+            if (match(published))
             {
                 return;
             }

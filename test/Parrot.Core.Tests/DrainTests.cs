@@ -473,7 +473,7 @@ internal sealed class DrainTests : IDisposable
             .ToArray();
         _ = await Assert.That(string.Join('|', loadedSkills.Select(published => published.SkillLoaded.Path)))
             .IsEqualTo($"{secondPath}|{firstPath}|{firstPath}|{thirdPath}");
-        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.SkillContextInjected)).IsEqualTo(3);
+        _ = await Assert.That(replay.Count(published => published.AgentNotice?.Kind == "skill_context")).IsEqualTo(3);
         _ = await Assert.That(replay.IndexOf(loadedSkills[0]))
             .IsLessThan(replay.FindIndex(published => published.PayloadCase == Event.PayloadOneofCase.ToolStarted));
         _ = await Assert.That(replay)

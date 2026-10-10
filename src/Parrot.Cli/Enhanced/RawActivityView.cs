@@ -418,31 +418,12 @@ internal sealed class RawActivityView(
                     cancellationToken).ConfigureAwait(false);
                 break;
 
-            case Event.PayloadOneofCase.ActiveWorkReminderInjected when _hierarchy.IsChild(published.AgentSessionId):
+            case Event.PayloadOneofCase.AgentNotice
+                when published.AgentNotice.Notice.Length > 0 && _hierarchy.IsChild(published.AgentSessionId):
                 await commit(
                     Wrap(
                         GetNamedAgentSession(published.AgentSessionId),
-                        new ActivityNoticeScrollbackValue(TerminalIcons.StatusNotice, "Active work reminder injected")),
-                    Snapshot(),
-                    cancellationToken).ConfigureAwait(false);
-                break;
-
-            case Event.PayloadOneofCase.ExitReminderChanged when _hierarchy.IsChild(published.AgentSessionId):
-                await commit(
-                    Wrap(
-                        GetNamedAgentSession(published.AgentSessionId),
-                        new ActivityNoticeScrollbackValue(
-                            TerminalIcons.StatusNotice,
-                            ExitReminderNotice(published.ExitReminderChanged))),
-                    Snapshot(),
-                    cancellationToken).ConfigureAwait(false);
-                break;
-
-            case Event.PayloadOneofCase.ExitReminderInjected when _hierarchy.IsChild(published.AgentSessionId):
-                await commit(
-                    Wrap(
-                        GetNamedAgentSession(published.AgentSessionId),
-                        new ActivityNoticeScrollbackValue(TerminalIcons.StatusNotice, "Exit reminder injected")),
+                        new ActivityNoticeScrollbackValue(TerminalIcons.StatusNotice, published.AgentNotice.Notice)),
                     Snapshot(),
                     cancellationToken).ConfigureAwait(false);
                 break;
@@ -458,18 +439,13 @@ internal sealed class RawActivityView(
                     cancellationToken).ConfigureAwait(false);
                 break;
 
-            case Event.PayloadOneofCase.RetryNotice
-                or Event.PayloadOneofCase.StatusInjected
-                or Event.PayloadOneofCase.ContextReminderInjected
-                or Event.PayloadOneofCase.FinalProviderRequestPromptInjected
-                or Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected
-                or Event.PayloadOneofCase.PlanValidationRepairInjected
-                or Event.PayloadOneofCase.PendingChildQuestionReminderInjected
-                when _hierarchy.IsChild(published.AgentSessionId):
+            case Event.PayloadOneofCase.RetryNotice when _hierarchy.IsChild(published.AgentSessionId):
                 await commit(
                     Wrap(
                         GetNamedAgentSession(published.AgentSessionId),
-                        new ActivityNoticeScrollbackValue(TerminalIcons.StatusNotice, DescribeNotice(published))),
+                        new ActivityNoticeScrollbackValue(
+                            TerminalIcons.StatusNotice,
+                            $"retry {published.RetryNotice.Attempt} in {published.RetryNotice.RetryAfterMs} ms: {published.RetryNotice.Reason}")),
                     Snapshot(),
                     cancellationToken).ConfigureAwait(false);
                 break;
@@ -531,11 +507,6 @@ internal sealed class RawActivityView(
         }
     }
 
-    internal static string ExitReminderNotice(ExitReminderChanged changed) =>
-        changed.StateCase == ExitReminderChanged.StateOneofCase.Description
-            ? $"Exit reminder set: {TerminalText.Sanitize(changed.Title)}: {TerminalText.Sanitize(changed.Description)}"
-            : $"Exit reminder cleared: {TerminalText.Sanitize(changed.Title)}";
-
     private static bool ContainsHiddenTask(IEnumerable<AgentTaskProgressNode> nodes) =>
         nodes.Any(static node => node.Hidden || ContainsHiddenTask(node.Children));
 
@@ -576,21 +547,6 @@ internal sealed class RawActivityView(
 
         return inventory;
     }
-
-    private static string DescribeNotice(Event published) => published.PayloadCase switch
-    {
-        Event.PayloadOneofCase.RetryNotice =>
-            $"retry {published.RetryNotice.Attempt} in {published.RetryNotice.RetryAfterMs} ms: {published.RetryNotice.Reason}",
-        Event.PayloadOneofCase.StatusInjected => "Status prompt injected",
-        Event.PayloadOneofCase.ContextReminderInjected =>
-            $"Context reminder injected ({published.ContextReminderInjected.UsagePercent}% context used)",
-        Event.PayloadOneofCase.FinalProviderRequestPromptInjected => "Final provider request prompt injected",
-        Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected => "Tool availability restored prompt injected",
-        Event.PayloadOneofCase.PlanValidationRepairInjected =>
-            $"Retrying after plan validation failure: {published.PlanValidationRepairInjected.Diagnostic}",
-        Event.PayloadOneofCase.PendingChildQuestionReminderInjected => "Retrying with pending child question reminder",
-        _ => throw new InvalidOperationException($"The {published.PayloadCase} event is not an agent notice."),
-    };
 
     private static string ProcessKey(string inventoryInstanceId, string processId) =>
         string.Concat(inventoryInstanceId, "\n", processId);

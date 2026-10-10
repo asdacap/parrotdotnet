@@ -196,20 +196,20 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
         await fixture.View.Render(
-            new Event { AgentSessionId = "child", ActiveWorkReminderInjected = new ActiveWorkReminderInjected() },
+            new Event { AgentSessionId = "child", AgentNotice = new AgentNotice { Kind = "active_work_reminder", Notice = "Active work reminder injected" } },
             cancellationToken);
         await fixture.View.Render(
-            new Event { AgentSessionId = "child", ExitReminderInjected = new ExitReminderInjected() },
+            new Event { AgentSessionId = "child", AgentNotice = new AgentNotice { Kind = "exit_reminder", Notice = "Exit reminder injected" } },
             cancellationToken);
         await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
-                ExitReminderChanged = new ExitReminderChanged { Title = "port", Description = "finish the port" },
+                AgentNotice = new AgentNotice { Kind = "exit_reminder_changed", Notice = "Exit reminder set: port: finish the port" },
             },
             cancellationToken);
         await fixture.View.Render(
-            new Event { AgentSessionId = "child", ExitReminderChanged = new ExitReminderChanged { Title = "port", Cleared = true } },
+            new Event { AgentSessionId = "child", AgentNotice = new AgentNotice { Kind = "exit_reminder_changed", Notice = "Exit reminder cleared: port" } },
             cancellationToken);
         await fixture.View.Render(
             new Event
@@ -225,21 +225,21 @@ internal sealed class EnhancedHierarchyTests
                 AgentSessionId = "child",
                 RetryNotice = new RetryNotice { Attempt = 2, RetryAfterMs = 2000, Reason = "Provider timeout\u001b[2J" },
             },
-            new() { AgentSessionId = "child", StatusInjected = new StatusInjected() },
-            new() { AgentSessionId = "child", ContextReminderInjected = new ContextReminderInjected { UsagePercent = 27 } },
-            new() { AgentSessionId = "child", FinalProviderRequestPromptInjected = new FinalProviderRequestPromptInjected() },
+            new() { AgentSessionId = "child", AgentNotice = new AgentNotice { Kind = "status", Notice = "Status prompt injected" } },
+            new() { AgentSessionId = "child", AgentNotice = new AgentNotice { Kind = "context_reminder", Notice = "Context reminder injected (27% context used)" } },
+            new() { AgentSessionId = "child", AgentNotice = new AgentNotice { Kind = "final_provider_request_prompt", Notice = "Final provider request prompt injected" } },
             new()
             {
                 AgentSessionId = "child",
-                ToolAvailabilityRestoredPromptInjected = new ToolAvailabilityRestoredPromptInjected(),
+                AgentNotice = new AgentNotice { Kind = "tool_availability_restored_prompt", Notice = "Tool availability restored prompt injected" },
             },
             new()
             {
                 AgentSessionId = "child",
-                PlanValidationRepairInjected = new PlanValidationRepairInjected { Diagnostic = "Invalid plan\u001b[2J" },
+                AgentNotice = new AgentNotice { Kind = "plan_validation_repair", Notice = "Retrying after plan validation failure: Invalid plan\u001b[2J" },
             },
-            new() { AgentSessionId = "child", PendingChildQuestionReminderInjected = new PendingChildQuestionReminderInjected() },
-            new() { AgentSessionId = "root", StatusInjected = new StatusInjected() },
+            new() { AgentSessionId = "child", AgentNotice = new AgentNotice { Kind = "pending_child_question_reminder", Notice = "Retrying with pending child question reminder" } },
+            new() { AgentSessionId = "root", AgentNotice = new AgentNotice { Kind = "status", Notice = "Status prompt injected" } },
         })
         {
             await fixture.View.Render(published, cancellationToken);

@@ -52,91 +52,11 @@ internal sealed class EnhancedTurnView(
 
                 break;
 
-            case Event.PayloadOneofCase.PlanValidationRepairInjected:
+            case Event.PayloadOneofCase.AgentNotice when published.AgentNotice.Notice.Length > 0:
                 if (!foreground.IsChild(published.AgentSessionId))
                 {
                     await Commit(
-                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ Retrying after plan validation failure: {TerminalText.Sanitize(published.PlanValidationRepairInjected.Diagnostic)}{Reset}"]),
-                        cancellationToken).ConfigureAwait(false);
-                }
-
-                break;
-
-            case Event.PayloadOneofCase.PendingChildQuestionReminderInjected:
-                if (!foreground.IsChild(published.AgentSessionId))
-                {
-                    await Commit(
-                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ Retrying with pending child question reminder{Reset}"]),
-                        cancellationToken).ConfigureAwait(false);
-                }
-
-                break;
-
-            case Event.PayloadOneofCase.StatusInjected:
-                if (!foreground.IsChild(published.AgentSessionId))
-                {
-                    await Commit(
-                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ Status prompt injected{Reset}"]),
-                        cancellationToken).ConfigureAwait(false);
-                }
-
-                break;
-
-            case Event.PayloadOneofCase.ActiveWorkReminderInjected:
-                if (!foreground.IsChild(published.AgentSessionId))
-                {
-                    await Commit(
-                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ Active work reminder injected{Reset}"]),
-                        cancellationToken).ConfigureAwait(false);
-                }
-
-                break;
-
-            case Event.PayloadOneofCase.ExitReminderChanged:
-                if (!foreground.IsChild(published.AgentSessionId))
-                {
-                    await Commit(
-                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ {RawActivityView.ExitReminderNotice(published.ExitReminderChanged)}{Reset}"]),
-                        cancellationToken).ConfigureAwait(false);
-                }
-
-                break;
-
-            case Event.PayloadOneofCase.ExitReminderInjected:
-                if (!foreground.IsChild(published.AgentSessionId))
-                {
-                    await Commit(
-                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ Exit reminder injected{Reset}"]),
-                        cancellationToken).ConfigureAwait(false);
-                }
-
-                break;
-
-            case Event.PayloadOneofCase.ContextReminderInjected:
-                if (!foreground.IsChild(published.AgentSessionId))
-                {
-                    await Commit(
-                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ Context reminder injected ({published.ContextReminderInjected.UsagePercent}% context used){Reset}"]),
-                        cancellationToken).ConfigureAwait(false);
-                }
-
-                break;
-
-            case Event.PayloadOneofCase.FinalProviderRequestPromptInjected:
-                if (!foreground.IsChild(published.AgentSessionId))
-                {
-                    await Commit(
-                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ Final provider request prompt injected{Reset}"]),
-                        cancellationToken).ConfigureAwait(false);
-                }
-
-                break;
-
-            case Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected:
-                if (!foreground.IsChild(published.AgentSessionId))
-                {
-                    await Commit(
-                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ Tool availability restored prompt injected{Reset}"]),
+                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ {TerminalText.Sanitize(published.AgentNotice.Notice)}{Reset}"]),
                         cancellationToken).ConfigureAwait(false);
                 }
 

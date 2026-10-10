@@ -22,13 +22,22 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
-    public async Task Plan_validation_repair_roundtrips_as_additive_payload()
+    public async Task Agent_notice_roundtrips_kind_text_and_data()
     {
-        var source = new Event { PlanValidationRepairInjected = new PlanValidationRepairInjected { Diagnostic = "repair tasks" } };
-        var bytes = source.ToByteArray();
-        var restored = Event.Parser.ParseFrom(bytes);
-        _ = await Assert.That(restored.PayloadCase).IsEqualTo(Event.PayloadOneofCase.PlanValidationRepairInjected);
-        _ = await Assert.That(restored.PlanValidationRepairInjected.Diagnostic).IsEqualTo("repair tasks");
+        var source = new Event
+        {
+            AgentNotice = new AgentNotice
+            {
+                Kind = "exit_reminder_changed",
+                Notice = "Exit reminder set: tests: run them",
+                Data = new ExitReminderChanged { Title = "tests", Description = "run them" }.ToByteString(),
+            },
+        };
+        var restored = Event.Parser.ParseFrom(source.ToByteArray());
+        _ = await Assert.That(restored.PayloadCase).IsEqualTo(Event.PayloadOneofCase.AgentNotice);
+        _ = await Assert.That(restored.AgentNotice.Kind).IsEqualTo("exit_reminder_changed");
+        _ = await Assert.That(restored.AgentNotice.Notice).IsEqualTo("Exit reminder set: tests: run them");
+        _ = await Assert.That(ExitReminderChanged.Parser.ParseFrom(restored.AgentNotice.Data).Description).IsEqualTo("run them");
     }
 
     [Test]
@@ -525,23 +534,6 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
-    public async Task Status_injected_roundtrips_as_a_protobuf_payload()
-    {
-        var source = new Event
-        {
-            Id = "status-event",
-            AgentSessionId = "session",
-            StatusInjected = new StatusInjected(),
-        };
-
-        var roundtripped = Event.Parser.ParseFrom(source.ToByteArray());
-
-        _ = await Assert.That(roundtripped.Id).IsEqualTo("status-event");
-        _ = await Assert.That(roundtripped.AgentSessionId).IsEqualTo("session");
-        _ = await Assert.That(roundtripped.PayloadCase).IsEqualTo(Event.PayloadOneofCase.StatusInjected);
-    }
-
-    [Test]
     public async Task Compaction_lifecycle_roundtrips_as_protobuf_payloads()
     {
         var started = Event.Parser.ParseFrom(new Event
@@ -570,64 +562,6 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
-    public async Task Active_work_reminder_injected_roundtrips_as_a_distinct_protobuf_payload()
-    {
-        var source = new Event
-        {
-            Id = "reminder-event",
-            AgentSessionId = "session",
-            ActiveWorkReminderInjected = new ActiveWorkReminderInjected(),
-        };
-
-        var roundtripped = Event.Parser.ParseFrom(source.ToByteArray());
-
-        _ = await Assert.That(roundtripped.Id).IsEqualTo("reminder-event");
-        _ = await Assert.That(roundtripped.AgentSessionId).IsEqualTo("session");
-        _ = await Assert.That(roundtripped.PayloadCase)
-            .IsEqualTo(Event.PayloadOneofCase.ActiveWorkReminderInjected);
-    }
-
-    [Test]
-    public async Task Context_reminder_injected_roundtrips_as_a_distinct_protobuf_payload()
-    {
-        var source = new Event
-        {
-            Id = "context-reminder-event",
-            AgentSessionId = "session",
-            ContextReminderInjected = new ContextReminderInjected(),
-        };
-
-        var roundtripped = Event.Parser.ParseFrom(source.ToByteArray());
-
-        _ = await Assert.That(roundtripped.Id).IsEqualTo("context-reminder-event");
-        _ = await Assert.That(roundtripped.AgentSessionId).IsEqualTo("session");
-        _ = await Assert.That(roundtripped.PayloadCase)
-            .IsEqualTo(Event.PayloadOneofCase.ContextReminderInjected);
-    }
-
-    [Test]
-    public async Task Provider_request_limit_prompts_roundtrip_as_distinct_protobuf_payloads()
-    {
-        var finalRequest = Event.Parser.ParseFrom(new Event
-        {
-            Id = "final-provider-request-event",
-            AgentSessionId = "session",
-            FinalProviderRequestPromptInjected = new FinalProviderRequestPromptInjected(),
-        }.ToByteArray());
-        var restored = Event.Parser.ParseFrom(new Event
-        {
-            Id = "tool-availability-restored-event",
-            AgentSessionId = "session",
-            ToolAvailabilityRestoredPromptInjected = new ToolAvailabilityRestoredPromptInjected(),
-        }.ToByteArray());
-
-        _ = await Assert.That(finalRequest.PayloadCase)
-            .IsEqualTo(Event.PayloadOneofCase.FinalProviderRequestPromptInjected);
-        _ = await Assert.That(restored.PayloadCase)
-            .IsEqualTo(Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected);
-    }
-
-    [Test]
     public async Task Active_work_reminder_is_durable_history_with_a_transient_event()
     {
         using var database = SessionDatabase.Open(":memory:");
@@ -636,13 +570,11 @@ internal sealed class EventPayloadTests
         {
             Id = "reminder-event",
             AgentSessionId = "session",
-            ActiveWorkReminderInjected = new ActiveWorkReminderInjected(),
+            AgentNotice = new AgentNotice { Kind = "active_work_reminder", Notice = "Active work reminder injected" },
         };
 
         repository.AppendSystemPrompt(published, "wait for direct active work");
 
-        _ = await Assert.That(published.PayloadCase)
-            .IsEqualTo(Event.PayloadOneofCase.ActiveWorkReminderInjected);
         var messages = repository.Messages("session");
         _ = await Assert.That(messages).Count().IsEqualTo(1);
         _ = await Assert.That(messages[0]).IsEqualTo("system: wait for direct active work");
@@ -657,21 +589,17 @@ internal sealed class EventPayloadTests
         var checkpoint = new ContextReminderCheckpoint("provider/model", 10_000, 25);
         var published = new Event { Id = "context-reminder", AgentSessionId = "session" };
 
-        var inserted = repository.AppendContextReminder(published, checkpoint, 27, "context reminder");
+        var inserted = repository.AppendContextReminder(published, checkpoint, "context reminder");
         var duplicate = repository.AppendContextReminder(
             new Event { Id = "duplicate", AgentSessionId = "session" },
             checkpoint,
-            27,
             "duplicate reminder");
 
         _ = await Assert.That(inserted).IsTrue();
         _ = await Assert.That(duplicate).IsFalse();
-        _ = await Assert.That(published.PayloadCase)
-            .IsEqualTo(Event.PayloadOneofCase.ContextReminderInjected);
         _ = await Assert.That(string.Join(" | ", repository.Messages("session")))
             .IsEqualTo("system: context reminder");
         _ = await Assert.That(repository.LatestContextReminder("session")).IsEqualTo(checkpoint);
-        _ = await Assert.That(published.ContextReminderInjected.UsagePercent).IsEqualTo(27);
         _ = await Assert.That(repository.Replay()).IsEmpty();
     }
 
@@ -689,10 +617,6 @@ internal sealed class EventPayloadTests
             new Event { Id = "duplicate", AgentSessionId = "session" },
             "duplicate restoration");
 
-        _ = await Assert.That(finalRequest.PayloadCase)
-            .IsEqualTo(Event.PayloadOneofCase.FinalProviderRequestPromptInjected);
-        _ = await Assert.That(restored.PayloadCase)
-            .IsEqualTo(Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected);
         _ = await Assert.That(firstRestoration).IsTrue();
         _ = await Assert.That(secondRestoration).IsFalse();
         _ = await Assert.That(string.Join(" | ", repository.Messages("session")))

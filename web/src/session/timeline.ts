@@ -289,32 +289,8 @@ function reduceItems(state: TimelineState, event: Event): TimelineState {
       return notice(state, event, "compaction finished", "success")
     case "compactionFailed":
       return notice(state, event, `compaction failed: ${payload.value.message}`, "error")
-    case "statusInjected":
-      return notice(state, event, "↻ Status prompt injected")
-    case "activeWorkReminderInjected":
-      return isRoot ? notice(state, event, "↻ Active work reminder injected") : state
-    case "exitReminderChanged":
-      return isRoot
-        ? notice(
-            state,
-            event,
-            payload.value.state.case === "description"
-              ? `↻ Exit reminder set: ${payload.value.title}: ${payload.value.state.value}`
-              : `↻ Exit reminder cleared: ${payload.value.title}`,
-          )
-        : state
-    case "exitReminderInjected":
-      return isRoot ? notice(state, event, "↻ Exit reminder injected") : state
-    case "contextReminderInjected":
-      return isRoot ? notice(state, event, `↻ Context reminder injected (${String(payload.value.usagePercent)}% context used)`) : state
-    case "finalProviderRequestPromptInjected":
-      return notice(state, event, "↻ Final provider request prompt injected")
-    case "toolAvailabilityRestoredPromptInjected":
-      return notice(state, event, "↻ Tool availability restored prompt injected")
-    case "planValidationRepairInjected":
-      return notice(state, event, `↻ Retrying after plan validation failure: ${payload.value.diagnostic}`)
-    case "pendingChildQuestionReminderInjected":
-      return notice(state, event, "↻ Retrying with pending child question reminder")
+    case "agentNotice":
+      return payload.value.notice ? notice(state, event, `↻ ${payload.value.notice}`) : state
     case "skillLoaded":
       return isRoot ? notice(state, event, `↻ Skill loaded: ${payload.value.path}`) : state
     case "agentTaskProgressSnapshot": {

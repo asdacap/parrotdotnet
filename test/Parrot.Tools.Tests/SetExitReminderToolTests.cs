@@ -44,7 +44,7 @@ internal sealed class SetExitReminderToolTests
             _ = await Assert.That(reminder.Build()).IsEqualTo(expectedBuild);
         }
 
-        _ = await Assert.That(repository.ExitReminders("agent")).IsEmpty();
+        _ = await Assert.That(new ExitReminder(TestModels.History(repository, "agent"), broker, TestModels.PromptTemplates, "agent").Titles).IsEmpty();
     }
 
     [Test]

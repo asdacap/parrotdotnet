@@ -1,4 +1,3 @@
-using Google.Protobuf;
 using Parrot.Agent;
 using Parrot.Events;
 using Parrot.Protocol;
@@ -32,37 +31,31 @@ internal sealed class ExitReminderTests
         }
 
         var announced = await listener.Reader.ReadAsync(cancellationToken);
-        _ = await Assert.That(announced.PayloadCase).IsEqualTo(Event.PayloadOneofCase.ExitReminderChanged);
-        _ = await Assert.That(announced.ExitReminderChanged.StateCase).IsEqualTo(expected);
-        _ = await Assert.That(announced.ExitReminderChanged.Title).IsEqualTo("port");
+        var changed = ExitReminderChanged.Parser.ParseFrom(announced.AgentNotice.Data);
+        _ = await Assert.That(announced.AgentNotice.Kind).IsEqualTo("exit_reminder_changed");
+        _ = await Assert.That(announced.AgentNotice.Notice)
+            .IsEqualTo(clear ? "Exit reminder cleared: port" : "Exit reminder set: port: finish the port");
+        _ = await Assert.That(changed.StateCase).IsEqualTo(expected);
+        _ = await Assert.That(changed.Title).IsEqualTo("port");
         _ = await Assert.That(announced.AgentSessionId).IsEqualTo("agent");
-        _ = await Assert.That(repository.ExitReminders("agent").Count).IsEqualTo(expectedRestored);
         _ = await Assert.That(new ExitReminder(TestModels.History(repository, "agent"), broker, TestModels.PromptTemplates, "agent").Titles.Count)
             .IsEqualTo(expectedRestored);
     }
 
     [Test]
-    public async Task Untitled_legacy_events_restore_under_the_reminder_title()
+    public async Task Notices_lists_recorded_notices_of_one_kind_in_order()
     {
         using var database = SessionDatabase.Open(":memory:");
         var repository = new EventRepository(database);
-        repository.AppendExitReminderChanged(new Event { Id = "goal", AgentSessionId = "agent" }, "goal", "reach the goal");
-        using (var legacy = database.Connection.CreateCommand())
+        foreach (var (id, kind) in new[] { ("first", "wanted"), ("other", "unwanted"), ("second", "wanted") })
         {
-            legacy.CommandText =
-                "INSERT INTO event (id, agent_session, payload, created_at) VALUES ('legacy', 'agent', $payload, 0);";
-            _ = legacy.Parameters.AddWithValue(
-                "$payload",
-                new Event
-                {
-                    Id = "legacy",
-                    AgentSessionId = "agent",
-                    ExitReminderChanged = new ExitReminderChanged { Description = "finish the port" },
-                }.ToByteArray());
-            _ = await legacy.ExecuteNonQueryAsync();
+            _ = repository.Append(
+                new Event { Id = id, AgentSessionId = "agent", AgentNotice = new AgentNotice { Kind = kind, Notice = id } },
+                null,
+                null);
         }
 
-        _ = await Assert.That(repository.ExitReminders("agent")).IsEquivalentTo(
-            [new ExitReminderEntry("goal", "reach the goal"), new ExitReminderEntry("reminder", "finish the port")]);
+        _ = await Assert.That(string.Join(',', repository.Notices("agent", "wanted").Select(notice => notice.Notice)))
+            .IsEqualTo("first,second");
     }
 }

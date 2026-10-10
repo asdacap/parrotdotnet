@@ -12,6 +12,8 @@ namespace Parrot.Agent;
 
 internal sealed partial class AgentSession
 {
+    private const string SkillContextNoticeKind = "skill_context";
+
     private static bool IsValidToolCallArguments(string arguments)
     {
         try
@@ -986,7 +988,7 @@ internal sealed partial class AgentSession
         {
             Id = Identifier.EventId(),
             AgentSessionId = SessionId,
-            SkillContextInjected = new SkillContextInjected(),
+            AgentNotice = new AgentNotice { Kind = SkillContextNoticeKind },
         };
         _ = agentHistory.AppendMessage(published, LLMMessage.User(rendering.Content), ConversationOrigin.System);
         conversation.Add(LLMMessage.User(rendering.Content));

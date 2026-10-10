@@ -967,8 +967,8 @@ internal sealed class CompactorAndContextTests : IDisposable
             ?? throw new InvalidOperationException("Expected a durable compaction snapshot.");
         var compactedEvents = repository.Replay().Skip(eventsBeforeCompaction).ToArray();
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(requestsBeforeCompaction + 1);
-        _ = await Assert.That(string.Join(',', compactedEvents.Select(published => published.PayloadCase)))
-            .IsEqualTo("CompactionStarted,StatusInjected,CompactionFinished");
+        _ = await Assert.That(string.Join(',', compactedEvents.Select(published => published.AgentNotice?.Kind ?? published.PayloadCase.ToString())))
+            .IsEqualTo("CompactionStarted,status,CompactionFinished");
         _ = await Assert.That(compactedEvents)
             .DoesNotContain(published => published.PayloadCase is Event.PayloadOneofCase.TurnStarted
                 or Event.PayloadOneofCase.TurnEnded

@@ -26,7 +26,6 @@ internal sealed partial class EventRepository : IEventRepository
     private const long ConversationProjectionVersion = 1;
     private const string AgentHistoryProjection = "agent-history";
     private const long AgentHistoryProjectionVersion = 1;
-    private const string LegacyExitReminderTitle = "reminder";
     private const string ImageArtifactSelect =
         "SELECT artifact.artifact_id, content.sha256, content.media_type, content.byte_length, content.width, content.height, content.frame_count, content.aggregate_pixels, artifact.display_name, artifact.origin FROM image_artifact AS artifact JOIN image_content AS content ON content.sha256 = artifact.sha256";
 
@@ -422,8 +421,10 @@ internal sealed partial class EventRepository : IEventRepository
         }
     }
 
-    public IReadOnlyList<ExitReminderEntry> ExitReminders(string agentSessionId)
+    public IReadOnlyList<AgentNotice> Notices(string agentSessionId, string kind)
     {
+        ArgumentException.ThrowIfNullOrEmpty(kind);
+
         lock (_database.Gate)
         {
             using var read = _database.Connection.CreateCommand();
@@ -431,77 +432,20 @@ internal sealed partial class EventRepository : IEventRepository
                 "SELECT payload FROM event WHERE agent_session = $session ORDER BY sequence;";
             _ = read.Parameters.AddWithValue("$session", agentSessionId);
 
-            var reminders = new List<ExitReminderEntry>();
+            var notices = new List<AgentNotice>();
             using var reader = read.ExecuteReader();
             while (reader.Read())
             {
                 var published = Event.Parser.ParseFrom((byte[])reader["payload"]);
-                if (published.PayloadCase != Event.PayloadOneofCase.ExitReminderChanged)
+                if (published.PayloadCase == Event.PayloadOneofCase.AgentNotice
+                    && string.Equals(published.AgentNotice.Kind, kind, StringComparison.Ordinal))
                 {
-                    continue;
-                }
-
-                var changed = published.ExitReminderChanged;
-                var title = changed.Title is { Length: > 0 } ? changed.Title : LegacyExitReminderTitle;
-                _ = reminders.RemoveAll(reminder => reminder.Title == title);
-                if (changed.StateCase == ExitReminderChanged.StateOneofCase.Description)
-                {
-                    reminders.Add(new ExitReminderEntry(title, changed.Description));
+                    notices.Add(published.AgentNotice);
                 }
             }
 
-            return reminders;
+            return notices;
         }
-    }
-
-    public void AppendExitReminderChanged(Event published, string title, string? description)
-    {
-        ArgumentNullException.ThrowIfNull(published);
-        ArgumentException.ThrowIfNullOrEmpty(title);
-        published.ExitReminderChanged = description is { Length: > 0 }
-            ? new ExitReminderChanged { Title = title, Description = description }
-            : new ExitReminderChanged { Title = title, Cleared = true };
-
-        lock (_database.Gate)
-        {
-            using var transaction = _database.Begin();
-            _ = Record(transaction, published);
-            transaction.Commit();
-        }
-    }
-
-    public void AppendExitReminder(Event published, string assistantContent, string renderedReminder)
-    {
-        ArgumentNullException.ThrowIfNull(published);
-        ArgumentNullException.ThrowIfNull(assistantContent);
-        ArgumentNullException.ThrowIfNull(renderedReminder);
-        published.ExitReminderInjected = new ExitReminderInjected();
-
-        lock (_database.Gate)
-        {
-            _historyFile?.ValidateSession(published.AgentSessionId);
-            using var transaction = _database.Begin();
-            _ = Record(transaction, published);
-            _ = Project(
-                transaction,
-                published.AgentSessionId,
-                ConversationOrigin.Model,
-                LLMRole.Assistant,
-                [ConversationPart.TextPart(assistantContent)],
-                [],
-                string.Empty);
-            _ = Project(
-                transaction,
-                published.AgentSessionId,
-                ConversationOrigin.System,
-                LLMRole.System,
-                [ConversationPart.TextPart(renderedReminder)],
-                [],
-                string.Empty);
-            transaction.Commit();
-        }
-
-        RefreshAgentHistory(published.AgentSessionId);
     }
 
     public IReadOnlyList<string> Messages(string agentSessionId) =>
@@ -1146,7 +1090,6 @@ internal sealed partial class EventRepository : IEventRepository
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(content);
 
-        publishedStatus.StatusInjected = new StatusInjected();
         var appended = false;
         lock (_database.Gate)
         {
@@ -1384,8 +1327,6 @@ internal sealed partial class EventRepository : IEventRepository
     {
         ArgumentNullException.ThrowIfNull(published);
 
-        published.StatusInjected = new StatusInjected();
-
         lock (_database.Gate)
         {
             _historyFile?.ValidateSession(published.AgentSessionId);
@@ -1454,13 +1395,14 @@ internal sealed partial class EventRepository : IEventRepository
         RefreshAgentHistory(published.AgentSessionId);
     }
 
-    public void AppendPendingChildQuestionReminder(
+    public void AppendRetainedReminder(
         Event published,
         string assistantContent,
         string reminder)
     {
         ArgumentNullException.ThrowIfNull(published);
-        published.PendingChildQuestionReminderInjected = new PendingChildQuestionReminderInjected();
+        ArgumentNullException.ThrowIfNull(assistantContent);
+        ArgumentNullException.ThrowIfNull(reminder);
 
         lock (_database.Gate)
         {
@@ -1513,14 +1455,12 @@ internal sealed partial class EventRepository : IEventRepository
     public bool AppendContextReminder(
         Event published,
         ContextReminderCheckpoint checkpoint,
-        int usagePercent,
         string content)
     {
         ArgumentNullException.ThrowIfNull(published);
         ArgumentNullException.ThrowIfNull(checkpoint);
         ArgumentNullException.ThrowIfNull(content);
 
-        published.ContextReminderInjected = new ContextReminderInjected { UsagePercent = usagePercent };
         lock (_database.Gate)
         {
             _historyFile?.ValidateSession(published.AgentSessionId);
@@ -1572,8 +1512,6 @@ internal sealed partial class EventRepository : IEventRepository
     {
         ArgumentNullException.ThrowIfNull(published);
 
-        published.FinalProviderRequestPromptInjected = new FinalProviderRequestPromptInjected();
-
         lock (_database.Gate)
         {
             _historyFile?.ValidateSession(published.AgentSessionId);
@@ -1614,7 +1552,6 @@ internal sealed partial class EventRepository : IEventRepository
                 return false;
             }
 
-            published.ToolAvailabilityRestoredPromptInjected = new ToolAvailabilityRestoredPromptInjected();
             Project(transaction, published.AgentSessionId, "system", content);
             transaction.Commit();
         }

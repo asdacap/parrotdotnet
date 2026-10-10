@@ -11,6 +11,11 @@ namespace Parrot.Agent;
 
 internal sealed partial class AgentSession
 {
+    private const string StatusNoticeKind = "status";
+    private const string ContextReminderNoticeKind = "context_reminder";
+    private const string FinalProviderRequestNoticeKind = "final_provider_request_prompt";
+    private const string ToolAvailabilityRestoredNoticeKind = "tool_availability_restored_prompt";
+
     public ContextSnapshot EstimateContext(AgentTurnSelection selection)
     {
         ArgumentNullException.ThrowIfNull(selection);
@@ -178,8 +183,17 @@ internal sealed partial class AgentSession
         }
 
         var checkpoint = new ContextReminderCheckpoint(selectedModel.Selector, context.ContextLimit, percentage);
-        var published = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
-        if (!agentHistory.AppendContextReminder(published, checkpoint, context.UsagePercent.GetValueOrDefault(), reminder))
+        var published = new Event
+        {
+            Id = Identifier.EventId(),
+            AgentSessionId = SessionId,
+            AgentNotice = new AgentNotice
+            {
+                Kind = ContextReminderNoticeKind,
+                Notice = $"Context reminder injected ({context.UsagePercent.GetValueOrDefault()}% context used)",
+            },
+        };
+        if (!agentHistory.AppendContextReminder(published, checkpoint, reminder))
         {
             contextCadence.Acknowledge(insertedContext, selectedModel.Selector, conversation.Count);
             return instructions;
@@ -303,7 +317,7 @@ internal sealed partial class AgentSession
                 {
                     Id = Identifier.EventId(),
                     AgentSessionId = SessionId,
-                    StatusInjected = new StatusInjected(),
+                    AgentNotice = new AgentNotice { Kind = StatusNoticeKind, Notice = "Status prompt injected" },
                 };
                 if (!agentHistory.AppendCompactionStatus(
                         statusInjected,
@@ -372,6 +386,7 @@ internal sealed partial class AgentSession
         {
             Id = Identifier.EventId(),
             AgentSessionId = SessionId,
+            AgentNotice = new AgentNotice { Kind = FinalProviderRequestNoticeKind, Notice = "Final provider request prompt injected" },
         };
         agentHistory.AppendFinalProviderRequestPrompt(published, content);
         conversation.Add(LLMMessage.System(content));
@@ -384,6 +399,11 @@ internal sealed partial class AgentSession
         {
             Id = Identifier.EventId(),
             AgentSessionId = SessionId,
+            AgentNotice = new AgentNotice
+            {
+                Kind = ToolAvailabilityRestoredNoticeKind,
+                Notice = "Tool availability restored prompt injected",
+            },
         };
         if (!agentHistory.AppendToolAvailabilityRestoredPrompt(published, _toolAvailabilityRestoredPrompt))
         {
@@ -414,7 +434,7 @@ internal sealed partial class AgentSession
             {
                 Id = Identifier.EventId(),
                 AgentSessionId = SessionId,
-                StatusInjected = new StatusInjected(),
+                AgentNotice = new AgentNotice { Kind = StatusNoticeKind, Notice = "Status prompt injected" },
             };
             agentHistory.AppendSystemPrompt(published, content);
             conversation.Add(LLMMessage.System(content));
@@ -444,7 +464,7 @@ internal sealed partial class AgentSession
             {
                 Id = Identifier.EventId(),
                 AgentSessionId = SessionId,
-                StatusInjected = new StatusInjected(),
+                AgentNotice = new AgentNotice { Kind = StatusNoticeKind, Notice = "Status prompt injected" },
             };
             if (!agentHistory.AppendStatusPrompt(published, pending, content))
             {

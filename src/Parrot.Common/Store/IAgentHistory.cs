@@ -1,4 +1,3 @@
-using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Llm;
 using Parrot.Protocol;
@@ -53,11 +52,8 @@ internal interface IAgentHistory
 
     bool HasPendingInputs();
 
-    IReadOnlyList<ExitReminderEntry> ExitReminders();
-
-    void AppendExitReminderChanged(Event published, string title, string? description);
-
-    void AppendExitReminder(Event published, string assistantContent, string renderedReminder);
+    /// <summary>Lists this agent's recorded notices of the given kind in commit order.</summary>
+    IReadOnlyList<AgentNotice> Notices(string kind);
 
     IReadOnlyList<string> Messages();
 
@@ -86,7 +82,8 @@ internal interface IAgentHistory
     /// <summary>Projects a system prompt for an event whose injection payload the caller has already set.</summary>
     void AppendSystemPrompt(Event published, string content);
 
-    void AppendPendingChildQuestionReminder(
+    /// <summary>Records the event and projects the retained assistant response followed by a system reminder.</summary>
+    void AppendRetainedReminder(
         Event published,
         string assistantContent,
         string reminder);
@@ -96,7 +93,6 @@ internal interface IAgentHistory
     bool AppendContextReminder(
         Event published,
         ContextReminderCheckpoint checkpoint,
-        int usagePercent,
         string content);
 
     void AppendFinalProviderRequestPrompt(Event published, string content);

@@ -99,10 +99,10 @@ internal sealed class CompactContextToolTests : IDisposable
             message.Role == LLMRole.Tool && message.ToolCallId == "other");
         _ = await Assert.That(string.Join(',', repository.Replay()
             .Where(published => published.PayloadCase is Event.PayloadOneofCase.CompactionStarted
-                or Event.PayloadOneofCase.StatusInjected
+                or Event.PayloadOneofCase.AgentNotice
                 or Event.PayloadOneofCase.CompactionFinished)
-            .Select(published => published.PayloadCase)))
-            .IsEqualTo("CompactionStarted,StatusInjected,CompactionFinished");
+            .Select(published => published.AgentNotice?.Kind ?? published.PayloadCase.ToString())))
+            .IsEqualTo("CompactionStarted,status,CompactionFinished");
     }
 
     [Test]

@@ -249,8 +249,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         provider.Release();
         await provider.Arrived(cancellationToken);
 
-        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.ExitReminderInjected))
-            .IsEqualTo(1);
+        _ = await Assert.That(repository.Replay().Count(published =>
+            published.AgentSessionId == "parent" && published.AgentNotice?.Kind == "exit_reminder")).IsEqualTo(1);
         _ = await Assert.That(provider.Requests[1].Messages).Contains(message =>
             message.Role == LLMRole.System
             && message.Content.Contains("changed after construction", StringComparison.Ordinal));
@@ -341,7 +341,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnEnded)).IsEqualTo(0);
         _ = await Assert.That(beforeAnswers.Count(published =>
             published.AgentSessionId == "parent"
-            && published.PayloadCase == Event.PayloadOneofCase.PendingChildQuestionReminderInjected)).IsEqualTo(1);
+            && published.AgentNotice?.Kind == "pending_child_question_reminder")).IsEqualTo(1);
         _ = await Assert.That(parentProvider.Requests[^1].Messages).Contains(message =>
             message.Role == LLMRole.Assistant && message.Content == "premature");
         _ = await Assert.That(parentProvider.Requests[^1].Messages).Contains(message =>
@@ -577,7 +577,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
 
     private static IReadOnlyList<Event> Reminders(IEnumerable<Event> events, string sessionId) =>
         [.. events.Where(published => published.AgentSessionId == sessionId
-            && published.PayloadCase == Event.PayloadOneofCase.ActiveWorkReminderInjected)];
+            && published.AgentNotice?.Kind == "active_work_reminder")];
 
     private static int Payloads(
         EventRepository repository,

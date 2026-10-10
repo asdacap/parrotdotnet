@@ -18,6 +18,8 @@ namespace Parrot.Agent;
 // however deep the recursion goes.
 internal sealed class UserSession : IUserSession
 {
+    private const string PlanValidationRepairNoticeKind = "plan_validation_repair";
+
     private readonly List<IAgentSessionScope> _agents = [];
     private readonly IEventBroker _eventBroker;
     private readonly IEventRepository _eventRepository;
@@ -485,7 +487,11 @@ internal sealed class UserSession : IUserSession
             {
                 Id = Identifier.EventId(),
                 AgentSessionId = main.SessionId,
-                PlanValidationRepairInjected = new PlanValidationRepairInjected { Diagnostic = diagnostic },
+                AgentNotice = new AgentNotice
+                {
+                    Kind = PlanValidationRepairNoticeKind,
+                    Notice = $"Retrying after plan validation failure: {diagnostic}",
+                },
             }).ConfigureAwait(false);
             mode.Prepare();
             parts = [ConversationPart.TextPart(diagnostic)];

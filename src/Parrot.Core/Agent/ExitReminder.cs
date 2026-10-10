@@ -1,3 +1,4 @@
+using Google.Protobuf;
 using Parrot.Config;
 using Parrot.Events;
 using Parrot.Protocol;
@@ -11,8 +12,10 @@ internal sealed class ExitReminder(
     IPromptTemplateCatalog promptTemplates,
     string agentSessionId) : IExitReminder
 {
+    private const string ChangedNoticeKind = "exit_reminder_changed";
+
     private readonly Lock _gate = new();
-    private readonly List<ExitReminderEntry> _current = [.. history.ExitReminders()];
+    private readonly List<ExitReminderEntry> _current = Rehydrate(history.Notices(ChangedNoticeKind));
     private int _count;
 
     public IReadOnlyList<string> Titles
@@ -98,6 +101,22 @@ internal sealed class ExitReminder(
         }
     }
 
+    private static List<ExitReminderEntry> Rehydrate(IReadOnlyList<AgentNotice> notices)
+    {
+        var reminders = new List<ExitReminderEntry>();
+        foreach (var notice in notices)
+        {
+            var changed = ExitReminderChanged.Parser.ParseFrom(notice.Data);
+            _ = reminders.RemoveAll(reminder => reminder.Title == changed.Title);
+            if (changed.StateCase == ExitReminderChanged.StateOneofCase.Description)
+            {
+                reminders.Add(new ExitReminderEntry(changed.Title, changed.Description));
+            }
+        }
+
+        return reminders;
+    }
+
     private static string FormatOrdinal(int number)
     {
         var tens = number % 10;
@@ -118,12 +137,24 @@ internal sealed class ExitReminder(
 
     private Event Append(string title, string? description)
     {
+        ArgumentException.ThrowIfNullOrEmpty(title);
+        var changed = description is { Length: > 0 }
+            ? new ExitReminderChanged { Title = title, Description = description }
+            : new ExitReminderChanged { Title = title, Cleared = true };
         var published = new Event
         {
             Id = Identifier.EventId(),
             AgentSessionId = agentSessionId,
+            AgentNotice = new AgentNotice
+            {
+                Kind = ChangedNoticeKind,
+                Notice = description is { Length: > 0 }
+                    ? $"Exit reminder set: {title}: {description}"
+                    : $"Exit reminder cleared: {title}",
+                Data = changed.ToByteString(),
+            },
         };
-        history.AppendExitReminderChanged(published, title, description);
+        _ = history.Append(published, null, null);
         return published;
     }
 }

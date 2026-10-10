@@ -9,6 +9,8 @@ internal sealed class ActiveWorkTurnCompletionCallback(
     IAgentHistory history,
     IEventBroker eventBroker) : IAgentTurnCompletionCallback
 {
+    private const string NoticeKind = "active_work_reminder";
+
     public async ValueTask<AgentTurnCompletionOutcome> Complete(
         AgentTurnCompletionCandidate candidate,
         CancellationToken cancellationToken)
@@ -23,7 +25,7 @@ internal sealed class ActiveWorkTurnCompletionCallback(
         {
             Id = Identifier.EventId(),
             AgentSessionId = candidate.SessionId,
-            ActiveWorkReminderInjected = new ActiveWorkReminderInjected(),
+            AgentNotice = new AgentNotice { Kind = NoticeKind, Notice = "Active work reminder injected" },
         };
         history.AppendSystemPrompt(published, reminder);
         await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);

@@ -20,36 +20,36 @@ internal sealed class EnhancedTurnRendererTests
                     InputAdmitted = new InputAdmitted { Content = "already visible" },
                 },
                 new Event { Id = "start", TurnStarted = new TurnStarted { Model = "model" } },
-                new Event { Id = "status", StatusInjected = new StatusInjected() },
+                new Event { Id = "status", AgentNotice = new AgentNotice { Kind = "status", Notice = "Status prompt injected" } },
                 new Event
                 {
                     Id = "reminder",
-                    ActiveWorkReminderInjected = new ActiveWorkReminderInjected(),
+                    AgentNotice = new AgentNotice { Kind = "active_work_reminder", Notice = "Active work reminder injected" },
                 },
                 new Event
                 {
                     Id = "context-reminder",
-                    ContextReminderInjected = new ContextReminderInjected { UsagePercent = 27 },
+                    AgentNotice = new AgentNotice { Kind = "context_reminder", Notice = "Context reminder injected (27% context used)" },
                 },
                 new Event
                 {
                     Id = "exit-reminder-set",
-                    ExitReminderChanged = new ExitReminderChanged { Title = "port\u001b[2J", Description = "finish the port\u001b[2J" },
+                    AgentNotice = new AgentNotice { Kind = "exit_reminder_changed", Notice = "Exit reminder set: port\u001b[2J: finish the port\u001b[2J" },
                 },
                 new Event
                 {
                     Id = "exit-reminder-cleared",
-                    ExitReminderChanged = new ExitReminderChanged { Title = "port", Cleared = true },
+                    AgentNotice = new AgentNotice { Kind = "exit_reminder_changed", Notice = "Exit reminder cleared: port" },
                 },
                 new Event
                 {
                     Id = "final-provider-request",
-                    FinalProviderRequestPromptInjected = new FinalProviderRequestPromptInjected(),
+                    AgentNotice = new AgentNotice { Kind = "final_provider_request_prompt", Notice = "Final provider request prompt injected" },
                 },
                 new Event
                 {
                     Id = "tool-availability-restored",
-                    ToolAvailabilityRestoredPromptInjected = new ToolAvailabilityRestoredPromptInjected(),
+                    AgentNotice = new AgentNotice { Kind = "tool_availability_restored_prompt", Notice = "Tool availability restored prompt injected" },
                 },
                 new Event
                 {
@@ -211,23 +211,23 @@ internal sealed class EnhancedTurnRendererTests
             new()
             {
                 AgentSessionId = agentSessionId,
-                PlanValidationRepairInjected = new PlanValidationRepairInjected { Diagnostic = "Invalid plan\u001b[2J" },
+                AgentNotice = new AgentNotice { Kind = "plan_validation_repair", Notice = "Retrying after plan validation failure: Invalid plan\u001b[2J" },
             },
             new()
             {
                 AgentSessionId = agentSessionId,
-                PendingChildQuestionReminderInjected = new PendingChildQuestionReminderInjected(),
+                AgentNotice = new AgentNotice { Kind = "pending_child_question_reminder", Notice = "Retrying with pending child question reminder" },
             },
-            new() { AgentSessionId = agentSessionId, StatusInjected = new StatusInjected() },
+            new() { AgentSessionId = agentSessionId, AgentNotice = new AgentNotice { Kind = "status", Notice = "Status prompt injected" } },
             new()
             {
                 AgentSessionId = agentSessionId,
-                FinalProviderRequestPromptInjected = new FinalProviderRequestPromptInjected(),
+                AgentNotice = new AgentNotice { Kind = "final_provider_request_prompt", Notice = "Final provider request prompt injected" },
             },
             new()
             {
                 AgentSessionId = agentSessionId,
-                ToolAvailabilityRestoredPromptInjected = new ToolAvailabilityRestoredPromptInjected(),
+                AgentNotice = new AgentNotice { Kind = "tool_availability_restored_prompt", Notice = "Tool availability restored prompt injected" },
             },
         ];
 

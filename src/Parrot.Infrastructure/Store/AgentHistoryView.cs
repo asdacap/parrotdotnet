@@ -1,4 +1,3 @@
-using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Llm;
 using Parrot.Protocol;
@@ -63,13 +62,7 @@ internal sealed class AgentHistoryView(EventRepository repository, string agentS
 
     public bool HasPendingInputs() => repository.HasPendingInputs(agentSessionId);
 
-    public IReadOnlyList<ExitReminderEntry> ExitReminders() => repository.ExitReminders(agentSessionId);
-
-    public void AppendExitReminderChanged(Event published, string title, string? description) =>
-        repository.AppendExitReminderChanged(published, title, description);
-
-    public void AppendExitReminder(Event published, string assistantContent, string renderedReminder) =>
-        repository.AppendExitReminder(published, assistantContent, renderedReminder);
+    public IReadOnlyList<AgentNotice> Notices(string kind) => repository.Notices(agentSessionId, kind);
 
     public IReadOnlyList<string> Messages() => repository.Messages(agentSessionId);
 
@@ -106,17 +99,16 @@ internal sealed class AgentHistoryView(EventRepository repository, string agentS
     public void AppendSystemPrompt(Event published, string content) =>
         repository.AppendSystemPrompt(published, content);
 
-    public void AppendPendingChildQuestionReminder(Event published, string assistantContent, string reminder) =>
-        repository.AppendPendingChildQuestionReminder(published, assistantContent, reminder);
+    public void AppendRetainedReminder(Event published, string assistantContent, string reminder) =>
+        repository.AppendRetainedReminder(published, assistantContent, reminder);
 
     public ContextReminderCheckpoint? LatestContextReminder() => repository.LatestContextReminder(agentSessionId);
 
     public bool AppendContextReminder(
         Event published,
         ContextReminderCheckpoint checkpoint,
-        int usagePercent,
         string content) =>
-        repository.AppendContextReminder(published, checkpoint, usagePercent, content);
+        repository.AppendContextReminder(published, checkpoint, content);
 
     public void AppendFinalProviderRequestPrompt(Event published, string content) =>
         repository.AppendFinalProviderRequestPrompt(published, content);

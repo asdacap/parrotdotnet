@@ -126,7 +126,6 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         _ = await Assert.That(repository.AppendContextReminder(
             reminder,
             new ContextReminderCheckpoint("provider/model", 10_000, 75),
-            77,
             "reminder")).IsTrue();
         _ = await Assert.That(repository.LatestContextReminder("agent")).IsNotNull();
         var secondStatus = new Event { Id = "second-status", AgentSessionId = "agent" };
@@ -146,8 +145,6 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         var context = repository.CompactionHistory("agent")
             ?? throw new InvalidOperationException("Expected compaction history.");
 
-        _ = await Assert.That(firstStatus.PayloadCase).IsEqualTo(Event.PayloadOneofCase.StatusInjected);
-        _ = await Assert.That(secondStatus.PayloadCase).IsEqualTo(Event.PayloadOneofCase.StatusInjected);
         _ = await Assert.That(context.Snapshot.Summary).IsEqualTo("second summary");
         _ = await Assert.That(context.Status?.Parts.Single().Text).IsEqualTo("second status");
         _ = await Assert.That(string.Join(',', context.Tail.Select(item => item.Parts.Single().Text)))
