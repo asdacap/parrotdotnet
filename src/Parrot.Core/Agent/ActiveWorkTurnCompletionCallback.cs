@@ -13,7 +13,7 @@ internal sealed class ActiveWorkTurnCompletionCallback(
         AgentTurnCompletionCandidate candidate,
         CancellationToken cancellationToken)
     {
-        var reminder = candidate.Profile.EnforceActiveWorkCompletion ? activeWorkReminder.Build() : null;
+        var reminder = activeWorkReminder.Build();
         if (reminder is null)
         {
             return AgentTurnCompletionOutcome.Continue(null);

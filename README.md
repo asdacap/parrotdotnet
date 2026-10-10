@@ -488,10 +488,8 @@ accept only agent-selectable profiles.
 
 Every profile has a nonempty `prompt` and `usage`; a positive `max_turns`; a
 nonnegative `recursion_limit`; boolean `read_only`; boolean
-`enforce_active_work_completion`; boolean `is_user_selectable`; boolean
-`is_agent_selectable`; and optional ordered `sandbox_rules`.
-`enforce_active_work_completion` controls whether the runtime requires active
-work to be completed before the profile may finish a turn. The prompt is the
+`is_user_selectable`; boolean `is_agent_selectable`; and optional ordered
+`sandbox_rules`. The prompt is the
 profile's only model-facing guidance. Because
 configuration scalars replace rather than merge, overriding a profile prompt
 replaces the complete predefined prompt, including its default behavioral

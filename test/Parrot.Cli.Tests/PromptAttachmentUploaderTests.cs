@@ -99,9 +99,9 @@ internal sealed class PromptAttachmentUploaderTests : IDisposable
         {
             var profiles = new Dictionary<string, ProfileConfig>(StringComparer.Ordinal)
             {
-                [ModeRegistry.Build] = new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []),
-                [ModeRegistry.Plan] = new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []),
-                [ModeRegistry.Query] = new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []),
+                [ModeRegistry.Build] = new(string.Empty, string.Empty, null, 1, 1, false, true, false, []),
+                [ModeRegistry.Plan] = new(string.Empty, string.Empty, null, 1, 1, false, true, false, []),
+                [ModeRegistry.Query] = new(string.Empty, string.Empty, null, 1, 1, false, true, false, []),
             };
             Uploader = new PromptAttachmentUploader(
                 new ToolWorkspace(root),

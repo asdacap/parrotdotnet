@@ -23,7 +23,6 @@ profiles:
     max_turns: 1024
     recursion_limit: 5
     read_only: false
-    enforce_active_work_completion: true
     is_user_selectable: true
     is_agent_selectable: false
   build:
@@ -36,7 +35,6 @@ profiles:
     max_turns: 1024
     recursion_limit: 5
     read_only: false
-    enforce_active_work_completion: true
     is_user_selectable: true
     is_agent_selectable: false
   plan:
@@ -86,7 +84,6 @@ profiles:
     max_turns: 1024
     recursion_limit: 5
     read_only: true
-    enforce_active_work_completion: true
     is_user_selectable: true
     is_agent_selectable: false
   query:
@@ -99,7 +96,6 @@ profiles:
     max_turns: 8
     recursion_limit: 2
     read_only: true
-    enforce_active_work_completion: true
     is_user_selectable: true
     is_agent_selectable: false
   explorer:
@@ -114,7 +110,6 @@ profiles:
     max_turns: 32
     recursion_limit: 3
     read_only: true
-    enforce_active_work_completion: true
     is_user_selectable: false
     is_agent_selectable: true
   review:
@@ -131,7 +126,6 @@ profiles:
     max_turns: 32
     recursion_limit: 5
     read_only: true
-    enforce_active_work_completion: true
     is_user_selectable: false
     is_agent_selectable: true
   worker:
@@ -144,7 +138,6 @@ profiles:
     max_turns: 128
     recursion_limit: 4
     read_only: false
-    enforce_active_work_completion: true
     is_user_selectable: false
     is_agent_selectable: true
   agent-task-payload:
@@ -156,7 +149,6 @@ profiles:
     max_turns: 128
     recursion_limit: 4
     read_only: false
-    enforce_active_work_completion: true
     is_user_selectable: false
     is_agent_selectable: true
   thinker:
@@ -180,6 +172,5 @@ profiles:
     max_turns: 256
     recursion_limit: 1
     read_only: true
-    enforce_active_work_completion: true
     is_user_selectable: false
     is_agent_selectable: true

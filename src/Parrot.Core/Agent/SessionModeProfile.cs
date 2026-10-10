@@ -21,8 +21,6 @@ internal sealed class SessionModeProfile(
 
     public int MaxTurns => profile.MaxTurns;
 
-    public bool EnforceActiveWorkCompletion => profile.EnforceActiveWorkCompletion;
-
     public bool IsUserSelectable => profile.IsUserSelectable;
 
     public bool IsAgentSelectable => profile.IsAgentSelectable;

@@ -1162,7 +1162,6 @@ internal sealed partial class Configuration(string path)
                 "max_turns",
                 "recursion_limit",
                 "read_only",
-                "enforce_active_work_completion",
                 "is_user_selectable",
                 "is_agent_selectable",
                 "sandbox_rules");
@@ -1182,10 +1181,6 @@ internal sealed partial class Configuration(string path)
                 PositiveInteger(profile, "max_turns", $"profiles.{id}.max_turns"),
                 NonNegativeInteger(profile, "recursion_limit", $"profiles.{id}.recursion_limit"),
                 ReadBoolean(profile, "read_only", $"profiles.{id}.read_only"),
-                ReadBoolean(
-                    profile,
-                    "enforce_active_work_completion",
-                    $"profiles.{id}.enforce_active_work_completion"),
                 ReadBoolean(profile, "is_user_selectable", $"profiles.{id}.is_user_selectable"),
                 ReadBoolean(profile, "is_agent_selectable", $"profiles.{id}.is_agent_selectable"),
                 ReadSandboxRules(profile, $"profiles.{id}.sandbox_rules", environmentTemplates, directories));

@@ -2426,7 +2426,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         public IAgentProfile Profile { get; } = new AgentProfile(
             "test",
             new Parrot.Config.ProfileConfig(
-                "Test prompt", "Test profile.", allowedTools, 2, 3, false, true, false, true, []),
+                "Test prompt", "Test profile.", allowedTools, 2, 3, false, false, true, []),
             [],
             [],
             disabledTools);

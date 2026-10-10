@@ -2532,7 +2532,7 @@ internal sealed class DrainTests : IDisposable
 
         public IAgentProfile Profile { get; } = new AgentProfile(
             id,
-            new ProfileConfig("Test prompt", "Test profile.", allowedTools, maxTurns, 3, readOnly, true, false, true, []),
+            new ProfileConfig("Test prompt", "Test profile.", allowedTools, maxTurns, 3, readOnly, false, true, []),
             [],
             [],
             disabledTools);

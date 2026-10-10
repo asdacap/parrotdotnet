@@ -26,9 +26,6 @@ internal interface IAgentProfile
     /// <summary>Gets the maximum number of tool-call cycles in a turn.</summary>
     int MaxTurns { get; }
 
-    /// <summary>Gets a value indicating whether outstanding active work must settle before turn completion.</summary>
-    bool EnforceActiveWorkCompletion { get; }
-
     /// <summary>Gets a value indicating whether users may select this profile as a session mode.</summary>
     bool IsUserSelectable { get; }
 

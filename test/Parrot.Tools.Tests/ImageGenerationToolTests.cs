@@ -366,7 +366,7 @@ internal sealed class ImageGenerationToolTests : IDisposable
     }
 
     private static AgentProfile BuildProfile(IReadOnlyList<string>? allowedTools, string[] disabledTools) =>
-        new("test", new ProfileConfig("Test prompt", "Test profile.", allowedTools, 2, 3, false, true, false, true, []), [], [], new HashSet<string>(disabledTools, StringComparer.Ordinal));
+        new("test", new ProfileConfig("Test prompt", "Test profile.", allowedTools, 2, 3, false, false, true, []), [], [], new HashSet<string>(disabledTools, StringComparer.Ordinal));
 
     private static byte[] Png() => Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==");
 

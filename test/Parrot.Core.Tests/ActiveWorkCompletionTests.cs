@@ -57,7 +57,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         var repository = new EventRepository(_database);
         var factory = new CompletionAgentSessions(router, runner, resources, _broker, _workspace);
         await using IAgentRegistry registry = new AgentRegistry(factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), TestDiagnosticLog.Instance, lifetime.Token);
-        var profile = new CompletionProfile(enforce: true, maxTurns: 4).Profile;
+        var profile = new CompletionProfile(maxTurns: 4).Profile;
         await using var parent = Session("parent", parentProvider, router, repository, registry, runner, resources, profile, lifetime.Token);
         var parentScope = TestModels.ScopeOf(parent);
         var child = parentScope.AgentSpawner.SpawnScope(new AgentLaunchRequest(
@@ -97,7 +97,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
     }
 
     [Test]
-    public async Task Enabled_profile_defers_completion_until_direct_work_settles(
+    public async Task Completion_defers_until_direct_work_settles(
         CancellationToken cancellationToken)
     {
         using var parentProvider = new HeldProvider("parent", LLMEvent.Completed("stop", 1, 0, 1, "ignored", []), LLMEvent.Completed("stop", 1, 0, 1, "finished", []), LLMEvent.Completed("stop", 1, 0, 1, "finished", []));
@@ -111,7 +111,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             router, runner, resources, _broker, _workspace);
         await using IAgentRegistry registry = new AgentRegistry(
             factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), TestDiagnosticLog.Instance, lifetime.Token);
-        var profile = new CompletionProfile(enforce: true, maxTurns: 4).Profile;
+        var profile = new CompletionProfile(maxTurns: 4).Profile;
         await using var parent = Session("parent", parentProvider, router, repository, registry, runner, resources, profile, lifetime.Token);
         var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(new AgentLaunchRequest(
             parent,
@@ -163,15 +163,13 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
     }
 
     [Test]
-    [Arguments(false, true, true)]
-    [Arguments(true, true, true)]
-    [Arguments(false, false, true)]
-    [Arguments(true, false, true)]
-    [Arguments(false, true, false)]
+    [Arguments(false, true)]
+    [Arguments(true, true)]
+    [Arguments(false, false)]
+    [Arguments(true, false)]
     public async Task Completion_requires_owned_queues_to_be_drained(
         bool closed,
         bool populated,
-        bool enforce,
         CancellationToken cancellationToken)
     {
         using var provider = new HeldProvider("parent", LLMEvent.Completed("stop", 1, 0, 1, "stopping", []), LLMEvent.Completed("stop", 1, 0, 1, "finished", []));
@@ -183,7 +181,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         var factory = new CompletionAgentSessions(router, runner, resources, _broker, _workspace);
         await using IAgentRegistry registry = new AgentRegistry(
             factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), TestDiagnosticLog.Instance, lifetime.Token);
-        var profile = new CompletionProfile(enforce, maxTurns: 3).Profile;
+        var profile = new CompletionProfile(maxTurns: 3).Profile;
         await using var parent = Session("parent", provider, router, repository, registry, runner, resources, profile, lifetime.Token);
         var queues = TestModels.ScopeOf(parent).GetService<IAgentQueues>();
         _ = queues.Create("owned-work", string.Empty);
@@ -193,7 +191,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         _ = await parent.SendTextMessage("Stop now", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
-        var blocked = populated && enforce;
+        var blocked = populated;
         if (blocked)
         {
             await provider.Arrived(cancellationToken);
@@ -242,7 +240,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             registry,
             runner,
             resources,
-            new CompletionProfile(enforce: false, maxTurns: 3).Profile,
+            new CompletionProfile(maxTurns: 3).Profile,
             lifetime.Token);
 
         var goals = TestModels.ScopeOf(parent).Goals;
@@ -290,7 +288,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             _workspace);
         await using IAgentRegistry registry = new AgentRegistry(
             factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), TestDiagnosticLog.Instance, lifetime.Token);
-        var profile = new CompletionProfile(enforce: false, maxTurns: 3).Profile;
+        var profile = new CompletionProfile(maxTurns: 3).Profile;
         await using var parent = Session(
             "parent",
             parentProvider,
@@ -362,48 +360,6 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
     }
 
     [Test]
-    public async Task Disabled_profile_does_not_defer_for_active_direct_work(CancellationToken cancellationToken)
-    {
-        using var parentProvider = new HeldProvider("parent", LLMEvent.Completed("stop", 1, 0, 1, "finished", []));
-        using var childProvider = new HeldProvider("child", LLMEvent.Completed("stop", 1, 0, 1, "child finished", []));
-        var router = Router(parentProvider, childProvider);
-        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var resources = new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace));
-        var runner = TestModels.Runner(string.Empty);
-        var repository = new EventRepository(_database);
-        var factory = new CompletionAgentSessions(
-            router, runner, resources, _broker, _workspace);
-        await using IAgentRegistry registry = new AgentRegistry(
-            factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), TestDiagnosticLog.Instance, lifetime.Token);
-        var profile = new CompletionProfile(enforce: false, maxTurns: 2).Profile;
-        await using var parent = Session("parent", parentProvider, router, repository, registry, runner, resources, profile, lifetime.Token);
-        var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(new AgentLaunchRequest(
-            parent,
-            new TurnFixture(parent, router).Selection,
-            "worker",
-            new ModelSelector("child/model"),
-            "direct-child",
-            string.Empty,
-            HistoryForkSelection.Parse(string.Empty),
-            new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic,
-            new AgentHistorySource.Parent())).Session;
-        using var subscription = _broker.Subscribe();
-
-        _ = await child.SendTextMessage("work", cancellationToken);
-        await childProvider.Arrived(cancellationToken);
-        _ = await parent.SendTextMessage("finish", cancellationToken);
-        await parentProvider.Arrived(cancellationToken);
-        parentProvider.Release();
-        _ = await parent.Wait(0, cancellationToken);
-        await parent.DisposeAsync();
-
-        _ = await Assert.That(parentProvider.Requests).Count().IsEqualTo(1);
-        _ = await Assert.That(Reminders(Events(subscription), "parent")).IsEmpty();
-        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
-    }
-
-    [Test]
     public async Task Enforcement_excludes_active_siblings_grandchildren_and_parent_queues(CancellationToken cancellationToken)
     {
         using var monitoredProvider = new HeldProvider("monitored", LLMEvent.Completed("stop", 1, 0, 1, "finished", []));
@@ -427,7 +383,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             registry,
             runner,
             resources,
-            new CompletionProfile(enforce: true, maxTurns: 2).Profile,
+            new CompletionProfile(maxTurns: 2).Profile,
             lifetime.Token);
         var monitored = TestModels.ScopeOf(root).AgentSpawner.SpawnScope(new AgentLaunchRequest(
             root,
@@ -445,7 +401,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         _ = rootQueues.Create("parent-closed", string.Empty);
         _ = await rootQueues.Push("parent-open", ["pending"], QueueDirection.Back, false, cancellationToken);
         _ = await rootQueues.Push("parent-closed", ["pending"], QueueDirection.Back, true, cancellationToken);
-        var monitoredProfile = new CompletionProfile(enforce: true, maxTurns: 2).Profile;
+        var monitoredProfile = new CompletionProfile(maxTurns: 2).Profile;
         monitored.UpdateSelection(new AgentSelection(new ModelSelector("monitored/model"), monitoredProfile, monitoredProfile.SecurityProfile), null);
         var sibling = TestModels.ScopeOf(root).AgentSpawner.SpawnScope(new AgentLaunchRequest(
             root,
@@ -513,7 +469,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             registry,
             runner,
             resources,
-            new CompletionProfile(enforce: true, maxTurns: 2).Profile,
+            new CompletionProfile(maxTurns: 2).Profile,
             lifetime.Token);
         var otherProvider = new HeldProvider("other");
         var otherRouter = Router(otherProvider);
@@ -566,7 +522,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             router, runner, resources, _broker, _workspace);
         await using IAgentRegistry registry = new AgentRegistry(
             factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), TestDiagnosticLog.Instance, lifetime.Token);
-        var profile = new CompletionProfile(enforce: true, maxTurns: 2).Profile;
+        var profile = new CompletionProfile(maxTurns: 2).Profile;
         await using var parent = Session("parent", parentProvider, router, repository, registry, runner, resources, profile, lifetime.Token);
         var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(new AgentLaunchRequest(
             parent,
@@ -703,11 +659,11 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         public AgentTurnSelection Selection { get; }
     }
 
-    private sealed class CompletionProfile(bool enforce, int maxTurns)
+    private sealed class CompletionProfile(int maxTurns)
     {
         public IAgentProfile Profile { get; } = new AgentProfile(
             "test",
-            new ProfileConfig("Test prompt.", string.Empty, null, maxTurns, 0, false, enforce, false, false, []),
+            new ProfileConfig("Test prompt.", string.Empty, null, maxTurns, 0, false, false, false, []),
             [],
             [],
             new HashSet<string>(StringComparer.Ordinal));

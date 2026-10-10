@@ -27,7 +27,6 @@ internal sealed class AgentProfile : IAgentProfile
         _disabledTools = [.. disabledTools];
         MaxTurns = configuration.MaxTurns;
         RecursionLimit = configuration.RecursionLimit;
-        EnforceActiveWorkCompletion = configuration.EnforceActiveWorkCompletion;
         IsUserSelectable = configuration.IsUserSelectable;
         IsAgentSelectable = configuration.IsAgentSelectable;
         SecurityProfile = SecurityProfile.Compose(
@@ -50,8 +49,6 @@ internal sealed class AgentProfile : IAgentProfile
     public int MaxTurns { get; }
 
     public int RecursionLimit { get; }
-
-    public bool EnforceActiveWorkCompletion { get; }
 
     public bool IsUserSelectable { get; }
 

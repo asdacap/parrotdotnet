@@ -130,7 +130,6 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(profile.Id).IsEqualTo(id);
         _ = await Assert.That(profile.SecurityProfile.ReadOnly).IsEqualTo(readOnly);
         _ = await Assert.That(profile.MaxTurns).IsEqualTo(maxToolRounds);
-        _ = await Assert.That(profile.EnforceActiveWorkCompletion).IsTrue();
         _ = await Assert.That(profile.Prompt).Contains(promptFragment);
         _ = await Assert.That(profile.Prompt).Contains(policyFragment);
 
@@ -169,7 +168,6 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(profile.AllowedTools).IsEqualTo(configured.AllowedTools);
         _ = await Assert.That(profile.DisabledTools.SequenceEqual(configured.DisabledTools, StringComparer.Ordinal)).IsTrue();
         _ = await Assert.That(profile.MaxTurns).IsEqualTo(configured.MaxTurns);
-        _ = await Assert.That(profile.EnforceActiveWorkCompletion).IsEqualTo(configured.EnforceActiveWorkCompletion);
         _ = await Assert.That(profile.IsUserSelectable).IsEqualTo(configured.IsUserSelectable);
         _ = await Assert.That(profile.IsAgentSelectable).IsEqualTo(configured.IsAgentSelectable);
         _ = await Assert.That(profile.SecurityProfile.ReadOnly).IsEqualTo(configured.SecurityProfile.ReadOnly);

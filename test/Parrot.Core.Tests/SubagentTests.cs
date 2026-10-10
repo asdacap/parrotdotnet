@@ -377,7 +377,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         await using var session = Session(provider, 0, "serialized", registry, cancellationToken);
 
         var originalProfile = session.CurrentSelection().Profile;
-        IAgentProfile selectedProfile = new AgentProfile("selected", new ProfileConfig("Test prompt", "Test profile.", null, 2, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal));
+        IAgentProfile selectedProfile = new AgentProfile("selected", new ProfileConfig("Test prompt", "Test profile.", null, 2, 3, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal));
         var selection = new AgentSelection(session.CurrentSelection().RequestedModel, selectedProfile, selectedProfile.SecurityProfile);
         var admissions = new List<Admission>();
 
@@ -1122,7 +1122,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         nestedDuplicate.UpdateSelection(
             new AgentSelection(
                 nestedDuplicate.CurrentSelection().RequestedModel,
-                new AgentProfile("restricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
+                new AgentProfile("restricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
                 SecurityProfile.Compose(readOnly: true, [], [], [])),
             null);
         resource = nestedResolver.ResolveResource($"/{root.Name}/shell1");
@@ -1134,7 +1134,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         duplicate.UpdateSelection(
             new AgentSelection(
                 duplicate.CurrentSelection().RequestedModel,
-                new AgentProfile("unrestricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
+                new AgentProfile("unrestricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
                 SecurityProfile.Compose(readOnly: false, [], [], [])),
             null);
         resource = nestedResolver.ResolveResource("../../duplicate/queue1");
@@ -1193,7 +1193,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         grandchild.UpdateSelection(
             new AgentSelection(
                 grandchild.CurrentSelection().RequestedModel,
-                new AgentProfile("restricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
+                new AgentProfile("restricted", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)),
                 SecurityProfile.Compose(readOnly: true, [], [], [])),
             null);
         var resolver = new AgentResolver(grandchild.Identity, grandchildScope.ParentScope, grandchildScope, registry);
@@ -1446,7 +1446,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         await using var registry = TestModels.Registry(
             sessions, _broker, _repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, cancellationToken);
         await using var parent = Session(provider, 0, "agent", registry, cancellationToken);
-        parent.UpdateSelection(new AgentSelection(parent.CurrentSelection().RequestedModel, new AgentProfile("parent", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: true, [], [], [])), null);
+        parent.UpdateSelection(new AgentSelection(parent.CurrentSelection().RequestedModel, new AgentProfile("parent", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: true, [], [], [])), null);
 
         var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(new AgentLaunchRequest(
             parent,
@@ -1490,7 +1490,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         await using var registry = TestModels.Registry(
             sessions, _broker, _repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, cancellationToken);
         await using var parent = Session(provider, 0, "agent", registry, cancellationToken);
-        parent.UpdateSelection(new AgentSelection(parent.CurrentSelection().RequestedModel, new AgentProfile(ModeRegistry.Build, new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: false, [], [], [])), null);
+        parent.UpdateSelection(new AgentSelection(parent.CurrentSelection().RequestedModel, new AgentProfile(ModeRegistry.Build, new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: false, [], [], [])), null);
         ITool spawn = new AgentSpawnTool(TestModels.ScopeOf(parent), new RouterFixture(provider, []).Router);
         var capturedSelection = new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection;
         parent.UpdateSelection(parent.CurrentSelection() with { RequestedModel = new ModelSelector("stepped/replacement") }, null);
@@ -2129,7 +2129,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
         releaseConstruction.Set();
         var child = await spawning;
-        root.UpdateSelection(new AgentSelection(root.CurrentSelection().RequestedModel, new AgentProfile("root", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: true, [], [], [])), null);
+        root.UpdateSelection(new AgentSelection(root.CurrentSelection().RequestedModel, new AgentProfile("root", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal)), SecurityProfile.Compose(readOnly: true, [], [], [])), null);
 
         _ = await Assert.That(child.ResolvePolicySelection().SecurityProfile.ReadOnly).IsTrue();
         var childRecursion = await Assert.That(() => TestModels.ScopeOf(child).AgentSpawner.SpawnScope(new AgentLaunchRequest(
@@ -2553,7 +2553,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             cancellationToken);
         await using var parent = Session(provider, 0, "parent", "parent", registry, cancellationToken);
         var parentScope = TestModels.ScopeOf(parent);
-        IAgentProfile profile = new AgentProfile("worker", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, true, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal));
+        IAgentProfile profile = new AgentProfile("worker", new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, false, false, true, []), [], [], new HashSet<string>(StringComparer.Ordinal));
         var securityProfile = SecurityProfile.Compose(false, [], [], []);
         var first = sessions.Create(
             AgentIdentity.Child("first-child", parent.Identity, "duplicate", 1, AgentScope.Empty(TestModels.PromptTemplates), AgentPolicyLineage.Root(), TestModels.PromptTemplates),
