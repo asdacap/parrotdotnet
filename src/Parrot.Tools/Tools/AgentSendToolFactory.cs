@@ -14,5 +14,5 @@ internal sealed class AgentSendToolFactory(
         ? definitions.Describe("agent_send")
         : new AgentSendWithoutParentDefinition(definitions.Describe("agent_send"), templates);
 
-    public ITool Create(IAgentSession session) => new AgentSendTool(identity, resolver, session, config);
+    public ITool Create(IAgentSession session) => new AgentSendTool(identity, resolver, config);
 }

@@ -51,12 +51,6 @@ internal sealed class AgentResolver(
         }
 
         var scope = ResolvePath(path[..separator]);
-        if (!ownerScope.Session.ResolvePolicySelection().SecurityProfile.AllowsDelegationTo(
-                scope.Session.ResolvePolicySelection().SecurityProfile))
-        {
-            throw new AgentRegistryException("cannot access resources of a more permissive agent");
-        }
-
         return (scope, path[(separator + 1)..]);
     }
 

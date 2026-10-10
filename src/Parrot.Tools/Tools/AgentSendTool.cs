@@ -9,7 +9,6 @@ namespace Parrot.Tools;
 internal sealed class AgentSendTool(
     AgentIdentity identity,
     IAgentResolver resolver,
-    IAgentSession session,
     AgentSendConfig config) : ITool
 {
     private const int MaximumMessageBytes = 32 * 1024;
@@ -51,13 +50,6 @@ internal sealed class AgentSendTool(
             if (isParent && !config.ToParent)
             {
                 return ToolResultFormatter.Error(invocation, "sending to the parent agent is disabled; report through the final message instead");
-            }
-
-            if (!isParent
-                && !session.ResolvePolicySelection().SecurityProfile.AllowsDelegationTo(
-                    target.ResolvePolicySelection().SecurityProfile))
-            {
-                return ToolResultFormatter.Error(invocation, "cannot delegate to a more permissive agent");
             }
 
             return (await target.SendTextMessage(message, cancellationToken).ConfigureAwait(false)).Format();
