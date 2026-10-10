@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Parrot.Diagnostics;
 using Parrot.Llm;
+using Parrot.Llm.Wire;
 using Parrot.Protocol;
 using Parrot.Questions;
 using Parrot.Security;
@@ -626,6 +627,7 @@ internal sealed partial class AgentSession
         var answer = string.Empty;
         var budget = new TurnBudget();
         var completionRetryPending = false;
+        var compactedOversizedRequest = false;
         ToolSnapshot? activeTools = null;
         string? turnId = null;
         var turnStarted = Stopwatch.GetTimestamp();
@@ -716,8 +718,26 @@ internal sealed partial class AgentSession
                     cancellationToken).ConfigureAwait(false);
                 var messages = new List<LLMMessage>(conversation);
                 var attempt = budget.CountRequest();
-                var completed = await providerCall.Stream(activeSelection, snapshot, instructions, messages, cancellationToken)
-                    .ConfigureAwait(false);
+                LLMEvent completed;
+                try
+                {
+                    completed = await providerCall.Stream(activeSelection, snapshot, instructions, messages, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (ProviderRequestTooLargeException) when (!compactedOversizedRequest)
+                {
+                    // Token-based triggers miss byte overflows such as inline images, so compact once and retry.
+                    compactedOversizedRequest = true;
+                    if (!(await CompactEpoch(activeSelection, null, snapshot.Definitions, instructions, cancellationToken)
+                            .ConfigureAwait(false)).Reduced)
+                    {
+                        throw;
+                    }
+
+                    continue;
+                }
+
+                compactedOversizedRequest = false;
 
                 if (completed.FinishReason == "length" && completed.ToolCalls.Count > 0)
                 {
@@ -900,7 +920,7 @@ internal sealed partial class AgentSession
         }
         catch (Exception failure)
         {
-            FinishTurn("failed", DiagnosticEvent.ClassifyFailure(failure));
+            FinishTurn("failed", ProviderRequestDiagnostics.ClassifyFailure(failure));
 
             // A provider or tool boundary is a deliberate containment point, and
             // this one is total: the drain is nobody's awaited task, so an

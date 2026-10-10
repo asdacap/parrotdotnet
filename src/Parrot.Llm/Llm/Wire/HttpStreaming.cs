@@ -128,7 +128,7 @@ internal static class HttpStreaming
 
         if (body.Length > maximumRequestBytes)
         {
-            throw new ProviderHttpException($"provider: request exceeds {maximumRequestBytes} bytes");
+            throw new ProviderRequestTooLargeException($"provider: request exceeds {maximumRequestBytes} bytes");
         }
 
         using var message = new HttpRequestMessage(HttpMethod.Post, endpoint)
@@ -209,7 +209,7 @@ internal static class HttpStreaming
     {
         if (body.Length > maximumRequestBytes)
         {
-            throw new ProviderHttpException($"provider: request exceeds {maximumRequestBytes} bytes");
+            throw new ProviderRequestTooLargeException($"provider: request exceeds {maximumRequestBytes} bytes");
         }
 
         var events = Send(null, cancellationToken);

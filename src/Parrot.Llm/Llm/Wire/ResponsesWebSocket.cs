@@ -40,7 +40,7 @@ internal sealed class ResponsesWebSocket(
         ArgumentNullException.ThrowIfNull(response);
         if (request.Length > maximumRequestBytes)
         {
-            throw new ProviderHttpException($"provider: request exceeds {maximumRequestBytes} bytes");
+            throw new ProviderRequestTooLargeException($"provider: request exceeds {maximumRequestBytes} bytes");
         }
 
         attempt?.RecordRequestBytes(request.Length);

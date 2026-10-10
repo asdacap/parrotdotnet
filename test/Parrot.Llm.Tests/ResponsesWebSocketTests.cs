@@ -265,7 +265,7 @@ internal sealed class ResponsesWebSocketTests
         }
         else
         {
-            _ = await Assert.That(Consume).Throws<ProviderHttpException>().WithMessageContaining("exceeds 3 bytes");
+            _ = await Assert.That(Consume).Throws<ProviderRequestTooLargeException>().WithMessageContaining("exceeds 3 bytes");
         }
 
         _ = await Assert.That(socket.Sent.Length).IsEqualTo(accepted ? request.Length : 0);
@@ -306,7 +306,7 @@ internal sealed class ResponsesWebSocketTests
         }
         else
         {
-            _ = await Assert.That(Send).Throws<ProviderHttpException>().WithMessageContaining("exceeds 3 bytes");
+            _ = await Assert.That(Send).Throws<ProviderRequestTooLargeException>().WithMessageContaining("exceeds 3 bytes");
         }
 
         _ = await Assert.That(handler.Requests.Count).IsEqualTo(accepted ? 1 : 0);

@@ -7,12 +7,11 @@ namespace Parrot.Llm.ImageUpload;
 // Replaces each prompt image with its public bucket URL before the inner
 // provider encodes the request. A request the provider rejects before any
 // visible output is repaired once: missing objects are re-uploaded, or, when
-// every object is reachable, the provider is switched back to inline bytes for
-// the rest of the process.
+// every object is reachable, that provider session is switched back to inline
+// bytes for the rest of its lifetime.
 internal sealed class ImageLinkingProvider(ILLMProvider inner, S3ImageBucket bucket) : ILLMProvider
 {
     private readonly Dictionary<string, Task<string>> _links = new(StringComparer.Ordinal);
-    private volatile bool _inlineBytes;
 
     public string Id => inner.Id;
 
@@ -32,7 +31,7 @@ internal sealed class ImageLinkingProvider(ILLMProvider inner, S3ImageBucket buc
     public ILLMProviderSession OpenSession() => new LinkingSession(inner.OpenSession(), this);
 
     public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
-        Link(inner.Call, request, cancellationToken);
+        Link(inner.Call, request, new LinkScope(), cancellationToken);
 
     private static bool IsRejection(Exception failure) => failure is ProviderHttpException or ProviderResponseException;
 
@@ -49,9 +48,10 @@ internal sealed class ImageLinkingProvider(ILLMProvider inner, S3ImageBucket buc
     private async IAsyncEnumerable<LLMEvent> Link(
         Func<LLMRequest, CancellationToken, IAsyncEnumerable<LLMEvent>> call,
         LLMRequest request,
+        LinkScope scope,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var linked = await Rewrite(request, cancellationToken).ConfigureAwait(false);
+        var linked = await Rewrite(request, scope, cancellationToken).ConfigureAwait(false);
         var repaired = false;
         while (true)
         {
@@ -98,12 +98,12 @@ internal sealed class ImageLinkingProvider(ILLMProvider inner, S3ImageBucket buc
             string reason;
             if (await ReuploadMissing(linked, cancellationToken).ConfigureAwait(false))
             {
-                linked = await Rewrite(request, cancellationToken).ConfigureAwait(false);
+                linked = await Rewrite(request, scope, cancellationToken).ConfigureAwait(false);
                 reason = "Re-uploaded missing image objects. Retrying.";
             }
             else if (IsUrlRejection(rejection))
             {
-                _inlineBytes = true;
+                scope.InlineBytes = true;
                 linked = request;
                 reason = "Provider rejected image URLs. Retrying with inline image data.";
             }
@@ -144,9 +144,9 @@ internal sealed class ImageLinkingProvider(ILLMProvider inner, S3ImageBucket buc
         return true;
     }
 
-    private async Task<LLMRequest> Rewrite(LLMRequest request, CancellationToken cancellationToken)
+    private async Task<LLMRequest> Rewrite(LLMRequest request, LinkScope scope, CancellationToken cancellationToken)
     {
-        if (_inlineBytes || !request.Messages.Any(static message => message.Contents.Any(NeedsLink)))
+        if (scope.InlineBytes || !request.Messages.Any(static message => message.Contents.Any(NeedsLink)))
         {
             return request;
         }
@@ -229,12 +229,19 @@ internal sealed class ImageLinkingProvider(ILLMProvider inner, S3ImageBucket buc
         return await bucket.PutImage(bytes, mediaType, CancellationToken.None).ConfigureAwait(false);
     }
 
+    private sealed class LinkScope
+    {
+        public bool InlineBytes { get; set; }
+    }
+
     private sealed class LinkingSession(ILLMProviderSession innerSession, ImageLinkingProvider provider) : ILLMProviderSession
     {
+        private readonly LinkScope _scope = new();
+
         public void BeginTurn() => innerSession.BeginTurn();
 
         public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
-            provider.Link(innerSession.Call, request, cancellationToken);
+            provider.Link(innerSession.Call, request, _scope, cancellationToken);
 
         public ValueTask<bool> TryFallBackToHttp() => innerSession.TryFallBackToHttp();
 

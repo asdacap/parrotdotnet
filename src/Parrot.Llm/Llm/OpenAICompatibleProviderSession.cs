@@ -235,7 +235,7 @@ internal sealed class OpenAICompatibleProviderSession(
                 _httpOnly = true;
             }
 
-            if (failure is ProviderResponseException or LLMProviderException
+            if (failure is ProviderResponseException or LLMProviderException or ProviderRequestTooLargeException
                 or ResponsesWebSocketTransportException or ResponsesWebSocketUpgradeException)
             {
                 throw;

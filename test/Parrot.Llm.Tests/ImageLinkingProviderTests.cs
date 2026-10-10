@@ -65,24 +65,26 @@ internal sealed class ImageLinkingProviderTests
     }
 
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task Rejected_urls_fall_back_to_inline_bytes_for_the_rest_of_the_process(bool useSession, CancellationToken cancellationToken)
+    public async Task Rejected_urls_fall_back_to_inline_bytes_only_for_the_rejected_session(CancellationToken cancellationToken)
     {
-        var inner = new ScriptedProvider(() => Throw(new ProviderHttpException(400, "invalid_request_error", string.Empty, "bad image")), Completed, Completed);
+        var inner = new ScriptedProvider(() => Throw(new ProviderHttpException(400, "invalid_request_error", string.Empty, "bad image")), Completed, Completed, Completed, Completed);
         using var handler = new RecordingHttpHandler(static _ => Respond(HttpStatusCode.OK));
         using var client = new HttpClient(handler, disposeHandler: false);
         var provider = new ImageLinkingProvider(inner, Bucket(client));
         var request = Request();
+        await using var rejected = provider.OpenSession();
+        await using var other = provider.OpenSession();
 
-        var events = await Consume(provider, useSession, request, cancellationToken);
+        var events = await Collect(rejected.Call(request, cancellationToken));
         var requestsAfterFallback = handler.Requests.Count;
-        _ = await Consume(provider, !useSession, request, cancellationToken);
+        _ = await Collect(rejected.Call(request, cancellationToken));
+        _ = await Collect(other.Call(request, cancellationToken));
+        _ = await Collect(provider.Call(request, cancellationToken));
 
         _ = await Assert.That(events.Select(static published => published.Kind).ToList()).IsEquivalentTo([LLMEventKind.Retry, LLMEventKind.Completed]);
         _ = await Assert.That(events[0].Text).IsEqualTo("Provider rejected image URLs. Retrying with inline image data.");
-        _ = await Assert.That(inner.Requests[0].Messages[0].Contents[1].ImageUrl).IsEqualTo(Url);
-        _ = await Assert.That(ReferenceEquals(inner.Requests[1], request) && ReferenceEquals(inner.Requests[2], request)).IsTrue();
+        _ = await Assert.That(inner.Requests.Select(sent => ReferenceEquals(sent, request)).SequenceEqual([false, true, true, false, false])).IsTrue();
+        _ = await Assert.That(inner.Requests.Where(sent => !ReferenceEquals(sent, request)).Select(static sent => sent.Messages[0].Contents[1].ImageUrl).ToList()).IsEquivalentTo([Url, Url, Url]);
         _ = await Assert.That(handler.Count("HEAD", new Uri(Url).AbsolutePath)).IsEqualTo(1);
         _ = await Assert.That(handler.Requests.Count).IsEqualTo(requestsAfterFallback);
     }
@@ -119,9 +121,14 @@ internal sealed class ImageLinkingProviderTests
 
     private static async Task<List<LLMEvent>> Consume(ILLMProvider provider, bool useSession, LLMRequest request, CancellationToken cancellationToken)
     {
-        var received = new List<LLMEvent>();
         await using var session = provider.OpenSession();
-        await foreach (var published in useSession ? session.Call(request, cancellationToken) : provider.Call(request, cancellationToken))
+        return await Collect(useSession ? session.Call(request, cancellationToken) : provider.Call(request, cancellationToken));
+    }
+
+    private static async Task<List<LLMEvent>> Collect(IAsyncEnumerable<LLMEvent> events)
+    {
+        var received = new List<LLMEvent>();
+        await foreach (var published in events)
         {
             received.Add(published);
         }

@@ -4,6 +4,7 @@ using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Llm.Wire;
 using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Security;
@@ -1384,6 +1385,49 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Oversized_request_compacts_once_then_retries(
+        bool stillTooLargeAfterCompaction,
+        CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var broker = new EventBroker();
+        var provider = new OversizedRequestProvider();
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 100_000 });
+        var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
+        var repository = new EventRepository(database);
+        using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
+        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), cancellationToken);
+
+        using var turns = broker.Subscribe();
+        foreach (var prompt in new[] { "first", "second", "third", "fourth" })
+        {
+            if (prompt == "fourth")
+            {
+                provider.AgentRequests = 0;
+                provider.OversizedRemaining = stillTooLargeAfterCompaction ? int.MaxValue : 1;
+            }
+
+            _ = await session.Send(
+                [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
+            _ = await turns.TurnEnding(session.SessionId, cancellationToken);
+        }
+
+        var lifecycle = repository.Replay()
+            .Where(published => published.PayloadCase is Event.PayloadOneofCase.CompactionStarted
+                or Event.PayloadOneofCase.CompactionFinished
+                or Event.PayloadOneofCase.CompactionFailed
+                or Event.PayloadOneofCase.TurnFailed)
+            .Select(published => published.PayloadCase);
+        _ = await Assert.That(string.Join(',', lifecycle))
+            .IsEqualTo(stillTooLargeAfterCompaction
+                ? "CompactionStarted,CompactionFinished,TurnFailed"
+                : "CompactionStarted,CompactionFinished");
+        _ = await Assert.That(provider.AgentRequests).IsEqualTo(2);
+    }
+
+    [Test]
     public async Task Compaction_shrinks_history_and_keeps_the_recent_tail(CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("SUMMARY OF EARLIER");
@@ -2318,6 +2362,45 @@ internal sealed class CompactorAndContextTests : IDisposable
                 }
 
                 yield break;
+            }
+
+            yield return LLMEvent.TextDelta("reply");
+            yield return LLMEvent.Completed("stop", 1, 0, 1, "reply", []);
+        }
+    }
+
+    private sealed class OversizedRequestProvider : ILLMProvider
+    {
+        public int AgentRequests { get; set; }
+
+        public int OversizedRemaining { get; set; }
+
+        public string Id => "oversized-request";
+
+        public IReadOnlyList<LLMModel> SeedModels() => [];
+
+        public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+
+        public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<LLMModel>>([]);
+
+        public async IAsyncEnumerable<LLMEvent> Call(
+            LLMRequest request,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.Yield();
+            if (request.Messages.Any(message => message.Role == LLMRole.System
+                && message.Content.StartsWith("Summarise the following conversation", StringComparison.Ordinal)))
+            {
+                yield return LLMEvent.Completed("stop", 1, 0, 1, "summary", []);
+                yield break;
+            }
+
+            AgentRequests++;
+            if (OversizedRemaining > 0)
+            {
+                OversizedRemaining--;
+                throw new ProviderRequestTooLargeException("provider: request exceeds 1 bytes");
             }
 
             yield return LLMEvent.TextDelta("reply");

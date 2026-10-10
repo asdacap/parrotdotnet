@@ -22,6 +22,7 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
     [Arguments("wire_protocol")]
     [Arguments("websocket_upgrade")]
     [Arguments("websocket_transport")]
+    [Arguments("request_too_large")]
     public async Task Transport_failure_diagnostics_classify_without_recording_exception_messages(
         string code,
         CancellationToken cancellationToken)
@@ -33,6 +34,7 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
             "wire_protocol" => new WireProtocolException("private-sentinel"),
             "websocket_upgrade" => new ResponsesWebSocketUpgradeException(503, "private-sentinel", new IOException("private-sentinel")),
             "websocket_transport" => new ResponsesWebSocketTransportException("private-sentinel"),
+            "request_too_large" => new ProviderRequestTooLargeException("private-sentinel"),
             _ => throw new InvalidOperationException("Unknown failure code."),
         };
         using var log = new ProviderRequestLog();
@@ -59,6 +61,10 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
             if (code == "websocket_upgrade")
             {
                 _ = await Assert.That(Consume).Throws<ResponsesWebSocketUpgradeException>();
+            }
+            else if (code == "request_too_large")
+            {
+                _ = await Assert.That(Consume).Throws<ProviderRequestTooLargeException>();
             }
             else
             {
@@ -260,17 +266,7 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         async Task Consume() => _ = await Drain(session.Call(
             new LLMRequest { Model = "model", Messages = [LLMMessage.User("hello")] }, cancellationToken));
 
-        if (!disableWebSocket && !fallback)
-        {
-            var failure = await Assert.That(Consume).Throws<ResponsesWebSocketTransportException>();
-            var requestFailure = failure?.InnerException;
-            _ = await Assert.That(requestFailure).IsTypeOf<ProviderHttpException>();
-            _ = await Assert.That(requestFailure?.Message).Contains("exceeds 1 bytes");
-        }
-        else
-        {
-            _ = await Assert.That(Consume).Throws<ProviderHttpException>().WithMessageContaining("exceeds 1 bytes");
-        }
+        _ = await Assert.That(Consume).Throws<ProviderRequestTooLargeException>().WithMessageContaining("exceeds 1 bytes");
 
         _ = await Assert.That(handler.Calls).IsEqualTo(0);
         _ = await Assert.That(socket.Sent.Count).IsEqualTo(0);

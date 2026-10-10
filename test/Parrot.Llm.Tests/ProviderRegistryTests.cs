@@ -65,7 +65,7 @@ internal sealed class ProviderRegistryTests
                     }
                 }
 
-                _ = await Assert.That(Consume).Throws<ProviderHttpException>().WithMessageContaining("exceeds 1 bytes");
+                _ = await Assert.That(Consume).Throws<ProviderRequestTooLargeException>().WithMessageContaining("exceeds 1 bytes");
                 _ = await Assert.That(handler.RequestBody).IsEqualTo(string.Empty);
                 return;
             }

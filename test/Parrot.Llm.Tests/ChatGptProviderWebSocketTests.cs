@@ -153,17 +153,7 @@ internal sealed class ChatGptProviderWebSocketTests
         async Task Consume() => _ = await Drain(session.Call(
             new LLMRequest { Model = "model", Messages = [LLMMessage.User("hello")] }, cancellationToken));
 
-        if (!disableWebSocket && !fallback)
-        {
-            var failure = await Assert.That(Consume).Throws<ResponsesWebSocketTransportException>();
-            var requestFailure = failure?.InnerException;
-            _ = await Assert.That(requestFailure).IsTypeOf<ProviderHttpException>();
-            _ = await Assert.That(requestFailure?.Message).Contains("exceeds 1 bytes");
-        }
-        else
-        {
-            _ = await Assert.That(Consume).Throws<ProviderHttpException>().WithMessageContaining("exceeds 1 bytes");
-        }
+        _ = await Assert.That(Consume).Throws<ProviderRequestTooLargeException>().WithMessageContaining("exceeds 1 bytes");
 
         _ = await Assert.That(handler.Calls).IsEqualTo(0);
         _ = await Assert.That(socket.Sent.Count).IsEqualTo(0);

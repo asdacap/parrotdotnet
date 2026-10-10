@@ -460,14 +460,17 @@ internal sealed class RetryingProviderTests
     [Test]
     [Arguments("usage_limit_reached")]
     [Arguments("invalid_request_error")]
+    [Arguments("request_too_large")]
     public async Task A_permanent_failure_is_not_retried(string errorType, CancellationToken cancellationToken)
     {
-        var scripted = new ReplayProvider(
-            () => ThrowImmediately(new ProviderHttpException(400, errorType, string.Empty, "no")));
+        Exception failure = errorType == "request_too_large"
+            ? new ProviderRequestTooLargeException("provider: request exceeds 1 bytes")
+            : new ProviderHttpException(400, errorType, string.Empty, "no");
+        var scripted = new ReplayProvider(() => ThrowImmediately(failure));
 
         ILLMProvider provider = new RetryingProvider(scripted);
 
-        _ = await Assert.That(async () => await Drain(provider, cancellationToken)).Throws<ProviderHttpException>();
+        _ = await Assert.That(async () => await Drain(provider, cancellationToken)).Throws<Exception>();
         _ = await Assert.That(scripted.Calls).IsEqualTo(1);
     }
 

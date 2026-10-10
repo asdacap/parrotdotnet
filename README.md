@@ -385,7 +385,8 @@ a request before any output, Parrot checks every URL in that request with an
 unauthenticated `HEAD`. Missing objects, for example after manual deletion,
 are re-uploaded and the call is retried once. If every object is reachable and
 the provider returned a client error, the call is retried once with inline
-Base64 and that provider keeps using Base64 for the rest of the process.
+Base64 and that agent keeps using Base64 with that provider for the rest of its
+provider session; other agents keep sending URLs.
 Limits, overloads, and transport failures take the ordinary retry path.
 With URLs in use, `request_limits.provider_request_bytes` is consumed only by
 text. The `imagegen` tool's reference images are not affected and remain inline.
