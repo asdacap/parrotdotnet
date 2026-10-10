@@ -1,4 +1,6 @@
+using Parrot.Protocol;
 using Parrot.Questions;
+using Parrot.Store;
 
 namespace Parrot.Agent;
 
@@ -119,6 +121,32 @@ internal sealed class AgentSessionParentScope(
             || !ReferenceEquals(scope.ChildRegistry, childRegistry))
         {
             throw new AgentRegistryException($"agent scope does not match child registry owner: {OwnerSessionId}");
+        }
+    }
+
+    public async Task DeliverCompletion(AgentIdentity child, AgentExecution completed)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+        ArgumentNullException.ThrowIfNull(completed);
+        if (DeliveryPolicy != AgentCompletionDeliveryPolicy.Automatic || Parent is not { } parent)
+        {
+            return;
+        }
+
+        try
+        {
+            if (parent.ChildRegistry.IsAccepting)
+            {
+                _ = await parent.Session.Send(
+                    [ConversationPart.TextPart(completed.FormatCompletion(child, parent.Session.Identity.PromptTemplates))],
+                    Identifier.MessageId(),
+                    Delivery.Steer,
+                    new IncomingActivity(child.Name, $"{child.Name} completion"),
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+        catch (Exception)
+        {
         }
     }
 

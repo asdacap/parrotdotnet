@@ -25,4 +25,10 @@ internal interface IAgentParentScope
 
     /// <summary>Checks that the scope and its child registry belong to this owner.</summary>
     void ValidateOwnerScope(IAgentSessionScope scope);
+
+    /// <summary>
+    /// Steers the child's terminal result into the parent when delivery is automatic and the parent still accepts
+    /// children; a failed delivery is dropped because the result stays retained for the parent to collect.
+    /// </summary>
+    Task DeliverCompletion(AgentIdentity child, AgentExecution completed);
 }

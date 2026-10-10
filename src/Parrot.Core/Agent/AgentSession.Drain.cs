@@ -394,26 +394,7 @@ internal sealed partial class AgentSession
             DurationMilliseconds = (long)Stopwatch.GetElapsedTime(executionStarted).TotalMilliseconds,
         });
         Activity.FinishExecution(activityExecution, completed);
-        if (parentScope.DeliveryPolicy == AgentCompletionDeliveryPolicy.Automatic
-            && parentScope.Parent is { } parent)
-        {
-            try
-            {
-                if (parent.ChildRegistry.IsAccepting)
-                {
-                    _ = await parent.Session.Send(
-                        [ConversationPart.TextPart(completed.FormatCompletion(identity, parent.Session.Identity.PromptTemplates))],
-                        Identifier.MessageId(),
-                        Delivery.Steer,
-                        new IncomingActivity(identity.Name, $"{identity.Name} completion"),
-                        CancellationToken.None).ConfigureAwait(false);
-                }
-            }
-            catch (Exception)
-            {
-            }
-        }
-
+        await parentScope.DeliverCompletion(identity, completed).ConfigureAwait(false);
         return completed;
     }
 
