@@ -11,9 +11,6 @@ internal sealed class ContextStatusProvider(
 {
     public string Key => "runtime:queues-context";
 
-    public static IStatusProvider Create(ContextSnapshot snapshot, IPromptTemplateCatalog templates) =>
-        new ContextStatusProvider(snapshot, templates);
-
     public ValueTask<StatusObservation> Observe(StatusQuery query, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);

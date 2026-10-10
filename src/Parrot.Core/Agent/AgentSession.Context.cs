@@ -320,26 +320,15 @@ internal sealed partial class AgentSession
 
             if (compacted is not null && compacted.Watermark > currentWatermark)
             {
-                const int maximumStatusConvergenceAttempts = 8;
-                var compactedHistory = ReplaceFixedStatus(compacted.History, statusContent);
+                var summarized = compacted.History;
+                statusContent = await status.ObserveFitted(
+                    this,
+                    selection,
+                    selection.Profile,
+                    content => EstimateContextForHistory(selection, instructions, tools, ReplaceFixedStatus(summarized, content)),
+                    cancellationToken).ConfigureAwait(false);
+                var compactedHistory = ReplaceFixedStatus(summarized, statusContent);
                 var renderedContext = EstimateContextForHistory(selection, instructions, tools, compactedHistory);
-                for (var attempt = 0; attempt < maximumStatusConvergenceAttempts; attempt++)
-                {
-                    var postCompactionContext = renderedContext;
-                    var contextContent = await status.ObserveContext(
-                        this,
-                        selection,
-                        postCompactionContext,
-                        cancellationToken).ConfigureAwait(false);
-                    statusContent = ReplaceContextStatus(statusContent, contextContent);
-                    compactedHistory = ReplaceFixedStatus(compacted.History, statusContent);
-                    renderedContext = EstimateContextForHistory(selection, instructions, tools, compactedHistory);
-                    if (postCompactionContext == renderedContext)
-                    {
-                        break;
-                    }
-                }
-
                 compacted = compacted with { History = compactedHistory };
                 if (renderedContext.ExceedsInputLimit)
                 {

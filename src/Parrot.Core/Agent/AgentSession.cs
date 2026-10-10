@@ -584,21 +584,6 @@ internal sealed partial class AgentSession(
         return replaced;
     }
 
-    private static string ReplaceContextStatus(string statusContent, string contextContent)
-    {
-        const string prefix = "Context:";
-        var start = statusContent.IndexOf(prefix, StringComparison.Ordinal);
-        if (start < 0)
-        {
-            return string.Concat(statusContent, "\n\n", contextContent);
-        }
-
-        var end = statusContent.IndexOf("\n\n", start, StringComparison.Ordinal);
-        return end < 0
-            ? string.Concat(statusContent.AsSpan(0, start), contextContent)
-            : string.Concat(statusContent.AsSpan(0, start), contextContent, statusContent.AsSpan(end));
-    }
-
     private static void EnsureRequestFitsAfterCompaction(ContextSnapshot context)
     {
         if (context.ExceedsInputLimit)

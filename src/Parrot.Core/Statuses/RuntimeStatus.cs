@@ -68,20 +68,29 @@ internal sealed class RuntimeStatus : IRuntimeStatus
             cancellationToken);
     }
 
-    public async Task<string> ObserveContext(
+    public async Task<string> ObserveFitted(
         IAgentSession session,
         AgentTurnSelection selection,
-        ContextSnapshot contextSnapshot,
+        IAgentProfile profile,
+        Func<string, ContextSnapshot> estimate,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(session);
-        ArgumentNullException.ThrowIfNull(selection);
-        ArgumentNullException.ThrowIfNull(contextSnapshot);
-        var contextStatus = ContextStatusProvider.Create(contextSnapshot, _templates);
-        var observation = await contextStatus.Observe(
-            StatusQuery.Create(session, selection.Profile.Id, selection.RequestedModel.Value),
-            cancellationToken)
-            .ConfigureAwait(false);
-        return observation.Available ? observation.Text : string.Empty;
+        ArgumentNullException.ThrowIfNull(estimate);
+        const int maximumConvergenceAttempts = 8;
+        var context = estimate(string.Empty);
+        var content = await ObserveWithContext(session, selection, profile, context, cancellationToken).ConfigureAwait(false);
+        for (var attempt = 0; attempt < maximumConvergenceAttempts; attempt++)
+        {
+            var rendered = estimate(content);
+            if (rendered == context)
+            {
+                break;
+            }
+
+            context = rendered;
+            content = await ObserveWithContext(session, selection, profile, context, cancellationToken).ConfigureAwait(false);
+        }
+
+        return content;
     }
 }

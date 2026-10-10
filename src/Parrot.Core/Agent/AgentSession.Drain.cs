@@ -26,7 +26,7 @@ internal sealed partial class AgentSession
         }
     }
 
-    private async Task<string> ObserveStatusForInsertion(
+    private Task<string> ObserveStatusForInsertion(
         AgentTurnSelection selection,
         IAgentProfile profile,
         IReadOnlyList<LLMToolDefinition> tools,
@@ -34,32 +34,12 @@ internal sealed partial class AgentSession
     {
         var requestHistory = HistoryWithNextPromotion();
         var instructions = _systemPrompt.Build(selection);
-        var context = EstimateContextForHistory(selection, instructions, tools, requestHistory);
-        var content = await status.ObserveWithContext(
+        return status.ObserveFitted(
             this,
             selection,
             profile,
-            context,
-            cancellationToken).ConfigureAwait(false);
-        var renderedContext = EstimateContextForHistory(selection, instructions, tools, [.. requestHistory, LLMMessage.System(content)]);
-        const int maximumStatusConvergenceAttempts = 8;
-        for (var attempt = 0; attempt < maximumStatusConvergenceAttempts; attempt++)
-        {
-            var candidateContext = renderedContext;
-            var contextContent = await status.ObserveContext(
-                this,
-                selection,
-                candidateContext,
-                cancellationToken).ConfigureAwait(false);
-            content = ReplaceContextStatus(content, contextContent);
-            renderedContext = EstimateContextForHistory(selection, instructions, tools, [.. requestHistory, LLMMessage.System(content)]);
-            if (candidateContext == renderedContext)
-            {
-                break;
-            }
-        }
-
-        return content;
+            content => EstimateContextForHistory(selection, instructions, tools, [.. requestHistory, LLMMessage.System(content)]),
+            cancellationToken);
     }
 
     private AgentSelection CaptureSelection()

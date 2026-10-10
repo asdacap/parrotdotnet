@@ -23,9 +23,14 @@ internal interface IRuntimeStatus
         ContextSnapshot contextSnapshot,
         CancellationToken cancellationToken);
 
-    Task<string> ObserveContext(
+    /// <summary>
+    /// Observes the full status whose context section accounts for the status itself, re-observing with
+    /// <paramref name="estimate"/> of the candidate content until the context converges.
+    /// </summary>
+    Task<string> ObserveFitted(
         IAgentSession session,
         AgentTurnSelection selection,
-        ContextSnapshot contextSnapshot,
+        IAgentProfile profile,
+        Func<string, ContextSnapshot> estimate,
         CancellationToken cancellationToken);
 }
