@@ -104,13 +104,6 @@ internal sealed class Compactor(
         };
     }
 
-    public bool ShouldCompact(
-        ProviderModel selectedModel,
-        string instructions,
-        IReadOnlyList<LLMToolDefinition> tools,
-        IReadOnlyList<LLMMessage> history) =>
-        EstimateContext(selectedModel, instructions, tools, history).ExceedsTrigger;
-
     public async Task<CompactionResult?> Compact(
         ProviderModel selectedModel,
         string instructions,

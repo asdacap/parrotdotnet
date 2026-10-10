@@ -105,63 +105,6 @@ internal sealed partial class AgentSession(
     private Task _sendAndWaitTail = Task.CompletedTask;
     private TaskCompletionSource<IncomingActivity>? _incomingInputWait;
 
-    internal AgentSession(
-        AgentIdentity identity,
-        IAgentParentScope parentScope,
-        ModelSelector model,
-        IModelRouter router,
-        IEventBroker eventBroker,
-        IEventRepository eventRepository,
-        IReadOnlyList<IToolFactory> toolFactories,
-        ISystemPrompt systemPrompt,
-        ToolOutputBlobStore toolOutputBlobs,
-        AgentOutputFile outputFile,
-        CompactionGroupBlobStore compactionGroupBlobs,
-        Compactor compactor,
-        ProviderSessions providerSessions,
-        ContextCadence contextCadence,
-        IPromptTemplateCatalog promptTemplates,
-        IChildQuestionCoordinator childQuestions,
-        IExitReminder exitReminder,
-        IAgentProfile profile,
-        IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
-        AgentSessionSecurity security,
-        IRuntimeStatus status,
-        AgentSessionActivity activity,
-        IDiagnosticLog diagnostics,
-        CancellationToken lifetime)
-        : this(
-            identity,
-            parentScope,
-            model,
-            router,
-            eventBroker,
-            eventRepository,
-            eventRepository.GetRuntimeStatistics(),
-            eventRepository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId),
-            toolFactories,
-            systemPrompt,
-            toolOutputBlobs,
-            outputFile,
-            compactionGroupBlobs,
-            compactor,
-            providerSessions,
-            contextCadence,
-            promptTemplates,
-            childQuestions,
-            exitReminder,
-            profile,
-            turnCompletionCallbacks,
-            security,
-            new AgentSkills(new SkillCatalog([], () => (SkillConfiguration.Default, 0L)), promptTemplates),
-            new RequestLimitsConfig(),
-            status,
-            activity,
-            diagnostics,
-            lifetime)
-    {
-    }
-
     public string SessionId => identity.SessionId;
 
     public string Name => identity.Name;

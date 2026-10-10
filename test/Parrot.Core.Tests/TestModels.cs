@@ -144,6 +144,9 @@ internal static class TestModels
             ProjectWorkspace.FromLaunchDirectory(root));
     }
 
+    public static Skills.AgentSkills EmptySkills(IPromptTemplateCatalog promptTemplates) =>
+        new(new Skills.SkillCatalog([], () => (SkillConfiguration.Default, 0L)), promptTemplates);
+
     public static Skills.SkillCatalogFactory SkillCatalogFactory()
     {
         var configuration = Configuration.Load(

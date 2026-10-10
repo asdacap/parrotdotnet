@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Context;
 using Parrot.Diagnostics;
 using Parrot.Events;
@@ -74,6 +75,8 @@ internal sealed class AgentOperationDiagnosticsTests : IDisposable
             TestModels.Route(model),
             events,
             repository,
+            repository.GetRuntimeStatistics(),
+            repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId),
             [toolFactory],
             TestModels.MaterializePrompt(identity, _root, _root),
             new ToolOutputBlobStore(_root),
@@ -88,6 +91,8 @@ internal sealed class AgentOperationDiagnosticsTests : IDisposable
             dependencies.Profile,
             new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks,
             new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security,
+            TestModels.EmptySkills(TestModels.PromptTemplates),
+            new RequestLimitsConfig(),
             dependencies.Status,
             new AgentSessionActivity(TimeProvider.System),
             diagnostics,

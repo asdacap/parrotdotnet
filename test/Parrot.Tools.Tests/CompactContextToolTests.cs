@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
@@ -187,6 +188,8 @@ internal sealed class CompactContextToolTests : IDisposable
             TestModels.Route(model),
             broker,
             repository,
+            repository.GetRuntimeStatistics(),
+            repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId),
             factories,
             TestModels.MaterializePrompt(identity, _workspace, _workspace),
             new ToolOutputBlobStore(_workspace),
@@ -201,6 +204,8 @@ internal sealed class CompactContextToolTests : IDisposable
             dependencies.Profile,
             new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker).Callbacks,
             new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security,
+            TestModels.EmptySkills(TestModels.PromptTemplates),
+            new RequestLimitsConfig(),
             dependencies.Status,
             new AgentSessionActivity(TimeProvider.System),
             TestDiagnosticLog.Instance,

@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
@@ -68,6 +69,8 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
             TestModels.Route(model),
             eventBroker,
             eventRepository,
+            eventRepository.GetRuntimeStatistics(),
+            eventRepository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId),
             [],
             TestModels.MaterializePrompt(identity, promptDirectory, promptDirectory),
             new ToolOutputBlobStore(blobDirectory),
@@ -82,6 +85,8 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
             Profile,
             new TestCompletionCallbacksFixture(ChildQuestions, ActiveWorkReminder, ExitReminder, eventRepository, eventBroker).Callbacks,
             new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security,
+            TestModels.EmptySkills(TestModels.PromptTemplates),
+            new RequestLimitsConfig(),
             Status,
             new AgentSessionActivity(TimeProvider.System),
             TestDiagnosticLog.Instance,

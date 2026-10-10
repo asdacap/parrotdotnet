@@ -774,6 +774,8 @@ internal sealed class CompactorAndContextTests : IDisposable
             TestModels.Route(model),
             broker,
             repository,
+            repository.GetRuntimeStatistics(),
+            repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId),
             [toolFactory],
             TestModels.MaterializePrompt(identity, _workspace, _workspace),
             new ToolOutputBlobStore(_workspace),
@@ -788,6 +790,8 @@ internal sealed class CompactorAndContextTests : IDisposable
             profile,
             new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker).Callbacks,
             new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security,
+            TestModels.EmptySkills(TestModels.PromptTemplates),
+            new RequestLimitsConfig(),
             dependencies.Status,
             new AgentSessionActivity(TimeProvider.System),
             TestDiagnosticLog.Instance,
@@ -1394,7 +1398,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             history.Add(LLMMessage.User($"message {index}"));
         }
 
-        _ = await Assert.That(compactor.ShouldCompact(new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 100 }), string.Empty, [], history)).IsTrue();
+        _ = await Assert.That(compactor.EstimateContext(new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 100 }), string.Empty, [], history).ExceedsTrigger).IsTrue();
 
         var result = await compactor.Compact(new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 500 }), string.Empty, [], history, LLMMessage.User("fixed"), _compactionGroupBlobs, TestDiagnosticLog.Instance, "agent-test", cancellationToken);
         var compacted = result?.History ?? throw new InvalidOperationException("Expected compaction.");
@@ -1446,14 +1450,14 @@ internal sealed class CompactorAndContextTests : IDisposable
             new LLMToolDefinition("tool", "description", new string('s', 2_000)),
         };
 
-        _ = await Assert.That(compactor.ShouldCompact(
-            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 }), string.Empty, [], history)).IsFalse();
-        _ = await Assert.That(compactor.ShouldCompact(
-            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 500 }), string.Empty, [], history)).IsTrue();
-        _ = await Assert.That(compactor.ShouldCompact(
-            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 }), new string('i', 2_000), [], history)).IsTrue();
-        _ = await Assert.That(compactor.ShouldCompact(
-            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 }), string.Empty, tools, history)).IsTrue();
+        _ = await Assert.That(compactor.EstimateContext(
+            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 }), string.Empty, [], history).ExceedsTrigger).IsFalse();
+        _ = await Assert.That(compactor.EstimateContext(
+            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 500 }), string.Empty, [], history).ExceedsTrigger).IsTrue();
+        _ = await Assert.That(compactor.EstimateContext(
+            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 }), new string('i', 2_000), [], history).ExceedsTrigger).IsTrue();
+        _ = await Assert.That(compactor.EstimateContext(
+            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 }), string.Empty, tools, history).ExceedsTrigger).IsTrue();
     }
 
     [Test]
@@ -1480,7 +1484,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(snapshot.ContextLimit).IsEqualTo(contextLimit);
         _ = await Assert.That(snapshot.UsagePercent).IsEqualTo(expectedUsage);
         _ = await Assert.That(snapshot.TriggerPercent).IsEqualTo(50);
-        _ = await Assert.That(compactor.ShouldCompact(model, instructions, [], [])).IsEqualTo(expectedCompaction);
+        _ = await Assert.That(compactor.EstimateContext(model, instructions, [], []).ExceedsTrigger).IsEqualTo(expectedCompaction);
     }
 
     [Test]
@@ -1684,7 +1688,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(imageTokens).IsEqualTo(Compactor.EstimateTokens(model, [LLMMessage.User([referenceImage])]));
         _ = await Assert.That(imageTokens).IsGreaterThan(1000);
         _ = await Assert.That(Compactor.EstimateTokens(model, history)).IsEqualTo(4 * imageTokens);
-        _ = await Assert.That(compactor.ShouldCompact(model, string.Empty, [], history)).IsFalse();
+        _ = await Assert.That(compactor.EstimateContext(model, string.Empty, [], history).ExceedsTrigger).IsFalse();
     }
 
     [Test]

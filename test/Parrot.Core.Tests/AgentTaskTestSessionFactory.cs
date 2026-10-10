@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
@@ -84,6 +85,8 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
             router,
             eventBroker,
             eventRepository,
+            eventRepository.GetRuntimeStatistics(),
+            eventRepository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId),
             [],
             TestModels.MaterializePrompt(identity, root, root),
             new ToolOutputBlobStore(root),
@@ -98,6 +101,8 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
             profile,
             completionCallbacks,
             new SecurityProfileTestFixture(securityProfile).Security,
+            TestModels.EmptySkills(TestModels.PromptTemplates),
+            new RequestLimitsConfig(),
             TestModels.ScopedRuntimeStatus(registry, owningScope),
             new AgentSessionActivity(TimeProvider.System),
             TestDiagnosticLog.Instance,
