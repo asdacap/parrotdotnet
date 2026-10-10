@@ -551,7 +551,7 @@ internal sealed class ParrotService(
                 description.MediaType,
                 description.ByteLength,
                 context.CancellationToken).ConfigureAwait(false);
-            return new AttachmentUploadResponse { Artifact = ToProtocol(artifact) };
+            return new AttachmentUploadResponse { Artifact = ArtifactReference.FromMetadata(artifact) };
         }
         catch (Exception failure) when (failure is InvalidDataException or ArgumentException or InputConflictException)
         {
@@ -854,20 +854,6 @@ internal sealed class ParrotService(
             response.UsageLines.AddRange(await usageLines.ConfigureAwait(false));
             return response;
         });
-
-    internal static ArtifactReference ToProtocol(ImageArtifactMetadata artifact) => new()
-    {
-        ArtifactId = artifact.ArtifactId,
-        Sha256 = artifact.Sha256,
-        MediaType = artifact.MediaType,
-        ByteLength = artifact.ByteLength,
-        Width = artifact.Width,
-        Height = artifact.Height,
-        FrameCount = artifact.FrameCount,
-        AggregatePixels = artifact.AggregatePixels,
-        DisplayName = artifact.DisplayName,
-        Origin = artifact.Origin,
-    };
 
     private static List<string> FormatUsage(SubscriptionUsage usage)
     {

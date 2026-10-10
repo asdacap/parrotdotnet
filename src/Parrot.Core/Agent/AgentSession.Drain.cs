@@ -455,7 +455,7 @@ internal sealed partial class AgentSession
                     Delivery = input.Delivery,
                     Source = source,
                 };
-                admitted.Parts.AddRange(input.Parts.Select(ToProtocol));
+                admitted.Parts.AddRange(input.Parts.Select(MessageContentPart.FromPart));
                 return new Event
                 {
                     Id = Identifier.EventId(),
@@ -688,25 +688,7 @@ internal sealed partial class AgentSession
                         TurnStarted = new TurnStarted
                         {
                             Model = resolved.CanonicalModel.Selector,
-                            ModelAliasIcon = aliasIcon is null
-                                ? null
-                                : new TurnModelAliasIcon
-                                {
-                                    Glyph = aliasIcon.Glyph,
-                                    Color = aliasIcon.Color switch
-                                    {
-                                        ModelAliasIconColor.Black => TurnModelAliasIconColor.Black,
-                                        ModelAliasIconColor.Red => TurnModelAliasIconColor.Red,
-                                        ModelAliasIconColor.Green => TurnModelAliasIconColor.Green,
-                                        ModelAliasIconColor.Yellow => TurnModelAliasIconColor.Yellow,
-                                        ModelAliasIconColor.Blue => TurnModelAliasIconColor.Blue,
-                                        ModelAliasIconColor.Magenta => TurnModelAliasIconColor.Magenta,
-                                        ModelAliasIconColor.Cyan => TurnModelAliasIconColor.Cyan,
-                                        ModelAliasIconColor.White => TurnModelAliasIconColor.White,
-                                        ModelAliasIconColor.Gray => TurnModelAliasIconColor.Gray,
-                                        _ => throw new InvalidOperationException("The model alias icon color is invalid."),
-                                    },
-                                },
+                            ModelAliasIcon = aliasIcon is null ? null : TurnModelAliasIcon.FromAliasIcon(aliasIcon),
                         },
                     };
                     turnId = started.Id;
@@ -1558,28 +1540,10 @@ internal sealed partial class AgentSession
             }
 
             var terminal = new ToolFinished { ToolCallId = call.Id, ToolName = call.Name, Result = text };
-            terminal.Artifacts.AddRange(result.ImageArtifacts.Select(ParrotService.ToProtocol));
+            terminal.Artifacts.AddRange(result.ImageArtifacts.Select(ArtifactReference.FromMetadata));
             if (result.YieldedProcess is { } yielded)
             {
-                var protocolYielded = new Protocol.YieldedShellProcess
-                {
-                    ProcessId = yielded.ProcessId,
-                    Name = yielded.Name,
-                    InventoryInstanceId = yielded.InventoryInstanceId,
-                    VisibleRevision = yielded.VisibleRevision,
-                    ActivityKind = yielded.ActivityKind,
-                };
-                if (yielded.StdoutPath is { } stdoutPath)
-                {
-                    protocolYielded.StdoutPath = stdoutPath;
-                }
-
-                if (yielded.StderrPath is { } stderrPath)
-                {
-                    protocolYielded.StderrPath = stderrPath;
-                }
-
-                terminal.YieldedProcess = protocolYielded;
+                terminal.YieldedProcess = Protocol.YieldedShellProcess.FromProcess(yielded);
             }
 
             var finished = new Event

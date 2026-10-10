@@ -1,19 +1,11 @@
 using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Protocol;
-using Parrot.Store;
 
 namespace Parrot.Agent;
 
 internal sealed partial class AgentSession
 {
-    private static MessageContentPart ToProtocol(ConversationPart part) => part.Kind switch
-    {
-        ConversationPartKind.Text => new MessageContentPart { Text = part.Text },
-        ConversationPartKind.ImageArtifact => new MessageContentPart { ArtifactId = part.ArtifactId },
-        _ => throw new InvalidOperationException($"unsupported conversation part {part.Kind}"),
-    };
-
     private Event TranslateProviderEvent(LLMEvent llmEvent)
     {
         var published = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
