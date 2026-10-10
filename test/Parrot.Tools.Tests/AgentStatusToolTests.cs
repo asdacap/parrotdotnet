@@ -16,7 +16,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
 {
     private readonly IEventBroker _broker = new EventBroker();
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
-    private readonly IEventRepository _repository;
+    private readonly EventRepository _repository;
     private readonly string _root = Directory.CreateTempSubdirectory("parrot-agent-status-tests-").FullName;
 
     public AgentStatusToolTests() => _repository = new EventRepository(_database);
@@ -58,7 +58,8 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             AgentIdentity.Main("parent", "main", TestModels.PromptTemplates),
             AgentSessionParentLink.Root(),
             registry,
-            _repository,
+            TestModels.History(_repository, "parent"),
+            _repository.GetRuntimeStatistics(),
             _broker,
             cancellationToken);
         registry.RegisterRootScope(parentScope);
@@ -186,7 +187,8 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             AgentIdentity.Main("parent", "main", TestModels.PromptTemplates),
             AgentSessionParentLink.Root(),
             registry,
-            _repository,
+            TestModels.History(_repository, "parent"),
+            _repository.GetRuntimeStatistics(),
             _broker,
             cancellationToken);
         registry.RegisterRootScope(parentScope);
@@ -228,14 +230,15 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         UserSessionResources resources,
         TimeProvider timeProvider) : IAgentSessionFactory
     {
-        public IEventRepository PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
-            repository.BindAgentHistory(new AgentHistoryFile(resources.AgentScratch(identity.NamePath), [identity.SessionId]));
+        public IAgentHistory PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
+            repository.BindAgentHistory(identity.SessionId, new AgentHistoryFile(resources.AgentScratch(identity.NamePath), [identity.SessionId]));
 
         public TestAgentSessionScope Build(
             AgentIdentity identity,
             AgentSessionParentLink parentLink,
             IAgentRegistry registry,
-            IEventRepository repository,
+            IAgentHistory history,
+            IUserSessionStatistics statistics,
             IEventBroker broker,
             CancellationToken lifetime)
         {
@@ -249,8 +252,8 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
                 TestDiagnosticLog.Instance,
                 (sessionParentScope, owningScope, children, childQuestions) =>
                 {
-                    var exitReminder = new ExitReminder(repository, broker, TestModels.PromptTemplates, identity.SessionId);
-                    IAgentSession session = new AgentSession(identity, sessionParentScope, new ModelSelector(router.Resolve(string.Empty).RequestedSelector.Value), router, broker, repository, repository.GetRuntimeStatistics(), repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId), [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new AgentOutputFile(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, new TestProfileFixture().Profile, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.GetService<IProcessOwner>()), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, repository, broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, TestModels.EmptySkills(TestModels.PromptTemplates), new RequestLimitsConfig(), TestModels.ScopedRuntimeStatus(registry, owningScope), new AgentSessionActivity(timeProvider), TestDiagnosticLog.Instance, lifetime);
+                    var exitReminder = new ExitReminder(history, broker, TestModels.PromptTemplates, identity.SessionId);
+                    IAgentSession session = new AgentSession(identity, sessionParentScope, new ModelSelector(router.Resolve(string.Empty).RequestedSelector.Value), router, broker, history, statistics, statistics.GetAgentStatistics(identity.SessionId), [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new AgentOutputFile(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, new TestProfileFixture().Profile, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.GetService<IProcessOwner>()), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, history, broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, TestModels.EmptySkills(TestModels.PromptTemplates), new RequestLimitsConfig(), TestModels.ScopedRuntimeStatus(registry, owningScope), new AgentSessionActivity(timeProvider), TestDiagnosticLog.Instance, lifetime);
                     return session;
                 },
                 lifetime);
@@ -263,11 +266,12 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             AgentSessionParentLink parentLink,
             ModelSelector model,
             IEventBroker eventBroker,
-            IEventRepository eventRepository,
+            IAgentHistory history,
+            IUserSessionStatistics statistics,
             IAgentProfile profile,
             SecurityProfile securityProfile,
             IAgentRegistry registry,
             CancellationToken lifetime) =>
-            Build(identity, parentLink, registry, eventRepository, eventBroker, lifetime);
+            Build(identity, parentLink, registry, history, statistics, eventBroker, lifetime);
     }
 }

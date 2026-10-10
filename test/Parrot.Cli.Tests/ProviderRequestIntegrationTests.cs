@@ -68,7 +68,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
         queues.Initialize();
         var questions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), children, templates);
         await using IAgentSession agent = new AgentSession(
-            identity, AgentSessionParentScope.Root(), new ModelSelector("provider/model"), router, broker, repository, repository.GetRuntimeStatistics(), repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId), [], new ConfiguredSystemPromptProvider("test:integration", "Reply briefly.").Materialize(identity), new ToolOutputBlobStore(_root), new AgentOutputFile(_root), new CompactionGroupBlobStore(resources.AgentScratch(identity.NamePath)), new Compactor(int.MaxValue, 30, 60_000, 1024, templates), new ProviderSessions(diagnostics.Log, identity.SessionId, null), new ContextCadence(), templates, questions, new ExitReminder(repository, broker, templates, identity.SessionId), profile, [], new AgentSessionSecurity(profile.SecurityProfile, resources.Workspace, resources.AgentsDirectory), new Skills.AgentSkills(new Skills.SkillCatalog([], () => (SkillConfiguration.Default, 0L)), templates), new RequestLimitsConfig(), status, new AgentSessionActivity(TimeProvider.System), diagnostics.Log, cancellationToken);
+            identity, AgentSessionParentScope.Root(), new ModelSelector("provider/model"), router, broker, new AgentHistoryView(repository, identity.SessionId), repository.GetRuntimeStatistics(), repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId), [], new ConfiguredSystemPromptProvider("test:integration", "Reply briefly.").Materialize(identity), new ToolOutputBlobStore(_root), new AgentOutputFile(_root), new CompactionGroupBlobStore(resources.AgentScratch(identity.NamePath)), new Compactor(int.MaxValue, 30, 60_000, 1024, templates), new ProviderSessions(diagnostics.Log, identity.SessionId, null), new ContextCadence(), templates, questions, new ExitReminder(new AgentHistoryView(repository, identity.SessionId), broker, templates, identity.SessionId), profile, [], new AgentSessionSecurity(profile.SecurityProfile, resources.Workspace, resources.AgentsDirectory), new Skills.AgentSkills(new Skills.SkillCatalog([], () => (SkillConfiguration.Default, 0L)), templates), new RequestLimitsConfig(), status, new AgentSessionActivity(TimeProvider.System), diagnostics.Log, cancellationToken);
         queues.Attach(agent);
 
         using var output = new StringWriter();
@@ -248,11 +248,11 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
 
     private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory
     {
-        public IEventRepository PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
+        public IAgentHistory PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
             throw new NotSupportedException("This test does not spawn agents.");
 
         public IAgentSessionScope Create(
-            AgentIdentity identity, AgentSessionParentLink parentLink, ModelSelector model, IEventBroker eventBroker, IEventRepository eventRepository, IAgentProfile profile, SecurityProfile securityProfile, IAgentRegistry registry, CancellationToken lifetime) =>
+            AgentIdentity identity, AgentSessionParentLink parentLink, ModelSelector model, IEventBroker eventBroker, IAgentHistory history, IUserSessionStatistics statistics, IAgentProfile profile, SecurityProfile securityProfile, IAgentRegistry registry, CancellationToken lifetime) =>
             throw new NotSupportedException("This test does not spawn agents.");
     }
 }

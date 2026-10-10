@@ -144,6 +144,9 @@ internal static class TestModels
             ProjectWorkspace.FromLaunchDirectory(root));
     }
 
+    public static IAgentHistory History(EventRepository repository, string agentSessionId) =>
+        new AgentHistoryView(repository, agentSessionId);
+
     public static Skills.AgentSkills EmptySkills(IPromptTemplateCatalog promptTemplates) =>
         new(new Skills.SkillCatalog([], () => (SkillConfiguration.Default, 0L)), promptTemplates);
 
@@ -170,7 +173,7 @@ internal static class TestModels
     public static IAgentRegistry Registry(
         IAgentSessionFactory agentSessions,
         IEventBroker eventBroker,
-        IEventRepository eventRepository,
+        EventRepository eventRepository,
         ProfileRegistry profiles,
         IPromptTemplateCatalog promptTemplates,
         CancellationToken lifetime) =>
@@ -186,7 +189,7 @@ internal static class TestModels
     public static IAgentRegistry RegistryWithBudget(
         IAgentSessionFactory agentSessions,
         IEventBroker eventBroker,
-        IEventRepository eventRepository,
+        EventRepository eventRepository,
         ProfileRegistry profiles,
         IPromptTemplateCatalog promptTemplates,
         RetainedAgentBudget retainedAgents,
@@ -208,7 +211,7 @@ internal static class TestModels
     public static AgentSessionDependencies Dependencies(
         AgentIdentity identity,
         IEventBroker eventBroker,
-        IEventRepository eventRepository,
+        EventRepository eventRepository,
         CancellationToken lifetime)
     {
         var resources = Resources();
@@ -275,7 +278,7 @@ internal static class TestModels
 
     private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory
     {
-        public IEventRepository PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
+        public IAgentHistory PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
             throw new NotSupportedException("This test session does not support spawning subagents.");
 
         public IAgentSessionScope Create(
@@ -283,7 +286,8 @@ internal static class TestModels
             AgentSessionParentLink parentLink,
             ModelSelector model,
             IEventBroker eventBroker,
-            IEventRepository eventRepository,
+            IAgentHistory history,
+            IUserSessionStatistics statistics,
             IAgentProfile profile,
             SecurityProfile securityProfile,
             IAgentRegistry registry,

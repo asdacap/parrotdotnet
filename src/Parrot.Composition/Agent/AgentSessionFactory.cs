@@ -29,13 +29,13 @@ internal sealed class AgentSessionFactory(
 {
     private readonly IImageArtifactRepository _images = owner.Images;
 
-    public IEventRepository PrepareHistory(AgentIdentity identity, IEventRepository repository)
+    public IAgentHistory PrepareHistory(AgentIdentity identity, IEventRepository repository)
     {
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(repository);
         var occupants = AgentDirectoryLineage.Resolve(repository.AgentLineage())
             .OccupantsOf(identity.NamePath, identity.SessionId);
-        return repository.BindAgentHistory(new AgentHistoryFile(owner.Resources.AgentScratch(identity.NamePath), occupants));
+        return repository.BindAgentHistory(identity.SessionId, new AgentHistoryFile(owner.Resources.AgentScratch(identity.NamePath), occupants));
     }
 
     public IAgentSessionScope Create(
@@ -43,7 +43,8 @@ internal sealed class AgentSessionFactory(
         AgentSessionParentLink parentLink,
         ModelSelector model,
         IEventBroker eventBroker,
-        IEventRepository eventRepository,
+        IAgentHistory history,
+        IUserSessionStatistics statistics,
         IAgentProfile profile,
         SecurityProfile securityProfile,
         IAgentRegistry registry,
@@ -51,7 +52,7 @@ internal sealed class AgentSessionFactory(
     {
         ArgumentNullException.ThrowIfNull(parentLink);
         var scratch = owner.Resources.AgentScratch(identity.NamePath);
-        eventRepository.RefreshAgentHistory(identity.SessionId);
+        history.Refresh();
         IAgentPathEnvironment pathEnvironment = new AgentPathEnvironment(owner.Resources, scratch);
         var workspace = new ToolWorkspace(workingDirectory, pathEnvironment);
         var security = new AgentSessionSecurity(
@@ -73,7 +74,8 @@ internal sealed class AgentSessionFactory(
             model,
             router,
             eventBroker,
-            eventRepository,
+            history,
+            statistics,
             workspace,
             _images,
             webFetcher,

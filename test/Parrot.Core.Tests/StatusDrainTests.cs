@@ -375,11 +375,11 @@ internal sealed class StatusDrainTests : IDisposable
     private static string Roles(LLMRequest request) =>
         string.Join(" | ", request.Messages.Select(message => message.Role));
 
-    private static IReadOnlyList<LLMMessage> StatusMessages(IEventRepository repository) =>
+    private static IReadOnlyList<LLMMessage> StatusMessages(EventRepository repository) =>
         [.. repository.ModelHistory(AgentSessionId(repository)).Where(message =>
             message.Role == LLMRole.System && message.Content.Contains("Active profile:", StringComparison.Ordinal))];
 
-    private static string AgentSessionId(IEventRepository repository) =>
+    private static string AgentSessionId(EventRepository repository) =>
         repository.SessionState("user", ModeRegistry.Build).AgentSessionId;
 
     private static async Task ObservePayload(

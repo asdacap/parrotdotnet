@@ -525,7 +525,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         string sessionId,
         ProviderModel model,
         IEventBroker events,
-        IEventRepository repository,
+        EventRepository repository,
         string blobDirectory,
         CancellationToken lifetime)
     {

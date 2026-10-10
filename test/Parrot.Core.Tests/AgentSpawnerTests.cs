@@ -326,7 +326,8 @@ internal sealed class AgentSpawnerTests
                 AgentSessionParentLink.Root(),
                 new ModelSelector($"{_provider.Id}/model"),
                 _broker,
-                repository,
+                TestModels.History(repository, "root"),
+                repository.GetRuntimeStatistics(),
                 profiles.Profile,
                 profiles.Profile.SecurityProfile,
                 _registry,
@@ -346,7 +347,7 @@ internal sealed class AgentSpawnerTests
                 new AgentHistorySource.Parent());
         }
 
-        public IEventRepository Repository { get; }
+        public EventRepository Repository { get; }
 
         public IAgentSessionScope Root { get; }
 

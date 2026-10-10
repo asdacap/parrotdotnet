@@ -148,7 +148,7 @@ internal sealed class AgentRegistry(
         Llm.ModelSelector model,
         IAgentProfile profile,
         Security.SecurityProfile securityProfile,
-        IEventRepository childHistory,
+        IAgentHistory childHistory,
         CancellationToken childLifetime)
     {
         var started = Stopwatch.GetTimestamp();
@@ -165,6 +165,7 @@ internal sealed class AgentRegistry(
                 model,
                 eventBroker,
                 childHistory,
+                eventRepository.GetRuntimeStatistics(),
                 profile,
                 securityProfile,
                 this,
@@ -192,7 +193,7 @@ internal sealed class AgentRegistry(
         }
     }
 
-    public IEventRepository InitializeChildHistory(
+    public IAgentHistory InitializeChildHistory(
         AgentIdentity child,
         HistoryForkBoundary boundary,
         HistoryForkSelection fork,
@@ -218,7 +219,7 @@ internal sealed class AgentRegistry(
         }
 
         var childHistory = agentSessions.PrepareHistory(child, eventRepository);
-        childHistory.InitializeForkedAgentHistory(sourceSessionId, child.SessionId, sourceBoundary, fork, fallback);
+        childHistory.InitializeFork(sourceSessionId, sourceBoundary, fork, fallback);
         return childHistory;
     }
 

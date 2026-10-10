@@ -11,7 +11,7 @@ internal sealed class InputAdmissionTests : IDisposable
     private const string Session = "agent";
 
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
-    private readonly IEventRepository _repository;
+    private readonly EventRepository _repository;
 
     public InputAdmissionTests() => _repository = new EventRepository(_database);
 

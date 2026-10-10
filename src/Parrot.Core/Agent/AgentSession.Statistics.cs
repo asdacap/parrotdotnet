@@ -53,7 +53,7 @@ internal sealed partial class AgentSession
 
     private void RecordToolUsage(long assistantSequence, LLMToolCall call)
     {
-        var request = eventRepository.FindRequestUsage(SessionId, call.Id);
+        var request = agentHistory.FindRequestUsage(call.Id);
         var key = request is null
             ? AgentUsageKey.Legacy
             : new AgentUsageKey(request.Provider, request.Model, request.HasEffort ? request.Effort : null);
@@ -91,6 +91,6 @@ internal sealed partial class AgentSession
             ancestor = ancestor.ParentScope.Parent;
         }
 
-        userStatistics.RecordUsage(eventRepository, eventBroker, fact, increment, AddOwnUsage, this, root);
+        userStatistics.RecordUsage(eventBroker, fact, increment, AddOwnUsage, this, root);
     }
 }

@@ -2,7 +2,7 @@ using Parrot.Store;
 
 namespace Parrot.Agent;
 
-internal sealed class CheckpointService(IEventRepository eventRepository, string agentSessionId) : ICheckpointService
+internal sealed class CheckpointService(IAgentHistory history) : ICheckpointService
 {
     public void SetCheckpoint(string title, long assistantSequence, string toolCallId)
     {
@@ -16,6 +16,6 @@ internal sealed class CheckpointService(IEventRepository eventRepository, string
             throw new ArgumentException("checkpoint requires a durable assistant tool batch", nameof(assistantSequence));
         }
 
-        _ = eventRepository.RecordCheckpoint(agentSessionId, title, assistantSequence, toolCallId);
+        _ = history.RecordCheckpoint(title, assistantSequence, toolCallId);
     }
 }

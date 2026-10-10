@@ -28,7 +28,7 @@ internal sealed partial class AgentSession(
     ModelSelector model,
     IModelRouter router,
     IEventBroker eventBroker,
-    IEventRepository eventRepository,
+    IAgentHistory agentHistory,
     IUserSessionStatistics userStatistics,
     AgentSessionStatistics statistics,
     [InjectionTag("toolFactories")] IReadOnlyList<IToolFactory> toolFactories,
@@ -73,7 +73,7 @@ internal sealed partial class AgentSession(
 
     // The conversation, carried across turns so the agent remembers. The system
     // context is sampled once per epoch and prefixed at each turn.
-    private readonly List<LLMMessage> _history = RestoreHistory(eventRepository, identity.SessionId);
+    private readonly List<LLMMessage> _history = RestoreHistory(agentHistory);
     private readonly DrainLifecycle _drainLifecycle = new();
 
     private readonly EpochContext _epochContext = new(identity.Depth > 0);
@@ -222,7 +222,7 @@ internal sealed partial class AgentSession(
             }
         }
 
-        if (!_disposing && eventRepository.HasPendingInputs(SessionId))
+        if (!_disposing && agentHistory.HasPendingInputs())
         {
             _ = Wake(new IncomingActivity(string.Empty, null));
         }
@@ -315,7 +315,7 @@ internal sealed partial class AgentSession(
             _incomingInputWait = incoming;
         }
 
-        if (eventRepository.HasPendingInputs(SessionId))
+        if (agentHistory.HasPendingInputs())
         {
             _ = incoming.TrySetResult(new IncomingActivity(string.Empty, null));
         }
@@ -495,21 +495,21 @@ internal sealed partial class AgentSession(
         return value[..characters];
     }
 
-    private static List<LLMMessage> RestoreHistory(IEventRepository repository, string agentSessionId)
+    private static List<LLMMessage> RestoreHistory(IAgentHistory source)
     {
-        var context = repository.CompactionHistory(agentSessionId);
+        var context = source.CompactionHistory();
         if (context is null)
         {
-            return [.. repository.Conversation(agentSessionId).Select(item => RestoreMessage(repository, item))];
+            return [.. source.Conversation().Select(item => RestoreMessage(source, item))];
         }
 
         var history = new List<LLMMessage> { LLMMessage.System(context.Snapshot.Summary) };
         if (context.Status is not null)
         {
-            history.Add(RestoreMessage(repository, context.Status));
+            history.Add(RestoreMessage(source, context.Status));
         }
 
-        history.AddRange(context.Tail.Select(item => RestoreMessage(repository, item)));
+        history.AddRange(context.Tail.Select(item => RestoreMessage(source, item)));
         return history;
     }
 
@@ -536,10 +536,10 @@ internal sealed partial class AgentSession(
         }
     }
 
-    private static LLMMessage RestoreMessage(IEventRepository repository, ConversationItem item) => new()
+    private static LLMMessage RestoreMessage(IAgentHistory source, ConversationItem item) => new()
     {
         Role = item.Role,
-        Contents = repository.Materialize(item.Parts),
+        Contents = source.Materialize(item.Parts),
         ToolCalls = item.ToolCalls,
         ToolCallId = item.ToolCallId,
     };

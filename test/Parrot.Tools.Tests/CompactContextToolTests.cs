@@ -164,7 +164,7 @@ internal sealed class CompactContextToolTests : IDisposable
 
     private IAgentSession Session(
         ILLMProvider provider,
-        IEventRepository repository,
+        EventRepository repository,
         IEventBroker broker,
         int contextWindow,
         CancellationToken cancellationToken)
@@ -187,7 +187,7 @@ internal sealed class CompactContextToolTests : IDisposable
             new ModelSelector(model.Selector),
             TestModels.Route(model),
             broker,
-            repository,
+            TestModels.History(repository, identity.SessionId),
             repository.GetRuntimeStatistics(),
             repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId),
             factories,
@@ -202,7 +202,7 @@ internal sealed class CompactContextToolTests : IDisposable
             dependencies.ChildQuestions,
             dependencies.ExitReminder,
             dependencies.Profile,
-            new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker).Callbacks,
+            new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, TestModels.History(repository, identity.SessionId), broker).Callbacks,
             new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security,
             TestModels.EmptySkills(TestModels.PromptTemplates),
             new RequestLimitsConfig(),

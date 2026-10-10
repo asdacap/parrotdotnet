@@ -71,14 +71,14 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind<ModelSelector>().To((AgentSessionScopeArguments arguments) => arguments.Model)
             .Bind<IModelRouter>().To((AgentSessionScopeArguments arguments) => arguments.Router)
             .Bind<IEventBroker>().To((AgentSessionScopeArguments arguments) => arguments.EventBroker)
-            .Bind<IUserSessionStatistics>().To((AgentSessionScopeArguments arguments) => arguments.EventRepository.GetRuntimeStatistics())
+            .Bind<IUserSessionStatistics>().To((AgentSessionScopeArguments arguments) => arguments.Statistics)
             .Bind<AgentSessionStatistics>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<IUserSessionStatistics>(out var userStatistics);
                 return userStatistics.GetAgentStatistics(arguments.Identity.SessionId);
             })
-            .Bind<IEventRepository>().To((AgentSessionScopeArguments arguments) => arguments.EventRepository)
+            .Bind<IAgentHistory>().To((AgentSessionScopeArguments arguments) => arguments.History)
             .Bind<ToolDefinitionCatalog>().To((AgentSessionScopeArguments arguments) => arguments.ToolDefinitions)
             .Bind<ToolWorkspace>().To((AgentSessionScopeArguments arguments) => arguments.Workspace)
             .Bind<IImageArtifactRepository>().To((AgentSessionScopeArguments arguments) => arguments.Images)
@@ -97,7 +97,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                     arguments.AgentTasks,
                     new AgentTaskNotifier(scope, outputBlobs, arguments.Diagnostics),
                     arguments.EventBroker,
-                    arguments.EventRepository,
+                    arguments.History,
                     arguments.Diagnostics,
                     arguments.Lifetime);
             })
@@ -199,7 +199,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Bind<ICheckpointService>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new CheckpointService(arguments.EventRepository, arguments.Identity.SessionId);
+                return new CheckpointService(arguments.History);
             })
             .Bind<SetCheckpointToolFactory>().As(Lifetime.Scoped).To<SetCheckpointToolFactory>()
             .Bind<SetExitReminderToolFactory>().As(Lifetime.Scoped).To(ctx =>
@@ -234,7 +234,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new ExitReminder(
-                    arguments.EventRepository,
+                    arguments.History,
                     arguments.EventBroker,
                     arguments.PromptTemplates,
                     arguments.Identity.SessionId);

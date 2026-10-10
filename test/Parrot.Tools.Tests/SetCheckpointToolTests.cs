@@ -23,8 +23,8 @@ internal sealed class SetCheckpointToolTests
             [new LLMToolCall(callId, "set_checkpoint", "{\"title\":\"handoff\"}")],
             string.Empty);
         var assistantSequence = repository.Conversation("agent-a").Single().Sequence;
-        ITool owningTool = new SetCheckpointTool(new CheckpointService(repository, "agent-a"));
-        ITool otherAgentTool = new SetCheckpointTool(new CheckpointService(repository, "agent-b"));
+        ITool owningTool = new SetCheckpointTool(new CheckpointService(TestModels.History(repository, "agent-a")));
+        ITool otherAgentTool = new SetCheckpointTool(new CheckpointService(TestModels.History(repository, "agent-b")));
         var invocation = new ToolInvocation(callId, "{\"title\":\"handoff\"}", assistantSequence);
 
         var result = await owningTool.Execute(invocation, TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), CancellationToken.None);
@@ -54,7 +54,7 @@ internal sealed class SetCheckpointToolTests
         string expectedMessage)
     {
         using var database = SessionDatabase.Open(":memory:");
-        ITool tool = new SetCheckpointTool(new CheckpointService(new EventRepository(database), "agent"));
+        ITool tool = new SetCheckpointTool(new CheckpointService(TestModels.History(new EventRepository(database), "agent")));
 
         var result = await tool.Execute(
             new ToolInvocation("missing-call", argumentsJson, assistantSequence),

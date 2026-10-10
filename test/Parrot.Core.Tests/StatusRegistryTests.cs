@@ -363,7 +363,7 @@ internal sealed class StatusRegistryTests
 
         private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
         private readonly IEventBroker _broker = new EventBroker();
-        private readonly IEventRepository _repository;
+        private readonly EventRepository _repository;
         private readonly IModelRouter _router;
         private readonly UserSessionResources _resources;
         private ProcessRunner _runner = TestModels.Runner(string.Empty);
@@ -392,9 +392,9 @@ internal sealed class StatusRegistryTests
                 TestDiagnosticLog.Instance,
                 (parentScope, owningScope, children, childQuestions) =>
                 {
-                    var exitReminder = new ExitReminder(_repository, _broker, TestModels.PromptTemplates, identity.SessionId);
+                    var exitReminder = new ExitReminder(TestModels.History(_repository, identity.SessionId), _broker, TestModels.PromptTemplates, identity.SessionId);
                     var profile = new TestProfileFixture().Profile;
-                    return new AgentSession(identity, parentScope, _router.Resolve(string.Empty).RequestedSelector, _router, _broker, _repository, _repository.GetRuntimeStatistics(), _repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId), [], TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(_root), new AgentOutputFile(_root), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "status-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, profile, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.GetService<IProcessOwner>()), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, _repository, _broker).Callbacks, new SecurityProfileTestFixture(profile.SecurityProfile).Security, TestModels.EmptySkills(TestModels.PromptTemplates), new RequestLimitsConfig(), TestModels.ScopedRuntimeStatus(Registry, owningScope), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
+                    return new AgentSession(identity, parentScope, _router.Resolve(string.Empty).RequestedSelector, _router, _broker, TestModels.History(_repository, identity.SessionId), _repository.GetRuntimeStatistics(), _repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId), [], TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(_root), new AgentOutputFile(_root), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "status-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, profile, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.GetService<IProcessOwner>()), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, TestModels.History(_repository, identity.SessionId), _broker).Callbacks, new SecurityProfileTestFixture(profile.SecurityProfile).Security, TestModels.EmptySkills(TestModels.PromptTemplates), new RequestLimitsConfig(), TestModels.ScopedRuntimeStatus(Registry, owningScope), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
                 },
                 CancellationToken.None);
             if (parentLink.Parent is { } parent)

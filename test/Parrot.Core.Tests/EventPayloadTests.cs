@@ -632,9 +632,14 @@ internal sealed class EventPayloadTests
     {
         using var database = SessionDatabase.Open(":memory:");
         var repository = new EventRepository(database);
-        var published = new Event { Id = "reminder-event", AgentSessionId = "session" };
+        var published = new Event
+        {
+            Id = "reminder-event",
+            AgentSessionId = "session",
+            ActiveWorkReminderInjected = new ActiveWorkReminderInjected(),
+        };
 
-        repository.AppendActiveWorkReminder(published, "wait for direct active work");
+        repository.AppendSystemPrompt(published, "wait for direct active work");
 
         _ = await Assert.That(published.PayloadCase)
             .IsEqualTo(Event.PayloadOneofCase.ActiveWorkReminderInjected);

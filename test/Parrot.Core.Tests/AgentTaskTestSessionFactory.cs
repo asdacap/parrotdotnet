@@ -38,14 +38,15 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
         }
     }
 
-    public IEventRepository PrepareHistory(AgentIdentity identity, IEventRepository repository) => repository;
+    public IAgentHistory PrepareHistory(AgentIdentity identity, IEventRepository repository) => repository.BindAgentHistory(identity.SessionId, new AgentHistoryFile(TestModels.Resources().AgentScratch(identity.NamePath), [identity.SessionId]));
 
     public IAgentSessionScope Create(
         AgentIdentity identity,
         AgentSessionParentLink parentLink,
         ModelSelector model,
         IEventBroker eventBroker,
-        IEventRepository eventRepository,
+        IAgentHistory history,
+        IUserSessionStatistics statistics,
         IAgentProfile profile,
         SecurityProfile securityProfile,
         IAgentRegistry registry,
@@ -71,12 +72,12 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
         {
             var processes = owningScope.GetService<IProcessOwner>();
             var agentQueues = owningScope.GetService<IAgentQueues>();
-            var exitReminder = new ExitReminder(eventRepository, eventBroker, TestModels.PromptTemplates, identity.SessionId);
+            var exitReminder = new ExitReminder(history, eventBroker, TestModels.PromptTemplates, identity.SessionId);
             var completionCallbacks = new TestCompletionCallbacksFixture(
                 childQuestions,
                 new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(processes), new QueueActiveWorkBlocker(agentQueues, TestModels.PromptTemplates)], TestModels.PromptTemplates),
                 exitReminder,
-                eventRepository,
+                history,
                 eventBroker).Callbacks;
             IAgentSession session = new AgentSession(
             identity,
@@ -84,9 +85,9 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
             model,
             router,
             eventBroker,
-            eventRepository,
-            eventRepository.GetRuntimeStatistics(),
-            eventRepository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId),
+            history,
+            statistics,
+            statistics.GetAgentStatistics(identity.SessionId),
             [],
             TestModels.MaterializePrompt(identity, root, root),
             new ToolOutputBlobStore(root),

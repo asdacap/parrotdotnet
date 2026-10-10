@@ -18,7 +18,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
     private readonly IEventBroker _broker = new EventBroker();
     private readonly List<IAgentRegistry> _registries = [];
-    private readonly IEventRepository _repository;
+    private readonly EventRepository _repository;
 
     public AgentTaskServiceTests() => _repository = new EventRepository(_database);
 
@@ -70,7 +70,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
                 runtime.Selection.RequestedModel,
                 dependencies.Profile,
                 dependencies.Profile.SecurityProfile,
-                _repository,
+                TestModels.History(_repository, identity.SessionId),
                 cancellationToken);
             if (fail)
             {
@@ -1130,7 +1130,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             new AgentTaskConfig(maximumAttempts, 1, forkMode, TestModels.PromptTemplates),
             new AgentTaskNotifier(runtime.ParentScope, new ToolOutputBlobStore(Path.GetTempPath()), TestDiagnosticLog.Instance),
             _broker,
-            _repository,
+            TestModels.History(_repository, runtime.Parent.SessionId),
             TestDiagnosticLog.Instance,
             cancellationToken));
     }
@@ -1159,7 +1159,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             new ModelSelector($"{provider.Id}/model"),
             router,
             _broker,
-            _repository,
+            TestModels.History(_repository, identity.SessionId),
             _repository.GetRuntimeStatistics(),
             _repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId),
             [],
@@ -1174,7 +1174,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             childQuestions,
             dependencies.ExitReminder,
             dependencies.Profile,
-            new TestCompletionCallbacksFixture(childQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, _repository, _broker).Callbacks,
+            new TestCompletionCallbacksFixture(childQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, TestModels.History(_repository, identity.SessionId), _broker).Callbacks,
             new SecurityProfileTestFixture(SecurityProfile.Compose(false, [], [], [])).Security,
             TestModels.EmptySkills(TestModels.PromptTemplates),
             new RequestLimitsConfig(),
@@ -1203,15 +1203,16 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
 
     private sealed class DiagnosticChildFactory(IAgentSessionScope scope, bool fail) : IAgentSessionFactory
     {
-        public IEventRepository PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
-            repository;
+        public IAgentHistory PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
+            repository.BindAgentHistory(identity.SessionId, new AgentHistoryFile(TestModels.Resources().AgentScratch(identity.NamePath), [identity.SessionId]));
 
         public IAgentSessionScope Create(
             AgentIdentity identity,
             AgentSessionParentLink parentLink,
             ModelSelector model,
             IEventBroker eventBroker,
-            IEventRepository eventRepository,
+            IAgentHistory history,
+            IUserSessionStatistics statistics,
             IAgentProfile profile,
             SecurityProfile securityProfile,
             IAgentRegistry registry,

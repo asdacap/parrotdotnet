@@ -2284,20 +2284,20 @@ internal sealed class DrainTests : IDisposable
             " | ",
             request.Messages.Where(message => message.Role == LLMRole.User).Select(message => message.Content));
 
-    private static string Conversation(IEventRepository repository) =>
+    private static string Conversation(EventRepository repository) =>
         string.Join(" | ", repository.Messages("agent"));
 
-    private static string Endings(IEventRepository repository) =>
+    private static string Endings(EventRepository repository) =>
         string.Join(
             " | ",
             repository.Replay()
                 .Where(published => published.PayloadCase == Event.PayloadOneofCase.TurnEnded)
                 .Select(published => published.TurnEnded.FinishReason));
 
-    private static int Payloads(IEventRepository repository, Event.PayloadOneofCase payload) =>
+    private static int Payloads(EventRepository repository, Event.PayloadOneofCase payload) =>
         repository.Replay().Count(published => published.PayloadCase == payload);
 
-    private static string ToolLifecycle(IEventRepository repository) =>
+    private static string ToolLifecycle(EventRepository repository) =>
         string.Join(
             " | ",
             repository.Replay().Select(published => published.PayloadCase switch
@@ -2318,14 +2318,14 @@ internal sealed class DrainTests : IDisposable
 
     private IAgentSession Session(
         ILLMProvider provider,
-        IEventRepository repository,
+        EventRepository repository,
         IReadOnlyList<TestTool> toolFactories,
         CancellationToken lifetime) =>
         Session(provider, repository, toolFactories, 0, 0, 0, 0, lifetime);
 
     private IAgentSession Session(
         ILLMProvider provider,
-        IEventRepository repository,
+        EventRepository repository,
         IReadOnlyList<TestTool> toolFactories,
         IAgentProfile profile,
         CancellationToken lifetime) =>
@@ -2333,7 +2333,7 @@ internal sealed class DrainTests : IDisposable
 
     private IAgentSession Session(
         ILLMProvider provider,
-        IEventRepository repository,
+        EventRepository repository,
         IReadOnlyList<TestTool> toolFactories,
         int contextWindow,
         double inputPrice,
@@ -2353,7 +2353,7 @@ internal sealed class DrainTests : IDisposable
 
     private IAgentSession SessionWithInputLimit(
         ILLMProvider provider,
-        IEventRepository repository,
+        EventRepository repository,
         int contextWindow,
         int maximumInputTokens,
         CancellationToken lifetime)
@@ -2371,7 +2371,7 @@ internal sealed class DrainTests : IDisposable
 
     private IAgentSession SessionWithSkills(
         ILLMProvider provider,
-        IEventRepository repository,
+        EventRepository repository,
         IReadOnlyList<TestTool> toolFactories,
         IAgentProfile profile,
         AgentSkills skills,
@@ -2398,7 +2398,7 @@ internal sealed class DrainTests : IDisposable
             new ModelSelector(model.Selector),
             TestModels.Route(model),
             _broker,
-            repository,
+            TestModels.History(repository, identity.SessionId),
             repository.GetRuntimeStatistics(),
             repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId),
             [.. toolFactories.Select(tool => tool.Factory)],
@@ -2413,7 +2413,7 @@ internal sealed class DrainTests : IDisposable
             dependencies.ChildQuestions,
             dependencies.ExitReminder,
             profile,
-            new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks,
+            new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, TestModels.History(repository, identity.SessionId), _broker).Callbacks,
             security,
             skills,
             new RequestLimitsConfig(),
@@ -2425,7 +2425,7 @@ internal sealed class DrainTests : IDisposable
 
     private IAgentSession SessionWithImageLimit(
         ILLMProvider provider,
-        IEventRepository repository,
+        EventRepository repository,
         IReadOnlyList<TestTool> toolFactories,
         int imageByteLimit,
         CancellationToken lifetime)
@@ -2445,7 +2445,7 @@ internal sealed class DrainTests : IDisposable
             new ModelSelector(model.Selector),
             TestModels.Route(model),
             _broker,
-            repository,
+            TestModels.History(repository, identity.SessionId),
             repository.GetRuntimeStatistics(),
             repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId),
             [.. toolFactories.Select(tool => tool.Factory)],
@@ -2460,7 +2460,7 @@ internal sealed class DrainTests : IDisposable
             dependencies.ChildQuestions,
             dependencies.ExitReminder,
             dependencies.Profile,
-            new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks,
+            new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, TestModels.History(repository, identity.SessionId), _broker).Callbacks,
             security,
             skills,
             new RequestLimitsConfig { ImageBytesPerToolCycle = imageByteLimit },
@@ -2472,7 +2472,7 @@ internal sealed class DrainTests : IDisposable
 
     private IAgentSession SessionWithCompletionCallbacks(
         ILLMProvider provider,
-        IEventRepository repository,
+        EventRepository repository,
         IReadOnlyList<IAgentTurnCompletionCallback> completionCallbacks,
         IAgentProfile profile,
         CancellationToken lifetime)
@@ -2481,12 +2481,12 @@ internal sealed class DrainTests : IDisposable
         var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
         _dependencies.Add(dependencies);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, repository.GetRuntimeStatistics(), repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId), [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), new AgentOutputFile(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile, completionCallbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, TestModels.EmptySkills(TestModels.PromptTemplates), new RequestLimitsConfig(), dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, TestModels.History(repository, identity.SessionId), repository.GetRuntimeStatistics(), repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId), [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), new AgentOutputFile(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile, completionCallbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, TestModels.EmptySkills(TestModels.PromptTemplates), new RequestLimitsConfig(), dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
     }
 
     private IAgentSession Session(
         ILLMProvider provider,
-        IEventRepository repository,
+        EventRepository repository,
         IReadOnlyList<TestTool> toolFactories,
         IAgentProfile? profile,
         int contextWindow,
@@ -2507,7 +2507,7 @@ internal sealed class DrainTests : IDisposable
         });
         var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, repository.GetRuntimeStatistics(), repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId), [.. toolFactories.Select(tool => tool.Factory)], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), new AgentOutputFile(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile ?? dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, TestModels.EmptySkills(TestModels.PromptTemplates), new RequestLimitsConfig(), dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, TestModels.History(repository, identity.SessionId), repository.GetRuntimeStatistics(), repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId), [.. toolFactories.Select(tool => tool.Factory)], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), new AgentOutputFile(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile ?? dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, TestModels.History(repository, identity.SessionId), _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, TestModels.EmptySkills(TestModels.PromptTemplates), new RequestLimitsConfig(), dependencies.Status, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
     }
 
     private sealed class DrainProfile(

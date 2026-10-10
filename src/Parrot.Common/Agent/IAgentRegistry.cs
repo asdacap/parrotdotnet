@@ -41,11 +41,11 @@ internal interface IAgentRegistry : IAsyncDisposable
         ModelSelector model,
         IAgentProfile profile,
         SecurityProfile securityProfile,
-        IEventRepository childHistory,
+        IAgentHistory childHistory,
         CancellationToken childLifetime);
 
     /// <summary>Initializes child history from its parent or a registered sibling without changing ownership.</summary>
-    IEventRepository InitializeChildHistory(
+    IAgentHistory InitializeChildHistory(
         AgentIdentity child,
         HistoryForkBoundary boundary,
         HistoryForkSelection fork,

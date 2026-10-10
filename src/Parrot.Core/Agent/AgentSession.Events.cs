@@ -61,7 +61,7 @@ internal sealed partial class AgentSession
     {
         try
         {
-            _ = eventRepository.Append(published, role, content);
+            _ = agentHistory.Append(published, role, content);
         }
         catch (Exception failure)
         {

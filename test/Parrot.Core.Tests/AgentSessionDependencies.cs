@@ -21,7 +21,7 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
         AgentIdentity identity,
         Process.IProcessOwner processOwner,
         IEventBroker eventBroker,
-        IEventRepository eventRepository,
+        EventRepository eventRepository,
         IRuntimeStatus status,
         IAgentRegistry registry,
         IAgentQueues queues,
@@ -31,7 +31,7 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
         _processOwner = processOwner;
         ChildQuestions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), children, TestModels.PromptTemplates);
         ActiveWorkReminder = new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(_children, identity), new ProcessActiveWorkBlocker(processOwner), new QueueActiveWorkBlocker(queues, TestModels.PromptTemplates)], TestModels.PromptTemplates);
-        ExitReminder = new ExitReminder(eventRepository, eventBroker, TestModels.PromptTemplates, identity.SessionId);
+        ExitReminder = new ExitReminder(TestModels.History(eventRepository, identity.SessionId), eventBroker, TestModels.PromptTemplates, identity.SessionId);
         Profile = new TestProfileFixture().Profile;
         Status = status;
         Registry = registry;
@@ -56,7 +56,7 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
         AgentIdentity identity,
         ProviderModel model,
         IEventBroker eventBroker,
-        IEventRepository eventRepository,
+        EventRepository eventRepository,
         string promptDirectory,
         string blobDirectory,
         CompactionGroupBlobStore compactionGroupBlobs,
@@ -68,7 +68,7 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
             new ModelSelector(model.Selector),
             TestModels.Route(model),
             eventBroker,
-            eventRepository,
+            TestModels.History(eventRepository, identity.SessionId),
             eventRepository.GetRuntimeStatistics(),
             eventRepository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId),
             [],
@@ -83,7 +83,7 @@ internal sealed class AgentSessionDependencies : IDisposable, IAsyncDisposable
             ChildQuestions,
             ExitReminder,
             Profile,
-            new TestCompletionCallbacksFixture(ChildQuestions, ActiveWorkReminder, ExitReminder, eventRepository, eventBroker).Callbacks,
+            new TestCompletionCallbacksFixture(ChildQuestions, ActiveWorkReminder, ExitReminder, TestModels.History(eventRepository, identity.SessionId), eventBroker).Callbacks,
             new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security,
             TestModels.EmptySkills(TestModels.PromptTemplates),
             new RequestLimitsConfig(),

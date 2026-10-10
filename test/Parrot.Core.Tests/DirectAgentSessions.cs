@@ -50,21 +50,22 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
 
     private sealed class OwnerAgentSessions(DirectAgentSessions source, IUserSession owner) : IAgentSessionFactory
     {
-        public IEventRepository PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
-            repository.BindAgentHistory(new AgentHistoryFile(owner.Resources.AgentScratch(identity.NamePath), [identity.SessionId]));
+        public IAgentHistory PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
+            repository.BindAgentHistory(identity.SessionId, new AgentHistoryFile(owner.Resources.AgentScratch(identity.NamePath), [identity.SessionId]));
 
         public IAgentSessionScope Create(
             AgentIdentity identity,
             AgentSessionParentLink parentLink,
             ModelSelector model,
             IEventBroker eventBroker,
-            IEventRepository eventRepository,
+            IAgentHistory history,
+            IUserSessionStatistics statistics,
             IAgentProfile profile,
             SecurityProfile securityProfile,
             IAgentRegistry registry,
             CancellationToken lifetime)
         {
-            eventRepository.RefreshAgentHistory(identity.SessionId);
+            history.Refresh();
             source._identities.Add(identity);
             var router = source._router ?? throw new InvalidOperationException("model router is not configured");
             var security = new SecurityProfileTestFixture(securityProfile).Security;
@@ -83,8 +84,8 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
                 var queues = owningScope.GetService<IAgentQueues>();
                 var status = TestModels.ScopedRuntimeStatus(registry, owningScope);
                 source._queues.Add(queues);
-                var exitReminder = new ExitReminder(eventRepository, eventBroker, TestModels.PromptTemplates, identity.SessionId);
-                IAgentSession session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, eventRepository.GetRuntimeStatistics(), eventRepository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId), source._includeStatusTool ? [new StatusToolFactory(status, TestModels.ToolDefinitions)] : [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new AgentOutputFile(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(owner.Diagnostics, identity.SessionId, null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, profile, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(processes), new QueueActiveWorkBlocker(queues, TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker).Callbacks, security, TestModels.EmptySkills(TestModels.PromptTemplates), new RequestLimitsConfig(), status, new AgentSessionActivity(source._timeProvider), owner.Diagnostics, lifetime);
+                var exitReminder = new ExitReminder(history, eventBroker, TestModels.PromptTemplates, identity.SessionId);
+                IAgentSession session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, history, statistics, statistics.GetAgentStatistics(identity.SessionId), source._includeStatusTool ? [new StatusToolFactory(status, TestModels.ToolDefinitions)] : [], TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new AgentOutputFile(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(owner.Diagnostics, identity.SessionId, null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, profile, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(processes), new QueueActiveWorkBlocker(queues, TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, history, eventBroker).Callbacks, security, TestModels.EmptySkills(TestModels.PromptTemplates), new RequestLimitsConfig(), status, new AgentSessionActivity(source._timeProvider), owner.Diagnostics, lifetime);
                 source._sessions.Add(session);
                 return session;
             },

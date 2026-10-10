@@ -34,10 +34,11 @@ internal sealed class UserSession : IUserSession
     private readonly CancellationTokenSource _lifetime;
 
     // The main agent session is built after the rest of this owner has been
-    // initialized so recovered durable work can resume immediately. Its id is
-    // settled first so History can address it throughout construction.
+    // initialized so recovered durable work can resume immediately. Its id and
+    // history are settled during construction so History can read them before it.
     private readonly string _mainSessionId;
     private readonly AgentIdentity _mainIdentity;
+    private readonly IAgentHistory _mainHistory;
     private ModelSelector _model;
     private IAgentSessionScope? _main;
     private Task? _disposal;
@@ -113,6 +114,7 @@ internal sealed class UserSession : IUserSession
         _ = Directory.CreateDirectory(Resources.ScratchDirectory);
 
         _agentSessions = agentSessionFactories.Create(this);
+        _mainHistory = _agentSessions.PrepareHistory(_mainIdentity, _eventRepository);
         var retainedAgents = new RetainedAgentBudget(1024);
         Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _promptTemplates, retainedAgents, Diagnostics, _lifetime.Token);
         cleanup.Push(Registry.BeginShutdown);
@@ -372,7 +374,7 @@ internal sealed class UserSession : IUserSession
 
     // What a resumed session already said. Read from the projection, never by
     // replaying the raw event log.
-    public IReadOnlyList<string> History() => _eventRepository.Messages(_mainSessionId);
+    public IReadOnlyList<string> History() => _mainHistory.Messages();
 
     // Asynchronous because ending this session means waiting for its drains,
     // and only then closing what they write to. A synchronous Dispose would
@@ -638,7 +640,8 @@ internal sealed class UserSession : IUserSession
             AgentSessionParentLink.Root(),
             _model,
             _eventBroker,
-            _agentSessions.PrepareHistory(_mainIdentity, _eventRepository),
+            _mainHistory,
+            _eventRepository.GetRuntimeStatistics(),
             Mode.Profile,
             Mode.Profile.SecurityProfile,
             Registry,

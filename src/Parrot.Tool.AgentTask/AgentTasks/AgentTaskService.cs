@@ -16,7 +16,7 @@ internal sealed class AgentTaskService(
     AgentTaskConfig configuration,
     AgentTaskNotifier notifier,
     IEventBroker eventBroker,
-    IEventRepository eventRepository,
+    IAgentHistory history,
     IDiagnosticLog diagnostics,
     CancellationToken lifetime) : IAgentTaskService
 {
@@ -506,7 +506,7 @@ internal sealed class AgentTaskService(
             AgentSessionId = ownerAgentSessionId,
             AgentTaskProgressSnapshot = snapshot,
         };
-        _ = eventRepository.Append(published, null, null);
+        _ = history.Append(published, null, null);
         eventBroker.Publish(published);
     }
 

@@ -415,14 +415,13 @@ internal sealed partial class AgentSession
             await eventBroker.PublishWithCancellation(admission.Published, cancellationToken).ConfigureAwait(false);
         }
 
-        var incoming = admission.Created || eventRepository.HasPendingInputs(SessionId) ? activity : null;
+        var incoming = admission.Created || agentHistory.HasPendingInputs() ? activity : null;
         var (followUp, selectedDrain) = WakeSelected(incoming, null, CancellationToken.None);
         return (admission, followUp, selectedDrain);
     }
 
     private Admission AdmitParts(IReadOnlyList<ConversationPart> parts, string messageId, Delivery delivery, InputSource source) =>
-        eventRepository.AdmitParts(
-            SessionId,
+        agentHistory.AdmitParts(
             messageId,
             parts,
             delivery,
@@ -529,8 +528,7 @@ internal sealed partial class AgentSession
                     && (!started || ownedExecution.CancellationToken.IsCancellationRequested))
                 {
                     var inputId = ownedExecution.Admission.Input.Id;
-                    var canceled = eventRepository.CancelPendingInput(
-                        SessionId,
+                    var canceled = agentHistory.CancelPendingInput(
                         inputId,
                         () => new Event
                         {
@@ -563,7 +561,7 @@ internal sealed partial class AgentSession
                     // recovered or otherwise pre-existing input cannot be stranded.
                     if (pass.Status == AgentExecutionStatus.Succeeded
                         && !cancellationToken.IsCancellationRequested
-                        && (_forcedCompactions.Count > 0 || _drainLifecycle.Wake || eventRepository.HasPendingInputs(SessionId)))
+                        && (_forcedCompactions.Count > 0 || _drainLifecycle.Wake || agentHistory.HasPendingInputs()))
                     {
                         _drainLifecycle.Wake = false;
                         continue;
@@ -648,7 +646,7 @@ internal sealed partial class AgentSession
 
                 // Looking is not consuming. A pending status remains pending
                 // while an idle drain has no input that could reach a provider.
-                if (!completionRetryPending && !Answerable() && !eventRepository.HasPendingInputs(SessionId))
+                if (!completionRetryPending && !Answerable() && !agentHistory.HasPendingInputs())
                 {
                     return AgentExecution.Succeeded(answer);
                 }
@@ -750,7 +748,7 @@ internal sealed partial class AgentSession
                         Id = Identifier.EventId(),
                         AgentSessionId = SessionId,
                     };
-                    eventRepository.AppendConversation(
+                    agentHistory.AppendConversation(
                         published,
                         ConversationOrigin.Model,
                         LLMRole.Assistant,
@@ -957,8 +955,7 @@ internal sealed partial class AgentSession
     // makes it a turn of its own rather than a second voice in this one.
     private async Task<int> Promote(CancellationToken cancellationToken)
     {
-        var promoted = eventRepository.PromoteSteers(
-            SessionId,
+        var promoted = agentHistory.PromoteSteers(
             input => new Event
             {
                 Id = Identifier.EventId(),
@@ -968,8 +965,7 @@ internal sealed partial class AgentSession
 
         if (promoted.Count == 0 && !Answerable())
         {
-            promoted = eventRepository.PromoteNextQueue(
-                SessionId,
+            promoted = agentHistory.PromoteNextQueue(
                 input => new Event
                 {
                     Id = Identifier.EventId(),
@@ -981,7 +977,7 @@ internal sealed partial class AgentSession
         foreach (var promotion in promoted)
         {
             _skills.Select(promotion.Input.Parts);
-            _history.Add(LLMMessage.User(eventRepository.Materialize(promotion.Input.Parts)));
+            _history.Add(LLMMessage.User(agentHistory.Materialize(promotion.Input.Parts)));
             await eventBroker.PublishWithCancellation(promotion.Published, cancellationToken).ConfigureAwait(false);
         }
 
@@ -1005,7 +1001,7 @@ internal sealed partial class AgentSession
             AgentSessionId = SessionId,
             SkillContextInjected = new SkillContextInjected(),
         };
-        _ = eventRepository.AppendMessage(published, LLMMessage.User(rendering.Content), ConversationOrigin.System);
+        _ = agentHistory.AppendMessage(published, LLMMessage.User(rendering.Content), ConversationOrigin.System);
         _history.Add(LLMMessage.User(rendering.Content));
         await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
         foreach (var loadedSkillPath in rendering.LoadedPaths)
@@ -1080,7 +1076,7 @@ internal sealed partial class AgentSession
                 Reason = notice,
             },
         };
-        _ = eventRepository.AppendMessage(published, LLMMessage.System(notice), ConversationOrigin.System);
+        _ = agentHistory.AppendMessage(published, LLMMessage.System(notice), ConversationOrigin.System);
         _history.Add(LLMMessage.System(notice));
         await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
     }
@@ -1092,10 +1088,9 @@ internal sealed partial class AgentSession
     {
         // Everything at or before the watermark was settled by an earlier pass,
         // so only the first pass after a restart walks the whole conversation.
-        var conversation = eventRepository.ConversationAfter(SessionId, _settledConversationSequence);
+        var conversation = agentHistory.ConversationAfter(_settledConversationSequence);
         var batches = conversation.Where(item => item.Role == LLMRole.Assistant && item.ToolCalls.Count > 0).ToArray();
-        var terminals = eventRepository.ToolTerminalsOfCalls(
-                SessionId,
+        var terminals = agentHistory.ToolTerminalsOfCalls(
                 [.. batches.SelectMany(batch => batch.ToolCalls).Select(call => call.Id)])
             .ToDictionary(terminal => terminal.ToolCallId, StringComparer.Ordinal);
 
@@ -1117,7 +1112,7 @@ internal sealed partial class AgentSession
 
                 foreach (var part in settledTerminal.ResultParts.Where(part => part.Kind == ConversationPartKind.ImageArtifact))
                 {
-                    var artifact = eventRepository.ResolveImageArtifact(part.ArtifactId)
+                    var artifact = agentHistory.ResolveImageArtifact(part.ArtifactId)
                         ?? throw new InvalidDataException("A settled tool image artifact is missing.");
                     imageBudget.RestoreAccepted(artifact.ByteLength);
                 }
@@ -1221,12 +1216,12 @@ internal sealed partial class AgentSession
                 .SelectMany(terminal => terminal.ResultParts)
                 .Where(part => part.Kind == ConversationPartKind.ImageArtifact)
                 .ToArray();
-            if (images.Length > 0 && !eventRepository.HasToolSynthetic(batch.Sequence, SessionId))
+            if (images.Length > 0 && !agentHistory.HasToolSynthetic(batch.Sequence))
             {
                 var published = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
-                if (eventRepository.AppendToolSynthetic(published, batch.Sequence, images) is { } synthetic)
+                if (agentHistory.AppendToolSynthetic(published, batch.Sequence, images) is { } synthetic)
                 {
-                    _history.Add(RestoreMessage(eventRepository, synthetic));
+                    _history.Add(RestoreMessage(agentHistory, synthetic));
                 }
 
                 await eventBroker.PublishWithCancellation(published, CancellationToken.None).ConfigureAwait(false);
@@ -1241,12 +1236,12 @@ internal sealed partial class AgentSession
 
     private void RestoreToolSettlement(long assistantSequence, ToolExecutionTerminal terminal)
     {
-        if (eventRepository.AppendToolSettlement(
+        if (agentHistory.AppendToolSettlement(
                 new Event { Id = Identifier.EventId(), AgentSessionId = SessionId },
                 assistantSequence,
                 terminal) is { } result)
         {
-            _history.Add(RestoreMessage(eventRepository, result));
+            _history.Add(RestoreMessage(agentHistory, result));
         }
     }
 
@@ -1255,9 +1250,9 @@ internal sealed partial class AgentSession
         (Event Published, ToolExecutionTerminal Terminal) settlement,
         Dictionary<string, ToolExecutionTerminal> terminals)
     {
-        if (eventRepository.AppendToolSettlement(settlement.Published, assistantSequence, settlement.Terminal) is { } result)
+        if (agentHistory.AppendToolSettlement(settlement.Published, assistantSequence, settlement.Terminal) is { } result)
         {
-            _history.Add(RestoreMessage(eventRepository, result));
+            _history.Add(RestoreMessage(agentHistory, result));
         }
 
         await eventBroker.PublishWithCancellation(settlement.Published, CancellationToken.None).ConfigureAwait(false);

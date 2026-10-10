@@ -4,7 +4,7 @@ using Parrot.Store;
 
 namespace Parrot.Agent;
 
-internal sealed class UserSessionStatistics(AgentStatisticsReplay replay) : IUserSessionStatistics
+internal sealed class UserSessionStatistics(AgentStatisticsReplay replay, IEventRepository repository) : IUserSessionStatistics
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<string, AgentSessionStatistics> _agents = replay.Agents.ToDictionary(
@@ -40,7 +40,6 @@ internal sealed class UserSessionStatistics(AgentStatisticsReplay replay) : IUse
     }
 
     public void RecordUsage(
-        IEventRepository repository,
         IEventBroker broker,
         Event fact,
         AgentUsageIncrement increment,

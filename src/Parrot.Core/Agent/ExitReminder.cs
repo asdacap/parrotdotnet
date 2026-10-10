@@ -6,13 +6,13 @@ using Parrot.Store;
 namespace Parrot.Agent;
 
 internal sealed class ExitReminder(
-    IEventRepository repository,
+    IAgentHistory history,
     IEventBroker eventBroker,
     IPromptTemplateCatalog promptTemplates,
     string agentSessionId) : IExitReminder
 {
     private readonly Lock _gate = new();
-    private readonly List<ExitReminderEntry> _current = [.. repository.ExitReminders(agentSessionId)];
+    private readonly List<ExitReminderEntry> _current = [.. history.ExitReminders()];
     private int _count;
 
     public IReadOnlyList<string> Titles
@@ -123,7 +123,7 @@ internal sealed class ExitReminder(
             Id = Identifier.EventId(),
             AgentSessionId = agentSessionId,
         };
-        repository.AppendExitReminderChanged(published, title, description);
+        history.AppendExitReminderChanged(published, title, description);
         return published;
     }
 }

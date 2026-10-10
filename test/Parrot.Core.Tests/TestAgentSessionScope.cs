@@ -50,7 +50,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
             new AgentTaskConfig(5, 3, AgentTaskForkHistoryMode.Parent, promptTemplates),
             new AgentTaskNotifier(this, new ToolOutputBlobStore(resources.AgentScratch(owner.NamePath).Root), diagnostics),
             _events,
-            new EventRepository(_agentTaskDatabase),
+            TestModels.History(new EventRepository(_agentTaskDatabase), owner.SessionId),
             diagnostics,
             lifetime);
         _childQuestion = new ChildQuestion(owner);

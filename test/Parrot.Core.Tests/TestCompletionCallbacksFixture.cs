@@ -9,13 +9,13 @@ internal sealed class TestCompletionCallbacksFixture(
     IChildQuestionCoordinator childQuestions,
     ActiveWorkCompletionReminder activeWorkReminder,
     IExitReminder exitReminder,
-    IEventRepository eventRepository,
+    IAgentHistory history,
     IEventBroker eventBroker)
 {
     public IReadOnlyList<IAgentTurnCompletionCallback> Callbacks { get; } =
     [
-        new PendingChildQuestionTurnCompletionCallback(childQuestions, eventRepository, eventBroker),
-        new ActiveWorkTurnCompletionCallback(activeWorkReminder, eventRepository, eventBroker),
-        new ExitReminderTurnCompletionCallback(exitReminder, eventRepository, eventBroker),
+        new PendingChildQuestionTurnCompletionCallback(childQuestions, history, eventBroker),
+        new ActiveWorkTurnCompletionCallback(activeWorkReminder, history, eventBroker),
+        new ExitReminderTurnCompletionCallback(exitReminder, history, eventBroker),
     ];
 }

@@ -246,7 +246,7 @@ internal sealed class AgentSpawner : IAgentSpawner
             throw;
         }
 
-        IEventRepository? childHistory = null;
+        IAgentHistory? childHistory = null;
         IAgentSessionScope? constructedScope = null;
         try
         {
@@ -278,7 +278,7 @@ internal sealed class AgentSpawner : IAgentSpawner
         }
         catch
         {
-            RejectConstruction(childIdentity.SessionId, retainedReservation, constructedScope, childHistory);
+            RejectConstruction(retainedReservation, constructedScope, childHistory);
             throw;
         }
         finally
@@ -288,10 +288,9 @@ internal sealed class AgentSpawner : IAgentSpawner
     }
 
     private void RejectConstruction(
-        string sessionId,
         RetainedAgentReservation reservation,
         IAgentSessionScope? constructedScope,
-        IEventRepository? childHistory)
+        IAgentHistory? childHistory)
     {
         reservation.Rollback();
         if (constructedScope is not null)
@@ -303,7 +302,7 @@ internal sealed class AgentSpawner : IAgentSpawner
             }
         }
 
-        childHistory?.CleanupForkedAgentHistory(sessionId);
+        childHistory?.CleanupFork();
     }
 
     private void CompleteConstruction()

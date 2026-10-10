@@ -1,6 +1,5 @@
 using Parrot.Events;
 using Parrot.Protocol;
-using Parrot.Store;
 
 namespace Parrot.Agent;
 
@@ -15,7 +14,6 @@ internal interface IUserSessionStatistics
 
     /// <summary>Commits a usage fact, applies its increment, and publishes the agent's and the root's updated snapshots once.</summary>
     void RecordUsage(
-        IEventRepository repository,
         IEventBroker broker,
         Event fact,
         AgentUsageIncrement increment,

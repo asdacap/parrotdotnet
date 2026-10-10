@@ -20,7 +20,7 @@ internal sealed class ExitReminderTests
         using var database = SessionDatabase.Open(":memory:");
         var repository = new EventRepository(database);
         using var broker = new EventBroker();
-        IExitReminder exitReminder = new ExitReminder(repository, broker, TestModels.PromptTemplates, "agent");
+        IExitReminder exitReminder = new ExitReminder(TestModels.History(repository, "agent"), broker, TestModels.PromptTemplates, "agent");
         await exitReminder.Set("tests", "run the tests", cancellationToken);
         using var listener = broker.Subscribe();
 
@@ -37,7 +37,7 @@ internal sealed class ExitReminderTests
         _ = await Assert.That(announced.ExitReminderChanged.Title).IsEqualTo("port");
         _ = await Assert.That(announced.AgentSessionId).IsEqualTo("agent");
         _ = await Assert.That(repository.ExitReminders("agent").Count).IsEqualTo(expectedRestored);
-        _ = await Assert.That(new ExitReminder(repository, broker, TestModels.PromptTemplates, "agent").Titles.Count)
+        _ = await Assert.That(new ExitReminder(TestModels.History(repository, "agent"), broker, TestModels.PromptTemplates, "agent").Titles.Count)
             .IsEqualTo(expectedRestored);
     }
 

@@ -47,7 +47,7 @@ internal sealed partial class AgentSession
         ArgumentNullException.ThrowIfNull(result);
 
         var tools = PermittedTools(selection);
-        var history = RestoreHistory(eventRepository, SessionId);
+        var history = RestoreHistory(agentHistory);
         var formattedResult = promptTemplates.Render(
             "tool-result.text",
             [new PromptTemplateArgument("value", result)]);
@@ -93,8 +93,8 @@ internal sealed partial class AgentSession
     private List<LLMMessage> HistoryWithNextPromotion()
     {
         var history = new List<LLMMessage>(_history);
-        history.AddRange(eventRepository.InputsForNextPromotion(SessionId)
-            .Select(input => LLMMessage.User(eventRepository.Materialize(input.Parts))));
+        history.AddRange(agentHistory.InputsForNextPromotion()
+            .Select(input => LLMMessage.User(agentHistory.Materialize(input.Parts))));
         return history;
     }
 
@@ -178,7 +178,7 @@ internal sealed partial class AgentSession
 
         if (!_epochContext.ContextCadenceRestored)
         {
-            contextCadence.Restore(eventRepository.LatestContextReminder(SessionId));
+            contextCadence.Restore(agentHistory.LatestContextReminder());
             _epochContext.ContextCadenceRestored = true;
         }
 
@@ -227,7 +227,7 @@ internal sealed partial class AgentSession
 
         var checkpoint = new ContextReminderCheckpoint(selectedModel.Selector, context.ContextLimit, percentage);
         var published = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
-        if (!eventRepository.AppendContextReminder(published, checkpoint, context.UsagePercent.GetValueOrDefault(), reminder))
+        if (!agentHistory.AppendContextReminder(published, checkpoint, context.UsagePercent.GetValueOrDefault(), reminder))
         {
             contextCadence.Acknowledge(insertedContext, selectedModel.Selector, _history.Count);
             return instructions;
@@ -286,8 +286,8 @@ internal sealed partial class AgentSession
             var reduced = false;
             _systemPrompt.RenewEpoch();
             instructions = _systemPrompt.Build(selection);
-            var effective = eventRepository.EffectiveConversationGroups(SessionId);
-            var activeCheckpoints = eventRepository.ActiveCheckpointAssistantSequences(SessionId);
+            var effective = agentHistory.EffectiveConversationGroups();
+            var activeCheckpoints = agentHistory.ActiveCheckpointAssistantSequences();
             var compactionGroups = new List<CompactionGroup>();
             if (effective.Snapshot is not null)
             {
@@ -299,7 +299,7 @@ internal sealed partial class AgentSession
             }
 
             compactionGroups.AddRange(effective.Groups.Select(group => new CompactionGroup(
-                [.. group.Items.Select(item => RestoreMessage(eventRepository, item))],
+                [.. group.Items.Select(item => RestoreMessage(agentHistory, item))],
                 group.EndWatermark,
                 group.AssistantSequence > 0 && activeCheckpoints.Contains(group.AssistantSequence),
                 group.IsComplete)));
@@ -353,7 +353,7 @@ internal sealed partial class AgentSession
                     AgentSessionId = SessionId,
                     StatusInjected = new StatusInjected(),
                 };
-                if (!eventRepository.AppendCompactionStatus(
+                if (!agentHistory.AppendCompactionStatus(
                         statusInjected,
                         new CompactionSnapshot(compacted.Summary.Content, compacted.Watermark),
                         statusContent))
@@ -364,7 +364,7 @@ internal sealed partial class AgentSession
                 reduced = true;
                 _providerTokenBudget.Reset();
                 _history.Clear();
-                _history.AddRange(RestoreHistory(eventRepository, SessionId));
+                _history.AddRange(RestoreHistory(agentHistory));
                 var persistedContext = compactor.EstimateSelectedContext(
                     selection.ResolvedModel,
                     instructions,
@@ -422,7 +422,7 @@ internal sealed partial class AgentSession
             Id = Identifier.EventId(),
             AgentSessionId = SessionId,
         };
-        eventRepository.AppendFinalProviderRequestPrompt(published, content);
+        agentHistory.AppendFinalProviderRequestPrompt(published, content);
         _history.Add(LLMMessage.System(content));
         await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
     }
@@ -434,7 +434,7 @@ internal sealed partial class AgentSession
             Id = Identifier.EventId(),
             AgentSessionId = SessionId,
         };
-        if (!eventRepository.AppendToolAvailabilityRestoredPrompt(published, _toolAvailabilityRestoredPrompt))
+        if (!agentHistory.AppendToolAvailabilityRestoredPrompt(published, _toolAvailabilityRestoredPrompt))
         {
             return;
         }
@@ -465,14 +465,14 @@ internal sealed partial class AgentSession
                 AgentSessionId = SessionId,
                 StatusInjected = new StatusInjected(),
             };
-            eventRepository.AppendInitialStatusPrompt(published, content);
+            agentHistory.AppendSystemPrompt(published, content);
             _history.Add(LLMMessage.System(content));
             _epochContext.InitialStatusPending = false;
             await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
             return selection;
         }
 
-        while (eventRepository.PendingStatus(SessionId) is { } pending)
+        while (agentHistory.PendingStatus() is { } pending)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var profile = selection.Profile;
@@ -495,7 +495,7 @@ internal sealed partial class AgentSession
                 AgentSessionId = SessionId,
                 StatusInjected = new StatusInjected(),
             };
-            if (!eventRepository.AppendStatusPrompt(published, pending, content))
+            if (!agentHistory.AppendStatusPrompt(published, pending, content))
             {
                 selection = RefreshSelection(selection);
                 continue;

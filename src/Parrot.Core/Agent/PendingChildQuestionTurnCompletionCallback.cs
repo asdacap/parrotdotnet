@@ -7,7 +7,7 @@ namespace Parrot.Agent;
 
 internal sealed class PendingChildQuestionTurnCompletionCallback(
     IChildQuestionCoordinator childQuestions,
-    IEventRepository eventRepository,
+    IAgentHistory history,
     IEventBroker eventBroker) : IAgentTurnCompletionCallback
 {
     public async ValueTask<AgentTurnCompletionOutcome> Complete(
@@ -22,7 +22,7 @@ internal sealed class PendingChildQuestionTurnCompletionCallback(
             if (completionAttempt.Reminder is { } reminder)
             {
                 var published = new Event { Id = Identifier.EventId(), AgentSessionId = candidate.SessionId };
-                eventRepository.AppendPendingChildQuestionReminder(published, candidate.AssistantText, reminder);
+                history.AppendPendingChildQuestionReminder(published, candidate.AssistantText, reminder);
                 await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
                 return AgentTurnCompletionOutcome.Retry(reminder, true, true);
             }

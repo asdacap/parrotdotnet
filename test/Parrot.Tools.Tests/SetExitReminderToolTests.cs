@@ -14,7 +14,7 @@ internal sealed class SetExitReminderToolTests
         using var database = SessionDatabase.Open(":memory:");
         var repository = new EventRepository(database);
         using var broker = new EventBroker();
-        var reminder = new ExitReminder(repository, broker, TestModels.PromptTemplates, "agent");
+        var reminder = new ExitReminder(TestModels.History(repository, "agent"), broker, TestModels.PromptTemplates, "agent");
         ITool set = new SetExitReminderTool(reminder, TestModels.PromptTemplates);
         ITool clear = new ClearExitReminderTool(reminder, TestModels.PromptTemplates);
         var selection = TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], []));
@@ -53,7 +53,7 @@ internal sealed class SetExitReminderToolTests
         using var database = SessionDatabase.Open(":memory:");
         var repository = new EventRepository(database);
         using var broker = new EventBroker();
-        var reminder = new ExitReminder(repository, broker, TestModels.PromptTemplates, "agent");
+        var reminder = new ExitReminder(TestModels.History(repository, "agent"), broker, TestModels.PromptTemplates, "agent");
         ITool set = new SetExitReminderTool(reminder, TestModels.PromptTemplates);
         ITool clear = new ClearExitReminderTool(reminder, TestModels.PromptTemplates);
         var selection = TestTurnSelection.Create(SecurityProfile.Compose(readOnly: false, [], [], []));

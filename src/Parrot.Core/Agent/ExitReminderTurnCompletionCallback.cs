@@ -6,7 +6,7 @@ namespace Parrot.Agent;
 
 internal sealed class ExitReminderTurnCompletionCallback(
     IExitReminder exitReminder,
-    IEventRepository eventRepository,
+    IAgentHistory history,
     IEventBroker eventBroker) : IAgentTurnCompletionCallback
 {
     public async ValueTask<AgentTurnCompletionOutcome> Complete(
@@ -20,7 +20,7 @@ internal sealed class ExitReminderTurnCompletionCallback(
         }
 
         var published = new Event { Id = Identifier.EventId(), AgentSessionId = candidate.SessionId };
-        eventRepository.AppendExitReminder(published, candidate.AssistantText, reminder);
+        history.AppendExitReminder(published, candidate.AssistantText, reminder);
         await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
         return AgentTurnCompletionOutcome.Retry(reminder, true, true);
     }

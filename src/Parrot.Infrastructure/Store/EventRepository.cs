@@ -61,14 +61,15 @@ internal sealed partial class EventRepository : IEventRepository
 
         lock (_database.Gate)
         {
-            return _runtimeStatistics ??= new UserSessionStatistics(ReplayStatistics());
+            return _runtimeStatistics ??= new UserSessionStatistics(ReplayStatistics(), this);
         }
     }
 
-    public IEventRepository BindAgentHistory(IAgentHistoryFile historyFile)
+    public IAgentHistory BindAgentHistory(string agentSessionId, IAgentHistoryFile historyFile)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentSessionId);
         ArgumentNullException.ThrowIfNull(historyFile);
-        return new EventRepository(this, historyFile);
+        return new AgentHistoryView(new EventRepository(this, historyFile), agentSessionId);
     }
 
     public void RefreshAgentHistory(string agentSessionId) =>
@@ -1438,11 +1439,9 @@ internal sealed partial class EventRepository : IEventRepository
         return true;
     }
 
-    public void AppendInitialStatusPrompt(Event published, string content)
+    public void AppendSystemPrompt(Event published, string content)
     {
         ArgumentNullException.ThrowIfNull(published);
-
-        published.StatusInjected = new StatusInjected();
 
         lock (_database.Gate)
         {
@@ -1484,23 +1483,6 @@ internal sealed partial class EventRepository : IEventRepository
                 [ConversationPart.TextPart(reminder)],
                 [],
                 string.Empty);
-            transaction.Commit();
-        }
-
-        RefreshAgentHistory(published.AgentSessionId);
-    }
-
-    public void AppendActiveWorkReminder(Event published, string content)
-    {
-        ArgumentNullException.ThrowIfNull(published);
-
-        published.ActiveWorkReminderInjected = new ActiveWorkReminderInjected();
-
-        lock (_database.Gate)
-        {
-            _historyFile?.ValidateSession(published.AgentSessionId);
-            using var transaction = _database.Begin();
-            Project(transaction, published.AgentSessionId, "system", content);
             transaction.Commit();
         }
 

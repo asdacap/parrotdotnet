@@ -294,14 +294,14 @@ internal sealed class WaitToolTests : IAsyncDisposable
     private TestAgentSessionScope Session(
         ILLMProvider provider,
         IReadOnlyList<Parrot.Tools.IToolFactory> tools,
-        IEventRepository? selectedRepository,
+        EventRepository? selectedRepository,
         IAgentRegistry registry) =>
         BuildSession(provider, tools, selectedRepository ?? new EventRepository(_database), registry, AgentIdentity.Main("agent", "main", TestModels.PromptTemplates), AgentSessionParentLink.Root(), QueueResources("agent"), TestDiagnosticLog.Instance);
 
     private TestAgentSessionScope BuildSession(
         ILLMProvider provider,
         IReadOnlyList<Parrot.Tools.IToolFactory> tools,
-        IEventRepository repository,
+        EventRepository repository,
         IAgentRegistry registry,
         AgentIdentity identity,
         AgentSessionParentLink parentLink,
@@ -319,8 +319,8 @@ internal sealed class WaitToolTests : IAsyncDisposable
             diagnostics,
             (sessionParentScope, owningScope, children, childQuestions) =>
             {
-                var exitReminder = new ExitReminder(repository, _broker, TestModels.PromptTemplates, identity.SessionId);
-                IAgentSession session = new AgentSession(identity, sessionParentScope, new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, repository.GetRuntimeStatistics(), repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId), tools, TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), new AgentOutputFile(Path.Combine(_root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, new TestProfileFixture().Profile, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.GetService<IProcessOwner>()), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, TestModels.EmptySkills(TestModels.PromptTemplates), new RequestLimitsConfig(), TestModels.ScopedRuntimeStatus(registry, owningScope), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
+                var exitReminder = new ExitReminder(TestModels.History(repository, identity.SessionId), _broker, TestModels.PromptTemplates, identity.SessionId);
+                IAgentSession session = new AgentSession(identity, sessionParentScope, new ModelSelector(model.Selector), TestModels.Route(model), _broker, TestModels.History(repository, identity.SessionId), repository.GetRuntimeStatistics(), repository.GetRuntimeStatistics().GetAgentStatistics(identity.SessionId), tools, TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), new AgentOutputFile(Path.Combine(_root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, new TestProfileFixture().Profile, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder([new ChildAgentActiveWorkBlocker(children, identity), new ProcessActiveWorkBlocker(owningScope.GetService<IProcessOwner>()), new QueueActiveWorkBlocker(owningScope.GetService<IAgentQueues>(), TestModels.PromptTemplates)], TestModels.PromptTemplates), exitReminder, TestModels.History(repository, identity.SessionId), _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, TestModels.EmptySkills(TestModels.PromptTemplates), new RequestLimitsConfig(), TestModels.ScopedRuntimeStatus(registry, owningScope), new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
                 return session;
             },
             CancellationToken.None);
@@ -336,7 +336,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         return scope;
     }
 
-    private IAgentRegistry PrepareRegistry(IEventRepository repository)
+    private IAgentRegistry PrepareRegistry(EventRepository repository)
     {
         IAgentRegistry registry = new AgentRegistry(
             new UnsupportedAgentSessionFactory(),
@@ -441,7 +441,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
 
     private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory
     {
-        public IEventRepository PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
+        public IAgentHistory PrepareHistory(AgentIdentity identity, IEventRepository repository) =>
             throw new NotSupportedException("This test session does not support spawning subagents.");
 
         public IAgentSessionScope Create(
@@ -449,7 +449,8 @@ internal sealed class WaitToolTests : IAsyncDisposable
             AgentSessionParentLink parentLink,
             ModelSelector model,
             IEventBroker eventBroker,
-            IEventRepository eventRepository,
+            IAgentHistory history,
+            IUserSessionStatistics statistics,
             IAgentProfile profile,
             SecurityProfile securityProfile,
             IAgentRegistry registry,
