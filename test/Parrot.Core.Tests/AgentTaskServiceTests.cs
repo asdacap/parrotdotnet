@@ -95,6 +95,51 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
     }
 
     [Test]
+    public async Task Successful_task_wakes_the_owner_before_the_graph_completes(CancellationToken cancellationToken)
+    {
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSecond = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var successReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = new AgentTaskReplyProvider(async (request, token) =>
+        {
+            if (!AgentTaskReplyProvider.IsTaskAgent(request))
+            {
+                var conversation = AgentTaskReplyProvider.Conversation(request);
+                if (conversation.Contains("AgentTask succeeded: a", StringComparison.Ordinal))
+                {
+                    _ = successReceived.TrySetResult();
+                }
+
+                return "noted";
+            }
+
+            if (TaskName(request) == "a")
+            {
+                await releaseFirst.Task.WaitAsync(token);
+                return Accept("a done");
+            }
+
+            await releaseSecond.Task.WaitAsync(token);
+            return Accept("b done");
+        });
+        var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
+        await using var registry = fixture.Runtime.Registry;
+        await using var service = fixture.Service;
+        Set(fixture, Declare("a", string.Empty), Declare("b", ",\"dependencies\":[\"a\"]"));
+        _ = await WaitForAdmitted(fixture.Runtime.Parent.SessionId, "AgentTask states changed by your update:", cancellationToken);
+        _ = await Assert.That(fixture.Runtime.Parent.IsIdle()).IsTrue();
+
+        releaseFirst.SetResult();
+        await successReceived.Task.WaitAsync(cancellationToken);
+        var tasks = await WaitFor(service, tasks => tasks[1].State == AgentTaskExecutionStatus.Running, cancellationToken);
+        _ = await Assert.That(States(tasks)).IsEqualTo("a:Succeeded,b:Running");
+        var notificationRequest = provider.Requests.Last(request => !AgentTaskReplyProvider.IsTaskAgent(request));
+        _ = await Assert.That(AgentTaskReplyProvider.Conversation(notificationRequest))
+            .Contains("AgentTask succeeded: a\nDescription: Do a\n\nResult:\na done")
+            .And.DoesNotContain("All AgentTasks are complete:");
+    }
+
+    [Test]
     public async Task Runs_tasks_in_dependency_order_notifies_the_owner_and_resets_dependents_of_a_reset_task(
         CancellationToken cancellationToken)
     {

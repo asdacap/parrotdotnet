@@ -366,7 +366,7 @@ internal sealed class AgentTaskService(
                     ("description", outcome.Description),
                     ("result", outcome.Result ?? string.Empty)),
                 NotificationCause,
-                false);
+                true);
         }
         else
         {
