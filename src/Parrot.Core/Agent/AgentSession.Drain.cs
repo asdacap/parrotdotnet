@@ -761,6 +761,10 @@ internal sealed partial class AgentSession
                     continue;
                 }
 
+                var assistant = LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls) with
+                {
+                    ProviderContent = completed.ProviderContent,
+                };
                 if (completed.ToolCalls.Count > 0)
                 {
                     var published = new Event
@@ -774,8 +778,9 @@ internal sealed partial class AgentSession
                         LLMRole.Assistant,
                         [ConversationPart.TextPart(completed.AssistantText)],
                         completed.ToolCalls,
+                        completed.ProviderContent,
                         string.Empty);
-                    conversation.Add(LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls));
+                    conversation.Add(assistant);
                     await eventBroker.PublishWithCancellation(published, cancellationToken).ConfigureAwait(false);
                     Activity.RecordAssistantMessage(completed.AssistantText);
                     await eventEmitter.Emit(
@@ -810,7 +815,7 @@ internal sealed partial class AgentSession
                 var completionCandidate = new AgentTurnCompletionCandidate(
                     SessionId,
                     Identifier.MessageId(),
-                    completed.AssistantText,
+                    assistant,
                     activeSelection.Profile);
                 AgentTurnCompletionOutcome.RetryOutcome? retryOutcome = null;
                 foreach (var callback in _turnCompletionCallbacks)
@@ -830,7 +835,7 @@ internal sealed partial class AgentSession
                         ?? throw new InvalidOperationException("A retry outcome requires a system message.");
                     if (retryOutcome.RetainCandidateAssistant)
                     {
-                        conversation.Add(LLMMessage.Assistant(completed.AssistantText, []));
+                        conversation.Add(completionCandidate.Assistant);
                     }
 
                     conversation.Add(LLMMessage.System(systemMessage));
@@ -850,7 +855,7 @@ internal sealed partial class AgentSession
 
                 answer = completed.AssistantText;
                 completionRetryPending = false;
-                conversation.Add(LLMMessage.Assistant(completed.AssistantText, []));
+                conversation.Add(assistant);
                 var ended = new Event
                 {
                     Id = Identifier.EventId(),
@@ -862,7 +867,7 @@ internal sealed partial class AgentSession
                         OutputTokens = CaptureStatistics().Self.Totals.OutputTokens,
                     },
                 };
-                await eventEmitter.Emit(ended, "assistant", completed.AssistantText, cancellationToken)
+                await eventEmitter.EmitMessage(ended, assistant, ConversationOrigin.Model, cancellationToken)
                     .ConfigureAwait(false);
                 FinishTurn("completed", null);
                 Activity.RecordAssistantMessage(completed.AssistantText);

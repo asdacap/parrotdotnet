@@ -65,6 +65,7 @@ internal sealed class SessionStoreTests : IDisposable
                     LLMRole.User,
                     [ConversationPart.TextPart($"inactive durable history of {agentSessionId}")],
                     [],
+                    LLMProviderContent.None,
                     string.Empty);
             }
         }

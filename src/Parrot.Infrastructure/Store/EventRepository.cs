@@ -125,17 +125,19 @@ internal sealed partial class EventRepository : IEventRepository
         LLMRole role,
         IReadOnlyList<ConversationPart> parts,
         IReadOnlyList<LLMToolCall> toolCalls,
+        LLMProviderContent providerContent,
         string toolCallId)
     {
         ArgumentNullException.ThrowIfNull(published);
         ArgumentNullException.ThrowIfNull(parts);
         ArgumentNullException.ThrowIfNull(toolCalls);
+        ArgumentNullException.ThrowIfNull(providerContent);
         lock (_database.Gate)
         {
             _historyFile?.ValidateSession(published.AgentSessionId);
             using var transaction = _database.Begin();
             _ = Record(transaction, published);
-            _ = Project(transaction, published.AgentSessionId, origin, role, parts, toolCalls, toolCallId);
+            _ = Project(transaction, published.AgentSessionId, origin, role, parts, toolCalls, providerContent, toolCallId);
             transaction.Commit();
         }
 
@@ -184,6 +186,7 @@ internal sealed partial class EventRepository : IEventRepository
                 LLMRole.User,
                 imageParts,
                 [],
+                LLMProviderContent.None,
                 string.Empty);
             using var insert = _database.Connection.CreateCommand();
             insert.Transaction = transaction;
@@ -1152,6 +1155,7 @@ internal sealed partial class EventRepository : IEventRepository
                 LLMRole.System,
                 [ConversationPart.TextPart(content)],
                 [],
+                LLMProviderContent.None,
                 string.Empty);
             using (var association = _database.Connection.CreateCommand())
             {
@@ -1397,11 +1401,11 @@ internal sealed partial class EventRepository : IEventRepository
 
     public void AppendRetainedReminder(
         Event published,
-        string assistantContent,
+        LLMMessage assistant,
         string reminder)
     {
         ArgumentNullException.ThrowIfNull(published);
-        ArgumentNullException.ThrowIfNull(assistantContent);
+        ArgumentNullException.ThrowIfNull(assistant);
         ArgumentNullException.ThrowIfNull(reminder);
 
         lock (_database.Gate)
@@ -1409,14 +1413,7 @@ internal sealed partial class EventRepository : IEventRepository
             _historyFile?.ValidateSession(published.AgentSessionId);
             using var transaction = _database.Begin();
             _ = Record(transaction, published);
-            _ = Project(
-                transaction,
-                published.AgentSessionId,
-                ConversationOrigin.Model,
-                LLMRole.Assistant,
-                [ConversationPart.TextPart(assistantContent)],
-                [],
-                string.Empty);
+            Project(transaction, published.AgentSessionId, assistant, ConversationOrigin.Model);
             _ = Project(
                 transaction,
                 published.AgentSessionId,
@@ -1424,6 +1421,7 @@ internal sealed partial class EventRepository : IEventRepository
                 LLMRole.System,
                 [ConversationPart.TextPart(reminder)],
                 [],
+                LLMProviderContent.None,
                 string.Empty);
             transaction.Commit();
         }
@@ -1936,6 +1934,7 @@ internal sealed partial class EventRepository : IEventRepository
             Contents = [.. item.Parts.Select(part => LLMContent.TextPart(part.Text))],
             ToolCalls = item.ToolCalls,
             ToolCallId = item.ToolCallId,
+            ProviderContent = item.ProviderContent,
         };
     }
 
@@ -2090,6 +2089,7 @@ internal sealed partial class EventRepository : IEventRepository
                     LLMRole.User,
                     input.Parts,
                     [],
+                    LLMProviderContent.None,
                     string.Empty);
                 _ = Record(transaction, published);
                 promoted.Add(new Promotion(input, published));
@@ -2316,7 +2316,10 @@ internal sealed partial class EventRepository : IEventRepository
             role,
             ReadParts(transaction, sequence),
             ReadToolCalls(transaction, sequence),
-            toolCallId);
+            toolCallId)
+        {
+            ProviderContent = ReadProviderContent(transaction, sequence),
+        };
     }
 
     private List<ConversationItem> ReadConversation(
@@ -2342,7 +2345,10 @@ internal sealed partial class EventRepository : IEventRepository
                 ParseRole((string)reader["role"]),
                 ReadParts(transaction, sequence),
                 ReadToolCalls(transaction, sequence),
-                (string)reader["tool_call_id"]));
+                (string)reader["tool_call_id"])
+            {
+                ProviderContent = ReadProviderContent(transaction, sequence),
+            });
         }
 
         return items;
@@ -2375,7 +2381,10 @@ internal sealed partial class EventRepository : IEventRepository
                 ParseRole((string)reader["role"]),
                 ReadParts(transaction, sequence),
                 ReadToolCalls(transaction, sequence),
-                (string)reader["tool_call_id"]));
+                (string)reader["tool_call_id"])
+            {
+                ProviderContent = ReadProviderContent(transaction, sequence),
+            });
         }
 
         return items;
@@ -2415,6 +2424,19 @@ internal sealed partial class EventRepository : IEventRepository
         }
 
         return calls;
+    }
+
+    private LLMProviderContent ReadProviderContent(SqliteTransaction transaction, long sequence)
+    {
+        using var read = _database.Connection.CreateCommand();
+        read.Transaction = transaction;
+        read.CommandText =
+            "SELECT provider, content FROM conversation_provider_content WHERE item_sequence = $sequence;";
+        _ = read.Parameters.AddWithValue("$sequence", sequence);
+        using var reader = read.ExecuteReader();
+        return reader.Read()
+            ? new LLMProviderContent((string)reader["provider"], (string)reader["content"])
+            : LLMProviderContent.None;
     }
 
     private HistoryCheckpoint? ReadLatestUsableCheckpoint(
@@ -2768,6 +2790,7 @@ internal sealed partial class EventRepository : IEventRepository
             source.Role,
             source.Parts,
             source.ToolCalls,
+            source.ProviderContent,
             source.ToolCallId);
 
     private void Project(SqliteTransaction transaction, string agentSessionId, string role, string content) =>
@@ -2780,6 +2803,7 @@ internal sealed partial class EventRepository : IEventRepository
         LLMRole role,
         IReadOnlyList<ConversationPart> parts,
         IReadOnlyList<LLMToolCall> toolCalls,
+        LLMProviderContent providerContent,
         string toolCallId)
     {
         EnsureConversationProjection(transaction);
@@ -2800,6 +2824,7 @@ internal sealed partial class EventRepository : IEventRepository
         var sequence = InsertConversationItem(transaction, agentSessionId, origin, role, toolCallId, createdAt);
         InsertConversationParts(transaction, sequence, parts);
         InsertToolCalls(transaction, sequence, toolCalls);
+        InsertProviderContent(transaction, sequence, providerContent);
         InsertAgentHistoryMessage(transaction, agentSessionId, sequence, createdAt);
         return sequence;
     }
@@ -2828,6 +2853,7 @@ internal sealed partial class EventRepository : IEventRepository
             transaction, agentSessionId, origin, message.Role, message.ToolCallId, createdAt);
         InsertConversationParts(transaction, itemSequence, [.. message.Contents.Select(ToPart)]);
         InsertToolCalls(transaction, itemSequence, message.ToolCalls);
+        InsertProviderContent(transaction, itemSequence, message.ProviderContent);
         InsertAgentHistoryMessage(transaction, agentSessionId, itemSequence, createdAt);
     }
 
@@ -2914,6 +2940,7 @@ internal sealed partial class EventRepository : IEventRepository
             LLMRole.Tool,
             resultParts,
             [],
+            LLMProviderContent.None,
             terminal.ToolCallId);
         using var insert = _database.Connection.CreateCommand();
         insert.Transaction = transaction;
@@ -3008,5 +3035,26 @@ internal sealed partial class EventRepository : IEventRepository
             _ = insert.Parameters.AddWithValue("$arguments", calls[position].ArgumentsJson);
             _ = insert.ExecuteNonQuery();
         }
+    }
+
+    private void InsertProviderContent(
+        SqliteTransaction transaction,
+        long sequence,
+        LLMProviderContent content)
+    {
+        if (content.Content.Length == 0)
+        {
+            return;
+        }
+
+        using var insert = _database.Connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText =
+            "INSERT INTO conversation_provider_content (item_sequence, provider, content) "
+            + "VALUES ($sequence, $provider, $content);";
+        _ = insert.Parameters.AddWithValue("$sequence", sequence);
+        _ = insert.Parameters.AddWithValue("$provider", content.ProviderId);
+        _ = insert.Parameters.AddWithValue("$content", content.Content);
+        _ = insert.ExecuteNonQuery();
     }
 }

@@ -463,6 +463,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             LLMRole.User,
             [ConversationPart.TextPart("inherited context")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         _repository.AppendConversation(
             new Event { Id = "spawn-batch", AgentSessionId = parent.SessionId },
@@ -470,6 +471,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             LLMRole.Assistant,
             [ConversationPart.TextPart(string.Empty)],
             [new LLMToolCall("spawn-call", "agent_spawn", "{}")],
+            LLMProviderContent.None,
             string.Empty);
         var spawnSequence = _repository.Conversation(parent.SessionId)[^1].Sequence;
 

@@ -204,6 +204,7 @@ internal sealed class AgentSpawnerTests
             LLMRole.User,
             [ConversationPart.TextPart("dependency context")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         fixture.Repository.AppendConversation(
             new Event { Id = "source-live", AgentSessionId = source.Session.SessionId },
@@ -211,6 +212,7 @@ internal sealed class AgentSpawnerTests
             LLMRole.Assistant,
             [],
             [new LLMToolCall("live", "exec_command", "{}")],
+            LLMProviderContent.None,
             string.Empty);
 
         var child = fixture.Root.AgentSpawner.SpawnScope(fixture.Request with
@@ -250,6 +252,7 @@ internal sealed class AgentSpawnerTests
             LLMRole.User,
             [ConversationPart.TextPart("parent context")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         var source = fixture.Root.AgentSpawner.SpawnScope(fixture.Request with { RequestedName = "source" });
         var child = fixture.Root.AgentSpawner.SpawnScope(fixture.Request with

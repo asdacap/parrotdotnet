@@ -58,5 +58,6 @@ internal sealed class AgentConversation(IAgentHistory history) : IReadOnlyList<L
         Contents = source.Materialize(item.Parts),
         ToolCalls = item.ToolCalls,
         ToolCallId = item.ToolCallId,
+        ProviderContent = item.ProviderContent,
     };
 }

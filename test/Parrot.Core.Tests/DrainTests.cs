@@ -1764,6 +1764,50 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    public async Task Provider_content_reaches_later_requests_and_survives_a_restart(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer("tool preface", new LLMToolCall("call-1", "settled", "{}")) with
+            {
+                ProviderContent = new("stepped", "tool-blocks"),
+            },
+            Answer("done") with { ProviderContent = new("stepped", "final-blocks") });
+        var repository = new EventRepository(_database);
+        using var turns = _broker.Subscribe();
+        await using (var session = Session(
+            provider,
+            repository,
+            [new TestTool(new SettledTool("result"))],
+            cancellationToken))
+        {
+            _ = await session.Send([ConversationPart.TextPart("first")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
+            await provider.Arrived(cancellationToken);
+            provider.Release();
+            await provider.Arrived(cancellationToken);
+            provider.Release();
+            _ = await turns.TurnEnding(session.SessionId, cancellationToken);
+        }
+
+        await using (var restarted = Session(
+            provider,
+            repository,
+            [new TestTool(new SettledTool("result"))],
+            cancellationToken))
+        {
+            _ = await restarted.Send([ConversationPart.TextPart("second")], "msg-2", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
+            await provider.Arrived(cancellationToken);
+            provider.Release();
+            _ = await turns.TurnEnding(restarted.SessionId, cancellationToken);
+        }
+
+        var replayed = provider.Requests.Select(request => string.Join(
+            "+",
+            request.Messages.Where(message => message.Role == LLMRole.Assistant).Select(message => message.ProviderContent.Content)));
+        _ = await Assert.That(string.Join(" | ", replayed)).IsEqualTo(" | tool-blocks | tool-blocks+final-blocks");
+    }
+
+    [Test]
     public async Task A_failing_tool_is_cleared_before_the_next_provider_request(
         CancellationToken cancellationToken)
     {
@@ -2079,6 +2123,7 @@ internal sealed class DrainTests : IDisposable
                 new LLMToolCall("overflow", "read_image", "{\"path\":\"pixel.png\"}"),
                 new LLMToolCall("remaining", "read_image", "{\"path\":\"pixel.png\"}"),
                 new LLMToolCall("text", "settled", "{}")],
+            LLMProviderContent.None,
             string.Empty);
         var sequence = repository.Conversation("agent").Single().Sequence;
         _ = repository.AppendToolSettlement(
@@ -2136,6 +2181,7 @@ internal sealed class DrainTests : IDisposable
             LLMRole.Assistant,
             [ConversationPart.TextPart(string.Empty)],
             calls,
+            LLMProviderContent.None,
             string.Empty);
         var sequence = repository.Conversation("agent").Single().Sequence;
         _ = repository.AppendToolSettlement(

@@ -17,6 +17,7 @@ internal interface IAgentHistory
         LLMRole role,
         IReadOnlyList<ConversationPart> parts,
         IReadOnlyList<LLMToolCall> toolCalls,
+        LLMProviderContent providerContent,
         string toolCallId);
 
     bool HasToolSynthetic(long assistantSequence);
@@ -85,7 +86,7 @@ internal interface IAgentHistory
     /// <summary>Records the event and projects the retained assistant response followed by a system reminder.</summary>
     void AppendRetainedReminder(
         Event published,
-        string assistantContent,
+        LLMMessage assistant,
         string reminder);
 
     ContextReminderCheckpoint? LatestContextReminder();

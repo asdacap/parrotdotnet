@@ -40,7 +40,10 @@ internal static class ProviderImplementations
                     new OpenAICompatibleProvider(options, client), new KimiUsageReporter(options, client))),
         };
 
-    public static IProviderImplementation Resolve(string id) => Known.GetValueOrDefault(id) ?? Compatible;
+    private static readonly IProviderImplementation Anthropic = new AnthropicProviderImplementation();
+
+    public static IProviderImplementation Resolve(string id, ProviderConfig config) =>
+        config.Type == "anthropic" ? Anthropic : Known.GetValueOrDefault(id) ?? Compatible;
 
     private sealed class ChatGptProviderImplementation : IProviderImplementation
     {
@@ -65,6 +68,34 @@ internal static class ProviderImplementations
                 HeaderTimeout = TimeSpan.FromMilliseconds(context.Config.HeaderTimeoutMs),
                 StreamIdleTimeout = TimeSpan.FromMilliseconds(context.Config.StreamIdleTimeoutMs),
             });
+        }
+    }
+
+    private sealed class AnthropicProviderImplementation : IProviderImplementation
+    {
+        public bool CanBuild(ProviderConfig config) => config.BaseUrl.Length > 0;
+
+        public BuiltProvider Build(ProviderBuildContext context)
+        {
+            var config = context.Config;
+            var provider = new AnthropicProvider(
+                new AnthropicOptions
+                {
+                    Id = context.Id,
+                    MaximumRequestBytes = context.RequestLimits.ProviderRequestBytes,
+                    BaseUrl = config.BaseUrl,
+                    ApiKeySource = new StoredApiKeySource(context.Id, config.ApiKeyEnv, context.CredentialStore),
+                    Headers = config.Headers,
+                    AllowInsecureLocalhost = config.AllowInsecureLocalhost,
+                    AllowInsecureRemote = config.AllowInsecureRemote,
+                    Models = ProviderModels.ReadDeclared(context.Id, config.Models),
+                    ModelDefaults = ProviderModels.ReadDefaults(context.Id, config.ModelDefaults),
+                    ExternalModels = context.ExternalModels,
+                    HeaderTimeout = TimeSpan.FromMilliseconds(config.HeaderTimeoutMs),
+                    StreamIdleTimeout = TimeSpan.FromMilliseconds(config.StreamIdleTimeoutMs),
+                },
+                context.HttpClient);
+            return new(provider, provider.SeedModels());
         }
     }
 

@@ -135,6 +135,7 @@ internal sealed class ImageArtifactRepositoryTests : IDisposable
             Parrot.Llm.LLMRole.User,
             [ConversationPart.ImageArtifact(image)],
             [],
+            Parrot.Llm.LLMProviderContent.None,
             string.Empty);
 
         _ = await Assert.That(repository.RemoveStaleUnreferencedImageArtifacts(DateTimeOffset.UtcNow.AddMinutes(1))).IsEmpty();

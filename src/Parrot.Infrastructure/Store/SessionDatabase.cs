@@ -101,6 +101,12 @@ internal sealed class SessionDatabase : IDisposable
                     PRIMARY KEY (item_sequence, position)
                 );
 
+                CREATE TABLE IF NOT EXISTS conversation_provider_content (
+                    item_sequence INTEGER PRIMARY KEY REFERENCES conversation_item(sequence) ON DELETE CASCADE,
+                    provider      TEXT NOT NULL,
+                    content       TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS input (
                     sequence      INTEGER PRIMARY KEY AUTOINCREMENT,
                     id            TEXT NOT NULL UNIQUE,

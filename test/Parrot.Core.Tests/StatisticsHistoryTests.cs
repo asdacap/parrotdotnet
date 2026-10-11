@@ -106,6 +106,7 @@ internal sealed class StatisticsHistoryTests : IDisposable
             LLMRole.Assistant,
             [ConversationPart.TextPart("answer")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         repository.InitializeForkedAgentHistory(
             "main",
