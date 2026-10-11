@@ -162,7 +162,7 @@ internal sealed class ProviderDiagnosticsTests
             var history = Enumerable.Range(0, 6)
                 .Select(_ => LLMMessage.User("private-sentinel" + new string('x', 300)))
                 .ToList();
-            var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
+            var compactor = new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
             var result = await compactor.Compact(
                 model,
                 "private-sentinel",

@@ -532,6 +532,6 @@ internal sealed class ShellProcessOwnersTests : IDisposable
     {
         var identity = AgentIdentity.Main(sessionId, sessionId, TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, events, repository, lifetime);
-        return dependencies.CreateRootSession(identity, model, events, repository, _workspace, blobDirectory, TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), lifetime);
+        return dependencies.CreateRootSession(identity, model, events, repository, _workspace, blobDirectory, TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates), lifetime);
     }
 }

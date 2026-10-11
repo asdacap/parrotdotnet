@@ -82,7 +82,7 @@ internal sealed class AgentOperationDiagnosticsTests : IDisposable
             new ToolOutputBlobStore(_root),
             new AgentOutputFile(_root),
             TestModels.CompactionGroupBlobs(),
-            new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates),
+            new Compactor(int.MaxValue, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates),
             new ProviderSessions(diagnostics, identity.SessionId, null),
             new ContextCadence(),
             TestModels.PromptTemplates,

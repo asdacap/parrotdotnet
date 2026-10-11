@@ -93,7 +93,7 @@ internal sealed class AgentTaskTestSessionFactory(IModelRouter router) : IAgentS
             new ToolOutputBlobStore(root),
             new AgentOutputFile(root),
             TestModels.CompactionGroupBlobs(),
-            new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
+            new Parrot.Context.Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates),
             new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null),
             new Parrot.Context.ContextCadence(),
             TestModels.PromptTemplates,

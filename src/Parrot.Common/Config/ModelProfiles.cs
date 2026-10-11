@@ -9,6 +9,8 @@ internal sealed class ModelProfiles(IReadOnlyDictionary<string, ModelProfileConf
         ArgumentNullException.ThrowIfNull(canonicalSelector);
         string? usage = null;
         string? systemPrompt = null;
+        int? maximumInputTokens = null;
+        int? summaryOutputTokens = null;
         var prefix = canonicalSelector;
 
         while (prefix.Length > 0)
@@ -17,7 +19,10 @@ internal sealed class ModelProfiles(IReadOnlyDictionary<string, ModelProfileConf
             {
                 usage ??= profile.Usage;
                 systemPrompt ??= profile.SystemPrompt;
-                if (usage is not null && systemPrompt is not null)
+                maximumInputTokens ??= profile.MaximumInputTokens;
+                summaryOutputTokens ??= profile.SummaryOutputTokens;
+                if (usage is not null && systemPrompt is not null &&
+                    maximumInputTokens is not null && summaryOutputTokens is not null)
                 {
                     break;
                 }
@@ -32,6 +37,6 @@ internal sealed class ModelProfiles(IReadOnlyDictionary<string, ModelProfileConf
             prefix = prefix[..boundary];
         }
 
-        return new(usage, systemPrompt);
+        return new(usage, systemPrompt, maximumInputTokens, summaryOutputTokens);
     }
 }

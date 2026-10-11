@@ -326,7 +326,7 @@ internal sealed class LocalSessionIntegrationTests
             var modes = new ModeRegistry(profiles, configuration.DefaultProfile);
             var source = new AgentSessionFactorySource(
                 ProcessRunner.LocateConfigured(ExecutableLocator.Capture(), new SandboxGate(enabled: true), []),
-                new Compactor(90, 30, 60_000, 1024, configuration.PromptTemplates),
+                new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), configuration.PromptTemplates),
                 _webFetcher,
                 configuration.ToolDefinitions,
                 configuration.AgentTasks,

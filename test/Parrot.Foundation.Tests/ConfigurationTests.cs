@@ -1605,17 +1605,122 @@ internal sealed class ConfigurationTests : IDisposable
             """)).ModelProfiles;
 
         _ = await Assert.That(profiles.Resolve("provider/vendor/model/high"))
-            .IsEqualTo(new ModelProfileConfig("Variant usage", "Model prompt"));
+            .IsEqualTo(new ModelProfileConfig("Variant usage", "Model prompt", null, null));
         _ = await Assert.That(profiles.Resolve("provider/vendor/model"))
-            .IsEqualTo(new ModelProfileConfig("Provider usage", "Model prompt"));
+            .IsEqualTo(new ModelProfileConfig("Provider usage", "Model prompt", null, null));
         _ = await Assert.That(profiles.Resolve("provider/vendor/model/low"))
-            .IsEqualTo(new ModelProfileConfig(string.Empty, string.Empty));
+            .IsEqualTo(new ModelProfileConfig(string.Empty, string.Empty, null, null));
         _ = await Assert.That(profiles.Resolve("provider/vendor/model60"))
-            .IsEqualTo(new ModelProfileConfig("Provider usage", "Provider prompt"));
+            .IsEqualTo(new ModelProfileConfig("Provider usage", "Provider prompt", null, null));
         _ = await Assert.That(profiles.Resolve("Provider/vendor/model"))
-            .IsEqualTo(new ModelProfileConfig(null, null));
+            .IsEqualTo(new ModelProfileConfig(null, null, null, null));
         _ = await Assert.That(profiles.Resolve("unknown/model"))
-            .IsEqualTo(new ModelProfileConfig(null, null));
+            .IsEqualTo(new ModelProfileConfig(null, null, null, null));
+    }
+
+    [Test]
+    public async Task Model_profile_sizes_inherit_independently_alongside_text_properties()
+    {
+        var profiles = Load(Write("""
+            model_profiles:
+              provider:
+                maximum_input_tokens: 90000
+                summary_output_tokens: 15000
+              provider/vendor/model:
+                maximum_input_tokens: 70000
+              provider/vendor/model/high:
+                usage: Variant usage
+                system_prompt: Variant prompt
+                summary_output_tokens: 10000
+              provider/vendor/model/low:
+                usage: ''
+                system_prompt: ''
+            """)).ModelProfiles;
+
+        _ = await Assert.That(profiles.Resolve("provider/vendor/model/high"))
+            .IsEqualTo(new ModelProfileConfig("Variant usage", "Variant prompt", 70000, 10000));
+        _ = await Assert.That(profiles.Resolve("provider/vendor/model/low"))
+            .IsEqualTo(new ModelProfileConfig(string.Empty, string.Empty, 70000, 15000));
+        _ = await Assert.That(profiles.Resolve("provider/vendor/model"))
+            .IsEqualTo(new ModelProfileConfig(null, null, 70000, 15000));
+        _ = await Assert.That(profiles.Resolve("provider/vendor/model60"))
+            .IsEqualTo(new ModelProfileConfig(null, null, 90000, 15000));
+        _ = await Assert.That(profiles.Resolve("Provider/vendor/model/high"))
+            .IsEqualTo(new ModelProfileConfig(null, null, null, null));
+        _ = await Assert.That(profiles.Resolve("unknown/model"))
+            .IsEqualTo(new ModelProfileConfig(null, null, null, null));
+    }
+
+    [Test]
+    [Arguments("null")]
+    [Arguments("Null")]
+    [Arguments("NULL")]
+    [Arguments("~")]
+    [Arguments("")]
+    public async Task Model_profile_yaml_null_sizes_inherit(string value)
+    {
+        var profiles = Load(Write($"""
+            model_profiles:
+              provider:
+                maximum_input_tokens: 80000
+                summary_output_tokens: 14000
+              provider/model:
+                maximum_input_tokens: {value}
+                summary_output_tokens: {value}
+            """)).ModelProfiles;
+
+        _ = await Assert.That(profiles.Resolve("provider/model"))
+            .IsEqualTo(new ModelProfileConfig(null, null, 80000, 14000));
+    }
+
+    [Test]
+    public async Task Model_profile_sizes_resolve_independently_and_capture_entries()
+    {
+        var configuration = Load(Write("""
+            model_profiles:
+              provider:
+                maximum_input_tokens: 80000
+              provider/model:
+                summary_output_tokens: 10000
+            """));
+
+        _ = await Assert.That(configuration.ModelProfiles.Resolve("provider/model"))
+            .IsEqualTo(new ModelProfileConfig(null, null, 80000, 10000));
+
+        var entries = new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal)
+        {
+            ["provider"] = new(null, null, 80000, 14000),
+        };
+        var profiles = new ModelProfiles(entries);
+        entries["provider"] = new(null, null, 40000, 7000);
+
+        _ = await Assert.That(profiles.Resolve("provider/model"))
+            .IsEqualTo(new ModelProfileConfig(null, null, 80000, 14000));
+    }
+
+    [Test]
+    [Arguments("0")]
+    [Arguments("-1")]
+    [Arguments("1.5")]
+    [Arguments("true")]
+    [Arguments("[]")]
+    [Arguments("{}")]
+    [Arguments("2147483648")]
+    [Arguments("''")]
+    [Arguments("'null'")]
+    [Arguments("'~'")]
+    public async Task Invalid_model_profile_sizes_are_rejected_with_field_diagnostics(string value)
+    {
+        foreach (var key in new[] { "maximum_input_tokens", "summary_output_tokens" })
+        {
+            var exception = Assert.Throws<InvalidDataException>(() => Load(Write($"""
+                model_profiles:
+                  provider/model:
+                    {key}: {value}
+                """)));
+
+            _ = await Assert.That(exception.Message).Contains($"model_profiles.provider/model.{key}");
+        }
     }
 
     [Test]
@@ -1623,13 +1728,13 @@ internal sealed class ConfigurationTests : IDisposable
     {
         var entries = new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal)
         {
-            ["provider"] = new("Provider usage", "Provider prompt"),
+            ["provider"] = new("Provider usage", "Provider prompt", null, null),
         };
         var profiles = new ModelProfiles(entries);
-        entries["provider"] = new("Changed usage", "Changed prompt");
+        entries["provider"] = new("Changed usage", "Changed prompt", null, null);
 
         _ = await Assert.That(profiles.Resolve("provider/model"))
-            .IsEqualTo(new ModelProfileConfig("Provider usage", "Provider prompt"));
+            .IsEqualTo(new ModelProfileConfig("Provider usage", "Provider prompt", null, null));
 
         var defaults = Load(Write(string.Empty)).ModelAliases;
         var configuration = Load(Write("""
@@ -1644,7 +1749,7 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.ModelAliases["low_llm"].Usage).IsEqualTo(defaults["low_llm"].Usage);
         _ = await Assert.That(configuration.ModelAliases["low_llm"].ModelString).IsEqualTo("provider/model");
         _ = await Assert.That(configuration.ModelProfiles.Resolve("provider/model"))
-            .IsEqualTo(new ModelProfileConfig("Model usage", null));
+            .IsEqualTo(new ModelProfileConfig("Model usage", null, null, null));
     }
 
     [Test]
@@ -1666,7 +1771,7 @@ internal sealed class ConfigurationTests : IDisposable
             """)).ModelProfiles;
 
         _ = await Assert.That(profiles.Resolve("provider/model"))
-            .IsEqualTo(new ModelProfileConfig("Parent usage", "Parent prompt"));
+            .IsEqualTo(new ModelProfileConfig("Parent usage", "Parent prompt", null, null));
     }
 
     [Test]
@@ -1681,11 +1786,11 @@ internal sealed class ConfigurationTests : IDisposable
             """));
 
         _ = await Assert.That(configuration.ModelProfiles.Resolve("provider/model"))
-            .IsEqualTo(new ModelProfileConfig("null", "~"));
+            .IsEqualTo(new ModelProfileConfig("null", "~", null, null));
         _ = await Assert.That(configuration.ModelProfiles.Resolve("provider/empty"))
-            .IsEqualTo(new ModelProfileConfig(null, null));
+            .IsEqualTo(new ModelProfileConfig(null, null, null, null));
         _ = await Assert.That(Load(Write(string.Empty)).ModelProfiles.Resolve("provider/model"))
-            .IsEqualTo(new ModelProfileConfig(null, null));
+            .IsEqualTo(new ModelProfileConfig(null, null, null, null));
     }
 
     [Test]

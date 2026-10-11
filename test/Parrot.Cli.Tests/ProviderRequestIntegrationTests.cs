@@ -93,7 +93,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
             new ConfiguredSystemPromptProvider("test:integration", "Reply briefly.").Materialize(identity),
             outputFile,
             new CompactionGroupBlobStore(resources.AgentScratch(identity.NamePath)),
-            new Compactor(int.MaxValue, 30, 60_000, 1024, templates),
+            new Compactor(int.MaxValue, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), templates),
             providerSessions,
             new ContextCadence(),
             templates,

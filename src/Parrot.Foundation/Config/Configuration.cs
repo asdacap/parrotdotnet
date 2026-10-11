@@ -951,10 +951,12 @@ internal sealed partial class Configuration(string path)
                 throw new InvalidDataException($"{field} must be a mapping");
             }
 
-            ValidateKeys(fields, field, "usage", "system_prompt");
+            ValidateKeys(fields, field, "usage", "system_prompt", "maximum_input_tokens", "summary_output_tokens");
             profiles[selector] = new(
                 ReadModelProfileProperty(fields, "usage", field),
-                ReadModelProfileProperty(fields, "system_prompt", field));
+                ReadModelProfileProperty(fields, "system_prompt", field),
+                ReadModelProfilePositiveInteger(fields, "maximum_input_tokens", field),
+                ReadModelProfilePositiveInteger(fields, "summary_output_tokens", field));
         }
 
         return new(profiles);
@@ -975,6 +977,17 @@ internal sealed partial class Configuration(string path)
         return scalar.Style == ScalarStyle.Plain && scalar.Value is null or "" or "null" or "Null" or "NULL" or "~"
             ? null
             : scalar.Value;
+    }
+
+    private static int? ReadModelProfilePositiveInteger(YamlMappingNode fields, string key, string field)
+    {
+        if (!Child(fields, key, out var node) ||
+            node is YamlScalarNode { Style: ScalarStyle.Plain, Value: null or "" or "null" or "Null" or "NULL" or "~" })
+        {
+            return null;
+        }
+
+        return PositiveInteger(fields, key, $"{field}.{key}");
     }
 
     private static ModelAliasIconConfig? ReadModelAliasIcon(YamlMappingNode fields, string name)

@@ -677,7 +677,7 @@ internal sealed class EventPayloadTests
         using var dependencies = TestModels.Dependencies(identity, events, repository, cancellationToken);
         using var subscription = events.Subscribe();
         using var turns = events.Subscribe();
-        await using IAgentSession session = dependencies.CreateRootSession(identity, model, events, repository, ".", Path.GetTempPath(), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), CancellationToken.None);
+        await using IAgentSession session = dependencies.CreateRootSession(identity, model, events, repository, ".", Path.GetTempPath(), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates), CancellationToken.None);
 
         _ = await session.Send(
             [ConversationPart.TextPart("prompt")], "message", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);

@@ -27,7 +27,7 @@ internal sealed class ProductionSessionStoreFixture : IDisposable
             passThroughSandbox && OperatingSystem.IsLinux()
                 ? TestModels.Runner(SandboxPassThrough.Write(directory))
                 : ProcessRunner.LocateConfigured(ExecutableLocator.Capture(), new SandboxGate(enabled: true), []),
-            new Compactor(90, 30, 60_000, 1024, Configuration.PromptTemplates),
+            new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), Configuration.PromptTemplates),
             WebFetcher.Create(new PublicWebAddressPolicy()),
             Configuration.ToolDefinitions,
             Configuration.AgentTasks,

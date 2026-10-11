@@ -374,8 +374,8 @@ internal sealed class CompactorAndContextTests : IDisposable
         var prompt = new ModelPromptProvider(
             new ModelProfiles(new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal)
             {
-                [model.Selector] = new(null, "exact augmentation"),
-                [$"{provider.Id}/{baseModel.Id}"] = new(null, "base augmentation"),
+                [model.Selector] = new(null, "exact augmentation", null, null),
+                [$"{provider.Id}/{baseModel.Id}"] = new(null, "base augmentation", null, null),
             }),
             TestModels.Route(model),
             TestModels.PromptTemplates)
@@ -410,7 +410,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var baseOnly = new ModelPromptProvider(
             new ModelProfiles(new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal)
             {
-                [$"{provider.Id}/{baseModel.Id}"] = new(null, "base augmentation"),
+                [$"{provider.Id}/{baseModel.Id}"] = new(null, "base augmentation", null, null),
             }),
             TestModels.Route(model),
             TestModels.PromptTemplates)
@@ -458,10 +458,10 @@ internal sealed class CompactorAndContextTests : IDisposable
             2);
         var profiles = new ModelProfiles(new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal)
         {
-            [provider.Id] = new("Provider usage", "Provider instructions"),
-            ["unused/vendor/model"] = new(null, "Model instructions"),
-            [model.Selector] = new("Variant usage", null),
-            ["unused/unlisted"] = new(string.Empty, string.Empty),
+            [provider.Id] = new("Provider usage", "Provider instructions", null, null),
+            ["unused/vendor/model"] = new(null, "Model instructions", null, null),
+            [model.Selector] = new("Variant usage", null, null, null),
+            ["unused/unlisted"] = new(string.Empty, string.Empty, null, null),
         });
         var prompt = new ModelPromptProvider(profiles, router, TestModels.PromptTemplates)
             .Materialize(AgentIdentity.Main("session", "main", TestModels.PromptTemplates));
@@ -627,7 +627,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var firstModel = new ProviderModel(
             provider,
             new LLMModel("first", provider.Id) { ContextWindow = 20_000 });
-        await using IAgentSession session = dependencies.CreateRootSession(identity, firstModel, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), cancellationToken);
+        await using IAgentSession session = dependencies.CreateRootSession(identity, firstModel, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates), cancellationToken);
         using var turns = broker.Subscribe();
         foreach (var prompt in new[] { "start", new string('x', 4_000), new string('y', 40_000) })
         {
@@ -653,7 +653,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             .And.Contains("strictly above 99%");
 
         var reminderCountBeforeRestart = reminderMessages.Length;
-        await using IAgentSession restarted = dependencies.CreateRootSession(identity, firstModel, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), cancellationToken);
+        await using IAgentSession restarted = dependencies.CreateRootSession(identity, firstModel, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates), cancellationToken);
         _ = await restarted.Send(
             [ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         _ = await turns.TurnEnding(restarted.SessionId, cancellationToken);
@@ -689,7 +689,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(secondCheckpoint.Percentage % ContextCadence.NotificationInterval).IsEqualTo(0);
 
         var lastRequest = provider.Requests[^1];
-        var fittedContext = new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates).EstimateContext(
+        var fittedContext = new Compactor(99, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates).EstimateContext(
             secondModel,
             lastRequest.Instructions,
             lastRequest.Tools,
@@ -711,7 +711,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        var compactor = new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var compactor = new Compactor(99, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
         await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, compactor, cancellationToken);
 
         using var turns = broker.Subscribe();
@@ -781,7 +781,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             new ToolOutputBlobStore(_workspace),
             new AgentOutputFile(_workspace),
             _compactionGroupBlobs,
-            new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates),
+            new Compactor(99, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates),
             new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null),
             new ContextCadence(),
             TestModels.PromptTemplates,
@@ -815,7 +815,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             ?? throw new InvalidOperationException("Expected context reminder after tool result growth.");
         _ = await Assert.That(checkpoint.Percentage % ContextCadence.NotificationInterval).IsEqualTo(0);
         var finalRequest = provider.Requests[1];
-        var finalContext = new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates).EstimateContext(
+        var finalContext = new Compactor(99, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates).EstimateContext(
             model,
             finalRequest.Instructions,
             finalRequest.Tools,
@@ -837,7 +837,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates), cancellationToken);
+        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(1, 1, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates), cancellationToken);
 
         using var turns = broker.Subscribe();
         _ = await session.Send(
@@ -852,7 +852,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             .DoesNotContain(message => message.Role == LLMRole.System);
         _ = await Assert.That(inferenceRequest.Messages)
             .Contains(message => message.Role == LLMRole.User && message.Content == "keep this prompt");
-        var irreducibleContext = new Compactor(0, 0, 60_000, 1024, TestModels.PromptTemplates).EstimateContext(
+        var irreducibleContext = new Compactor(0, 0, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates).EstimateContext(
             model,
             inferenceRequest.Instructions,
             inferenceRequest.Tools,
@@ -881,7 +881,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
 
-        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), cancellationToken);
+        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates), cancellationToken);
         using var turns = broker.Subscribe();
         foreach (var prompt in new[] { "old prompt", "middle prompt", "latest prompt" })
         {
@@ -917,7 +917,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             ?? throw new InvalidOperationException("Expected durable compaction context.");
         await session.DisposeAsync();
         var requestsBeforeRestart = provider.Requests.Count;
-        await using IAgentSession restarted = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), cancellationToken);
+        await using IAgentSession restarted = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates), cancellationToken);
         _ = await restarted.Send([ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         _ = await turns.TurnEnding(restarted.SessionId, cancellationToken);
         await restarted.DisposeAsync();
@@ -944,7 +944,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
 
-        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), cancellationToken);
+        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates), cancellationToken);
         var selected = session.CurrentSelection();
         var selection = new AgentTurnSelection(
             selected.RequestedModel,
@@ -976,7 +976,7 @@ internal sealed class CompactorAndContextTests : IDisposable
                 or Event.PayloadOneofCase.InputAdmitted
                 or Event.PayloadOneofCase.InputPromoted);
 
-        await using IAgentSession restarted = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), cancellationToken);
+        await using IAgentSession restarted = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates), cancellationToken);
         var requestsBeforeRestart = provider.Requests.Count;
         _ = await restarted.Send(
             [ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
@@ -1002,7 +1002,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(90, 5, 500, 100, TestModels.PromptTemplates), cancellationToken);
+        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(90, 5, 500, 100, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates), cancellationToken);
         var selected = session.CurrentSelection();
         var selection = new AgentTurnSelection(
             selected.RequestedModel,
@@ -1097,7 +1097,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         Directory.Delete(scratch.BlobDirectory);
         await File.WriteAllTextAsync(scratch.BlobDirectory, "not a directory", cancellationToken);
         var failedBlobs = new CompactionGroupBlobStore(scratch);
-        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, failedBlobs, new Compactor(90, 5, 500, 100, TestModels.PromptTemplates), cancellationToken);
+        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, failedBlobs, new Compactor(90, 5, 500, 100, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates), cancellationToken);
         var selected = session.CurrentSelection();
         var selection = new AgentTurnSelection(
             selected.RequestedModel,
@@ -1316,7 +1316,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), cancellationToken);
+        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates), cancellationToken);
         var selected = session.CurrentSelection();
         var selection = new AgentTurnSelection(
             selected.RequestedModel,
@@ -1348,7 +1348,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), cancellationToken);
+        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates), cancellationToken);
         var selected = session.CurrentSelection();
         var selection = new AgentTurnSelection(
             selected.RequestedModel,
@@ -1421,7 +1421,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), cancellationToken);
+        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates), cancellationToken);
         var selected = session.CurrentSelection();
         var selection = new AgentTurnSelection(
             selected.RequestedModel,
@@ -1462,7 +1462,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates), cancellationToken);
+        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(1, 1, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates), cancellationToken);
 
         using var turns = broker.Subscribe();
         foreach (var prompt in new[] { "first", "second", "third" })
@@ -1503,7 +1503,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), cancellationToken);
+        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates), cancellationToken);
 
         using var turns = broker.Subscribe();
         foreach (var prompt in new[] { "first", "second", "third", "fourth" })
@@ -1538,7 +1538,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var provider = new ScriptedProvider("SUMMARY OF EARLIER");
 
         // A small model window forces compaction.
-        var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var compactor = new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
 
         var history = new List<LLMMessage>();
 
@@ -1589,7 +1589,7 @@ internal sealed class CompactorAndContextTests : IDisposable
     public async Task Compaction_uses_provider_window_and_complete_request_input()
     {
         var provider = new ScriptedProvider("summary");
-        var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var compactor = new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
         var history = new List<LLMMessage>
         {
             LLMMessage.User(new string('x', 2_000)),
@@ -1624,7 +1624,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         bool expectedCompaction)
     {
         var provider = new ScriptedProvider("summary");
-        var compactor = new Compactor(50, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var compactor = new Compactor(50, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = contextLimit });
 
         var snapshot = compactor.EstimateContext(model, instructions, [], []);
@@ -1646,7 +1646,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("summary");
-        var compactor = new Compactor(50, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var compactor = new Compactor(50, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id)
         {
             ContextWindow = contextWindow,
@@ -1708,7 +1708,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             {
                 ContextLimit = ContextSize.Parse(globalLimit),
             });
-        var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var compactor = new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
         var snapshot = compactor.EstimateSelectedContext(selection, new string('x', 1_000), [], []);
 
         _ = await Assert.That(snapshot.TriggerTokens).IsEqualTo(expectedTrigger);
@@ -1734,7 +1734,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             null,
             model,
             new ModelRoutingSnapshot(model.Selector, new ModelAliasSnapshot([]), 0));
-        var compactor = new Compactor(90, 30, 60_000, 100, TestModels.PromptTemplates);
+        var compactor = new Compactor(90, 30, 60_000, 100, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
         var groups = Enumerable.Range(0, 6)
             .Select(index => new CompactionGroup(
                 [LLMMessage.User($"message {index} {new string('x', 300)}")], index + 1, false, true))
@@ -1804,7 +1804,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("summary");
-        var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var compactor = new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 });
         var history = Enumerable.Range(0, 6)
             .Select(index => LLMMessage.User($"message {index} {new string('x', 300)}"))
@@ -1836,7 +1836,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         history.AddRange(Enumerable.Range(0, 6).Select(index => LLMMessage.User($"message {index} {new string('x', 300)}")));
         history.Add(LLMMessage.Assistant(retained.AssistantText, retained.ToolCalls) with { ProviderContent = retained.ProviderContent });
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 });
-        var result = await new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates).Compact(
+        var result = await new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates).Compact(
             model, "instructions", [], history, LLMMessage.User("fixed"), _compactionGroupBlobs, TestDiagnosticLog.Instance, "agent-test", cancellationToken)
             ?? throw new InvalidOperationException("Expected compaction.");
 
@@ -1858,7 +1858,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var imageMessage = LLMMessage.User([image]);
         var provider = new ScriptedProvider("SUMMARY");
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_050_000 });
-        var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var compactor = new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
         var history = Enumerable.Range(0, 4).Select(_ => imageMessage).ToArray();
         var imageTokens = Compactor.EstimateTokens(model, [imageMessage]);
 
@@ -1878,7 +1878,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         };
         history.AddRange(Enumerable.Range(0, 4).Select(index => LLMMessage.User($"tail {index}")));
         var provider = new ScriptedProvider("SUMMARY");
-        var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var compactor = new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
 
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 100_000 });
         _ = await Assert.That(Compactor.EstimateTokens(model, [LLMMessage.User([image])])).IsGreaterThan(1000);
@@ -1896,7 +1896,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             provider,
             new LLMModel("model", provider.Id) { ContextWindow = 1_000 },
             new Parrot.Llm.ModelVariant("high", "xhigh"));
-        var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var compactor = new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
         var history = Enumerable.Range(0, 5).Select(index => LLMMessage.User($"message {index}")).ToList();
 
         _ = await compactor.Compact(model, string.Empty, [], history, LLMMessage.User("fixed"), _compactionGroupBlobs, TestDiagnosticLog.Instance, "agent-test", cancellationToken);
@@ -1905,6 +1905,125 @@ internal sealed class CompactorAndContextTests : IDisposable
             ?? throw new InvalidOperationException("Expected reasoning options.");
         _ = await Assert.That(reasoning.Effort).IsEqualTo("xhigh");
         _ = await Assert.That(reasoning.Summary).IsEqualTo("auto");
+    }
+
+    [Test]
+    public async Task Compaction_profile_sizes_change_chunking_without_leaking_between_models(
+        CancellationToken cancellationToken)
+    {
+        var provider = new ScriptedProvider("summary");
+        var narrow = new ProviderModel(provider, new LLMModel("narrow", provider.Id) { ContextWindow = 10_000 });
+        var wide = new ProviderModel(provider, new LLMModel("wide", provider.Id) { ContextWindow = 10_000 }, new Parrot.Llm.ModelVariant("high", "xhigh"));
+        var profiles = new ModelProfiles(new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal)
+        {
+            [provider.Id] = new(null, null, 500, 137),
+            [$"{provider.Id}/wide"] = new(null, null, 1500, null),
+            [wide.Selector] = new(null, null, null, 251),
+        });
+        var compactor = new Compactor(90, 5, 3000, 999, profiles, TestModels.PromptTemplates);
+        var history = Enumerable.Range(0, 5)
+            .Select(index => LLMMessage.User($"message {index} {new string('x', 1000)}"))
+            .ToList();
+
+        _ = await compactor.Compact(narrow, string.Empty, [], history, LLMMessage.User("fixed"), _compactionGroupBlobs, TestDiagnosticLog.Instance, "agent-test", cancellationToken);
+        var narrowRequests = provider.Requests.ToArray();
+        _ = await compactor.Compact(wide, string.Empty, [], history, LLMMessage.User("fixed"), _compactionGroupBlobs, TestDiagnosticLog.Instance, "agent-test", cancellationToken);
+        var wideRequests = provider.Requests.Skip(narrowRequests.Length).ToArray();
+        var beforeRepeat = provider.Requests.Count;
+        _ = await compactor.Compact(narrow, string.Empty, [], history, LLMMessage.User("fixed"), _compactionGroupBlobs, TestDiagnosticLog.Instance, "agent-test", cancellationToken);
+        var repeatedRequests = provider.Requests.Skip(beforeRepeat).ToArray();
+
+        _ = await Assert.That(narrowRequests.Length).IsGreaterThan(wideRequests.Length);
+        _ = await Assert.That(narrowRequests).All(request => request.MaxOutputTokens == 137 &&
+            Compactor.EstimateTokens(narrow, request.Messages) <= 500);
+        _ = await Assert.That(wideRequests).All(request => request.MaxOutputTokens == 251 &&
+            Compactor.EstimateTokens(wide, request.Messages) <= 1500);
+        _ = await Assert.That(repeatedRequests.Length).IsEqualTo(narrowRequests.Length);
+        _ = await Assert.That(repeatedRequests).All(request => request.MaxOutputTokens == 137);
+        _ = await Assert.That(narrowRequests[1].Messages)
+            .Contains(message => message.Content.Contains("summary", StringComparison.Ordinal));
+    }
+
+    [Test]
+    public async Task Compaction_profile_missing_sizes_use_custom_global_values(CancellationToken cancellationToken)
+    {
+        var provider = new ScriptedProvider("summary");
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 10_000 });
+        var profiles = new ModelProfiles(new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal)
+        {
+            [model.Selector] = new("Guidance only", "Instructions only", null, null),
+            ["unmatched"] = new(null, null, 100, 1),
+        });
+        var compactor = new Compactor(90, 5, 500, 173, profiles, TestModels.PromptTemplates);
+        var history = Enumerable.Range(0, 5)
+            .Select(index => LLMMessage.User($"message {index} {new string('x', 1000)}"))
+            .ToList();
+
+        _ = await compactor.Compact(model, string.Empty, [], history, LLMMessage.User("fixed"), _compactionGroupBlobs, TestDiagnosticLog.Instance, "agent-test", cancellationToken);
+
+        _ = await Assert.That(provider.Requests.Count).IsGreaterThan(1);
+        _ = await Assert.That(provider.Requests).All(request => request.MaxOutputTokens == 173 &&
+            Compactor.EstimateTokens(model, request.Messages) <= 500);
+    }
+
+    [Test]
+    public async Task Compaction_profile_input_budget_is_clamped_to_model_capacity(CancellationToken cancellationToken)
+    {
+        var provider = new ScriptedProvider("summary");
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id)
+        {
+            ContextWindow = 10_000,
+            MaxInputTokens = 1000,
+        });
+        var profiles = new ModelProfiles(new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal)
+        {
+            [provider.Id] = new(null, null, 5000, 137),
+        });
+        var compactor = new Compactor(90, 5, 100, 999, profiles, TestModels.PromptTemplates);
+        var history = Enumerable.Range(0, 8)
+            .Select(index => LLMMessage.User($"message {index} {new string('x', 1000)}"))
+            .ToList();
+
+        _ = await compactor.Compact(model, string.Empty, [], history, LLMMessage.User("fixed"), _compactionGroupBlobs, TestDiagnosticLog.Instance, "agent-test", cancellationToken);
+
+        _ = await Assert.That(provider.Requests.Count).IsGreaterThan(1);
+        _ = await Assert.That(provider.Requests).All(request => request.MaxOutputTokens == 137 &&
+            Compactor.EstimateTokens(model, request.Messages) <= 1000);
+    }
+
+    [Test]
+    public async Task Compaction_profiles_use_captured_canonical_variant_instead_of_alias(
+        CancellationToken cancellationToken)
+    {
+        var provider = new ScriptedProvider("summary");
+        var model = new ProviderModel(provider, new LLMModel("vendor/model", provider.Id) { ContextWindow = 10_000 }, new Parrot.Llm.ModelVariant("high", "xhigh"));
+        var alias = new ModelAliasDefinition("preferred", model.Selector, string.Empty, null, null);
+        var selection = new ResolvedModelSelection(new ModelSelector(alias.Name), alias, model, new ModelRoutingSnapshot(model.Selector, new ModelAliasSnapshot([alias]), 0));
+        var profiles = new ModelProfiles(new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal)
+        {
+            [alias.Name] = new(null, null, 1, 1),
+            [provider.Id] = new(null, null, 500, 137),
+            [model.Selector] = new(null, null, null, 251),
+        });
+        var compactor = new Compactor(90, 5, 3000, 999, profiles, TestModels.PromptTemplates);
+        var groups = Enumerable.Range(0, 5)
+            .Select(index => new CompactionGroup(
+                [LLMMessage.User($"message {index} {new string('x', 1000)}")], index + 1, false, true))
+            .ToList();
+        var sessions = new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null);
+        try
+        {
+            _ = await compactor.CompactWithProviderSessions(selection, null, string.Empty, [], groups, 0, LLMMessage.User("fixed"), _compactionGroupBlobs, sessions, static (_, _) => ValueTask.CompletedTask, cancellationToken);
+        }
+        finally
+        {
+            await sessions.Close();
+        }
+
+        _ = await Assert.That(provider.Requests.Count).IsGreaterThan(1);
+        _ = await Assert.That(provider.Requests).All(request => request.MaxOutputTokens == 251 &&
+            Compactor.EstimateTokens(model, request.Messages) <= 500 && request.Model == model.ModelId &&
+            request.Reasoning?.Effort == "xhigh");
     }
 
     [Test]
@@ -1922,7 +2041,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             ContextWindow = contextWindow,
             MaxInputTokens = maximumInputTokens,
         });
-        var compactor = new Compactor(90, 5, 500, 137, TestModels.PromptTemplates);
+        var compactor = new Compactor(90, 5, 500, 137, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
         var history = new List<LLMMessage>();
         history.AddRange(Enumerable.Range(0, 4).Select(index => LLMMessage.User($"old {index} {new string('x', 1_000)}")));
         history.Add(LLMMessage.Assistant(string.Empty, [new LLMToolCall("call", "read", "{}")]));
@@ -1971,7 +2090,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             .Select(PlatformPath.Normalize)
             .ToHashSet(StringComparer.Ordinal);
 
-        var result = await new Compactor(90, 5, 500, 100, TestModels.PromptTemplates).Compact(
+        var result = await new Compactor(90, 5, 500, 100, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates).Compact(
             model,
             string.Empty,
             [],
@@ -2043,7 +2162,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             .Select(PlatformPath.Normalize)
             .ToHashSet(StringComparer.Ordinal);
 
-        _ = await new Compactor(90, 5, 500, 100, TestModels.PromptTemplates).Compact(
+        _ = await new Compactor(90, 5, 500, 100, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates).Compact(
             model,
             string.Empty,
             [],
@@ -2083,7 +2202,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             new([LLMMessage.User("tail")], 2, false, true),
         };
 
-        _ = await Assert.That(async () => await new Compactor(90, 5, 500, 100, TestModels.PromptTemplates).Compact(
+        _ = await Assert.That(async () => await new Compactor(90, 5, 500, 100, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates).Compact(
             new ProviderModel(ordinaryProvider, new LLMModel("model", ordinaryProvider.Id) { ContextWindow = 10_000 }),
             string.Empty,
             [],
@@ -2106,7 +2225,7 @@ internal sealed class CompactorAndContextTests : IDisposable
                 false),
             new([LLMMessage.User("tail")], 2, false, true),
         };
-        var incompleteResult = await new Compactor(90, 5, 500, 100, TestModels.PromptTemplates).Compact(
+        var incompleteResult = await new Compactor(90, 5, 500, 100, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates).Compact(
             new ProviderModel(incompleteProvider, new LLMModel("model", incompleteProvider.Id) { ContextWindow = 10_000 }),
             string.Empty,
             [],
@@ -2131,7 +2250,7 @@ internal sealed class CompactorAndContextTests : IDisposable
                 false,
                 true),
         };
-        var retainedResult = await new Compactor(90, 5, 500, 100, TestModels.PromptTemplates).Compact(
+        var retainedResult = await new Compactor(90, 5, 500, 100, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates).Compact(
             new ProviderModel(retainedProvider, new LLMModel("model", retainedProvider.Id) { ContextWindow = 10_000 }),
             string.Empty,
             [],
@@ -2156,7 +2275,7 @@ internal sealed class CompactorAndContextTests : IDisposable
     public async Task Compaction_rejects_an_oversized_recent_tail(CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("summary");
-        var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var compactor = new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
         var history = new List<LLMMessage>
         {
             LLMMessage.User("old"),
@@ -2176,7 +2295,7 @@ internal sealed class CompactorAndContextTests : IDisposable
     public async Task Compaction_rejects_a_provider_without_a_terminal_summary(CancellationToken cancellationToken)
     {
         var provider = new IncompleteProvider();
-        var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var compactor = new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
         var history = Enumerable.Range(0, 5).Select(index => LLMMessage.User($"message {index}")).ToList();
 
         _ = await Assert.That(async () => await compactor.Compact(new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 100_000 }), string.Empty, [], history, LLMMessage.User("fixed"), _compactionGroupBlobs, TestDiagnosticLog.Instance, "agent-test", cancellationToken))
@@ -2187,7 +2306,11 @@ internal sealed class CompactorAndContextTests : IDisposable
     public async Task Compaction_retries_with_a_smaller_group_when_the_first_summary_is_empty(CancellationToken cancellationToken)
     {
         var provider = new FirstEmptyThenSummarisingProvider();
-        var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var profiles = new ModelProfiles(new Dictionary<string, ModelProfileConfig>(StringComparer.Ordinal)
+        {
+            [provider.Id] = new(null, null, null, 173),
+        });
+        var compactor = new Compactor(90, 30, 60_000, 1024, profiles, TestModels.PromptTemplates);
         var history = Enumerable.Range(0, 6)
             .Select(index => LLMMessage.User($"message {index} {new string('x', 300)}"))
             .ToList();
@@ -2207,6 +2330,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(result.History[0].Content).Contains("smaller group summary");
         _ = await Assert.That(result.History[^1].Content).IsEqualTo(history[^1].Content);
         _ = await Assert.That(provider.Calls).IsGreaterThan(1);
+        _ = await Assert.That(provider.Requests).All(request => request.MaxOutputTokens == 173);
     }
 
     [Test]
@@ -2217,7 +2341,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var groups = Enumerable.Range(0, 7).Select(index => new CompactionGroup(
             [LLMMessage.User($"message {index} {new string('x', 220)}")], 100 + index, index is 2 or 4, true)).ToList();
 
-        var result = await new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates).Compact(
+        var result = await new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates).Compact(
             new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 }),
             "instructions",
             [],
@@ -2245,7 +2369,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             false,
             index != 2)).ToList();
 
-        var result = await new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates).Compact(
+        var result = await new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates).Compact(
             new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 }),
             string.Empty,
             [],
@@ -2257,7 +2381,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             "agent-test",
             cancellationToken)
             ?? throw new InvalidOperationException("Expected compaction.");
-        var blocked = await new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates).Compact(
+        var blocked = await new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates).Compact(
             new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 }),
             string.Empty,
             [],
@@ -2269,7 +2393,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             "agent-test",
             cancellationToken);
 
-        var afterSnapshot = await new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates).Compact(
+        var afterSnapshot = await new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates).Compact(
             new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 }),
             string.Empty,
             [],
@@ -2298,7 +2422,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var groups = Enumerable.Range(0, 7).Select(index => new CompactionGroup(
             [LLMMessage.User($"message {index} {new string('x', 260)}")], 200 + index, index == 1, true)).ToList();
 
-        var result = await new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates).Compact(
+        var result = await new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates).Compact(
             model,
             string.Empty,
             [],
@@ -2336,7 +2460,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var model = new ProviderModel(provider, new LLMModel("gpt-6-astra", provider.Id) { ContextWindow = 1_050_000 });
         var resolved = TestModels.Resolve(model);
         var selection = resolved with { RoutingSnapshot = resolved.RoutingSnapshot with { ContextLimit = ContextSize.Parse("250000") } };
-        var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var compactor = new Compactor(90, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
         var snapshot = compactor.EstimateSelectedContext(selection, string.Empty, [], history);
 
         _ = await Assert.That(snapshot.EstimatedTokens - (56 * 8) - 4).IsEqualTo(97_048L);
@@ -2374,7 +2498,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var content = TestModels.ImageFile([1], 400, 400);
         var provider = new ScriptedProvider("summary") { ImageTokenCalculator = OpenAiImageTokenCalculator.Instance };
         var model = new ProviderModel(provider, new LLMModel("gpt-6-astra", provider.Id) { ContextWindow = 10_000 });
-        var compactor = new Compactor(90, 5, 600, 100, TestModels.PromptTemplates);
+        var compactor = new Compactor(90, 5, 600, 100, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
         var history = Enumerable.Range(0, 8).Select(_ => LLMMessage.User([content])).ToArray();
         var result = await compactor.Compact(
             model,
@@ -2594,6 +2718,8 @@ internal sealed class CompactorAndContextTests : IDisposable
     // smaller group return text.
     private sealed class FirstEmptyThenSummarisingProvider : ILLMProvider
     {
+        public List<LLMRequest> Requests { get; } = [];
+
         public int Calls { get; private set; }
 
         public string Id => "first-empty";
@@ -2611,6 +2737,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         {
             await Task.Yield();
             Calls++;
+            Requests.Add(request);
             var reply = Calls == 1 ? string.Empty : "smaller group summary";
             yield return LLMEvent.Completed("stop", 1, 0, 1, reply, []);
         }

@@ -1225,6 +1225,23 @@ positive context window. This is distinct from root-only `/compact`, an
 interactive command that waits for idle work and explicitly compacts the current
 root session without sending a model prompt.
 
+Compaction folds eligible history into a rolling summary through sequential
+requests. The global `compaction.maximum_input_tokens` setting limits each
+request's estimated input tokens, including summarization instructions, the
+previous summary, and new history. Text estimates use roughly four characters
+per token rather than a provider tokenizer. The budget is also capped by the
+selected model's input limit; it does not change the model's context capacity.
+`compaction.summary_output_tokens` requests an output limit for each summary
+fold, not a combined allowance across all folds. Both settings can be overridden
+through `model_profiles`, as described below. If no matching profile supplies a
+size, compaction retains the global setting, so existing configurations do not
+need to change.
+
+The ChatGPT provider removes the unsupported output-token parameter. Its
+`summary_output_tokens` setting therefore does not enforce a summary length.
+Chunk boundaries and the rolling summary affect how much new history fits into
+each request, so the input budget does not guarantee a fixed request count.
+
 ## Service Transport
 
 Local chat and `parrot web` host each user session on its own `parrot.sock`
@@ -1310,10 +1327,14 @@ model_profiles:
   provider:
     usage: General provider guidance
     system_prompt: General provider instructions
+    maximum_input_tokens: 100000
+    summary_output_tokens: 16000
   provider/model:
     usage: Guidance for this model
+    maximum_input_tokens: 80000
   provider/model/high:
     system_prompt: Instructions for this variant
+    summary_output_tokens: 10000
 ```
 
 `model_string` is the canonical target. An empty target is valid: it defines a
@@ -1332,19 +1353,37 @@ whole selector or ends before a `/` boundary. For example, `provider/model`
 matches `provider/model/high` but not `provider/model2`; `provider` applies to
 all models from that provider. Prefixes may include nested model IDs, such as
 `openrouter/vendor/model/high`. Keys must be trimmed and have no empty path
-segments. A profile may contain either or both of these optional properties:
+segments. A profile may contain any of these optional properties:
 
 - `usage` adds model-specific advice to the alias's usage in the agent-facing
   model-alias list. The alias usage appears first, then model usage on a new
   line. This does not change the `/model-alias` picker text.
 - `system_prompt` adds model-specific instructions to the normal agent
   instructions.
+- `maximum_input_tokens` overrides the estimated input budget for each
+  compaction request. It must be a positive integer.
+- `summary_output_tokens` overrides the requested output limit for each
+  compaction summary fold. It must be a positive integer and is subject to
+  provider support; ChatGPT does not enforce this limit.
 
-Each property falls back independently through broader matching prefixes.
-Omitted or YAML `null` properties inherit from a broader profile. An explicit
-empty string (`''` or `""`) stops fallback for that property and contributes
-nothing. A more specific value replaces that property's broader value; matching
-profiles are not concatenated.
+Each property resolves the exact canonical selector first, then falls back
+independently through progressively shorter slash-boundary prefixes, down to the
+provider key. Omitted or plain YAML-null properties inherit from a broader
+profile. For `usage` and `system_prompt`, an explicit empty string (`''` or `""`)
+stops fallback and contributes nothing. Numeric properties reject empty strings,
+zero, negative values, fractions, booleans, collections, quoted null text, and
+values outside the supported integer range. A more specific value replaces that
+property's broader value; matching profiles are not concatenated.
+
+If no matching profile supplies a numeric value, compaction uses the
+corresponding global `compaction.maximum_input_tokens` or
+`compaction.summary_output_tokens` setting. In the example above,
+`provider/model/high` inherits an 80,000-token input budget from `provider/model`
+and uses its own 10,000-token output limit. Another model from `provider` inherits
+100,000 and 16,000 from the provider profile. The model input limit still caps the
+resolved input budget. Compaction uses the captured canonical route, not the
+requested alias name, so a profile key named after an alias does not override
+that alias's resolved model.
 
 For a selected model, normal instructions are followed by the resolved model
 profile's nonempty `system_prompt`, then by the selected alias's nonempty

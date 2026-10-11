@@ -105,6 +105,7 @@ internal partial class Composition
                     configuration.Compaction.TargetPercent,
                     configuration.Compaction.MaximumInputTokens,
                     configuration.Compaction.SummaryOutputTokens,
+                    configuration.ModelProfiles,
                     configuration.PromptTemplates);
             })
             .Bind().As(Lifetime.Singleton).To(ctx =>

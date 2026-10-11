@@ -10,6 +10,7 @@ internal sealed class Compactor(
     int targetPercent,
     int maximumInputTokens,
     int summaryOutputTokens,
+    ModelProfiles modelProfiles,
     IPromptTemplateCatalog promptTemplates)
 {
     private const string SummaryInstructionsTemplate = "compaction.summary-instructions";
@@ -346,7 +347,9 @@ internal sealed class Compactor(
             return null;
         }
 
-        var inputBudget = Math.Min((long)maximumInputTokens, inputTokenLimit);
+        var modelProfile = modelProfiles.Resolve(selectedModel.Selector);
+        var inputBudget = Math.Min((long)(modelProfile.MaximumInputTokens ?? maximumInputTokens), inputTokenLimit);
+        var outputBudget = modelProfile.SummaryOutputTokens ?? summaryOutputTokens;
         if (inputBudget <= 0)
         {
             throw new InvalidOperationException("The selected model leaves no room for a compaction request.");
@@ -394,7 +397,7 @@ internal sealed class Compactor(
                     selectedModel,
                     summary,
                     chunk,
-                    summaryOutputTokens,
+                    outputBudget,
                     providerSessions,
                     emitRetry,
                     cancellationToken);
@@ -431,7 +434,7 @@ internal sealed class Compactor(
                 selectedModel,
                 summary,
                 chunk,
-                summaryOutputTokens,
+                outputBudget,
                 providerSessions,
                 emitRetry,
                 cancellationToken);

@@ -195,7 +195,7 @@ internal sealed class CompactContextToolTests : IDisposable
             new ToolOutputBlobStore(_workspace),
             new AgentOutputFile(_workspace),
             _compactionGroupBlobs,
-            new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates),
+            new Compactor(99, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates),
             new ProviderSessions(TestDiagnosticLog.Instance, "agent-test", null),
             new ContextCadence(),
             TestModels.PromptTemplates,

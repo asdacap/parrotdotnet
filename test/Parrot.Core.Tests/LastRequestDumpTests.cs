@@ -125,7 +125,7 @@ internal sealed class LastRequestDumpTests : IDisposable
             null,
             model,
             new ModelRoutingSnapshot(model.Selector, new ModelAliasSnapshot([]), 0));
-        var compactor = new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates);
+        var compactor = new Compactor(1, 1, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
         var oldGroupA = new CompactionGroup([LLMMessage.User(new string('a', 8000))], 1, false, true);
         var oldGroupB = new CompactionGroup([LLMMessage.User(new string('b', 8000))], 2, false, true);
         var recentGroup = new CompactionGroup([LLMMessage.User("recent")], 3, false, true);
