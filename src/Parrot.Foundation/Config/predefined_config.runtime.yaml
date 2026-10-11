@@ -68,6 +68,9 @@ provider_model_alias_defaults:
 # Model guidance keyed by provider/model[/variant] or a slash-delimited prefix.
 # Each property inherits from broader prefixes; an explicit empty string clears it.
 model_profiles:
+  chatgpt:
+    maximum_input_tokens: 250000
+    summary_output_tokens: 32000
   chatgpt/gpt-6-luna:
     usage: "Very cheap. Feel free to use whenever it save time. Feel free to spawn multiple subagent of this model. However, quite dumb. Use for automation or very clear small coding task with clear unit-testable acceptance criteria"
     system_prompt: "Do not decide on your own. You are the hand and feet of a higher level model. Do not deviate from instruction and do not omit detail when exploring."
