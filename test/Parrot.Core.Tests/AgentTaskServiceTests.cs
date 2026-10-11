@@ -926,6 +926,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             LLMRole.User,
             [ConversationPart.TextPart("owner-history-marker")],
             [],
+            LLMProviderContent.None,
             string.Empty);
 
         Set(
@@ -978,6 +979,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             LLMRole.User,
             [ConversationPart.TextPart("owner-safe-marker")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         _repository.AppendConversation(
             new Event { Id = "owner-invocation", AgentSessionId = owner },
@@ -985,6 +987,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             LLMRole.Assistant,
             [ConversationPart.TextPart("invoking-batch-marker")],
             [new LLMToolCall("set-tasks", "set_agent_tasks", "{}")],
+            LLMProviderContent.None,
             string.Empty);
         var boundary = new HistoryForkBoundary.BeforeToolBatch(_repository.Conversation(owner)[^1].Sequence, "set-tasks");
         service.SetTasks(
@@ -1019,6 +1022,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             LLMRole.Assistant,
             [],
             [new LLMToolCall("launch", "set_agent_tasks", "{}")],
+            LLMProviderContent.None,
             string.Empty);
         var launch = _repository.Conversation(owner)[^1].Sequence;
         _ = _repository.AppendToolSettlement(
@@ -1074,6 +1078,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             LLMRole.User,
             [ConversationPart.TextPart("source-safe-marker")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         _repository.AppendConversation(
             new Event { Id = "source-incomplete", AgentSessionId = source },
@@ -1081,6 +1086,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             LLMRole.Assistant,
             [ConversationPart.TextPart("incomplete-marker")],
             [new LLMToolCall("unfinished", "exec_command", "{}")],
+            LLMProviderContent.None,
             string.Empty);
         _repository.AppendConversation(
             new Event { Id = "source-after", AgentSessionId = source },
@@ -1088,6 +1094,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
             LLMRole.User,
             [ConversationPart.TextPart("after-incomplete-marker")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         Set(fixture, Declare("source", ",\"state\":\"succeeded\",\"result\":\"accepted while active\""));
         _ = await WaitFor(service, tasks => tasks.All(task => task.State == AgentTaskExecutionStatus.Succeeded), cancellationToken);

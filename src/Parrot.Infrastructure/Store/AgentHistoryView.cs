@@ -20,8 +20,9 @@ internal sealed class AgentHistoryView(EventRepository repository, string agentS
         LLMRole role,
         IReadOnlyList<ConversationPart> parts,
         IReadOnlyList<LLMToolCall> toolCalls,
+        LLMProviderContent providerContent,
         string toolCallId) =>
-        repository.AppendConversation(published, origin, role, parts, toolCalls, toolCallId);
+        repository.AppendConversation(published, origin, role, parts, toolCalls, providerContent, toolCallId);
 
     public bool HasToolSynthetic(long assistantSequence) =>
         repository.HasToolSynthetic(assistantSequence, agentSessionId);
@@ -99,8 +100,8 @@ internal sealed class AgentHistoryView(EventRepository repository, string agentS
     public void AppendSystemPrompt(Event published, string content) =>
         repository.AppendSystemPrompt(published, content);
 
-    public void AppendRetainedReminder(Event published, string assistantContent, string reminder) =>
-        repository.AppendRetainedReminder(published, assistantContent, reminder);
+    public void AppendRetainedReminder(Event published, LLMMessage assistant, string reminder) =>
+        repository.AppendRetainedReminder(published, assistant, reminder);
 
     public ContextReminderCheckpoint? LatestContextReminder() => repository.LatestContextReminder(agentSessionId);
 

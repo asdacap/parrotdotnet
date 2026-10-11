@@ -1016,6 +1016,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             LLMRole.Assistant,
             [ConversationPart.TextPart(string.Empty)],
             [new LLMToolCall("call", "read", """{"path":"large"}""")],
+            LLMProviderContent.None,
             string.Empty);
         var assistantSequence = repository.Conversation("agent").Single().Sequence;
         _ = repository.AppendToolSettlement(
@@ -1033,6 +1034,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             LLMRole.User,
             [ConversationPart.TextPart("recent tail")],
             [],
+            LLMProviderContent.None,
             string.Empty);
 
         _ = await session.Compact(selection, null, cancellationToken);
@@ -1109,6 +1111,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             LLMRole.Assistant,
             [ConversationPart.TextPart(string.Empty)],
             [new LLMToolCall("call", "read", "{}")],
+            LLMProviderContent.None,
             string.Empty);
         var assistantSequence = repository.Conversation("agent").Single().Sequence;
         _ = repository.AppendToolSettlement(
@@ -1126,6 +1129,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             LLMRole.User,
             [ConversationPart.TextPart("tail")],
             [],
+            LLMProviderContent.None,
             string.Empty);
 
         var historyBefore = repository.Conversation("agent").ToArray();

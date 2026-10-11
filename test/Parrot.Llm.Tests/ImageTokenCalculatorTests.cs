@@ -70,7 +70,7 @@ internal sealed class ImageTokenCalculatorTests
             client,
             new UnusedBrowser(),
             []);
-        var built = ProviderImplementations.Resolve(providerId).Build(context);
+        var built = ProviderImplementations.Resolve(providerId, context.Config).Build(context);
         ILLMProvider provider = new RetryingProvider(built.Provider);
         var content = LLMContent.ImageFile("unused.png", "image/png", 400, 400);
         _ = await Assert.That(provider.CalculateImageTokens(new("gpt-6-astra", providerId), content)).IsEqualTo(expected);

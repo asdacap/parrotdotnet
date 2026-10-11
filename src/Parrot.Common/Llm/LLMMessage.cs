@@ -17,6 +17,9 @@ internal sealed record LLMMessage
     // Tool only: which call this message is the result of.
     public string ToolCallId { get; init; } = string.Empty;
 
+    // Assistant only: the message as its provider produced it, replayed to that provider instead of Contents and ToolCalls.
+    public LLMProviderContent ProviderContent { get; init; } = LLMProviderContent.None;
+
     public static LLMMessage User(string content) => User([LLMContent.TextPart(content)]);
 
     public static LLMMessage User(IReadOnlyList<LLMContent> contents) =>

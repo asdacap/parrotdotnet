@@ -42,6 +42,9 @@ internal sealed record LLMEvent
 
     public string AssistantText { get; init; } = string.Empty;
 
+    // Completed only: the assistant message as the provider produced it, for replay.
+    public LLMProviderContent ProviderContent { get; init; } = LLMProviderContent.None;
+
     public bool IsVisibleOutput =>
         Kind is LLMEventKind.TextDelta or LLMEventKind.ReasoningDelta or LLMEventKind.ToolCallDelta or LLMEventKind.Completed;
 

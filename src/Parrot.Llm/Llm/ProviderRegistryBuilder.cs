@@ -18,7 +18,7 @@ internal sealed class ProviderRegistryBuilder(
         return
         [
             .. configuration.Providers
-                .Where(entry => ProviderImplementations.Resolve(entry.Key).CanBuild(entry.Value))
+                .Where(entry => ProviderImplementations.Resolve(entry.Key, entry.Value).CanBuild(entry.Value))
                 .Select(entry => entry.Key)
                 .OrderBy(id => id, StringComparer.Ordinal),
         ];
@@ -36,7 +36,7 @@ internal sealed class ProviderRegistryBuilder(
         foreach (var id in BuildableProviderIds(configuration))
         {
             var config = configuration.Providers[id];
-            var implementation = ProviderImplementations.Resolve(id);
+            var implementation = ProviderImplementations.Resolve(id, config);
             var httpClient = httpClients.Resolve(config.BaseUrl, config.AllowInvalidTlsCertificate);
             IReadOnlyList<LLMModel> externalModels;
             if (id == ChatGptProvider.ProviderId)

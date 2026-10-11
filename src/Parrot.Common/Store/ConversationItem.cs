@@ -8,4 +8,7 @@ internal sealed record ConversationItem(
     LLMRole Role,
     IReadOnlyList<ConversationPart> Parts,
     IReadOnlyList<LLMToolCall> ToolCalls,
-    string ToolCallId);
+    string ToolCallId)
+{
+    public LLMProviderContent ProviderContent { get; init; } = LLMProviderContent.None;
+}

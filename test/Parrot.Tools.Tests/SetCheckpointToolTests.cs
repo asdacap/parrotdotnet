@@ -21,6 +21,7 @@ internal sealed class SetCheckpointToolTests
             LLMRole.Assistant,
             [ConversationPart.TextPart(string.Empty)],
             [new LLMToolCall(callId, "set_checkpoint", "{\"title\":\"handoff\"}")],
+            LLMProviderContent.None,
             string.Empty);
         var assistantSequence = repository.Conversation("agent-a").Single().Sequence;
         ITool owningTool = new SetCheckpointTool(new CheckpointService(TestModels.History(repository, "agent-a")));

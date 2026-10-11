@@ -32,6 +32,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
                 LLMRole.Assistant,
                 [ConversationPart.TextPart(string.Empty)],
                 [new LLMToolCall("call-1", "read_image", "{}")],
+                LLMProviderContent.None,
                 string.Empty);
             repository.AppendConversation(
                 new Event { Id = "tool", AgentSessionId = "agent" },
@@ -39,6 +40,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
                 LLMRole.Tool,
                 [ConversationPart.TextPart("read image")],
                 [],
+                LLMProviderContent.None,
                 "call-1");
             repository.AppendConversation(
                 new Event { Id = "images", AgentSessionId = "agent" },
@@ -46,6 +48,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
                 LLMRole.User,
                 [ConversationPart.ImageArtifact(new ImageArtifactMetadata(new string('a', 64), new string('a', 64), "image/png", 1, 1, 1, 1, 1, "pixel.png", "test"))],
                 [],
+                LLMProviderContent.None,
                 string.Empty);
         }
 
@@ -71,6 +74,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.Assistant,
             [ConversationPart.TextPart("before")],
             [new LLMToolCall("call-1", "read", "{\"path\":\"file\"}")],
+            LLMProviderContent.None,
             string.Empty);
         _ = repository.SaveCompaction("agent", new CompactionSnapshot("summary one", 1));
         repository.AppendConversation(
@@ -79,6 +83,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.Tool,
             [ConversationPart.TextPart("result")],
             [],
+            LLMProviderContent.None,
             "call-1");
         _ = repository.SaveCompaction("agent", new CompactionSnapshot("summary two", 2));
 
@@ -109,6 +114,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.User,
             [ConversationPart.TextPart("before")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         var firstStatus = new Event { Id = "first-status", AgentSessionId = "agent" };
         _ = await Assert.That(repository.AppendCompactionStatus(
@@ -121,6 +127,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.User,
             [ConversationPart.TextPart("between")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         var reminder = new Event { Id = "reminder", AgentSessionId = "agent" };
         _ = await Assert.That(repository.AppendContextReminder(
@@ -140,6 +147,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.User,
             [ConversationPart.TextPart("after")],
             [],
+            LLMProviderContent.None,
             string.Empty);
 
         var context = repository.CompactionHistory("agent")
@@ -205,6 +213,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.User,
             [ConversationPart.TextPart("before")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         repository.AppendConversation(
             new Event { Id = "checkpoint-call", AgentSessionId = "agent" },
@@ -212,6 +221,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.Assistant,
             [ConversationPart.TextPart(string.Empty)],
             [new LLMToolCall("checkpoint", "set_checkpoint", "{\"title\":\"handoff\"}")],
+            LLMProviderContent.None,
             string.Empty);
         var checkpointAssistant = repository.Conversation()[1].Sequence;
         _ = repository.RecordCheckpoint("handoff", checkpointAssistant, "checkpoint");
@@ -230,6 +240,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.User,
             [ConversationPart.TextPart("between")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         repository.AppendConversation(
             new Event { Id = "spawn-call", AgentSessionId = "agent" },
@@ -237,6 +248,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.Assistant,
             [ConversationPart.TextPart(string.Empty)],
             [new LLMToolCall("spawn", "agent_spawn", "{}")],
+            LLMProviderContent.None,
             string.Empty);
         var spawnAssistant = repository.Conversation()[^1].Sequence;
 
@@ -262,6 +274,50 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
     }
 
     [Test]
+    public async Task Provider_content_survives_reopen_and_full_fork()
+    {
+        var resources = Resources("provider-content");
+        using (var database = SessionDatabase.Open(resources.DatabasePath))
+        {
+            var repository = new EventRepository(database);
+            _ = repository.AppendMessage(
+                new Event { Id = "question", AgentSessionId = "agent" },
+                LLMMessage.User("question"),
+                ConversationOrigin.UserInput);
+            _ = repository.AppendMessage(
+                new Event { Id = "answer", AgentSessionId = "agent" },
+                LLMMessage.Assistant("answer", []) with { ProviderContent = new("anthropic", "[\"answer\"]") },
+                ConversationOrigin.Model);
+            repository.AppendConversation(
+                new Event { Id = "follow-up", AgentSessionId = "agent" },
+                ConversationOrigin.Model,
+                LLMRole.Assistant,
+                [ConversationPart.TextPart("follow-up")],
+                [],
+                new LLMProviderContent("anthropic", "[\"follow-up\"]"),
+                string.Empty);
+        }
+
+        using var reopened = SessionDatabase.Open(resources.DatabasePath);
+        var restored = new EventRepository(reopened);
+        restored.InitializeForkedAgentHistory(
+            "agent",
+            "child",
+            new HistoryForkBoundary.AfterCompletedHistory(),
+            HistoryForkSelection.Parse("full"),
+            null);
+
+        LLMProviderContent[] expected =
+        [
+            LLMProviderContent.None,
+            new("anthropic", "[\"answer\"]"),
+            new("anthropic", "[\"follow-up\"]"),
+        ];
+        _ = await Assert.That(restored.Conversation("agent").Select(item => item.ProviderContent)).IsEquivalentTo(expected);
+        _ = await Assert.That(restored.Conversation("child").Select(item => item.ProviderContent)).IsEquivalentTo(expected);
+    }
+
+    [Test]
     [Arguments(false)]
     [Arguments(true)]
     public async Task Full_fork_copies_settled_batches_and_checkpoints(bool useSafePrefix)
@@ -275,6 +331,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.User,
             [ConversationPart.TextPart("before")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         repository.AppendConversation(
             new Event { Id = "checkpoint-call", AgentSessionId = "agent" },
@@ -282,6 +339,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.Assistant,
             [ConversationPart.TextPart(string.Empty)],
             [new LLMToolCall("checkpoint", "set_checkpoint", "{\"title\":\"handoff\"}")],
+            LLMProviderContent.None,
             string.Empty);
         var assistant = repository.Conversation("agent")[^1].Sequence;
         _ = repository.RecordCheckpoint("agent", "handoff", assistant, "checkpoint");
@@ -300,6 +358,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.User,
             [ConversationPart.TextPart("after")],
             [],
+            LLMProviderContent.None,
             string.Empty);
 
         repository.InitializeForkedAgentHistory(
@@ -332,6 +391,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.User,
             [ConversationPart.TextPart("compacted away")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         var status = new Event { Id = "status", AgentSessionId = "agent" };
         _ = await Assert.That(repository.AppendCompactionStatus(
@@ -344,6 +404,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.User,
             [ConversationPart.TextPart("retained tail")],
             [],
+            LLMProviderContent.None,
             string.Empty);
 
         repository.InitializeForkedAgentHistory(
@@ -376,6 +437,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.Assistant,
             [ConversationPart.TextPart(string.Empty)],
             [new LLMToolCall("unfinished", "agent_spawn", "{}")],
+            LLMProviderContent.None,
             string.Empty);
 
         _ = await Assert.That(() => repository.InitializeForkedAgentHistory(
@@ -399,6 +461,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.User,
             [ConversationPart.TextPart("before")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         repository.AppendConversation(
             new Event { Id = "checkpoint", AgentSessionId = "agent" },
@@ -406,6 +469,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.Assistant,
             [],
             [new LLMToolCall("checkpoint", "set_checkpoint", "{}")],
+            LLMProviderContent.None,
             string.Empty);
         var checkpoint = repository.Conversation("agent")[^1].Sequence;
         _ = repository.RecordCheckpoint("agent", "handoff", checkpoint, "checkpoint");
@@ -428,6 +492,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
                 LLMRole.Assistant,
                 [],
                 [new LLMToolCall(callId, "exec_command", "{}")],
+                LLMProviderContent.None,
                 string.Empty);
             if (callId != "incomplete")
             {
@@ -441,6 +506,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.User,
             [ConversationPart.TextPart("after")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         foreach (var (sequence, callId) in crossing)
         {
@@ -488,6 +554,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.User,
             [ConversationPart.TextPart("parent-before")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         repository.AppendConversation(
             new Event { Id = "parent-launch", AgentSessionId = "parent" },
@@ -495,6 +562,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.Assistant,
             [],
             [new LLMToolCall("launch", "set_agent_tasks", "{}")],
+            LLMProviderContent.None,
             string.Empty);
         var launch = repository.Conversation("parent")[^1].Sequence;
         if (hasIncompleteHistory)
@@ -505,6 +573,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
                 LLMRole.Assistant,
                 [],
                 [new LLMToolCall("unfinished", "exec_command", "{}")],
+                LLMProviderContent.None,
                 string.Empty);
         }
 
@@ -537,6 +606,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.User,
             [ConversationPart.TextPart("compacted")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         _ = repository.AppendCompactionStatus(
             new Event { Id = "status", AgentSessionId = "source" },
@@ -587,6 +657,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.Assistant,
             [],
             [new LLMToolCall("launch", "set_agent_tasks", "{}")],
+            LLMProviderContent.None,
             string.Empty);
         var launch = repository.Conversation("parent")[^1].Sequence;
         _ = repository.AppendToolSettlement(
@@ -632,6 +703,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
                 LLMRole.User,
                 [ConversationPart.TextPart($"{sessionId}-{index}")],
                 [],
+                LLMProviderContent.None,
                 string.Empty);
         })));
 
@@ -664,6 +736,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
                 LLMRole.User,
                 [ConversationPart.TextPart($"{sessionId} occupant")],
                 [],
+                LLMProviderContent.None,
                 string.Empty);
         }
 
@@ -697,6 +770,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.User,
             [ConversationPart.TextPart("committed despite projection failure")],
             [],
+            LLMProviderContent.None,
             string.Empty);
 
         _ = await Assert.That(repository.Conversation("agent").Count).IsEqualTo(1);
@@ -745,6 +819,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             LLMRole.User,
             [ConversationPart.TextPart("durable")],
             [],
+            LLMProviderContent.None,
             string.Empty);
         var path = history.Path;
         _ = await Assert.That(await File.ReadAllTextAsync(path)).Contains("durable");
@@ -769,6 +844,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
                 LLMRole.Assistant,
                 [ConversationPart.TextPart(string.Empty)],
                 [new LLMToolCall(call, "set_checkpoint", "{\"title\":\"same\"}")],
+                LLMProviderContent.None,
                 string.Empty);
             var assistant = repository.Conversation("agent")[^1].Sequence;
             _ = repository.RecordCheckpoint("agent", "same", assistant, call);

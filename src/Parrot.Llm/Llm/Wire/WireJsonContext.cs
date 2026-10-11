@@ -6,6 +6,8 @@ namespace Parrot.Llm.Wire;
 // through these roots; response streams are parsed with JsonDocument, so no
 // chunk DTOs are registered here.
 [JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(AnthropicMessagesAdapter.Body), TypeInfoPropertyName = "AnthropicMessagesBody")]
+[JsonSerializable(typeof(List<AnthropicMessagesAdapter.ContentBlock>), TypeInfoPropertyName = "AnthropicContentBlocks")]
 [JsonSerializable(typeof(ChatCompletionsAdapter.Body), TypeInfoPropertyName = "ChatCompletionsBody")]
 [JsonSerializable(typeof(ResponsesAdapter.Body), TypeInfoPropertyName = "ResponsesBody")]
 [JsonSerializable(typeof(ResponsesAdapter.WebSocketRequest), TypeInfoPropertyName = "ResponsesWebSocketRequest")]

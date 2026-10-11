@@ -272,6 +272,19 @@ selected effort and automatic summary under
 place it at top level as `"reasoning_effort":"…"`. Both omit their effort field
 for a bare model selection.
 
+A provider with `type: anthropic` speaks the Anthropic Messages API instead
+(`x-api-key` authentication, `POST {base_url}/messages`); the predefined
+`anthropic` provider reads `ANTHROPIC_API_KEY`. A selected effort becomes
+`"output_config":{"effort":"…"}` with
+`"thinking":{"type":"adaptive","display":"summarized"}`. Requests enable
+automatic prompt caching and mark the system prompt as a cache breakpoint.
+Each assistant message's content blocks, thinking blocks and signatures
+included, are stored with the conversation and replayed verbatim to the
+provider that produced them. Requests replaying thinking send
+`"block_binding":{"prefix_mismatch_behavior":"drop_block"}` under the
+`thinking-binding-controls-2026-08-01` beta, so blocks that history edits such
+as compaction have invalidated are dropped instead of failing the request.
+
 ## Configuration
 
 ### Provider HTTP/SSE idle timeout

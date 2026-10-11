@@ -126,7 +126,8 @@ internal static partial class ProviderErrors
         Normalize(value) is "context_length_exceeded" or "context_window_exceeded";
 
     private static bool OverloadValue(string value) =>
-        Normalize(value) is "engine_overloaded_error" or "service_unavailable_error" or "server_is_overloaded";
+        Normalize(value) is "engine_overloaded_error" or "service_unavailable_error" or "server_is_overloaded"
+            or "overloaded_error";
 
     private static bool RetryableProviderMessage(string message)
     {

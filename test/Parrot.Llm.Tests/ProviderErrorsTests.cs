@@ -10,6 +10,7 @@ internal sealed class ProviderErrorsTests
     [Arguments("", "insufficient_quota", true, false)]
     [Arguments("engine_overloaded_error", "", false, true)]
     [Arguments("", "server_is_overloaded", false, true)]
+    [Arguments("overloaded_error", "", false, true)]
     [Arguments("rate_limit_error", "429", false, false)]
     public async Task Structured_fields_classify_permanent_and_transient_failures(
         string type, string code, bool usageLimit, bool overloaded)

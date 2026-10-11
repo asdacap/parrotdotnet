@@ -1,5 +1,6 @@
 using Parrot.Diagnostics;
 using Parrot.Events;
+using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Store;
 
@@ -14,15 +15,25 @@ internal sealed class AgentEventEmitter(
     IEventBroker eventBroker,
     IDiagnosticLog diagnostics)
 {
-    public async ValueTask Emit(
+    public ValueTask Emit(
         Event published,
         string? role,
         string? content,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) =>
+        Commit(published, () => history.Append(published, role, content), cancellationToken);
+
+    public ValueTask EmitMessage(
+        Event published,
+        LLMMessage message,
+        ConversationOrigin origin,
+        CancellationToken cancellationToken) =>
+        Commit(published, () => history.AppendMessage(published, message, origin), cancellationToken);
+
+    private async ValueTask Commit(Event published, Func<SessionUsage?> append, CancellationToken cancellationToken)
     {
         try
         {
-            _ = history.Append(published, role, content);
+            _ = append();
         }
         catch (Exception failure)
         {
