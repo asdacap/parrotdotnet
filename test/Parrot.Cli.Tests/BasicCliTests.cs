@@ -47,6 +47,34 @@ internal sealed class BasicCliTests
     }
 
     [Test]
+    [Arguments("root")]
+    [Arguments("child")]
+    public async Task Encrypted_reasoning_metadata_is_silent_and_does_not_interrupt_text(
+        string agentSessionId, CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        await stream.WriteAsync(new Event { TextChunk = new TextChunk { Fragment = "before" } }, cancellationToken);
+        for (var index = 0; index < 2; index++)
+        {
+            await stream.WriteAsync(
+                new Event
+                {
+                    AgentSessionId = agentSessionId,
+                    EncryptedReasoningReceived = new EncryptedReasoningReceivedEvent(),
+                },
+                cancellationToken);
+        }
+
+        await stream.WriteAsync(new Event { TextChunk = new TextChunk { Fragment = "after" } }, cancellationToken);
+        stream.Complete();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        _ = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
+        _ = await Assert.That(output.ToString()).IsEqualTo("beforeafter");
+        _ = await Assert.That(error.ToString()).IsEqualTo(string.Empty);
+    }
+
+    [Test]
     public async Task Provider_request_phases_do_not_interrupt_partial_text(CancellationToken cancellationToken)
     {
         var stream = new ChannelStreamWriter<Event>();

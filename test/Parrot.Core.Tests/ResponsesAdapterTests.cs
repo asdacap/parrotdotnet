@@ -351,6 +351,7 @@ internal sealed class ResponsesAdapterTests
         _ = wire.Append("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"output\":")
             .Append(terminal).AppendLine("}}").AppendLine();
         var events = await Drain(wire.ToString(), cancellationToken);
+        _ = await Assert.That(events.Count(published => published.Kind == LLMEventKind.EncryptedReasoningReceived)).IsEqualTo(1);
         var completed = events[^1];
         _ = await Assert.That(completed.AssistantText).IsEqualTo("answer");
         _ = await Assert.That(completed.ProviderContent.ProviderId).IsEqualTo("test");
@@ -487,6 +488,105 @@ internal sealed class ResponsesAdapterTests
         var events = await Drain(wire, cancellationToken);
         _ = await Assert.That(events[^1].ProviderContent).IsEqualTo(LLMProviderContent.None);
         _ = await Assert.That(events[^1].AssistantText).IsEqualTo("answer");
+    }
+
+    [Test]
+    [Arguments("\"id\":\"rs_1\",", "\"id\":\"rs_1\",", false)]
+    [Arguments("", "\"id\":\"rs_1\",", false)]
+    [Arguments("\"id\":\"rs_1\",", "", false)]
+    [Arguments("", "", false)]
+    [Arguments("\"id\":\"rs_1\",", "\"id\":\"rs_1\",", true)]
+    public async Task Encrypted_reasoning_is_received_once_across_stream_and_terminal_aliases(
+        string streamedId, string terminalId, bool emptyTerminal, CancellationToken cancellationToken)
+    {
+        var streamed = $$"""
+            { {{streamedId}} "type":"reasoning","encrypted_content":"opaque","summary":[] }
+            """;
+        var terminal = $$"""
+            { {{terminalId}} "type":"reasoning","encrypted_content":"opaque","summary":[] }
+            """;
+        var output = emptyTerminal ? "[]" : $"[{terminal}]";
+        var wire = $$$"""
+            data: {"type":"response.output_item.done","output_index":0,"item":{{{streamed}}}}
+
+            data: {"type":"response.completed","response":{"id":"resp_1","output":{{{output}}}}}
+
+            """;
+        var events = await Drain(wire, cancellationToken);
+        var received = events.Where(item => item.Kind == LLMEventKind.EncryptedReasoningReceived).ToArray();
+        _ = await Assert.That(received.Length).IsEqualTo(1);
+        _ = await Assert.That(received[0]).IsEqualTo(LLMEvent.EncryptedReasoningReceived());
+        _ = await Assert.That(received[0].IsVisibleOutput).IsFalse();
+        _ = await Assert.That(events[^1].Kind).IsEqualTo(LLMEventKind.Completed);
+        _ = await Assert.That(events[^1].ProviderContent.Content).Contains("opaque");
+        var secondAttempt = await Drain(wire, cancellationToken);
+        _ = await Assert.That(secondAttempt.Count(item => item.Kind == LLMEventKind.EncryptedReasoningReceived)).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Streamed_encrypted_blocks_keep_arrival_order_and_deduplicate_ids(CancellationToken cancellationToken)
+    {
+        const string wire = """
+            data: {"type":"response.output_item.done","output_index":1,"item":{"id":"rs_2","type":"reasoning","encrypted_content":"opaque"}}
+
+            data: {"type":"response.output_text.delta","delta":"between"}
+
+            data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","encrypted_content":"opaque"}}
+
+            data: {"type":"response.output_item.done","output_index":2,"item":{"id":"rs_2","type":"reasoning","encrypted_content":"opaque"}}
+
+            data: {"type":"response.completed","response":{"id":"resp_1","output":[{"id":"rs_1","type":"reasoning","encrypted_content":"opaque"},{"id":"rs_2","type":"reasoning","encrypted_content":"opaque"}]}}
+
+            """;
+        var events = await Drain(wire, cancellationToken);
+        _ = await Assert.That(string.Join(",", events.Select(item => item.Kind)))
+            .IsEqualTo("EncryptedReasoningReceived,TextDelta,EncryptedReasoningReceived,Completed");
+        _ = await Assert.That(events[1].Text).IsEqualTo("between");
+    }
+
+    [Test]
+    public async Task Terminal_only_encrypted_blocks_are_distinct_from_summary_entries(CancellationToken cancellationToken)
+    {
+        const string wire = """
+            data: {"type":"response.reasoning_summary_text.delta","delta":"readable"}
+
+            data: {"type":"response.completed","response":{"id":"resp_1","output":[{"id":"rs_1","type":"reasoning","encrypted_content":"opaque","summary":[{"type":"summary_text","text":"one"},{"type":"summary_text","text":"two"}]},{"id":"rs_2","type":"reasoning","encrypted_content":"opaque","summary":[]}]}}
+
+            """;
+        var events = await Drain(wire, cancellationToken);
+        _ = await Assert.That(string.Join(",", events.Select(item => item.Kind)))
+            .IsEqualTo("ReasoningDelta,EncryptedReasoningReceived,EncryptedReasoningReceived,Completed");
+        _ = await Assert.That(events[0].Text).IsEqualTo("readable");
+        var request = new LLMRequest
+        {
+            Model = "model",
+            Messages = [LLMMessage.Assistant(string.Empty, []) with { ProviderContent = events[^1].ProviderContent }],
+        };
+        using var encoded = JsonDocument.Parse(ResponsesAdapter.Encode(request, "test"));
+        _ = await Assert.That(encoded.RootElement.GetProperty("input").GetArrayLength()).IsEqualTo(2);
+        _ = await Assert.That(events.Count(item => item.Kind == LLMEventKind.EncryptedReasoningReceived)).IsEqualTo(2);
+    }
+
+    [Test]
+    [Arguments("")]
+    [Arguments(",\"encrypted_content\":null")]
+    [Arguments(",\"encrypted_content\":\"\"")]
+    [Arguments(",\"encrypted_content\":123")]
+    [Arguments(",\"encrypted_content\":false")]
+    public async Task Reasoning_without_nonempty_encrypted_content_emits_no_metadata(
+        string encryptedField, CancellationToken cancellationToken)
+    {
+        var item = $$"""
+            {"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"readable"}]{{encryptedField}}}
+            """;
+        var wire = $$$"""
+            data: {"type":"response.output_item.done","output_index":0,"item":{{{item}}}}
+
+            data: {"type":"response.completed","response":{"id":"resp_1","output":[{{{item}}}]}}
+
+            """;
+        var events = await Drain(wire, cancellationToken);
+        _ = await Assert.That(events.Any(published => published.Kind == LLMEventKind.EncryptedReasoningReceived)).IsFalse();
     }
 
     private static string WriteConfiguration(string directory, string content)

@@ -93,6 +93,7 @@ internal sealed class ProviderCall(
 
                 if (awaitingFirstData && llmEvent.Kind switch
                 {
+                    LLMEventKind.EncryptedReasoningReceived => true,
                     LLMEventKind.TextDelta or LLMEventKind.ReasoningDelta => llmEvent.Text.Length > 0,
                     LLMEventKind.ToolCallDelta => llmEvent.ToolCallId.Length > 0
                         || llmEvent.ToolName.Length > 0 || llmEvent.Text.Length > 0,
@@ -226,6 +227,10 @@ internal sealed class ProviderCall(
                     PartId = llmEvent.ReasoningPartId,
                     Completed = llmEvent.ReasoningCompleted,
                 };
+                break;
+
+            case LLMEventKind.EncryptedReasoningReceived:
+                published.EncryptedReasoningReceived = new EncryptedReasoningReceivedEvent();
                 break;
 
             case LLMEventKind.ToolCallDelta:

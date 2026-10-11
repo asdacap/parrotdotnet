@@ -52,6 +52,8 @@ internal sealed record LLMEvent
 
     public static LLMEvent HttpResponseHeadersReceived() => new() { Kind = LLMEventKind.HttpResponseHeadersReceived };
 
+    public static LLMEvent EncryptedReasoningReceived() => new() { Kind = LLMEventKind.EncryptedReasoningReceived };
+
     public static LLMEvent TextDelta(string fragment) =>
         new() { Kind = LLMEventKind.TextDelta, Text = fragment };
 

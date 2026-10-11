@@ -9,4 +9,5 @@ internal enum LLMEventKind
     Completed,
     HttpRequestStarted,
     HttpResponseHeadersReceived,
+    EncryptedReasoningReceived,
 }

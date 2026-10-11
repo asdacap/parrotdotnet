@@ -127,6 +127,94 @@ internal sealed class RawReasoningActivityTests
         _ = await Assert.That(fixture.LastDrawn).DoesNotContain("Thinking (");
     }
 
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Encrypted_reasoning_commits_one_hierarchical_notice_per_event(
+        bool isRoot, CancellationToken cancellationToken)
+    {
+        var agentSessionId = isRoot ? "root" : "child";
+        await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);
+        await fixture.View.Render(TurnStart("root"), cancellationToken);
+        if (!isRoot)
+        {
+            await fixture.View.Render(ChildStart("child", "worker"), cancellationToken);
+            await fixture.View.Render(TurnStart("child"), cancellationToken);
+        }
+
+        var expected = isRoot
+            ? $"{TerminalIcons.Reasoning} Reasoning received (encrypted)"
+            : $"  {TerminalIcons.Reasoning} [worker] Reasoning received (encrypted)";
+        for (var index = 1; index <= 2; index++)
+        {
+            var received = EncryptedBlock(agentSessionId);
+            await fixture.View.Prepare(received, cancellationToken);
+            await fixture.View.Render(received, cancellationToken);
+            _ = await Assert.That(fixture.Committed.Count).IsEqualTo(index);
+            _ = await Assert.That(fixture.Committed[^1]).IsEqualTo(expected);
+        }
+
+        _ = await Assert.That(fixture.CommittedText).DoesNotContain("tokens");
+        _ = await Assert.That(fixture.CommittedText).DoesNotContain("Reasoned for");
+        _ = await Assert.That(fixture.LastDrawn).DoesNotContain("Thinking (");
+    }
+
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Encrypted_reasoning_notice_flushes_and_preserves_readable_summary(
+        bool isRoot, CancellationToken cancellationToken)
+    {
+        var agentSessionId = isRoot ? "root" : "child";
+        await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);
+        await fixture.View.Render(TurnStart("root"), cancellationToken);
+        if (!isRoot)
+        {
+            await fixture.View.Render(ChildStart("child", "worker"), cancellationToken);
+            await fixture.View.Render(TurnStart("child"), cancellationToken);
+        }
+
+        await fixture.View.Render(SummaryChunk(agentSessionId, "Readable summary"), cancellationToken);
+        var received = EncryptedBlock(agentSessionId);
+        await fixture.View.Prepare(received, cancellationToken);
+        await fixture.View.Render(received, cancellationToken);
+        _ = await Assert.That(fixture.Committed.Count).IsEqualTo(2);
+        _ = await Assert.That(fixture.Committed[0]).Contains("Readable summary");
+        _ = await Assert.That(fixture.Committed[1]).Contains("Reasoning received (encrypted)");
+        _ = await Assert.That(fixture.CommittedText.AsSpan().Count("Readable summary")).IsEqualTo(1);
+        _ = await Assert.That(fixture.CommittedText.AsSpan().Count("Reasoning received (encrypted)")).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Encrypted_reasoning_notices_survive_retry_and_failure(CancellationToken cancellationToken)
+    {
+        await using var fixture = new RawActivityRecorder(120, new ToolPresenterRegistry([], new GenericToolPresenter()), RawActivityRecorder.QuietPeriodDelay);
+        await fixture.View.Render(TurnStart("root"), cancellationToken);
+        await fixture.View.Render(ChildStart("child", "worker"), cancellationToken);
+        await fixture.View.Render(TurnStart("child"), cancellationToken);
+        Event[] events =
+        [
+            EncryptedBlock("child"),
+            new() { AgentSessionId = "child", RetryNotice = new RetryNotice { Attempt = 1, Reason = "retrying" } },
+            EncryptedBlock("child"),
+            new() { AgentSessionId = "child", TurnFailed = new TurnFailed { Message = "request failed" } },
+        ];
+        foreach (var published in events)
+        {
+            await fixture.View.Prepare(published, cancellationToken);
+            await fixture.View.Render(published, cancellationToken);
+        }
+
+        _ = await Assert.That(fixture.CommittedText.AsSpan().Count("Reasoning received (encrypted)")).IsEqualTo(2);
+        _ = await Assert.That(fixture.Committed[0]).Contains("Reasoning received (encrypted)");
+        _ = await Assert.That(fixture.Committed[1]).Contains("retry 1");
+        _ = await Assert.That(fixture.Committed[2]).Contains("Reasoning received (encrypted)");
+        _ = await Assert.That(fixture.CommittedText).DoesNotContain("tokens");
+    }
+
+    private static Event EncryptedBlock(string agentSessionId) =>
+        new() { AgentSessionId = agentSessionId, EncryptedReasoningReceived = new EncryptedReasoningReceivedEvent() };
+
     private static string LiveLine(bool isRoot, string count) => isRoot
         ? $"{TerminalIcons.SpinnerFrames[0]} Thinking ({count} tokens)…"
         : $"  {TerminalIcons.SpinnerFrames[0]} [worker] Thinking ({count} tokens)…";

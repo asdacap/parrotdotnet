@@ -565,6 +565,7 @@ message Event {
     ModeTurnCompleted mode_turn_completed = 47;
     AgentNotice agent_notice = 48;
     ToolSnapshot tool_snapshot = 49;
+    EncryptedReasoningReceivedEvent encrypted_reasoning_received = 50;
   }
 }
 
@@ -808,6 +809,8 @@ message ReasoningChunk {
   string        part_id   = 3;
   bool          completed = 4;
 }
+
+message EncryptedReasoningReceivedEvent {}
 
 message ToolCallChunk {
   string tool_call_id       = 1;
