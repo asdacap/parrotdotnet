@@ -30,7 +30,7 @@ internal sealed class AgentTaskService(
     private readonly Lock _gate = new();
     private ulong _revision;
     private bool _complete;
-    private bool _allSucceeded;
+    private bool _allResolved;
     private Task? _settlement;
 
     public void SetTasks(IReadOnlyList<AgentTask> tasks, AgentTurnSelection selection, HistoryForkBoundary historyBoundary)
@@ -475,9 +475,9 @@ internal sealed class AgentTaskService(
 
     private void Publish()
     {
-        var allSucceeded = _entries.Count > 0
-            && _entries.All(entry => Effective(entry) == AgentTaskExecutionStatus.Succeeded);
-        if (allSucceeded && !_allSucceeded)
+        var allResolved = _entries.Count > 0
+            && _entries.All(entry => Effective(entry) is AgentTaskExecutionStatus.Succeeded or AgentTaskExecutionStatus.Canceled);
+        if (allResolved && !_allResolved)
         {
             foreach (var entry in _entries)
             {
@@ -485,7 +485,7 @@ internal sealed class AgentTaskService(
             }
         }
 
-        _allSucceeded = allSucceeded;
+        _allResolved = allResolved;
         var snapshot = new AgentTaskProgressSnapshot { Revision = checked(++_revision) };
         snapshot.RootNodes.Add(_entries.Select(entry => new AgentTaskProgressNode
         {
