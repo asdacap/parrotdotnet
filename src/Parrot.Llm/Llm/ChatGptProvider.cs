@@ -79,6 +79,7 @@ internal sealed class ChatGptProvider : ILLMProvider
     {
         var sessionId = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
         return new OpenAICompatibleProviderSession(
+            Id,
             static request => request with { MaxOutputTokens = 0 },
             (request, turnState, captureTurnState, cancellationToken) =>
                 CallHttp(sessionId, request, turnState, captureTurnState, cancellationToken),
@@ -226,7 +227,7 @@ internal sealed class ChatGptProvider : ILLMProvider
         RequireToken(access);
 
         // ChatGPT does not support the max_output_tokens parameter.
-        var body = ResponsesAdapter.Encode(request with { MaxOutputTokens = 0 });
+        var body = ResponsesAdapter.Encode(request with { MaxOutputTokens = 0 }, Id);
         var headers = Headers(access);
         headers["session-id"] = sessionId;
         if (turnState.Length > 0)
@@ -245,7 +246,7 @@ internal sealed class ChatGptProvider : ILLMProvider
                 MaximumRequestBytes,
                 request,
                 captureTurnState,
-                ResponsesAdapter.Parse,
+                (stream, maxEventBytes, token) => ResponsesAdapter.Parse(stream, maxEventBytes, Id, token),
                 cancellationToken)
             .ConfigureAwait(false))
         {

@@ -19,7 +19,7 @@ internal sealed class ImageAdapterTests
             Messages = [LLMMessage.User([LLMContent.TextPart("before"), Image(linked), LLMContent.TextPart("after")])],
         };
 
-        using var document = JsonDocument.Parse(ResponsesAdapter.Encode(request));
+        using var document = JsonDocument.Parse(ResponsesAdapter.Encode(request, "test"));
         var content = document.RootElement.GetProperty("input")[0].GetProperty("content");
 
         _ = await Assert.That(content.GetRawText()).IsEqualTo($"[{{\"type\":\"input_text\",\"text\":\"before\"}},{{\"type\":\"input_image\",\"image_url\":\"{expectedReference}\"}},{{\"type\":\"input_text\",\"text\":\"after\"}}]");
@@ -36,7 +36,7 @@ internal sealed class ImageAdapterTests
             Messages = [LLMMessage.User([LLMContent.TextPart("before"), Image(linked), LLMContent.TextPart("after")])],
         };
 
-        using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request));
+        using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request, "test"));
         var content = document.RootElement.GetProperty("messages")[0].GetProperty("content");
 
         _ = await Assert.That(content.GetRawText()).IsEqualTo($"[{{\"type\":\"text\",\"text\":\"before\"}},{{\"type\":\"image_url\",\"image_url\":{{\"url\":\"{expectedReference}\"}}}},{{\"type\":\"text\",\"text\":\"after\"}}]");

@@ -48,7 +48,7 @@ internal sealed class ResponsesWebSocketTests
         Exception? failure = null;
         try
         {
-            await foreach (var published in connection.Send(Encoding.UTF8.GetBytes("éé"), new ResponsesAdapter.ParseState(), attempt, cancellation.Token))
+            await foreach (var published in connection.Send(Encoding.UTF8.GetBytes("éé"), new ResponsesAdapter.ParseState("test"), attempt, cancellation.Token))
             {
                 _ = published;
             }
@@ -84,7 +84,7 @@ internal sealed class ResponsesWebSocketTests
             new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes,
             TimeProvider.System);
 
-        await foreach (var published in connection.Send(request, new ResponsesAdapter.ParseState(), null, cancellationToken))
+        await foreach (var published in connection.Send(request, new ResponsesAdapter.ParseState("test"), null, cancellationToken))
         {
             _ = published;
         }
@@ -151,12 +151,14 @@ internal sealed class ResponsesWebSocketTests
             TimeSpan.FromSeconds(1),
             new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes,
             TimeProvider.System);
-        var request = ResponsesAdapter.Prepare(new LLMRequest
-        {
-            Model = "model",
-            Messages = [LLMMessage.User("hello")],
-        });
-        var state = new ResponsesAdapter.ParseState();
+        var request = ResponsesAdapter.Prepare(
+            new LLMRequest
+            {
+                Model = "model",
+                Messages = [LLMMessage.User("hello")],
+            },
+            "test");
+        var state = new ResponsesAdapter.ParseState("test");
         var events = new List<LLMEvent>();
 
         await foreach (var published in connection.Send(
@@ -191,7 +193,7 @@ internal sealed class ResponsesWebSocketTests
             TimeSpan.FromSeconds(1),
             new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes,
             TimeProvider.System);
-        var state = new ResponsesAdapter.ParseState();
+        var state = new ResponsesAdapter.ParseState("test");
 
         async Task Consume()
         {
@@ -215,7 +217,7 @@ internal sealed class ResponsesWebSocketTests
             TimeSpan.FromMinutes(1),
             new Parrot.Config.RequestLimitsConfig().ProviderRequestBytes,
             TimeProvider.System);
-        var state = new ResponsesAdapter.ParseState();
+        var state = new ResponsesAdapter.ParseState("test");
         using var cancelled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cancelled.CancelAfter(TimeSpan.FromMilliseconds(10));
 
@@ -253,7 +255,7 @@ internal sealed class ResponsesWebSocketTests
 
         async Task Consume()
         {
-            await foreach (var published in connection.Send(request, new ResponsesAdapter.ParseState(), null, cancellationToken))
+            await foreach (var published in connection.Send(request, new ResponsesAdapter.ParseState("test"), null, cancellationToken))
             {
                 _ = published;
             }

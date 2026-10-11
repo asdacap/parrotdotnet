@@ -1820,6 +1820,34 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    [Arguments("chat")]
+    [Arguments("responses")]
+    public async Task Compaction_replays_only_retained_native_reasoning(
+        string protocol, CancellationToken cancellationToken)
+    {
+        var provider = new ScriptedProvider("summary");
+        var removed = await ReasoningHistoryFixture.Parse(protocol, provider.Id, "removed-reasoning", false, cancellationToken);
+        var retained = await ReasoningHistoryFixture.Parse(protocol, provider.Id, "retained-reasoning", false, cancellationToken);
+        var history = new List<LLMMessage>
+        {
+            LLMMessage.User("old question"),
+            LLMMessage.Assistant(removed.AssistantText, removed.ToolCalls) with { ProviderContent = removed.ProviderContent },
+        };
+        history.AddRange(Enumerable.Range(0, 6).Select(index => LLMMessage.User($"message {index} {new string('x', 300)}")));
+        history.Add(LLMMessage.Assistant(retained.AssistantText, retained.ToolCalls) with { ProviderContent = retained.ProviderContent });
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 });
+        var result = await new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates).Compact(
+            model, "instructions", [], history, LLMMessage.User("fixed"), _compactionGroupBlobs, TestDiagnosticLog.Instance, "agent-test", cancellationToken)
+            ?? throw new InvalidOperationException("Expected compaction.");
+
+        using var encoded = ReasoningHistoryFixture.Encode(protocol, provider.Id, result.History);
+        _ = await Assert.That(ReasoningHistoryFixture.ReadReasoning(protocol, encoded)).IsEquivalentTo(["retained-reasoning"]);
+        _ = await Assert.That(result.History).DoesNotContain(message => message.ProviderContent == removed.ProviderContent);
+        _ = await Assert.That(result.History).Contains(message => message.ProviderContent == retained.ProviderContent);
+        _ = await Assert.That(result.History[^1].Content).IsEqualTo("done");
+    }
+
+    [Test]
     [Arguments(4096)]
     [Arguments(3 * 1024 * 1024)]
     [Arguments(5 * 1024 * 1024)]

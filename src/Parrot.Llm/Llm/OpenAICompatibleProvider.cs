@@ -121,6 +121,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
         var sessionId = NewSessionId();
         return _protocol == CompatibleProtocol.Responses
             ? new OpenAICompatibleProviderSession(
+                Id,
                 Prepare,
                 (request, turnState, captureTurnState, cancellationToken) =>
                     CallHttp(sessionId, request, turnState, captureTurnState, cancellationToken),
@@ -200,14 +201,18 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
 
         var prepared = Prepare(request);
         var body = _protocol == CompatibleProtocol.Responses
-            ? ResponsesAdapter.Encode(prepared)
-            : ChatCompletionsAdapter.Encode(prepared);
+            ? ResponsesAdapter.Encode(prepared, Id)
+            : ChatCompletionsAdapter.Encode(prepared, Id);
 
         var headers = await SessionHeaders(sessionId, cancellationToken).ConfigureAwait(false);
         if (turnState.Length > 0)
         {
             headers["x-codex-turn-state"] = turnState;
         }
+
+        Func<Stream, int, CancellationToken, IAsyncEnumerable<LLMEvent>> parser = _protocol == CompatibleProtocol.Responses
+            ? (stream, maxEventBytes, token) => ResponsesAdapter.Parse(stream, maxEventBytes, Id, token)
+            : (stream, maxEventBytes, token) => ChatCompletionsAdapter.Parse(stream, maxEventBytes, Id, token);
 
         await foreach (var published in HttpStreaming
             .StreamEvents(
@@ -220,7 +225,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
                 _maximumRequestBytes,
                 request,
                 captureTurnState,
-                _protocol == CompatibleProtocol.Responses ? ResponsesAdapter.Parse : ChatCompletionsAdapter.Parse,
+                parser,
                 cancellationToken)
             .ConfigureAwait(false))
         {

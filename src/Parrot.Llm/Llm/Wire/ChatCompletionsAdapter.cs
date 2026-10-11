@@ -11,7 +11,7 @@ namespace Parrot.Llm.Wire;
 // session never reassembles fragments itself.
 internal static class ChatCompletionsAdapter
 {
-    public static byte[] Encode(LLMRequest request)
+    public static byte[] Encode(LLMRequest request, string providerId)
     {
         var messages = new List<Message>();
 
@@ -26,11 +26,14 @@ internal static class ChatCompletionsAdapter
 
         foreach (var message in request.Messages)
         {
+            var replay = ReadReplay(message, providerId);
             var isNonLeadingSystemMessage = message.Role == LLMRole.System && messages.Count > 0;
             messages.Add(new Message
             {
                 Role = isNonLeadingSystemMessage ? "user" : RoleName(message.Role),
                 Content = isNonLeadingSystemMessage ? WrapSystemUpdate(message) : Content(message),
+                ReasoningContent = replay?.ReasoningContent,
+                Reasoning = replay?.Reasoning,
                 ToolCallId = message.ToolCallId.Length == 0 ? null : message.ToolCallId,
                 ToolCalls = message.ToolCalls.Count == 0
                     ? null
@@ -75,9 +78,10 @@ internal static class ChatCompletionsAdapter
     public static async IAsyncEnumerable<LLMEvent> Parse(
         Stream stream,
         int maxEventBytes,
+        string providerId,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var state = new ParseState();
+        var state = new ParseState(providerId);
 
         await foreach (var record in SseDecoder.Decode(stream, maxEventBytes, cancellationToken).ConfigureAwait(false))
         {
@@ -158,6 +162,8 @@ internal static class ChatCompletionsAdapter
                 yield return LLMEvent.TextDelta(content);
             }
 
+            _ = state.ReasoningContent.Append(JsonRead.String(delta, "reasoning_content"));
+            _ = state.Reasoning.Append(JsonRead.String(delta, "reasoning"));
             var reasoning = JsonRead.String(delta, "reasoning_content");
 
             if (reasoning.Length == 0)
@@ -211,6 +217,24 @@ internal static class ChatCompletionsAdapter
             }
 
             _ = accumulator.Arguments.Append(arguments);
+        }
+    }
+
+    private static ReasoningReplay? ReadReplay(LLMMessage message, string providerId)
+    {
+        if (message.Role != LLMRole.Assistant || !message.ProviderContent.IsFrom(providerId))
+        {
+            return null;
+        }
+
+        try
+        {
+            var replay = JsonSerializer.Deserialize(message.ProviderContent.Content, WireJsonContext.Default.ChatReasoningReplay);
+            return replay is { Version: 1, Protocol: "chat-completions" } ? replay : null;
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 
@@ -320,6 +344,12 @@ internal static class ChatCompletionsAdapter
         [JsonPropertyName("content")]
         public JsonElement? Content { get; init; }
 
+        [JsonPropertyName("reasoning_content")]
+        public string? ReasoningContent { get; init; }
+
+        [JsonPropertyName("reasoning")]
+        public string? Reasoning { get; init; }
+
         [JsonPropertyName("tool_call_id")]
         public string? ToolCallId { get; init; }
 
@@ -402,7 +432,18 @@ internal static class ChatCompletionsAdapter
         public StringBuilder Arguments { get; } = new();
     }
 
-    internal sealed class ParseState
+    internal sealed class ReasoningReplay
+    {
+        public required int Version { get; init; }
+
+        public required string Protocol { get; init; }
+
+        public string? ReasoningContent { get; init; }
+
+        public string? Reasoning { get; init; }
+    }
+
+    internal sealed class ParseState(string providerId)
     {
         private readonly SortedDictionary<int, ToolAccumulator> _tools = [];
 
@@ -417,6 +458,10 @@ internal static class ChatCompletionsAdapter
         public int OutputTokens { get; set; }
 
         public StringBuilder AssistantText { get; } = new();
+
+        public StringBuilder ReasoningContent { get; } = new();
+
+        public StringBuilder Reasoning { get; } = new();
 
         public ToolAccumulator Tool(int index)
         {
@@ -440,6 +485,21 @@ internal static class ChatCompletionsAdapter
                 CachedInputTokens,
                 OutputTokens,
                 AssistantText.ToString(),
-                [.. _tools.Values.Select(call => new LLMToolCall(call.Id, call.Name, call.Arguments.ToString()))]);
+                [.. _tools.Values.Select(call => new LLMToolCall(call.Id, call.Name, call.Arguments.ToString()))]) with
+            {
+                ProviderContent = ReasoningContent.Length == 0 && Reasoning.Length == 0
+                    ? LLMProviderContent.None
+                    : new LLMProviderContent(
+                        providerId,
+                        JsonSerializer.Serialize(
+                            new ReasoningReplay
+                            {
+                                Version = 1,
+                                Protocol = "chat-completions",
+                                ReasoningContent = ReasoningContent.Length > 0 ? ReasoningContent.ToString() : null,
+                                Reasoning = Reasoning.Length > 0 ? Reasoning.ToString() : null,
+                            },
+                            WireJsonContext.Default.ChatReasoningReplay)),
+            };
     }
 }

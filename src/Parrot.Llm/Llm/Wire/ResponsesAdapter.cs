@@ -10,16 +10,16 @@ namespace Parrot.Llm.Wire;
 // assembled assistant text and tool calls.
 internal static class ResponsesAdapter
 {
-    public static byte[] Encode(LLMRequest request) => Prepare(request).EncodeHttp();
+    public static byte[] Encode(LLMRequest request, string providerId) => Prepare(request, providerId).EncodeHttp();
 
-    public static PreparedRequest Prepare(LLMRequest request)
+    public static PreparedRequest Prepare(LLMRequest request, string providerId)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var input = new List<InputItem>();
+        var input = new List<JsonElement>();
 
         foreach (var message in request.Messages)
         {
-            AddMessageInput(message, input);
+            AddMessageInput(message, input, providerId);
         }
 
         var tools = request.Tools.Count == 0
@@ -44,7 +44,7 @@ internal static class ResponsesAdapter
             };
         }
 
-        return new PreparedRequest(new Body
+        var body = new Body
         {
             Model = request.Model,
             Instructions = request.Instructions.Length > 0 ? request.Instructions : null,
@@ -52,18 +52,21 @@ internal static class ResponsesAdapter
             Tools = tools,
             Stream = true,
             Store = false,
+            Include = ["reasoning.encrypted_content"],
             Reasoning = reasoning,
             Provider = WirePreferences.Normalize(request.ProviderPreferences),
             MaxOutputTokens = request.MaxOutputTokens > 0 ? request.MaxOutputTokens : null,
-        });
+        };
+        return new PreparedRequest(body, providerId);
     }
 
     public static async IAsyncEnumerable<LLMEvent> Parse(
         Stream stream,
         int maxEventBytes,
+        string providerId,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var state = new ParseState();
+        var state = new ParseState(providerId);
 
         await foreach (var record in SseDecoder.Decode(stream, maxEventBytes, cancellationToken).ConfigureAwait(false))
         {
@@ -91,16 +94,24 @@ internal static class ResponsesAdapter
         throw new WireProtocolException("responses: unexpected provider EOF (stream ended without a terminal event)");
     }
 
-    private static void AddMessageInput(LLMMessage message, List<InputItem> input)
+    private static void AddMessageInput(LLMMessage message, List<JsonElement> input, string providerId)
     {
+        if (message.Role == LLMRole.Assistant && ReadReplay(message.ProviderContent, providerId) is { } replay)
+        {
+            input.AddRange(replay.Output);
+            return;
+        }
+
         if (message.Role == LLMRole.Tool)
         {
-            input.Add(new InputItem
-            {
-                Type = "function_call_output",
-                CallId = message.ToolCallId,
-                Output = message.Content,
-            });
+            input.Add(JsonSerializer.SerializeToElement(
+                new InputItem
+                {
+                    Type = "function_call_output",
+                    CallId = message.ToolCallId,
+                    Output = message.Content,
+                },
+                WireJsonContext.Default.ResponsesInputItem));
             return;
         }
 
@@ -126,19 +137,65 @@ internal static class ResponsesAdapter
 
         if (content.Count > 0 || message.ToolCalls.Count == 0)
         {
-            input.Add(new InputItem { Type = "message", Role = role, Content = content });
+            input.Add(JsonSerializer.SerializeToElement(
+                new InputItem { Type = "message", Role = role, Content = content },
+                WireJsonContext.Default.ResponsesInputItem));
         }
 
         foreach (var call in message.ToolCalls)
         {
-            input.Add(new InputItem
-            {
-                Type = "function_call",
-                CallId = call.Id,
-                Name = call.Name,
-                Arguments = call.ArgumentsJson,
-            });
+            input.Add(JsonSerializer.SerializeToElement(
+                new InputItem
+                {
+                    Type = "function_call",
+                    CallId = call.Id,
+                    Name = call.Name,
+                    Arguments = call.ArgumentsJson,
+                },
+                WireJsonContext.Default.ResponsesInputItem));
         }
+    }
+
+    private static NativeReplay? ReadReplay(LLMProviderContent content, string providerId)
+    {
+        if (!content.IsFrom(providerId))
+        {
+            return null;
+        }
+
+        try
+        {
+            var replay = JsonSerializer.Deserialize(content.Content, WireJsonContext.Default.ResponsesNativeReplay);
+            return replay is { Version: 1, Protocol: "responses", Output.Count: > 0 }
+                && replay.Output.All(IsReplayableItem)
+                ? replay
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static bool IsReplayableItem(JsonElement item)
+    {
+        if (item.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        return JsonRead.String(item, "type") switch
+        {
+            "reasoning" => (!item.TryGetProperty("encrypted_content", out var encrypted)
+                || encrypted.ValueKind is JsonValueKind.String or JsonValueKind.Null)
+                && (!item.TryGetProperty("summary", out var summary) || summary.ValueKind == JsonValueKind.Array),
+            "message" => JsonRead.String(item, "role") == "assistant"
+                && item.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Array,
+            "function_call" => JsonRead.String(item, "call_id").Length > 0
+                && JsonRead.String(item, "name").Length > 0
+                && item.TryGetProperty("arguments", out var arguments) && arguments.ValueKind == JsonValueKind.String,
+            _ => false,
+        };
     }
 
     private static IEnumerable<LLMEvent> Consume(string data, ParseState state)
@@ -381,15 +438,15 @@ internal static class ResponsesAdapter
 
     private readonly record struct ItemFields(string Id, string Type, string CallId, string Name, string Arguments);
 
-    internal sealed record PreparedRequest(Body Body)
+    internal sealed record PreparedRequest(Body Body, string ProviderId)
     {
-        public IReadOnlyList<InputItem> Input => Body.Input;
+        public IReadOnlyList<JsonElement> Input => Body.Input;
 
         public byte[] EncodeHttp() => JsonSerializer.SerializeToUtf8Bytes(Body, WireJsonContext.Default.ResponsesBody);
 
         public byte[] EncodeWebSocket(
             string previousResponseId,
-            IReadOnlyList<InputItem> input,
+            IReadOnlyList<JsonElement> input,
             string turnState) =>
             JsonSerializer.SerializeToUtf8Bytes(
                 new WebSocketRequest
@@ -401,6 +458,7 @@ internal static class ResponsesAdapter
                     Tools = Body.Tools,
                     Stream = Body.Stream,
                     Store = Body.Store,
+                    Include = Body.Include,
                     Reasoning = Body.Reasoning,
                     Provider = Body.Provider,
                     MaxOutputTokens = Body.MaxOutputTokens,
@@ -429,7 +487,7 @@ internal static class ResponsesAdapter
         public string? PreviousResponseId { get; init; }
 
         [JsonPropertyName("input")]
-        public required IReadOnlyList<InputItem> Input { get; init; }
+        public required IReadOnlyList<JsonElement> Input { get; init; }
 
         [JsonPropertyName("tools")]
         public IReadOnlyList<FunctionTool>? Tools { get; init; }
@@ -439,6 +497,9 @@ internal static class ResponsesAdapter
 
         [JsonPropertyName("store")]
         public bool Store { get; init; }
+
+        [JsonPropertyName("include")]
+        public required IReadOnlyList<string> Include { get; init; }
 
         [JsonPropertyName("reasoning")]
         public Reasoning? Reasoning { get; init; }
@@ -462,7 +523,7 @@ internal static class ResponsesAdapter
         public string? Instructions { get; init; }
 
         [JsonPropertyName("input")]
-        public required IReadOnlyList<InputItem> Input { get; init; }
+        public required IReadOnlyList<JsonElement> Input { get; init; }
 
         [JsonPropertyName("tools")]
         public IReadOnlyList<FunctionTool>? Tools { get; init; }
@@ -472,6 +533,9 @@ internal static class ResponsesAdapter
 
         [JsonPropertyName("store")]
         public bool Store { get; init; }
+
+        [JsonPropertyName("include")]
+        public required IReadOnlyList<string> Include { get; init; }
 
         [JsonPropertyName("reasoning")]
         public Reasoning? Reasoning { get; init; }
@@ -486,6 +550,9 @@ internal static class ResponsesAdapter
     // One input entry: a message, a function_call, or a function_call_output.
     internal sealed class InputItem
     {
+        [JsonPropertyName("id")]
+        public string? Id { get; init; }
+
         [JsonPropertyName("type")]
         public required string Type { get; init; }
 
@@ -562,13 +629,22 @@ internal static class ResponsesAdapter
         public string ToolId() => CallId.Length > 0 ? CallId : ItemId;
     }
 
-    internal sealed class ParseState
+    internal sealed class NativeReplay
+    {
+        public required int Version { get; init; }
+
+        public required string Protocol { get; init; }
+
+        public required IReadOnlyList<JsonElement> Output { get; init; }
+    }
+
+    internal sealed class ParseState(string providerId)
     {
         private readonly Dictionary<string, ToolAccumulator> _tools = [];
         private readonly Dictionary<string, string> _aliases = [];
         private readonly List<ToolAccumulator> _toolOrder = [];
-        private readonly List<InputItem> _output = [];
-        private readonly List<InputItem> _streamedOutput = [];
+        private readonly List<JsonElement> _output = [];
+        private readonly SortedDictionary<int, JsonElement> _streamedOutput = [];
         private string _createdResponseId = string.Empty;
         private long? _sequenceNumber;
 
@@ -578,7 +654,7 @@ internal static class ResponsesAdapter
 
         public string ResponseId { get; private set; } = string.Empty;
 
-        public IReadOnlyList<InputItem> Output => _output;
+        public IReadOnlyList<JsonElement> Output => _output;
 
         public bool HasTools => _tools.Count > 0;
 
@@ -713,7 +789,16 @@ internal static class ResponsesAdapter
                 CachedInputTokens,
                 OutputTokens,
                 AssistantText.ToString(),
-                [.. _toolOrder.Select(call => new LLMToolCall(call.ToolId(), call.Name, call.Arguments.ToString()))]);
+                [.. _toolOrder.Select(call => new LLMToolCall(call.ToolId(), call.Name, call.Arguments.ToString()))]) with
+            {
+                ProviderContent = _output.Count == 0
+                    ? LLMProviderContent.None
+                    : new LLMProviderContent(
+                        providerId,
+                        JsonSerializer.Serialize(
+                            new NativeReplay { Version = 1, Protocol = "responses", Output = _output },
+                            WireJsonContext.Default.ResponsesNativeReplay)),
+            };
 
         public void ValidateLifecycle(JsonElement root, string type)
         {
@@ -757,9 +842,14 @@ internal static class ResponsesAdapter
         {
             if (root.TryGetProperty("item", out var item)
                 && item.ValueKind == JsonValueKind.Object
-                && OutputItem(item) is { } captured)
+                && IsReplayableItem(item))
             {
-                _streamedOutput.Add(captured);
+                var index = root.TryGetProperty("output_index", out var outputIndex)
+                    && outputIndex.ValueKind == JsonValueKind.Number
+                    && outputIndex.TryGetInt32(out var suppliedIndex)
+                    ? suppliedIndex
+                    : _streamedOutput.Count;
+                _streamedOutput[index] = item.Clone();
             }
         }
 
@@ -774,13 +864,18 @@ internal static class ResponsesAdapter
             ResponseId = JsonRead.String(response, "id");
             if (response.TryGetProperty("output", out var output) && output.ValueKind == JsonValueKind.Array)
             {
-                _output.AddRange(output.EnumerateArray().Select(OutputItem).OfType<InputItem>());
+                _output.AddRange(output.EnumerateArray().Where(IsReplayableItem).Select(item => item.Clone()));
             }
 
             // The ChatGPT backend leaves the terminal output empty; its items arrive only as output_item.done.
             if (_output.Count == 0)
             {
-                _output.AddRange(_streamedOutput);
+                _output.AddRange(_streamedOutput.Values);
+            }
+
+            if (_output.Count > 0)
+            {
+                PreserveOrdinaryOutput();
             }
         }
 
@@ -789,41 +884,39 @@ internal static class ResponsesAdapter
                 ? JsonRead.String(response, "id")
                 : string.Empty;
 
-        private static List<ContentPart> ReadContent(JsonElement item)
+        private void PreserveOrdinaryOutput()
         {
-            var content = new List<ContentPart>();
-            if (item.TryGetProperty("content", out var parts) && parts.ValueKind == JsonValueKind.Array)
+            if (AssistantText.Length > 0 && !_output.Any(item => JsonRead.String(item, "type") == "message"))
             {
-                foreach (var part in parts.EnumerateArray())
-                {
-                    content.Add(new ContentPart
+                _output.Add(JsonSerializer.SerializeToElement(
+                    new InputItem
                     {
-                        Type = JsonRead.String(part, "type"),
-                        Text = JsonRead.String(part, "text"),
-                    });
-                }
+                        Type = "message",
+                        Role = "assistant",
+                        Content = [new ContentPart { Type = "output_text", Text = AssistantText.ToString() }],
+                    },
+                    WireJsonContext.Default.ResponsesInputItem));
             }
 
-            return content;
-        }
-
-        private static InputItem? OutputItem(JsonElement item) =>
-            JsonRead.String(item, "type") switch
+            foreach (var call in _toolOrder)
             {
-                "function_call" => new InputItem
+                if (_output.Any(item => JsonRead.String(item, "type") == "function_call"
+                    && JsonRead.String(item, "call_id") == call.ToolId()))
                 {
-                    Type = "function_call",
-                    CallId = JsonRead.String(item, "call_id"),
-                    Name = JsonRead.String(item, "name"),
-                    Arguments = JsonRead.String(item, "arguments"),
-                },
-                "message" => new InputItem
-                {
-                    Type = "message",
-                    Role = JsonRead.String(item, "role"),
-                    Content = ReadContent(item),
-                },
-                _ => null,
-            };
+                    continue;
+                }
+
+                _output.Add(JsonSerializer.SerializeToElement(
+                    new InputItem
+                    {
+                        Type = "function_call",
+                        Id = call.ItemId.Length > 0 ? call.ItemId : null,
+                        CallId = call.ToolId(),
+                        Name = call.Name,
+                        Arguments = call.Arguments.ToString(),
+                    },
+                    WireJsonContext.Default.ResponsesInputItem));
+            }
+        }
     }
 }

@@ -47,7 +47,7 @@ internal sealed class ResponsesAdapterTests
                 Tools = tools,
             };
 
-            using var document = JsonDocument.Parse(ResponsesAdapter.Encode(request));
+            using var document = JsonDocument.Parse(ResponsesAdapter.Encode(request, "test"));
             var encodedTools = document.RootElement.GetProperty("tools");
             var read = encodedTools.EnumerateArray().Single(tool => tool.GetProperty("name").GetString() == "read");
             var glob = encodedTools.EnumerateArray().Single(tool => tool.GetProperty("name").GetString() == "glob");
@@ -82,7 +82,7 @@ internal sealed class ResponsesAdapterTests
             Messages = [LLMMessage.User("hello")],
             Reasoning = hasReasoning ? new ReasoningOptions(effort, "auto") : null,
         };
-        using var document = JsonDocument.Parse(ResponsesAdapter.Encode(request));
+        using var document = JsonDocument.Parse(ResponsesAdapter.Encode(request, "test"));
         var root = document.RootElement;
 
         _ = await Assert.That(root.TryGetProperty("reasoning", out var reasoning)).IsEqualTo(hasReasoning);
@@ -108,7 +108,7 @@ internal sealed class ResponsesAdapterTests
             Instructions = instructions,
             Messages = [LLMMessage.System("history guidance"), LLMMessage.User("hello")],
         };
-        using var document = JsonDocument.Parse(ResponsesAdapter.Encode(request));
+        using var document = JsonDocument.Parse(ResponsesAdapter.Encode(request, "test"));
         var root = document.RootElement;
         var input = root.GetProperty("input");
 
@@ -142,7 +142,7 @@ internal sealed class ResponsesAdapterTests
             MaxOutputTokens = maxTokens,
             Messages = [LLMMessage.User("hello")],
         };
-        using var document = JsonDocument.Parse(ResponsesAdapter.Encode(request));
+        using var document = JsonDocument.Parse(ResponsesAdapter.Encode(request, "test"));
         var root = document.RootElement;
 
         _ = await Assert.That(root.TryGetProperty("max_output_tokens", out var maxOutputTokens))
@@ -321,6 +321,174 @@ internal sealed class ResponsesAdapterTests
         _ = await Assert.That(async () => await Drain(truncated, cancellationToken)).Throws<WireProtocolException>();
     }
 
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Native_reasoning_round_trips_in_order_with_tools_and_metadata(
+        bool emptyTerminalOutput, CancellationToken cancellationToken)
+    {
+        const string native = """
+            [{"id":"rs_1","type":"reasoning","encrypted_content":"opaque-secret","summary":[{"type":"summary_text","text":"readable summary"}],"status":"completed"},
+             {"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"answer","annotations":[{"type":"test_annotation","value":"kept"}]}]},
+             {"id":"fc_1","type":"function_call","call_id":"call_1","name":"read","arguments":"{}","status":"completed"}]
+            """;
+        using var nativeDocument = JsonDocument.Parse(native);
+        var nativeItems = nativeDocument.RootElement.EnumerateArray().ToArray();
+        var wire = new StringBuilder();
+        _ = wire.AppendLine("data: {\"type\":\"response.output_text.delta\",\"delta\":\"answer\"}").AppendLine();
+        _ = wire.AppendLine("data: {\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\"readable summary\"}").AppendLine();
+
+        // Completion can interleave items; output_index defines replay order.
+        foreach (var index in new[] { 2, 0, 1, 0 })
+        {
+            _ = wire.Append("data: {\"type\":\"response.output_item.done\",\"output_index\":")
+                .Append(index).Append(",\"item\":").Append(nativeItems[index].GetRawText()).AppendLine("}").AppendLine();
+        }
+
+        var terminal = emptyTerminalOutput
+            ? "[]"
+            : JsonSerializer.Serialize(nativeDocument.RootElement, WireJsonContext.Default.JsonElement);
+        _ = wire.Append("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"output\":")
+            .Append(terminal).AppendLine("}}").AppendLine();
+        var events = await Drain(wire.ToString(), cancellationToken);
+        var completed = events[^1];
+        _ = await Assert.That(completed.AssistantText).IsEqualTo("answer");
+        _ = await Assert.That(completed.ProviderContent.ProviderId).IsEqualTo("test");
+        var assistant = LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls) with
+        {
+            ProviderContent = completed.ProviderContent,
+        };
+        var request = new LLMRequest
+        {
+            Model = "different-model",
+            Reasoning = new ReasoningOptions("high", "auto"),
+            Messages = [LLMMessage.User("hello"), assistant, LLMMessage.ToolResult("call_1", "result"), LLMMessage.User("next")],
+        };
+        var prepared = ResponsesAdapter.Prepare(request, "test");
+        using var http = JsonDocument.Parse(prepared.EncodeHttp());
+        using var websocket = JsonDocument.Parse(prepared.EncodeWebSocket(string.Empty, prepared.Input, string.Empty));
+        foreach (var encoded in new[] { http.RootElement, websocket.RootElement })
+        {
+            _ = await Assert.That(encoded.GetProperty("include")[0].GetString()).IsEqualTo("reasoning.encrypted_content");
+            _ = await Assert.That(encoded.GetProperty("reasoning").GetProperty("effort").GetString()).IsEqualTo("high");
+            _ = await Assert.That(encoded.GetProperty("reasoning").GetProperty("summary").GetString()).IsEqualTo("auto");
+            var input = encoded.GetProperty("input");
+            _ = await Assert.That(input.GetArrayLength()).IsEqualTo(6);
+            for (var index = 0; index < nativeItems.Length; index++)
+            {
+                _ = await Assert.That(JsonElement.DeepEquals(input[index + 1], nativeItems[index])).IsTrue();
+            }
+
+            _ = await Assert.That(input[4].GetProperty("type").GetString()).IsEqualTo("function_call_output");
+            _ = await Assert.That(input[4].GetProperty("call_id").GetString()).IsEqualTo("call_1");
+            _ = await Assert.That(input[5].GetProperty("content")[0].GetProperty("text").GetString()).IsEqualTo("next");
+        }
+    }
+
+    [Test]
+    public async Task Terminal_native_output_takes_precedence_over_streamed_items(CancellationToken cancellationToken)
+    {
+        const string wire = """
+            data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","encrypted_content":"streamed","summary":[]}}
+
+            data: {"type":"response.completed","response":{"id":"resp_1","output":[{"id":"rs_1","type":"reasoning","encrypted_content":"terminal","summary":[]}]}}
+
+            """;
+        var events = await Drain(wire, cancellationToken);
+        var request = new LLMRequest
+        {
+            Model = "model",
+            Messages = [LLMMessage.Assistant(string.Empty, []) with { ProviderContent = events[^1].ProviderContent }],
+        };
+        using var encoded = JsonDocument.Parse(ResponsesAdapter.Encode(request, "test"));
+        var input = encoded.RootElement.GetProperty("input");
+        _ = await Assert.That(input.GetArrayLength()).IsEqualTo(1);
+        _ = await Assert.That(input[0].GetProperty("encrypted_content").GetString()).IsEqualTo("terminal");
+    }
+
+    [Test]
+    [Arguments("other", "{\"Version\":1,\"Protocol\":\"responses\",\"Output\":[{\"type\":\"reasoning\",\"summary\":[],\"encrypted_content\":\"opaque\"}]}")]
+    [Arguments("test", "{\"Version\":1,\"Protocol\":\"chat-completions\",\"Reasoning\":\"opaque\"}")]
+    [Arguments("test", "{\"Version\":2,\"Protocol\":\"responses\",\"Output\":[]}")]
+    [Arguments("test", "{\"Version\":1,\"Protocol\":\"responses\",\"Output\":[{\"type\":\"reasoning\",\"encrypted_content\":42}]}")]
+    [Arguments("test", "{\"Version\":1,\"Protocol\":\"responses\",\"Output\":[null]}")]
+    [Arguments("test", "{\"Version\":1,\"Protocol\":\"responses\",\"Output\":null}")]
+    [Arguments("test", "{")]
+    [Arguments("test", "null")]
+    [Arguments("test", "")]
+    public async Task Unusable_native_output_falls_back_to_ordinary_text_and_tools(
+        string providerId, string payload, CancellationToken cancellationToken)
+    {
+        var request = new LLMRequest
+        {
+            Model = "model",
+            Messages = [LLMMessage.Assistant("answer", [new LLMToolCall("call_1", "read", "{}")]) with
+            {
+                ProviderContent = new LLMProviderContent(providerId, payload),
+            }],
+        };
+        using var encoded = JsonDocument.Parse(ResponsesAdapter.Encode(request, "test"));
+        var input = encoded.RootElement.GetProperty("input");
+        _ = await Assert.That(input.GetArrayLength()).IsEqualTo(2);
+        _ = await Assert.That(input[0].GetProperty("type").GetString()).IsEqualTo("message");
+        _ = await Assert.That(input[0].GetProperty("content")[0].GetProperty("text").GetString()).IsEqualTo("answer");
+        _ = await Assert.That(input[1].GetProperty("type").GetString()).IsEqualTo("function_call");
+        _ = await Assert.That(input[1].GetProperty("call_id").GetString()).IsEqualTo("call_1");
+        _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
+    }
+
+    [Test]
+    public async Task Reasoning_only_native_output_preserves_streamed_text_and_accepted_tools(
+        CancellationToken cancellationToken)
+    {
+        const string wire = """
+            data: {"type":"response.output_text.delta","delta":"answer"}
+
+            data: {"type":"response.output_item.added","item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"read"}}
+
+            data: {"type":"response.function_call_arguments.done","item_id":"fc_1","call_id":"call_1","arguments":"{}"}
+
+            data: {"type":"response.completed","response":{"id":"resp_1","output":[{"id":"rs_1","type":"reasoning","encrypted_content":"opaque","summary":[]}]}}
+
+            """;
+        var events = await Drain(wire, cancellationToken);
+        var completed = events[^1];
+        var request = new LLMRequest
+        {
+            Model = "model",
+            Messages = [LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls) with
+            {
+                ProviderContent = completed.ProviderContent,
+            }, LLMMessage.ToolResult("call_1", "result")],
+        };
+        using var encoded = JsonDocument.Parse(ResponsesAdapter.Encode(request, "test"));
+        var input = encoded.RootElement.GetProperty("input");
+        _ = await Assert.That(input.GetArrayLength()).IsEqualTo(4);
+        _ = await Assert.That(input[0].GetProperty("encrypted_content").GetString()).IsEqualTo("opaque");
+        _ = await Assert.That(input[1].GetProperty("content")[0].GetProperty("text").GetString()).IsEqualTo("answer");
+        _ = await Assert.That(input[2].GetProperty("id").GetString()).IsEqualTo("fc_1");
+        _ = await Assert.That(input[2].GetProperty("call_id").GetString()).IsEqualTo("call_1");
+        _ = await Assert.That(input[2].GetProperty("name").GetString()).IsEqualTo("read");
+        _ = await Assert.That(input[2].GetProperty("arguments").GetString()).IsEqualTo("{}");
+        _ = await Assert.That(input[3].GetProperty("call_id").GetString()).IsEqualTo("call_1");
+    }
+
+    [Test]
+    public async Task Display_reasoning_does_not_manufacture_native_history(CancellationToken cancellationToken)
+    {
+        const string wire = """
+            data: {"type":"response.reasoning_summary_text.delta","delta":"summary only"}
+
+            data: {"type":"response.output_text.delta","delta":"answer"}
+
+            data: {"type":"response.completed","response":{"id":"resp_1","output":[]}}
+
+            """;
+        var events = await Drain(wire, cancellationToken);
+        _ = await Assert.That(events[^1].ProviderContent).IsEqualTo(LLMProviderContent.None);
+        _ = await Assert.That(events[^1].AssistantText).IsEqualTo("answer");
+    }
+
     private static string WriteConfiguration(string directory, string content)
     {
         _ = Directory.CreateDirectory(directory);
@@ -334,7 +502,7 @@ internal sealed class ResponsesAdapterTests
         using var source = new MemoryStream(Encoding.UTF8.GetBytes(stream));
         var events = new List<LLMEvent>();
 
-        await foreach (var published in ResponsesAdapter.Parse(source, 4096, cancellationToken))
+        await foreach (var published in ResponsesAdapter.Parse(source, 4096, "test", cancellationToken))
         {
             events.Add(published);
         }

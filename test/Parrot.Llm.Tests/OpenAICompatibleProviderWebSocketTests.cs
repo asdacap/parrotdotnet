@@ -899,6 +899,165 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         _ = await Assert.That(handler.Calls).IsEqualTo(1);
     }
 
+    [Test]
+    [Arguments("incremental")]
+    [Arguments("partial-native")]
+    [Arguments("reconnect")]
+    [Arguments("recovery")]
+    [Arguments("fallback")]
+    [Arguments("model-change")]
+    public async Task Native_reasoning_preserves_incremental_and_full_transport_history(
+        string behavior, CancellationToken cancellationToken)
+    {
+        const string nativeOutput = """
+            [{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"summary"}],"encrypted_content":"opaque-reasoning"},
+             {"id":"msg_1","type":"message","role":"assistant","content":[{"type":"output_text","text":"answer","annotations":[]}]},
+             {"id":"fc_1","type":"function_call","call_id":"call_1","name":"read","arguments":"{}","status":"completed"}]
+            """;
+        const string unavailable = """
+            {"type":"error","error":{"code":"previous_response_not_found","message":"unavailable"}}
+            """;
+        using var native = JsonDocument.Parse(nativeOutput);
+        var initialFrames = new List<string>
+        {
+            "{\"type\":\"response.output_text.delta\",\"delta\":\"answer\"}",
+        };
+        for (var index = 0; index < (behavior == "partial-native" ? 1 : native.RootElement.GetArrayLength()); index++)
+        {
+            initialFrames.Add($"{{\"type\":\"response.output_item.done\",\"output_index\":{index},\"item\":{native.RootElement[index].GetRawText()}}}");
+        }
+
+        if (behavior == "partial-native")
+        {
+            initialFrames.Add("{\"type\":\"response.output_item.added\",\"item\":{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"read\"}}");
+            initialFrames.Add("{\"type\":\"response.function_call_arguments.done\",\"item_id\":\"fc_1\",\"call_id\":\"call_1\",\"arguments\":\"{}\"}");
+        }
+
+        var completedOutput = behavior == "partial-native" ? "[]" : nativeOutput;
+        initialFrames.Add($"{{\"type\":\"response.completed\",\"response\":{{\"id\":\"resp-native\",\"output\":{completedOutput}}}}}");
+        initialFrames.Add(behavior == "recovery" ? unavailable : Completed);
+        using var socket = new ScriptedWebSocket(initialFrames);
+        using var replacement = new ScriptedWebSocket([Completed]);
+        var connector = new ScriptedConnector(behavior == "fallback"
+            ? [socket, new ResponsesWebSocketUpgradeException(426, "unsupported", new IOException("upgrade"))]
+            : [socket, replacement]);
+        using var handler = new ResponsesHandler(behavior == "fallback" ? 1 : 0);
+        using var client = new HttpClient(handler, disposeHandler: false);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+            },
+            client,
+            connector);
+        await using var session = provider.OpenSession();
+        var initial = new LLMRequest { Model = "model", Messages = [LLMMessage.User("hello")] };
+        var initialEvents = await Drain(session.Call(initial, cancellationToken));
+        var outcome = initialEvents[^1];
+        _ = await Assert.That(outcome.ProviderContent.ProviderId).IsEqualTo("configured");
+        _ = await Assert.That(outcome.AssistantText).IsEqualTo("answer");
+        var continued = initial with
+        {
+            Model = behavior == "model-change" ? "other-model" : "model",
+            Messages = [.. initial.Messages, LLMMessage.Assistant(outcome.AssistantText, outcome.ToolCalls) with
+            {
+                ProviderContent = outcome.ProviderContent,
+            }, LLMMessage.ToolResult("call_1", "result"), LLMMessage.User("next")],
+        };
+        if (behavior is "reconnect" or "fallback")
+        {
+            session.BeginTurn();
+        }
+
+        var continuedEvents = await Drain(session.Call(continued, cancellationToken));
+        _ = await Assert.That(continuedEvents[^1].Kind).IsEqualTo(LLMEventKind.Completed);
+        if (behavior is "incremental" or "recovery" or "partial-native")
+        {
+            using var incremental = JsonDocument.Parse(socket.Sent[1]);
+            _ = await Assert.That(incremental.RootElement.GetProperty("previous_response_id").GetString()).IsEqualTo("resp-native");
+            _ = await Assert.That(incremental.RootElement.GetProperty("input").GetArrayLength()).IsEqualTo(2);
+            _ = await Assert.That(incremental.RootElement.GetProperty("input")[0].GetProperty("type").GetString()).IsEqualTo("function_call_output");
+            _ = await Assert.That(incremental.RootElement.GetProperty("input")[1].GetProperty("content")[0].GetProperty("text").GetString()).IsEqualTo("next");
+        }
+
+        var requestBytes = behavior switch
+        {
+            "recovery" or "reconnect" => replacement.Sent[0],
+            "fallback" => Encoding.UTF8.GetBytes(handler.RequestBodies.Single()),
+            _ => socket.Sent[1],
+        };
+        using var encoded = JsonDocument.Parse(requestBytes);
+        _ = await Assert.That(encoded.RootElement.GetProperty("include")[0].GetString()).IsEqualTo("reasoning.encrypted_content");
+        if (behavior is not ("incremental" or "partial-native"))
+        {
+            _ = await Assert.That(encoded.RootElement.TryGetProperty("previous_response_id", out _)).IsFalse();
+            var input = encoded.RootElement.GetProperty("input");
+            _ = await Assert.That(input.GetArrayLength()).IsEqualTo(6);
+            for (var index = 0; index < native.RootElement.GetArrayLength(); index++)
+            {
+                _ = await Assert.That(JsonElement.DeepEquals(input[index + 1], native.RootElement[index])).IsTrue();
+            }
+        }
+
+        _ = await Assert.That(connector.Calls).IsEqualTo(behavior is "incremental" or "model-change" or "partial-native" ? 1 : 2);
+        _ = await Assert.That(handler.Calls).IsEqualTo(behavior == "fallback" ? 1 : 0);
+        _ = await Assert.That(continuedEvents.Count(item => item.Kind == LLMEventKind.Retry)).IsEqualTo(behavior is "recovery" or "fallback" ? 1 : 0);
+    }
+
+    [Test]
+    public async Task Websocket_reasoning_rejection_is_not_retried_without_reasoning(CancellationToken cancellationToken)
+    {
+        const string rejection = """
+            {"type":"error","error":{"code":"invalid_reasoning","message":"reasoning rejected"}}
+            """;
+        using var socket = new ScriptedWebSocket([rejection]);
+        var connector = new ScriptedConnector([socket]);
+        using var handler = new EmptyHandler();
+        using var client = new HttpClient(handler, disposeHandler: false);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = false,
+            },
+            client,
+            connector);
+        await using var session = provider.OpenSession();
+        const string nativePayload = """
+            {"Version":1,"Protocol":"responses","Output":[{"id":"rs_1","type":"reasoning","encrypted_content":"opaque-reasoning","summary":[]},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer"}]}]}
+            """;
+        var request = new LLMRequest
+        {
+            Model = "model",
+            Messages = [LLMMessage.Assistant("answer", []) with
+            {
+                ProviderContent = new LLMProviderContent("configured", nativePayload),
+            }, LLMMessage.User("next")],
+        };
+        var events = new List<LLMEvent>();
+        async Task Consume()
+        {
+            await foreach (var published in session.Call(request, cancellationToken))
+            {
+                events.Add(published);
+            }
+        }
+
+        _ = await Assert.That(Consume).Throws<ProviderResponseException>();
+        _ = await Assert.That(connector.Calls).IsEqualTo(1);
+        _ = await Assert.That(socket.Sent.Count).IsEqualTo(1);
+        _ = await Assert.That(events.Any(item => item.Kind == LLMEventKind.Retry)).IsFalse();
+        using var encoded = JsonDocument.Parse(socket.Sent[0]);
+        _ = await Assert.That(encoded.RootElement.GetProperty("input")[0].GetProperty("encrypted_content").GetString()).IsEqualTo("opaque-reasoning");
+    }
+
     private static async Task<List<LLMEvent>> Drain(IAsyncEnumerable<LLMEvent> events)
     {
         var result = new List<LLMEvent>();
@@ -1073,6 +1232,8 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
 
     private sealed class ResponsesHandler(int expectedCalls) : HttpMessageHandler
     {
+        public List<string> RequestBodies { get; } = [];
+
         public int Calls { get; private set; }
 
         public TimeSpan HeaderDelay { get; init; }
@@ -1087,6 +1248,8 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
                 throw new InvalidOperationException("Too many HTTP requests.");
             }
 
+            RequestBodies.Add(await (request.Content ?? throw new InvalidOperationException("Missing request body."))
+                .ReadAsStringAsync(cancellationToken));
             await Task.Delay(HeaderDelay, cancellationToken);
             return new HttpResponseMessage(HttpStatusCode.OK)
             {

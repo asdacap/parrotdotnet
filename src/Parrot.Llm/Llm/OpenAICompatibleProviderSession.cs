@@ -6,6 +6,7 @@ using Parrot.Llm.Wire;
 namespace Parrot.Llm;
 
 internal sealed class OpenAICompatibleProviderSession(
+    string providerId,
     Func<LLMRequest, LLMRequest> prepare,
     Func<LLMRequest, string, Action<string>, CancellationToken, IAsyncEnumerable<LLMEvent>> callHttp,
     Func<CancellationToken, Task<IReadOnlyDictionary<string, string>>> authHeaders,
@@ -60,7 +61,7 @@ internal sealed class OpenAICompatibleProviderSession(
                 _resetConnection = false;
             }
 
-            var prepared = ResponsesAdapter.Prepare(prepare(request));
+            var prepared = ResponsesAdapter.Prepare(prepare(request), providerId);
             var settings = Settings(prepared);
             var inputHashes = prepared.Input.Select(Hash).ToList();
             var previousResponse = _completedResponse;
@@ -173,9 +174,9 @@ internal sealed class OpenAICompatibleProviderSession(
     private static string Settings(ResponsesAdapter.PreparedRequest prepared) =>
         Convert.ToHexStringLower(SHA256.HashData(prepared.EncodeWebSocket(string.Empty, [], string.Empty)));
 
-    private static string Hash(ResponsesAdapter.InputItem item) =>
+    private static string Hash(JsonElement item) =>
         Convert.ToHexStringLower(SHA256.HashData(
-            JsonSerializer.SerializeToUtf8Bytes(item, WireJsonContext.Default.ResponsesInputItem)));
+            JsonSerializer.SerializeToUtf8Bytes(item, WireJsonContext.Default.JsonElement)));
 
     private async Task<AttemptStep> Step(
         WebSocketAttempt attempt,
@@ -317,7 +318,7 @@ internal sealed class OpenAICompatibleProviderSession(
 
         public IReadOnlyList<string> InputHashes { get; } = inputHashes;
 
-        public ResponsesAdapter.ParseState Response { get; } = new() { CaptureTurnState = captureTurnState };
+        public ResponsesAdapter.ParseState Response { get; } = new(prepared.ProviderId) { CaptureTurnState = captureTurnState };
 
         public bool Visible { get; set; }
 
@@ -395,7 +396,7 @@ internal sealed class OpenAICompatibleProviderSession(
 
     private sealed record IncrementalRequest(
         string PreviousResponseId,
-        IReadOnlyList<ResponsesAdapter.InputItem> Input)
+        IReadOnlyList<JsonElement> Input)
     {
         public static IncrementalRequest Full(ResponsesAdapter.PreparedRequest request) =>
             new(string.Empty, request.Input);

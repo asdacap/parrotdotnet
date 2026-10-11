@@ -77,7 +77,7 @@ internal sealed class OpenAICompatibleProviderTests
                 Tools = tools,
             };
 
-            using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request));
+            using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request, "test"));
             var encodedTools = document.RootElement.GetProperty("tools");
             var read = encodedTools.EnumerateArray().Single(tool =>
                 tool.GetProperty("function").GetProperty("name").GetString() == "read").GetProperty("function");
@@ -112,7 +112,7 @@ internal sealed class OpenAICompatibleProviderTests
             Messages = [LLMMessage.User("hello")],
             MaxOutputTokens = 4096,
         };
-        using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request));
+        using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request, "test"));
         var root = document.RootElement;
 
         _ = await Assert.That(root.TryGetProperty("max_tokens", out var maxTokens)).IsTrue();
@@ -132,7 +132,7 @@ internal sealed class OpenAICompatibleProviderTests
             Messages = [LLMMessage.User("hello")],
             Reasoning = hasReasoning ? new ReasoningOptions(effort, "auto") : null,
         };
-        using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request));
+        using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request, "test"));
         var root = document.RootElement;
 
         _ = await Assert.That(root.TryGetProperty("reasoning_effort", out var encodedEffort)).IsEqualTo(hasReasoning);
@@ -162,7 +162,7 @@ internal sealed class OpenAICompatibleProviderTests
                 LLMMessage.System("turn <reminder>"),
             ],
         };
-        using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request));
+        using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request, "test"));
         var root = document.RootElement;
         var messages = root.GetProperty("messages");
 
@@ -234,7 +234,7 @@ internal sealed class OpenAICompatibleProviderTests
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(ToolCallStream));
         var events = new List<LLMEvent>();
 
-        await foreach (var published in ChatCompletionsAdapter.Parse(stream, 4096, cancellationToken))
+        await foreach (var published in ChatCompletionsAdapter.Parse(stream, 4096, "test", cancellationToken))
         {
             events.Add(published);
         }
@@ -260,7 +260,7 @@ internal sealed class OpenAICompatibleProviderTests
 
         try
         {
-            await foreach (var published in ChatCompletionsAdapter.Parse(stream, 4096, cancellationToken))
+            await foreach (var published in ChatCompletionsAdapter.Parse(stream, 4096, "test", cancellationToken))
             {
                 _ = published;
             }
@@ -288,6 +288,136 @@ internal sealed class OpenAICompatibleProviderTests
         _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
     }
 
+    [Test]
+    [Arguments("reasoning_content")]
+    [Arguments("reasoning")]
+    public async Task Native_reasoning_round_trips_with_tools_without_entering_assistant_text(
+        string field, CancellationToken cancellationToken)
+    {
+        var wire = """
+            data: {"choices":[{"delta":{"%FIELD%":null}}]}
+
+            data: {"choices":[{"delta":{"%FIELD%":""}}]}
+
+            data: {"choices":[{"delta":{"%FIELD%":"think "}}]}
+
+            data: {"choices":[{"delta":{"%FIELD%":"more","content":"answer","tool_calls":[{"index":0,"id":"call_1","function":{"name":"read","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}
+
+            data: [DONE]
+
+            """.Replace("%FIELD%", field, StringComparison.Ordinal);
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(wire));
+        var events = new List<LLMEvent>();
+        await foreach (var published in ChatCompletionsAdapter.Parse(stream, 4096, "test", cancellationToken))
+        {
+            events.Add(published);
+        }
+
+        var completed = events[^1];
+        _ = await Assert.That(completed.AssistantText).IsEqualTo("answer");
+        var assistant = LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls) with
+        {
+            ProviderContent = completed.ProviderContent,
+        };
+        var request = new LLMRequest
+        {
+            Model = "different-model",
+            Messages = [assistant, LLMMessage.ToolResult("call_1", "result"), LLMMessage.User("next")],
+        };
+        using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request, "test"));
+        var messages = document.RootElement.GetProperty("messages");
+        _ = await Assert.That(messages[0].GetProperty(field).GetString()).IsEqualTo("think more");
+        _ = await Assert.That(messages[0].GetProperty("content").GetString()).IsEqualTo("answer");
+        _ = await Assert.That(messages[0].GetProperty("tool_calls")[0].GetProperty("id").GetString()).IsEqualTo("call_1");
+        _ = await Assert.That(messages[1].GetProperty("tool_call_id").GetString()).IsEqualTo("call_1");
+        _ = await Assert.That(messages[2].GetProperty("content").GetString()).IsEqualTo("next");
+        var otherField = field == "reasoning" ? "reasoning_content" : "reasoning";
+        _ = await Assert.That(messages[0].TryGetProperty(otherField, out _)).IsFalse();
+    }
+
+    [Test]
+    public async Task Both_native_reasoning_fields_are_retained_with_existing_display_precedence(
+        CancellationToken cancellationToken)
+    {
+        const string wire = """
+            data: {"choices":[{"delta":{"reasoning_content":"first","reasoning":"other"}}]}
+
+            data: {"choices":[{"delta":{"reasoning_content":" second","reasoning":" field","content":"answer"},"finish_reason":"stop"}]}
+
+            """;
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(wire));
+        var events = new List<LLMEvent>();
+        await foreach (var published in ChatCompletionsAdapter.Parse(stream, 4096, "test", cancellationToken))
+        {
+            events.Add(published);
+        }
+
+        _ = await Assert.That(string.Concat(events.Where(item => item.Kind == LLMEventKind.ReasoningDelta)
+            .Select(item => item.Text))).IsEqualTo("first second");
+        var completed = events[^1];
+        var request = new LLMRequest
+        {
+            Model = "model",
+            Messages = [LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls) with
+            {
+                ProviderContent = completed.ProviderContent,
+            }],
+        };
+        using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request, "test"));
+        var assistant = document.RootElement.GetProperty("messages")[0];
+        _ = await Assert.That(assistant.GetProperty("reasoning_content").GetString()).IsEqualTo("first second");
+        _ = await Assert.That(assistant.GetProperty("reasoning").GetString()).IsEqualTo("other field");
+        _ = await Assert.That(assistant.GetProperty("content").GetString()).IsEqualTo("answer");
+    }
+
+    [Test]
+    [Arguments("other", "{\"Version\":1,\"Protocol\":\"chat-completions\",\"Reasoning\":\"secret\"}")]
+    [Arguments("test", "{\"Version\":1,\"Protocol\":\"responses\",\"Reasoning\":\"secret\"}")]
+    [Arguments("test", "{\"Version\":2,\"Protocol\":\"chat-completions\",\"Reasoning\":\"secret\"}")]
+    [Arguments("test", "{\"Version\":1,\"Protocol\":\"chat-completions\",\"Reasoning\":42}")]
+    [Arguments("test", "{")]
+    [Arguments("test", "null")]
+    [Arguments("test", "")]
+    public async Task Unusable_native_reasoning_falls_back_to_ordinary_history(
+        string providerId, string payload, CancellationToken cancellationToken)
+    {
+        var request = new LLMRequest
+        {
+            Model = "model",
+            Messages = [LLMMessage.Assistant("answer", [new LLMToolCall("call_1", "read", "{}")]) with
+            {
+                ProviderContent = new LLMProviderContent(providerId, payload),
+            }],
+        };
+        using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request, "test"));
+        var assistant = document.RootElement.GetProperty("messages")[0];
+        _ = await Assert.That(assistant.GetProperty("content").GetString()).IsEqualTo("answer");
+        _ = await Assert.That(assistant.GetProperty("tool_calls")[0].GetProperty("id").GetString()).IsEqualTo("call_1");
+        _ = await Assert.That(assistant.TryGetProperty("reasoning", out _)).IsFalse();
+        _ = await Assert.That(assistant.TryGetProperty("reasoning_content", out _)).IsFalse();
+        _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
+    }
+
+    [Test]
+    public async Task Null_and_empty_reasoning_do_not_create_native_history(CancellationToken cancellationToken)
+    {
+        const string wire = """
+            data: {"choices":[{"delta":{"reasoning_content":null,"reasoning":""}}]}
+
+            data: {"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}]}
+
+            """;
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(wire));
+        var events = new List<LLMEvent>();
+        await foreach (var published in ChatCompletionsAdapter.Parse(stream, 4096, "test", cancellationToken))
+        {
+            events.Add(published);
+        }
+
+        _ = await Assert.That(events[^1].ProviderContent).IsEqualTo(LLMProviderContent.None);
+        _ = await Assert.That(events.Count(item => item.Kind == LLMEventKind.ReasoningDelta)).IsEqualTo(0);
+    }
+
     private static string WriteConfiguration(string directory, string content)
     {
         _ = Directory.CreateDirectory(directory);
@@ -301,7 +431,7 @@ internal sealed class OpenAICompatibleProviderTests
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(LiveShapedStream));
         var events = new List<LLMEvent>();
 
-        await foreach (var published in ChatCompletionsAdapter.Parse(stream, 4096, cancellationToken))
+        await foreach (var published in ChatCompletionsAdapter.Parse(stream, 4096, "test", cancellationToken))
         {
             events.Add(published);
         }

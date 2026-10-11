@@ -1342,9 +1342,12 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    [Arguments("chat")]
+    [Arguments("responses")]
     public async Task Length_truncated_tool_call_is_discarded_and_reissued_before_execution(
-        CancellationToken cancellationToken)
+        string protocol, CancellationToken cancellationToken)
     {
+        var rejected = await ReasoningHistoryFixture.Parse(protocol, "stepped", "rejected-reasoning", true, cancellationToken);
         using var provider = new SteppedProvider(
             LLMEvent.Completed(
                 "length",
@@ -1352,7 +1355,8 @@ internal sealed class DrainTests : IDisposable
                 0,
                 32_768,
                 "partial",
-                [new LLMToolCall("truncated", "settled", "{\"value\":\"")]),
+                [new LLMToolCall("truncated", "settled", "{\"value\":\"")]) with
+            { ProviderContent = rejected.ProviderContent },
             Answer(string.Empty, new LLMToolCall("complete", "settled", "{}")),
             Answer("done"));
         var repository = new EventRepository(_database);
@@ -1385,6 +1389,11 @@ internal sealed class DrainTests : IDisposable
         provider.Release();
         _ = await turns.TurnEnding(session.SessionId, cancellationToken);
 
+        using var nextRequest = ReasoningHistoryFixture.Encode(protocol, "stepped", provider.Requests[^1].Messages);
+        using var savedHistory = ReasoningHistoryFixture.Encode(protocol, "stepped", repository.ModelHistory("agent"));
+        _ = await Assert.That(ReasoningHistoryFixture.ReadReasoning(protocol, nextRequest)).IsEmpty();
+        _ = await Assert.That(ReasoningHistoryFixture.ReadReasoning(protocol, savedHistory)).IsEmpty();
+
         var published = new List<Event>();
         while (subscription.Reader.TryRead(out var next))
         {
@@ -1402,9 +1411,12 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    [Arguments("chat")]
+    [Arguments("responses")]
     public async Task Invalid_tool_call_arguments_are_discarded_and_reissued_before_execution(
-        CancellationToken cancellationToken)
+        string protocol, CancellationToken cancellationToken)
     {
+        var rejected = await ReasoningHistoryFixture.Parse(protocol, "stepped", "rejected-reasoning", true, cancellationToken);
         using var provider = new SteppedProvider(
             LLMEvent.Completed(
                 "stop",
@@ -1412,7 +1424,8 @@ internal sealed class DrainTests : IDisposable
                 0,
                 32_768,
                 "partial",
-                [new LLMToolCall("invalid", "settled", "{\"value\":\"")]),
+                [new LLMToolCall("invalid", "settled", "{\"value\":\"")]) with
+            { ProviderContent = rejected.ProviderContent },
             Answer(string.Empty, new LLMToolCall("complete", "settled", "{}")),
             Answer("done"));
         var repository = new EventRepository(_database);
@@ -1444,6 +1457,11 @@ internal sealed class DrainTests : IDisposable
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await turns.TurnEnding(session.SessionId, cancellationToken);
+
+        using var nextRequest = ReasoningHistoryFixture.Encode(protocol, "stepped", provider.Requests[^1].Messages);
+        using var savedHistory = ReasoningHistoryFixture.Encode(protocol, "stepped", repository.ModelHistory("agent"));
+        _ = await Assert.That(ReasoningHistoryFixture.ReadReasoning(protocol, nextRequest)).IsEmpty();
+        _ = await Assert.That(ReasoningHistoryFixture.ReadReasoning(protocol, savedHistory)).IsEmpty();
 
         var published = new List<Event>();
         while (subscription.Reader.TryRead(out var next))
@@ -1805,6 +1823,135 @@ internal sealed class DrainTests : IDisposable
             "+",
             request.Messages.Where(message => message.Role == LLMRole.Assistant).Select(message => message.ProviderContent.Content)));
         _ = await Assert.That(string.Join(" | ", replayed)).IsEqualTo(" | tool-blocks | tool-blocks+final-blocks");
+    }
+
+    [Test]
+    [Arguments("chat")]
+    [Arguments("responses")]
+    public async Task Native_reasoning_reencodes_after_database_reopen_and_full_fork(
+        string protocol, CancellationToken cancellationToken)
+    {
+        _ = Directory.CreateDirectory(_blobDirectory);
+        var databasePath = Path.Combine(_blobDirectory, "native-reasoning.sqlite");
+        var tool = await ReasoningHistoryFixture.Parse(protocol, "provider", "tool-reasoning", true, cancellationToken);
+        var final = await ReasoningHistoryFixture.Parse(protocol, "provider", "final-reasoning", false, cancellationToken);
+        using (var database = SessionDatabase.Open(databasePath))
+        {
+            var repository = new EventRepository(database);
+            _ = repository.AppendMessage(
+                new Event { Id = "old", AgentSessionId = "agent" },
+                LLMMessage.Assistant("old answer", []),
+                ConversationOrigin.Model);
+            _ = repository.AppendMessage(
+                new Event { Id = "question", AgentSessionId = "agent" },
+                LLMMessage.User("question"),
+                ConversationOrigin.UserInput);
+            _ = repository.AppendMessage(
+                new Event { Id = "tool", AgentSessionId = "agent" },
+                LLMMessage.Assistant(tool.AssistantText, tool.ToolCalls) with { ProviderContent = tool.ProviderContent },
+                ConversationOrigin.Model);
+            _ = repository.AppendToolSettlement(
+                new Event { Id = "result", AgentSessionId = "agent" },
+                repository.Conversation("agent")[^1].Sequence,
+                new ToolExecutionTerminal(
+                    "call-1", "settled", ToolExecutionStatus.Finished, [ConversationPart.TextPart("result")], "result"));
+            repository.AppendConversation(
+                new Event { Id = "final", AgentSessionId = "agent" },
+                ConversationOrigin.Model,
+                LLMRole.Assistant,
+                [ConversationPart.TextPart(final.AssistantText)],
+                final.ToolCalls,
+                final.ProviderContent,
+                string.Empty);
+        }
+
+        using var reopened = SessionDatabase.Open(databasePath);
+        var restored = new EventRepository(reopened);
+        restored.InitializeForkedAgentHistory(
+            "agent", "child", new HistoryForkBoundary.AfterCompletedHistory(), HistoryForkSelection.Parse("full"), null);
+        foreach (var agentId in new[] { "agent", "child" })
+        {
+            var history = restored.ModelHistory(agentId);
+            using var encoded = ReasoningHistoryFixture.Encode(protocol, "provider", history);
+            _ = await Assert.That(ReasoningHistoryFixture.ReadReasoning(protocol, encoded)).IsEquivalentTo(["tool-reasoning", "final-reasoning"]);
+            _ = await Assert.That(history[0].Content).IsEqualTo("old answer");
+            _ = await Assert.That(history[0].ProviderContent).IsEqualTo(LLMProviderContent.None);
+            _ = await Assert.That(history[2].ToolCalls.Single().Id).IsEqualTo("call-1");
+            _ = await Assert.That(history[2].Content).IsEqualTo("tool preface");
+            _ = await Assert.That(history[3].ToolCallId).IsEqualTo("call-1");
+            _ = await Assert.That(history[3].Content).IsEqualTo("result");
+            _ = await Assert.That(history[4].Content).IsEqualTo("done");
+            if (protocol == "responses")
+            {
+                var input = encoded.RootElement.GetProperty("input");
+                var call = input.EnumerateArray().Single(item => item.GetProperty("type").GetString() == "function_call");
+                var result = input.EnumerateArray().Single(item => item.GetProperty("type").GetString() == "function_call_output");
+                _ = await Assert.That(call.GetProperty("call_id").GetString()).IsEqualTo("call-1");
+                _ = await Assert.That(call.GetProperty("arguments").GetString()).IsEqualTo("{}");
+                _ = await Assert.That(result.GetProperty("call_id").GetString()).IsEqualTo("call-1");
+                var text = input.EnumerateArray().Where(item => item.GetProperty("type").GetString() == "message")
+                    .SelectMany(item => item.GetProperty("content").EnumerateArray())
+                    .Select(part => part.GetProperty("text").GetString() ?? string.Empty);
+                _ = await Assert.That(text).IsEquivalentTo(["old answer", "question", "tool preface", "done"]);
+            }
+        }
+    }
+
+    [Test]
+    [Arguments("chat")]
+    [Arguments("responses")]
+    public async Task Native_reasoning_reaches_tool_continuation_and_survives_a_restart(
+        string protocol, CancellationToken cancellationToken)
+    {
+        var tool = await ReasoningHistoryFixture.Parse(protocol, "stepped", "tool-reasoning", true, cancellationToken);
+        var final = await ReasoningHistoryFixture.Parse(protocol, "stepped", "final-reasoning", false, cancellationToken);
+        using var provider = new SteppedProvider(tool, final);
+        var repository = new EventRepository(_database);
+        using var turns = _broker.Subscribe();
+        await using (var session = Session(
+            provider,
+            repository,
+            [new TestTool(new SettledTool("result"))],
+            cancellationToken))
+        {
+            _ = await session.Send([ConversationPart.TextPart("first")], "msg-1", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
+            await provider.Arrived(cancellationToken);
+            provider.Release();
+            await provider.Arrived(cancellationToken);
+            provider.Release();
+            _ = await turns.TurnEnding(session.SessionId, cancellationToken);
+        }
+
+        await using (var restarted = Session(
+            provider,
+            repository,
+            [new TestTool(new SettledTool("result"))],
+            cancellationToken))
+        {
+            _ = await restarted.Send([ConversationPart.TextPart("second")], "msg-2", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
+            await provider.Arrived(cancellationToken);
+            provider.Release();
+            _ = await turns.TurnEnding(restarted.SessionId, cancellationToken);
+        }
+
+        using var continuation = ReasoningHistoryFixture.Encode(protocol, "stepped", provider.Requests[1].Messages);
+        using var restartedRequest = ReasoningHistoryFixture.Encode(protocol, "stepped", provider.Requests[2].Messages);
+        _ = await Assert.That(ReasoningHistoryFixture.ReadReasoning(protocol, continuation)).IsEquivalentTo(["tool-reasoning"]);
+        _ = await Assert.That(ReasoningHistoryFixture.ReadReasoning(protocol, restartedRequest)).IsEquivalentTo(["tool-reasoning", "final-reasoning"]);
+        var assistant = provider.Requests[1].Messages.Single(message => message.Role == LLMRole.Assistant);
+        _ = await Assert.That(assistant.Content).IsEqualTo("tool preface");
+        _ = await Assert.That(assistant.ToolCalls.Single().Id).IsEqualTo("call-1");
+        if (protocol == "responses")
+        {
+            var input = continuation.RootElement.GetProperty("input");
+            var call = input.EnumerateArray().Single(item => item.GetProperty("type").GetString() == "function_call");
+            var result = input.EnumerateArray().Single(item => item.GetProperty("type").GetString() == "function_call_output");
+            _ = await Assert.That(call.GetProperty("call_id").GetString()).IsEqualTo("call-1");
+            _ = await Assert.That(call.GetProperty("name").GetString()).IsEqualTo("settled");
+            _ = await Assert.That(call.GetProperty("arguments").GetString()).IsEqualTo("{}");
+            _ = await Assert.That(result.GetProperty("call_id").GetString()).IsEqualTo("call-1");
+            _ = await Assert.That(result.GetProperty("output").GetString()).IsEqualTo("result");
+        }
     }
 
     [Test]
