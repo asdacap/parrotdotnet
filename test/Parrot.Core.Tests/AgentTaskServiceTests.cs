@@ -599,7 +599,7 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
         var fixture = Fixture(provider, 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
         await using var registry = fixture.Runtime.Registry;
         await using var service = fixture.Service;
-        Set(fixture, Declare("a", string.Empty), Declare("blocker", ",\"state\":\"canceled\""));
+        Set(fixture, Declare("a", string.Empty), Declare("blocker", ",\"state\":\"failed\""));
         await arrived.Task.WaitAsync(cancellationToken);
         var scope = fixture.Runtime.Sessions.ResolveScope("a");
 
@@ -627,11 +627,13 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
     }
 
     [Test]
-    [Arguments("canceled")]
-    [Arguments("failed")]
-    [Arguments("pending")]
-    [Arguments("running")]
-    public async Task Automatic_hiding_requires_every_task_to_succeed(string state, CancellationToken cancellationToken)
+    [Arguments("succeeded", "failed")]
+    [Arguments("succeeded", "pending")]
+    [Arguments("succeeded", "running")]
+    [Arguments("canceled", "failed")]
+    [Arguments("canceled", "pending")]
+    [Arguments("canceled", "running")]
+    public async Task Automatic_hiding_requires_every_task_to_succeed_or_be_canceled(string resolvedState, string state, CancellationToken cancellationToken)
     {
         var provider = new AgentTaskReplyProvider(async (request, token) =>
         {
@@ -647,29 +649,52 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
         await using var registry = fixture.Runtime.Registry;
         await using var service = fixture.Service;
         _ = await Assert.That(service.Snapshot()).Count().IsEqualTo(0);
-        Set(fixture, Declare("a", ",\"state\":\"succeeded\""), Declare("b", $",\"state\":\"{state}\""));
+        Set(fixture, Declare("a", $",\"state\":\"{resolvedState}\""), Declare("b", $",\"state\":\"{state}\""));
         _ = await Assert.That(service.Snapshot().Any(task => task.Hidden)).IsFalse();
         _ = await Assert.That(LastProgress(fixture.Runtime.Parent.SessionId).RootNodes.Any(node => node.Hidden)).IsFalse();
     }
 
     [Test]
-    public async Task All_success_hides_once_per_transition_and_allows_explicit_unhide(CancellationToken cancellationToken)
+    [Arguments("succeeded", "succeeded")]
+    [Arguments("succeeded", "canceled")]
+    [Arguments("canceled", "succeeded")]
+    [Arguments("canceled", "canceled")]
+    public async Task Resolved_graph_hides_once_per_transition_and_allows_explicit_unhide(string firstState, string secondState, CancellationToken cancellationToken)
     {
         var fixture = Fixture(new AgentTaskReplyProvider((_, _) => Task.FromResult("noted")), 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
         await using var registry = fixture.Runtime.Registry;
         await using var service = fixture.Service;
-        Set(fixture, Declare("a", ",\"state\":\"succeeded\""), Declare("b", ",\"state\":\"succeeded\""));
+        Set(fixture, Declare("a", $",\"state\":\"{firstState}\""), Declare("b", $",\"state\":\"{secondState}\""));
         _ = await Assert.That(service.Snapshot().All(task => task.Hidden)).IsTrue();
         _ = await Assert.That(LastProgress(fixture.Runtime.Parent.SessionId).RootNodes.All(node => node.Hidden)).IsTrue();
-        Set(fixture, Declare("a", ",\"state\":\"succeeded\",\"hidden\":false"));
+        Set(fixture, Declare("a", $",\"state\":\"{firstState}\",\"hidden\":false"));
         _ = await Assert.That(service.Snapshot()[0].Hidden).IsFalse();
         _ = await Assert.That(service.Snapshot()[1].Hidden).IsTrue();
-        Set(fixture, Declare("b", ",\"state\":\"succeeded\",\"hidden\":false"));
+        _ = await Assert.That(LastProgress(fixture.Runtime.Parent.SessionId).RootNodes[0].Hidden).IsFalse();
+        _ = await Assert.That(LastProgress(fixture.Runtime.Parent.SessionId).RootNodes[1].Hidden).IsTrue();
+        Set(fixture, Declare("b", $",\"state\":\"{secondState}\",\"hidden\":false"));
         _ = await Assert.That(service.Snapshot().Any(task => task.Hidden)).IsFalse();
+        _ = await Assert.That(LastProgress(fixture.Runtime.Parent.SessionId).RootNodes.Any(node => node.Hidden)).IsFalse();
         Set(fixture, Declare("b", ",\"state\":\"failed\""));
         _ = await Assert.That(service.Snapshot().Any(task => task.Hidden)).IsFalse();
-        Set(fixture, Declare("b", ",\"state\":\"succeeded\""));
+        _ = await Assert.That(LastProgress(fixture.Runtime.Parent.SessionId).RootNodes.Any(node => node.Hidden)).IsFalse();
+        Set(fixture, Declare("b", $",\"state\":\"{secondState}\""));
         _ = await Assert.That(service.Snapshot().All(task => task.Hidden)).IsTrue();
+        _ = await Assert.That(LastProgress(fixture.Runtime.Parent.SessionId).RootNodes.All(node => node.Hidden)).IsTrue();
+    }
+
+    [Test]
+    public async Task Effective_dependency_cancellation_hides_the_graph_without_succeeding(CancellationToken cancellationToken)
+    {
+        var fixture = Fixture(new AgentTaskReplyProvider((_, _) => Task.FromResult("noted")), 5, AgentTaskForkHistoryMode.Empty, cancellationToken);
+        await using var registry = fixture.Runtime.Registry;
+        await using var service = fixture.Service;
+        Set(fixture, Declare("a", ",\"state\":\"canceled\""), Declare("b", ",\"dependencies\":[\"a\"]"));
+        _ = await Assert.That(service.Snapshot().All(task => task.Hidden)).IsTrue();
+        _ = await Assert.That(service.Snapshot().All(task => task.State == AgentTaskExecutionStatus.Canceled)).IsTrue();
+        var progress = LastProgress(fixture.Runtime.Parent.SessionId);
+        _ = await Assert.That(progress.RootNodes.All(node => node.Hidden)).IsTrue();
+        _ = await Assert.That(progress.RootNodes.All(node => node.Status == AgentTaskProgressStatus.Canceled)).IsTrue();
     }
 
     [Test]
