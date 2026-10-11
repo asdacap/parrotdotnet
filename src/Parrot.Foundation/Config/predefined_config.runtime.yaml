@@ -15,7 +15,7 @@ model_presets: {}
 model_aliases:
   low_llm:
     model_string: ""
-    usage: Explicit reversible mechanical or evidence work with failure-specific validation; never judgmental review.
+    usage: Explicit reversible mechanical or evidence work with failure-specific validation; never judgmental review. use fork none for this one please. It tend to confuse instruction also.
     # Optional alias-specific system-prompt augmentation. An explicit empty
     # string suppresses this augmentation rather than inheriting it.
     augment_system_prompt: null
