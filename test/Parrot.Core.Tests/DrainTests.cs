@@ -969,6 +969,7 @@ internal sealed class DrainTests : IDisposable
     [Test]
     [Arguments("text")]
     [Arguments("reasoning")]
+    [Arguments("encrypted-reasoning")]
     [Arguments("tool-id")]
     [Arguments("tool-name")]
     [Arguments("tool-arguments")]
@@ -980,6 +981,7 @@ internal sealed class DrainTests : IDisposable
         {
             "text" => LLMEvent.TextDelta(" "),
             "reasoning" => LLMEvent.ReasoningDelta(" ", LLMReasoningKind.Raw, string.Empty, completed: false),
+            "encrypted-reasoning" => LLMEvent.EncryptedReasoningReceived(),
             "tool-id" => LLMEvent.ToolCallDelta("call", string.Empty, string.Empty),
             "tool-name" => LLMEvent.ToolCallDelta(string.Empty, "tool", string.Empty),
             "tool-arguments" => LLMEvent.ToolCallDelta(string.Empty, string.Empty, "{"),
@@ -1026,6 +1028,7 @@ internal sealed class DrainTests : IDisposable
                 _ = await Assert.That(published[^2]).IsEqualTo(phases[^1]);
                 _ = await Assert.That(published[^1].PayloadCase).IsEqualTo(delta.Kind switch
                 {
+                    LLMEventKind.EncryptedReasoningReceived => Event.PayloadOneofCase.EncryptedReasoningReceived,
                     LLMEventKind.ReasoningDelta => Event.PayloadOneofCase.ReasoningChunk,
                     LLMEventKind.ToolCallDelta => Event.PayloadOneofCase.ToolCallChunk,
                     _ => Event.PayloadOneofCase.TextChunk,
@@ -1034,6 +1037,14 @@ internal sealed class DrainTests : IDisposable
 
             previousPhaseCount = step.PhaseCount;
             provider.Release();
+        }
+
+        if (dataKind == "encrypted-reasoning")
+        {
+            var received = published.Where(item => item.PayloadCase == Event.PayloadOneofCase.EncryptedReasoningReceived).ToArray();
+            _ = await Assert.That(received.Length).IsEqualTo(steps.Count(step => ReferenceEquals(step.Event, delta)));
+            _ = await Assert.That(received.All(item => item.AgentSessionId == session.SessionId)).IsTrue();
+            _ = await Assert.That(published.Count(item => item.PayloadCase == Event.PayloadOneofCase.RetryNotice)).IsEqualTo(1);
         }
 
         _ = await turns.TurnEnding(session.SessionId, cancellationToken);

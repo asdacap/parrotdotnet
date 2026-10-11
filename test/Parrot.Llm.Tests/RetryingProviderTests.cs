@@ -39,6 +39,31 @@ internal sealed class RetryingProviderTests
     }
 
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Encrypted_reasoning_metadata_preserves_retry_eligibility(
+        bool useSession, CancellationToken cancellationToken)
+    {
+        var failure = new WireProtocolException("provider: idle timeout waiting for HTTP/SSE response bytes");
+        var scripted = new ReplayProvider(
+            () => YieldThenThrow(failure, LLMEvent.EncryptedReasoningReceived()),
+            () => Yield(LLMEvent.EncryptedReasoningReceived(), LLMEvent.Completed("stop", 1, 0, 1, "answer", [])));
+        ILLMProvider provider = new RetryingProvider(scripted) { TimeProvider = Time };
+        await using var session = provider.OpenSession();
+        var received = new List<LLMEvent>();
+        await foreach (var published in useSession ? session.Call(Request, cancellationToken) : provider.Call(Request, cancellationToken))
+        {
+            received.Add(published);
+        }
+
+        _ = await Assert.That(scripted.Calls).IsEqualTo(2);
+        _ = await Assert.That(string.Join(",", received.Select(item => item.Kind)))
+            .IsEqualTo("EncryptedReasoningReceived,Retry,EncryptedReasoningReceived,Completed");
+        _ = await Assert.That(received[0].IsVisibleOutput).IsFalse();
+        _ = await Assert.That(received[2].IsVisibleOutput).IsFalse();
+    }
+
+    [Test]
     [Arguments(false, false)]
     [Arguments(true, false)]
     [Arguments(false, true)]

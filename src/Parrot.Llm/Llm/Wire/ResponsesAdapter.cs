@@ -297,6 +297,11 @@ internal static class ResponsesAdapter
 
                 if (isItemDone)
                 {
+                    foreach (var received in state.ReceiveEncryptedReasoning(root))
+                    {
+                        yield return received;
+                    }
+
                     state.CaptureOutputItem(root);
                 }
 
@@ -328,6 +333,11 @@ internal static class ResponsesAdapter
                     : IncompleteReason(root);
                 state.Done = true;
                 state.CaptureCompletion(root);
+                foreach (var received in state.ReceiveEncryptedReasoning(root))
+                {
+                    yield return received;
+                }
+
                 break;
             }
 
@@ -645,6 +655,8 @@ internal static class ResponsesAdapter
         private readonly List<ToolAccumulator> _toolOrder = [];
         private readonly List<JsonElement> _output = [];
         private readonly SortedDictionary<int, JsonElement> _streamedOutput = [];
+        private readonly HashSet<string> _receivedReasoningIds = new(StringComparer.Ordinal);
+        private readonly Dictionary<int, string> _receivedReasoningPositions = [];
         private string _createdResponseId = string.Empty;
         private long? _sequenceNumber;
 
@@ -838,6 +850,38 @@ internal static class ResponsesAdapter
             }
         }
 
+        public IEnumerable<LLMEvent> ReceiveEncryptedReasoning(JsonElement root)
+        {
+            if (root.TryGetProperty("item", out var item))
+            {
+                var index = root.TryGetProperty("output_index", out var outputIndex)
+                    && outputIndex.ValueKind == JsonValueKind.Number
+                    && outputIndex.TryGetInt32(out var suppliedIndex)
+                    ? suppliedIndex
+                    : _streamedOutput.Count;
+                if (RecordEncryptedReasoning(item, index))
+                {
+                    yield return LLMEvent.EncryptedReasoningReceived();
+                }
+            }
+            else if (root.TryGetProperty("response", out var response)
+                && response.ValueKind == JsonValueKind.Object
+                && response.TryGetProperty("output", out var output)
+                && output.ValueKind == JsonValueKind.Array)
+            {
+                var index = 0;
+                foreach (var terminalItem in output.EnumerateArray())
+                {
+                    if (RecordEncryptedReasoning(terminalItem, index))
+                    {
+                        yield return LLMEvent.EncryptedReasoningReceived();
+                    }
+
+                    index++;
+                }
+            }
+        }
+
         public void CaptureOutputItem(JsonElement root)
         {
             if (root.TryGetProperty("item", out var item)
@@ -883,6 +927,25 @@ internal static class ResponsesAdapter
             root.TryGetProperty("response", out var response) && response.ValueKind == JsonValueKind.Object
                 ? JsonRead.String(response, "id")
                 : string.Empty;
+
+        private bool RecordEncryptedReasoning(JsonElement item, int index)
+        {
+            if (item.ValueKind != JsonValueKind.Object
+                || JsonRead.String(item, "type") != "reasoning"
+                || !item.TryGetProperty("encrypted_content", out var encrypted)
+                || encrypted.ValueKind != JsonValueKind.String
+                || encrypted.GetString() is not { Length: > 0 })
+            {
+                return false;
+            }
+
+            var id = JsonRead.String(item, "id");
+            var repeatedId = id.Length > 0 && !_receivedReasoningIds.Add(id);
+            var repeatedPosition = _receivedReasoningPositions.TryGetValue(index, out var previousId)
+                && (id.Length == 0 || previousId.Length == 0 || id == previousId);
+            _receivedReasoningPositions[index] = id.Length > 0 ? id : previousId ?? string.Empty;
+            return !repeatedId && !repeatedPosition;
+        }
 
         private void PreserveOrdinaryOutput()
         {

@@ -958,6 +958,7 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         var initial = new LLMRequest { Model = "model", Messages = [LLMMessage.User("hello")] };
         var initialEvents = await Drain(session.Call(initial, cancellationToken));
         var outcome = initialEvents[^1];
+        _ = await Assert.That(initialEvents.Count(item => item.Kind == LLMEventKind.EncryptedReasoningReceived)).IsEqualTo(1);
         _ = await Assert.That(outcome.ProviderContent.ProviderId).IsEqualTo("configured");
         _ = await Assert.That(outcome.AssistantText).IsEqualTo("answer");
         var continued = initial with
@@ -974,6 +975,7 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         }
 
         var continuedEvents = await Drain(session.Call(continued, cancellationToken));
+        _ = await Assert.That(continuedEvents.Count(item => item.Kind == LLMEventKind.EncryptedReasoningReceived)).IsEqualTo(0);
         _ = await Assert.That(continuedEvents[^1].Kind).IsEqualTo(LLMEventKind.Completed);
         if (behavior is "incremental" or "recovery" or "partial-native")
         {
@@ -1006,6 +1008,45 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
         _ = await Assert.That(connector.Calls).IsEqualTo(behavior is "incremental" or "model-change" or "partial-native" ? 1 : 2);
         _ = await Assert.That(handler.Calls).IsEqualTo(behavior == "fallback" ? 1 : 0);
         _ = await Assert.That(continuedEvents.Count(item => item.Kind == LLMEventKind.Retry)).IsEqualTo(behavior is "recovery" or "fallback" ? 1 : 0);
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Http_and_websocket_fallback_emit_received_encrypted_reasoning(
+        bool fallback, CancellationToken cancellationToken)
+    {
+        var connector = new ScriptedConnector(fallback
+            ? [new ResponsesWebSocketUpgradeException(426, "unsupported", new IOException("upgrade"))]
+            : []);
+        using var handler = new ResponsesHandler(1)
+        {
+            ResponseBody = """
+                data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","encrypted_content":"opaque"}}
+
+                data: {"type":"response.completed","response":{"id":"resp_1","output":[{"id":"rs_1","type":"reasoning","encrypted_content":"opaque"}]}}
+
+                """,
+        };
+        using var client = new HttpClient(handler, disposeHandler: false);
+        ILLMProvider provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = !fallback,
+            },
+            client,
+            connector);
+        await using var session = provider.OpenSession();
+        var events = await Drain(session.Call(new LLMRequest { Model = "model", Messages = [LLMMessage.User("hello")] }, cancellationToken));
+        _ = await Assert.That(events.Count(item => item.Kind == LLMEventKind.EncryptedReasoningReceived)).IsEqualTo(1);
+        _ = await Assert.That(events.Count(item => item.Kind == LLMEventKind.Retry)).IsEqualTo(fallback ? 1 : 0);
+        _ = await Assert.That(events[^1].Kind).IsEqualTo(LLMEventKind.Completed);
+        _ = await Assert.That(connector.Calls).IsEqualTo(fallback ? 1 : 0);
+        _ = await Assert.That(handler.Calls).IsEqualTo(1);
     }
 
     [Test]
@@ -1238,6 +1279,8 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
 
         public TimeSpan HeaderDelay { get; init; }
 
+        public string ResponseBody { get; init; } = "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n";
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
@@ -1254,7 +1297,7 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n",
+                    ResponseBody,
                     Encoding.UTF8,
                     "text/event-stream"),
             };

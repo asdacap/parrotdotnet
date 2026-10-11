@@ -1,11 +1,31 @@
 using Parrot.Agent;
 using Parrot.Llm;
+using Parrot.Protocol;
 using Parrot.Queues;
 
 namespace Parrot.Core.Tests;
 
 internal sealed class AgentSessionServiceTests
 {
+    [Test]
+    public async Task Encrypted_reasoning_metadata_flushes_text_and_is_not_coalesced()
+    {
+        var buffer = new StreamedFragmentBuffer();
+        _ = buffer.Add(new Event { AgentSessionId = "agent", TextChunk = new TextChunk { Fragment = "first" } });
+        _ = buffer.Add(new Event { AgentSessionId = "agent", TextChunk = new TextChunk { Fragment = "held" } });
+        var received = new Event
+        {
+            AgentSessionId = "agent",
+            EncryptedReasoningReceived = new EncryptedReasoningReceivedEvent(),
+        };
+        var ready = buffer.Add(received);
+        _ = await Assert.That(ready.Count).IsEqualTo(2);
+        _ = await Assert.That(ready[0].TextChunk.Fragment).IsEqualTo("held");
+        _ = await Assert.That(ready[1]).IsSameReferenceAs(received);
+        _ = await Assert.That(buffer.Add(received).Single()).IsSameReferenceAs(received);
+        _ = await Assert.That(buffer.IsHolding).IsFalse();
+    }
+
     [Test]
     public async Task Production_scope_keeps_the_registered_queue_identity_through_shutdown()
     {

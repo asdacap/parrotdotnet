@@ -465,6 +465,17 @@ internal sealed class RawActivityView(
                     cancellationToken).ConfigureAwait(false);
                 break;
 
+            case Event.PayloadOneofCase.EncryptedReasoningReceived:
+                await commit(
+                    Wrap(
+                        GetNamedAgentSession(published.AgentSessionId),
+                        new ActivityNoticeScrollbackValue(
+                            TerminalIcons.Reasoning,
+                            "Reasoning received (encrypted)")),
+                    Snapshot(),
+                    cancellationToken).ConfigureAwait(false);
+                break;
+
             case Event.PayloadOneofCase.ReasoningChunk:
             {
                 var chunk = published.ReasoningChunk;
