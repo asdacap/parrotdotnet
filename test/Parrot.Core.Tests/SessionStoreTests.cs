@@ -416,7 +416,9 @@ internal sealed class SessionStoreTests : IDisposable
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task Explicit_resume_preserves_settings_and_open_publication(bool missingMetadata)
+    public async Task Explicit_resume_preserves_settings_and_open_publication(
+        bool missingMetadata,
+        CancellationToken cancellationToken)
     {
         const string id = "user-session-explicit";
         var workingDirectory = Directory.CreateDirectory(Path.Combine(_root, "explicit-work")).FullName;
@@ -481,14 +483,22 @@ internal sealed class SessionStoreTests : IDisposable
         _ = await Assert.That(string.IsNullOrEmpty(recorded)).IsFalse();
         _ = await Assert.That(index.Find()?.CreatedAt).IsEqualTo("2026-01-01T00:00:00Z");
         _ = await Assert.That(store.DiscoverLatest().SessionId?.Value).IsEqualTo(id);
-        var beforeContention = await File.ReadAllTextAsync(session.Resources.LogPath);
+        using var recoveryTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        recoveryTimeout.CancelAfter(TimeSpan.FromSeconds(5));
+        while (!(await File.ReadAllTextAsync(session.Resources.LogPath, recoveryTimeout.Token))
+            .Contains("category=\"drain\" event=\"finished\"", StringComparison.Ordinal))
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(20), recoveryTimeout.Token);
+        }
+
+        var beforeContention = await File.ReadAllTextAsync(session.Resources.LogPath, cancellationToken);
         _ = await Assert.That(async () =>
         {
             _ = await store.Resume(UserSessionId.Parse(id), false, false);
         }).Throws<SessionAdmissionException>();
-        _ = await Assert.That(await File.ReadAllTextAsync(session.Resources.LogPath)).IsEqualTo(beforeContention);
+        _ = await Assert.That(await File.ReadAllTextAsync(session.Resources.LogPath, cancellationToken)).IsEqualTo(beforeContention);
         var logDirectory = new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")).LogDirectory;
-        var globalLog = await File.ReadAllTextAsync(Directory.GetFiles(logDirectory, "parrot-*.log").Single());
+        var globalLog = await File.ReadAllTextAsync(Directory.GetFiles(logDirectory, "parrot-*.log").Single(), cancellationToken);
         _ = await Assert.That(globalLog).Contains("event=\"acquire\"").And.Contains("outcome=\"failed\"");
     }
 

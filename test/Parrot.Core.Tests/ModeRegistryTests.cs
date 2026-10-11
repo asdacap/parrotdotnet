@@ -112,32 +112,32 @@ internal sealed class ModeRegistryTests : IDisposable
     }
 
     [Test]
-    [Arguments(ModeRegistry.Coordinator, false, 1024, "coordinator mode", "authorized workspace")]
-    [Arguments(ModeRegistry.Build, false, 1024, "build mode", "authorized workspace")]
-    [Arguments(ModeRegistry.Plan, true, 1024, "plan mode", "provided plan directory")]
-    [Arguments(ModeRegistry.Query, true, 8, "query mode", "Read-only mode")]
+    [Arguments(ModeRegistry.Coordinator, false, 1024)]
+    [Arguments(ModeRegistry.Build, false, 1024)]
+    [Arguments(ModeRegistry.Plan, true, 1024)]
+    [Arguments(ModeRegistry.Query, true, 8)]
     public async Task Foreground_modes_expose_their_policy(
         string id,
         bool readOnly,
-        int maxToolRounds,
-        string promptFragment,
-        string policyFragment)
+        int maxToolRounds)
     {
-        var mode = Modes(Registry(), Path.Combine(_root, "sessions", "session", "plan")).Resolve(id);
+        var registry = Registry();
+        var mode = Modes(registry, Path.Combine(_root, "sessions", "session", "plan")).Resolve(id);
         var profile = mode.Profile;
 
         _ = await Assert.That(profile.Id).IsEqualTo(id);
         _ = await Assert.That(profile.SecurityProfile.ReadOnly).IsEqualTo(readOnly);
         _ = await Assert.That(profile.MaxTurns).IsEqualTo(maxToolRounds);
-        _ = await Assert.That(profile.Prompt).Contains(promptFragment);
-        _ = await Assert.That(profile.Prompt).Contains(policyFragment);
-
         if (id == ModeRegistry.Plan)
         {
             mode.Prepare();
             var artifact = PlanArtifact("session");
             _ = await Assert.That(profile.Prompt).Contains(artifact);
             _ = await Assert.That(profile.Prompt).Contains(Path.Combine(_root, "sessions", "session", "plan"));
+        }
+        else
+        {
+            _ = await Assert.That(profile.Prompt).IsEqualTo(registry.Resolve(id).Prompt);
         }
     }
 

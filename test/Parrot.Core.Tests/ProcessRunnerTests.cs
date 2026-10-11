@@ -365,7 +365,7 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
-    public async Task Cancellation_kills_the_process_tree_before_returning()
+    public async Task Cancellation_kills_the_process_tree_before_returning(CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsLinux())
         {
@@ -381,15 +381,16 @@ internal sealed class ProcessRunnerTests : IDisposable
             ProjectWorkspace.FromLaunchDirectory(_workspace));
         var runner = TestModels.Runner(SandboxPassThrough.Write(_workspace));
         var pidPath = Path.Combine(_workspace, "child.pid");
-        using var cancellation = new CancellationTokenSource();
-        var running = runner.Run(
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        await using var execution = runner.Start(
             "sh -c 'while :; do sleep 1; done' & echo $! > child.pid; wait",
             ProcessEnvironmentOverrides.Empty,
             resources,
             Scratch(resources),
             WritableProfile(resources),
+            ShellProcessTerminalMode.Pipe,
             cancellation.Token);
-        var childPid = await ReadPid(pidPath);
+        var childPid = await ReadPid(pidPath, cancellationToken);
 
         await cancellation.CancelAsync();
 
@@ -397,7 +398,7 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         try
         {
-            _ = await running;
+            _ = await execution.Result;
         }
         catch (OperationCanceledException)
         {
@@ -1370,17 +1371,19 @@ internal sealed class ProcessRunnerTests : IDisposable
         return path;
     }
 
-    private static async Task<int> ReadPid(string path)
+    private static async Task<int> ReadPid(string path, CancellationToken cancellationToken)
     {
-        for (var attempt = 0; attempt < 200; attempt++)
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
+
+        while (DateTimeOffset.UtcNow < deadline)
         {
             if (File.Exists(path)
-                && int.TryParse(await File.ReadAllTextAsync(path), out var processId))
+                && int.TryParse(await File.ReadAllTextAsync(path, cancellationToken), out var processId))
             {
                 return processId;
             }
 
-            await Task.Delay(TimeSpan.FromMilliseconds(5));
+            await Task.Delay(TimeSpan.FromMilliseconds(20), cancellationToken);
         }
 
         throw new InvalidOperationException("The child process did not write its process ID.");

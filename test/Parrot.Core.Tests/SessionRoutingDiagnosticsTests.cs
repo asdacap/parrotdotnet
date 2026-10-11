@@ -76,6 +76,9 @@ internal sealed class SessionRoutingDiagnosticsTests
                 }
 
                 await Task.WhenAll(TurnEndings(first, 2, cancellationToken), TurnEndings(second, 1, cancellationToken));
+                await Task.WhenAll(
+                    WaitForTurnDiagnostics(firstLogPath, 2, cancellationToken),
+                    WaitForTurnDiagnostics(secondLogPath, 1, cancellationToken));
             }
 
             // Read after the sessions close: a turn's finished diagnostic can follow its ending event.
@@ -124,6 +127,17 @@ internal sealed class SessionRoutingDiagnosticsTests
         finally
         {
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task WaitForTurnDiagnostics(string path, int count, CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        while ((await File.ReadAllLinesAsync(path, timeout.Token))
+            .Count(line => line.Contains("category=\"turn\" event=\"finished\"", StringComparison.Ordinal)) < count)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(20), timeout.Token);
         }
     }
 

@@ -2620,9 +2620,9 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     public async Task Spawn_resumes_an_existing_idle_child_with_the_same_normalized_name(
         CancellationToken cancellationToken)
     {
+        using var parentProvider = new SteppedProvider();
         using var provider = new SteppedProvider(
             LLMEvent.Completed("stop", 1, 0, 1, "first", []),
-            LLMEvent.Completed("stop", 1, 0, 1, "notification handled", []),
             LLMEvent.Completed("stop", 1, 0, 1, "resumed", []));
         var sessions = new TestAgentSessions(new RouterFixture(provider, []).Router);
         await using var registry = TestModels.Registry(
@@ -2632,7 +2632,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             new TestProfileFixture().Registry,
             TestModels.PromptTemplates,
             cancellationToken);
-        await using var parent = Session(provider, 0, "parent", registry, cancellationToken);
+        await using var parent = Session(parentProvider, 0, "parent", registry, cancellationToken);
         ITool spawn = new AgentSpawnTool(TestModels.ScopeOf(parent), new RouterFixture(provider, []).Router);
         var selection = new TurnFixture(parent, new RouterFixture(provider, []).Router).Selection;
 
@@ -2651,9 +2651,6 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var firstCompletion = await helper.Wait(0, cancellationToken);
         _ = await Assert.That(firstCompletion.Output).IsEqualTo("first");
 
-        await provider.Arrived(cancellationToken);
-        provider.Release();
-
         var resumedJson = (await spawn.Execute(
             new ToolInvocation("test-call", """{"prompt":"second prompt","agent":"worker","name":"helper-one"}"""), selection, cancellationToken)).Text;
         await provider.Arrived(cancellationToken);
@@ -2662,7 +2659,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await Assert.That(resumed.RootElement.TryGetProperty("session_id", out _)).IsFalse();
 
         _ = await Assert.That(sessions.Identities.Select(identity => identity.SessionId).Count(sessionId => sessionId == helper.SessionId)).IsEqualTo(1);
-        var conversation = string.Join('\n', provider.Requests[2].Messages.Select(message => message.Content));
+        var conversation = string.Join('\n', provider.Requests[1].Messages.Select(message => message.Content));
         _ = await Assert.That(conversation).Contains("second prompt");
         provider.Release();
         _ = await Assert.That((await helper.Wait(0, cancellationToken)).Output).IsEqualTo("resumed");
