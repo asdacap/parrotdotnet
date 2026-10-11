@@ -1,4 +1,5 @@
 using Parrot.Cli.Enhanced;
+using Parrot.Core.Tests;
 using Parrot.Protocol;
 
 namespace Parrot.Cli.Tests;
@@ -13,7 +14,7 @@ internal sealed class QueueSnapshotStreamReaderTests
         var applied = new List<(string RootAgentSessionId, IReadOnlyList<QueueState> Queues)>();
         var reader = new QueueSnapshotStreamReader(
             source.Reader,
-            (snapshot, _) =>
+            (_, snapshot, _) =>
             {
                 applied.Add((snapshot.RootAgentSessionId, [.. snapshot.Queues.Select(static queue => queue.Clone())]));
                 return Task.CompletedTask;
@@ -62,91 +63,85 @@ internal sealed class QueueSnapshotStreamReaderTests
         CancellationToken cancellationToken)
     {
         var source = new ChannelStreamWriter<Event>();
-        var applied = new List<QueueSnapshot>();
-        var reader = new QueueSnapshotStreamReader(source.Reader, (snapshot, _) =>
+        var applied = new List<(ToolSnapshot Inventory, QueueSnapshot Snapshot)>();
+        var reader = new QueueSnapshotStreamReader(source.Reader, (inventory, snapshot, _) =>
         {
-            applied.Add(snapshot.Clone());
+            applied.Add((inventory.Clone(), snapshot.Clone()));
             return Task.CompletedTask;
         });
-        var root = new QueueSnapshot
-        {
-            OwnerAgentSessionId = "root",
-            InventoryInstanceId = "root-one",
-            Revision = 8,
-            FinalChunk = false,
-            Queues = { new QueueState { Name = "root-queue", OwnerAgentSessionId = "root", ItemCount = 1 } },
-        };
-        var child = root.Clone();
-        child.OwnerAgentSessionId = "child";
-        child.InventoryInstanceId = "child-one";
-        child.Revision = 1;
-        child.Queues.Clear();
-        await source.WriteAsync(new Event { QueueSnapshot = root.Clone() }, cancellationToken);
-        await source.WriteAsync(new Event { QueueSnapshot = child.Clone() }, cancellationToken);
+        var root = TestToolSnapshots.QueueEnvelope(
+            new ToolSnapshot { OwnerAgentSessionId = "root", InventoryInstanceId = "root-one", Revision = 8, FinalChunk = false },
+            new QueueSnapshot { Queues = { new QueueState { Name = "root-queue", OwnerAgentSessionId = "root", ItemCount = 1 } } });
+        var child = TestToolSnapshots.QueueEnvelope(
+            new ToolSnapshot { OwnerAgentSessionId = "child", InventoryInstanceId = "child-one", Revision = 1, FinalChunk = false },
+            new QueueSnapshot());
+        await source.WriteAsync(new Event { ToolSnapshot = root.Clone() }, cancellationToken);
+        await source.WriteAsync(new Event { ToolSnapshot = child.Clone() }, cancellationToken);
         root.ChunkIndex = 1;
         root.FinalChunk = true;
-        await source.WriteAsync(new Event { QueueSnapshot = root.Clone() }, cancellationToken);
+        await source.WriteAsync(new Event { ToolSnapshot = root.Clone() }, cancellationToken);
         child.ChunkIndex = 1;
         child.FinalChunk = true;
-        await source.WriteAsync(new Event { QueueSnapshot = child.Clone() }, cancellationToken);
+        await source.WriteAsync(new Event { ToolSnapshot = child.Clone() }, cancellationToken);
         child.ChunkIndex = 0;
         child.Revision = 2;
         child.Removed = removed;
-        await source.WriteAsync(new Event { QueueSnapshot = child.Clone() }, cancellationToken);
+        await source.WriteAsync(new Event { ToolSnapshot = child.Clone() }, cancellationToken);
         child.Revision = 1;
         child.Removed = false;
-        await source.WriteAsync(new Event { QueueSnapshot = child.Clone() }, cancellationToken);
+        await source.WriteAsync(new Event { ToolSnapshot = child.Clone() }, cancellationToken);
         root.ChunkIndex = 0;
         root.FinalChunk = false;
         root.InventoryInstanceId = "root-two";
         root.Revision = 0;
-        await source.WriteAsync(new Event { QueueSnapshot = root.Clone() }, cancellationToken);
+        await source.WriteAsync(new Event { ToolSnapshot = root.Clone() }, cancellationToken);
         var stale = root.Clone();
         stale.InventoryInstanceId = "root-one";
         stale.Revision = 99;
         stale.FinalChunk = true;
-        await source.WriteAsync(new Event { QueueSnapshot = stale }, cancellationToken);
+        await source.WriteAsync(new Event { ToolSnapshot = stale }, cancellationToken);
         root.ChunkIndex = 1;
         root.FinalChunk = true;
-        await source.WriteAsync(new Event { QueueSnapshot = root.Clone() }, cancellationToken);
+        await source.WriteAsync(new Event { ToolSnapshot = root.Clone() }, cancellationToken);
         await source.WriteAsync(new Event { Id = "visible", TextChunk = new TextChunk() }, cancellationToken);
 
         _ = await Assert.That(await reader.MoveNext(cancellationToken)).IsTrue();
-        _ = await Assert.That(string.Join(',', applied.Select(static snapshot =>
-            $"{snapshot.OwnerAgentSessionId}:{snapshot.InventoryInstanceId}:{snapshot.Revision}")))
+        _ = await Assert.That(string.Join(',', applied.Select(static item =>
+            $"{item.Inventory.OwnerAgentSessionId}:{item.Inventory.InventoryInstanceId}:{item.Inventory.Revision}")))
             .IsEqualTo("root:root-one:8,child:child-one:1,child:child-one:2,root:root-two:0");
-        _ = await Assert.That(applied[2].Removed).IsEqualTo(removed);
-        _ = await Assert.That(applied[0].Queues.Count).IsEqualTo(2);
+        _ = await Assert.That(applied[2].Inventory.Removed).IsEqualTo(removed);
+        _ = await Assert.That(applied[0].Snapshot.Queues.Count).IsEqualTo(2);
 
-        var reconnected = new QueueSnapshotStreamReader(source.Reader, (snapshot, _) =>
+        var reconnected = new QueueSnapshotStreamReader(source.Reader, (inventory, snapshot, _) =>
         {
-            applied.Add(snapshot.Clone());
+            applied.Add((inventory.Clone(), snapshot.Clone()));
             return Task.CompletedTask;
         });
         root.ChunkIndex = 0;
         root.FinalChunk = true;
-        await source.WriteAsync(new Event { QueueSnapshot = root.Clone() }, cancellationToken);
+        await source.WriteAsync(new Event { ToolSnapshot = root.Clone() }, cancellationToken);
         await source.WriteAsync(new Event { Id = "reconnected", TextChunk = new TextChunk() }, cancellationToken);
         _ = await Assert.That(await reconnected.MoveNext(cancellationToken)).IsTrue();
         _ = await Assert.That(applied.Count).IsEqualTo(5);
-        _ = await Assert.That(applied[^1].InventoryInstanceId).IsEqualTo("root-two");
+        _ = await Assert.That(applied[^1].Inventory.InventoryInstanceId).IsEqualTo("root-two");
     }
 
     private sealed class SnapshotFixture
     {
         public SnapshotFixture(ulong revision, uint chunkIndex, bool finalChunk, params QueueState[] queues)
         {
-            var snapshot = new QueueSnapshot
-            {
-                OwnerAgentSessionId = "root",
-                InventoryInstanceId = "inventory",
-                Revision = revision,
-                ChunkIndex = chunkIndex,
-                FinalChunk = finalChunk,
-                RootAgentSessionId = "root",
-            };
+            var snapshot = new QueueSnapshot { RootAgentSessionId = "root" };
             snapshot.Queues.AddRange(queues);
-            Event = new Event { QueueSnapshot = snapshot };
+            Event = TestToolSnapshots.Queue(
+                new ToolSnapshot
+                {
+                    OwnerAgentSessionId = "root",
+                    InventoryInstanceId = "inventory",
+                    Revision = revision,
+                    ChunkIndex = chunkIndex,
+                    FinalChunk = finalChunk,
+                },
+                snapshot);
         }
 
         public Event Event { get; }

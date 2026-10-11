@@ -36,14 +36,14 @@ internal sealed class ScriptedInvokerIsolationTests
         using var second = client.Listen(new ListenRequest { UserSessionId = "second" }, cancellationToken: cancellationToken);
 
         _ = await Assert.That(await first.ResponseStream.MoveNext(cancellationToken)).IsTrue();
-        _ = await Assert.That(first.ResponseStream.Current.PayloadCase)
-            .IsEqualTo(Event.PayloadOneofCase.QueueSnapshot);
+        _ = await Assert.That(first.ResponseStream.Current.ToolSnapshot.Kind)
+            .IsEqualTo("queue");
         _ = await Assert.That(await first.ResponseStream.MoveNext(cancellationToken)).IsTrue();
         _ = await Assert.That(first.ResponseStream.Current.PayloadCase)
             .IsEqualTo(Event.PayloadOneofCase.SessionUsageSnapshot);
         _ = await Assert.That(await second.ResponseStream.MoveNext(cancellationToken)).IsTrue();
-        _ = await Assert.That(second.ResponseStream.Current.PayloadCase)
-            .IsEqualTo(Event.PayloadOneofCase.QueueSnapshot);
+        _ = await Assert.That(second.ResponseStream.Current.ToolSnapshot.Kind)
+            .IsEqualTo("queue");
         _ = await Assert.That(await second.ResponseStream.MoveNext(cancellationToken)).IsTrue();
         _ = await Assert.That(second.ResponseStream.Current.PayloadCase)
             .IsEqualTo(Event.PayloadOneofCase.SessionUsageSnapshot);
@@ -64,15 +64,15 @@ internal sealed class ScriptedInvokerIsolationTests
         using var first = client.Listen(new ListenRequest { UserSessionId = "session" }, cancellationToken: cancellationToken);
 
         _ = await Assert.That(await first.ResponseStream.MoveNext(cancellationToken)).IsTrue();
-        _ = await Assert.That(first.ResponseStream.Current.PayloadCase)
-            .IsEqualTo(Event.PayloadOneofCase.QueueSnapshot);
+        _ = await Assert.That(first.ResponseStream.Current.ToolSnapshot.Kind)
+            .IsEqualTo("queue");
         _ = await Assert.That(await first.ResponseStream.MoveNext(cancellationToken)).IsTrue();
         _ = await Assert.That(first.ResponseStream.Current.PayloadCase)
             .IsEqualTo(Event.PayloadOneofCase.SessionUsageSnapshot);
 
         using var replacement = client.Listen(new ListenRequest { UserSessionId = "session" }, cancellationToken: cancellationToken);
         _ = await Assert.That(await replacement.ResponseStream.MoveNext(cancellationToken)).IsTrue();
-        _ = await Assert.That(replacement.ResponseStream.Current.QueueSnapshot.FinalChunk).IsTrue();
+        _ = await Assert.That(replacement.ResponseStream.Current.ToolSnapshot.FinalChunk).IsTrue();
         _ = await Assert.That(await replacement.ResponseStream.MoveNext(cancellationToken)).IsTrue();
         _ = await Assert.That(replacement.ResponseStream.Current.PayloadCase)
             .IsEqualTo(Event.PayloadOneofCase.SessionUsageSnapshot);

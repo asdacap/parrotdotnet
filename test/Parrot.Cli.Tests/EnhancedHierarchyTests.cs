@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Parrot.Cli.Enhanced;
 using Parrot.Cli.Enhanced.Tools;
+using Parrot.Core.Tests;
 using Parrot.Llm;
 using Parrot.Protocol;
 
@@ -384,7 +385,7 @@ internal sealed class EnhancedHierarchyTests
             new Event
             {
                 AgentSessionId = "child",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 1,
                     RootNodes =
@@ -400,14 +401,14 @@ internal sealed class EnhancedHierarchyTests
                             },
                         },
                     },
-                },
+                }),
             },
             cancellationToken);
         await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "child",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 1,
                     RootNodes =
@@ -423,7 +424,7 @@ internal sealed class EnhancedHierarchyTests
                             },
                         },
                     },
-                },
+                }),
             },
             cancellationToken);
 
@@ -1629,12 +1630,10 @@ internal sealed class EnhancedHierarchyTests
         foreach (var queue in queues)
         {
             await view.ReplaceQueues(
+            new ToolSnapshot { OwnerAgentSessionId = queue.OwnerAgentSessionId, InventoryInstanceId = queue.OwnerAgentSessionId, Revision = 1 },
             new QueueSnapshot
             {
                 RootAgentSessionId = "root",
-                OwnerAgentSessionId = queue.OwnerAgentSessionId,
-                InventoryInstanceId = queue.OwnerAgentSessionId,
-                Revision = 1,
                 Queues = { queue },
             },
             cancellationToken);
@@ -1655,22 +1654,17 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(rendered.AsSpan().Count("agent z-parent")).IsEqualTo(1);
 
         await view.ReplaceQueues(
+            new ToolSnapshot { OwnerAgentSessionId = "child", InventoryInstanceId = "child", Revision = 2, Removed = true },
             new QueueSnapshot
             {
                 RootAgentSessionId = "root",
-                OwnerAgentSessionId = "child",
-                InventoryInstanceId = "child",
-                Revision = 2,
-                Removed = true,
             },
             cancellationToken);
         await view.ReplaceQueues(
+            new ToolSnapshot { OwnerAgentSessionId = "child", InventoryInstanceId = "child", Revision = 3 },
             new QueueSnapshot
             {
                 RootAgentSessionId = "root",
-                OwnerAgentSessionId = "child",
-                InventoryInstanceId = "child",
-                Revision = 3,
                 Queues = { queues[2] },
             },
             cancellationToken);
@@ -1680,21 +1674,17 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(draws[^1]).Contains("z queue");
 
         await view.ReplaceQueues(
+            new ToolSnapshot { OwnerAgentSessionId = "z", InventoryInstanceId = "replacement", Revision = 1 },
             new QueueSnapshot
             {
                 RootAgentSessionId = "root",
-                OwnerAgentSessionId = "z",
-                InventoryInstanceId = "replacement",
-                Revision = 1,
             },
             cancellationToken);
         await view.ReplaceQueues(
+            new ToolSnapshot { OwnerAgentSessionId = "z", InventoryInstanceId = "z", Revision = 2 },
             new QueueSnapshot
             {
                 RootAgentSessionId = "root",
-                OwnerAgentSessionId = "z",
-                InventoryInstanceId = "z",
-                Revision = 2,
                 Queues = { queues[1] },
             },
             cancellationToken);
@@ -1720,12 +1710,10 @@ internal sealed class EnhancedHierarchyTests
             static (_, _) => Task.CompletedTask);
 
         await view.ReplaceQueues(
+            new ToolSnapshot { OwnerAgentSessionId = "opaque-root", InventoryInstanceId = "inventory", Revision = 1 },
             new QueueSnapshot
             {
                 RootAgentSessionId = "opaque-root",
-                OwnerAgentSessionId = "opaque-root",
-                InventoryInstanceId = "inventory",
-                Revision = 1,
                 Queues =
                 {
                     new QueueState
@@ -1867,7 +1855,8 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(drawn[^1]).Contains("Send to late-root");
 
         await view.ReplaceQueues(
-            new QueueSnapshot { RootAgentSessionId = "late-root", OwnerAgentSessionId = "late-root", InventoryInstanceId = "inventory", Revision = 1 },
+            new ToolSnapshot { OwnerAgentSessionId = "late-root", InventoryInstanceId = "inventory", Revision = 1 },
+            new QueueSnapshot { RootAgentSessionId = "late-root" },
             cancellationToken);
 
         _ = await Assert.That(drawn[^1]).Contains("Send to main");
@@ -1982,7 +1971,7 @@ internal sealed class EnhancedHierarchyTests
             new Event
             {
                 AgentSessionId = "child",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 1,
                     RootNodes =
@@ -1997,7 +1986,7 @@ internal sealed class EnhancedHierarchyTests
                             },
                         },
                     },
-                },
+                }),
             },
             cancellationToken);
         _ = await Assert.That(fixture.Drawn[^1]).Contains("◐ first");
@@ -2005,7 +1994,7 @@ internal sealed class EnhancedHierarchyTests
             new Event
             {
                 AgentSessionId = "child",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 2,
                     RootNodes =
@@ -2020,7 +2009,7 @@ internal sealed class EnhancedHierarchyTests
                             },
                         },
                     },
-                },
+                }),
             },
             cancellationToken);
         _ = await Assert.That(fixture.Drawn[^1]).Contains("◐ higher");
@@ -2032,7 +2021,7 @@ internal sealed class EnhancedHierarchyTests
             new Event
             {
                 AgentSessionId = "child",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 1,
                     RootNodes =
@@ -2047,7 +2036,7 @@ internal sealed class EnhancedHierarchyTests
                             },
                         },
                     },
-                },
+                }),
             },
             cancellationToken);
         _ = await Assert.That(fixture.Drawn).Count().IsEqualTo(drawCount);
@@ -2062,7 +2051,7 @@ internal sealed class EnhancedHierarchyTests
             new Event
             {
                 AgentSessionId = "child",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 3,
                     RootNodes =
@@ -2077,7 +2066,7 @@ internal sealed class EnhancedHierarchyTests
                             },
                         },
                     },
-                },
+                }),
             },
             cancellationToken);
         progressDelay.Release(2);
@@ -2098,7 +2087,7 @@ internal sealed class EnhancedHierarchyTests
             new Event
             {
                 AgentSessionId = "child",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 4,
                     RootNodes =
@@ -2113,7 +2102,7 @@ internal sealed class EnhancedHierarchyTests
                             },
                         },
                     },
-                },
+                }),
             },
             cancellationToken);
         _ = await Assert.That(progressDelay.Count).IsEqualTo(4);
@@ -2141,7 +2130,7 @@ internal sealed class EnhancedHierarchyTests
             new Event
             {
                 AgentSessionId = "child",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 1,
                     RootNodes =
@@ -2156,14 +2145,14 @@ internal sealed class EnhancedHierarchyTests
                             },
                         },
                     },
-                },
+                }),
             },
             cancellationToken);
         await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "sibling",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 1,
                     RootNodes =
@@ -2178,7 +2167,7 @@ internal sealed class EnhancedHierarchyTests
                             },
                         },
                     },
-                },
+                }),
             },
             cancellationToken);
 
@@ -2229,7 +2218,7 @@ internal sealed class EnhancedHierarchyTests
             new Event
             {
                 AgentSessionId = "child",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 1,
                     RootNodes =
@@ -2244,7 +2233,7 @@ internal sealed class EnhancedHierarchyTests
                             },
                         },
                     },
-                },
+                }),
             },
             cancellationToken);
 
@@ -2286,7 +2275,7 @@ internal sealed class EnhancedHierarchyTests
             new Event
             {
                 AgentSessionId = "child",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 1,
                     RootNodes =
@@ -2301,7 +2290,7 @@ internal sealed class EnhancedHierarchyTests
                             },
                         },
                     },
-                },
+                }),
             },
             cancellationToken);
 
@@ -2360,7 +2349,7 @@ internal sealed class EnhancedHierarchyTests
             new Event
             {
                 AgentSessionId = "child",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 1,
                     RootNodes =
@@ -2374,7 +2363,7 @@ internal sealed class EnhancedHierarchyTests
                         },
                         new AgentTaskProgressNode { Name = "later", Status = AgentTaskProgressStatus.Pending },
                     },
-                },
+                }),
             },
             cancellationToken);
 
@@ -2427,7 +2416,7 @@ internal sealed class EnhancedHierarchyTests
             new Event
             {
                 AgentSessionId = "task-agent",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 1,
                     RootNodes =
@@ -2435,21 +2424,21 @@ internal sealed class EnhancedHierarchyTests
                         new AgentTaskProgressNode { Name = "inner-first", Status = AgentTaskProgressStatus.Running },
                         new AgentTaskProgressNode { Name = "inner-second", Status = AgentTaskProgressStatus.Pending },
                     },
-                },
+                }),
             },
             cancellationToken);
         await view.Render(
             new Event
             {
                 AgentSessionId = "child",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 1,
                     RootNodes =
                     {
                         new AgentTaskProgressNode { Name = "composite", Status = AgentTaskProgressStatus.Running, AgentSessionId = "task-agent" },
                     },
-                },
+                }),
             },
             cancellationToken);
 

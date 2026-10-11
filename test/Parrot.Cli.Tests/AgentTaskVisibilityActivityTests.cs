@@ -1,4 +1,5 @@
 using Parrot.Cli.Enhanced.Tools;
+using Parrot.Core.Tests;
 using Parrot.Protocol;
 
 namespace Parrot.Cli.Tests;
@@ -24,7 +25,7 @@ internal sealed class AgentTaskVisibilityActivityTests
             Revision = 1,
             RootNodes = { new AgentTaskProgressNode { Name = "hidden task", Hidden = true, Status = status, AgentSessionId = "worker" } },
         };
-        await fixture.View.Render(new Event { AgentSessionId = "root", AgentTaskProgressSnapshot = snapshot }, cancellationToken);
+        await fixture.View.Render(new Event { AgentSessionId = "root", ToolSnapshot = TestToolSnapshots.ProgressInventory(snapshot) }, cancellationToken);
         _ = await Assert.That(fixture.LastDrawn).DoesNotContain("Agent tasks:");
         _ = await Assert.That(fixture.LastDrawn).DoesNotContain("hidden task");
 
@@ -74,18 +75,18 @@ internal sealed class AgentTaskVisibilityActivityTests
             new Event
             {
                 AgentSessionId = "root",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 1,
                     RootNodes = { new AgentTaskProgressNode { Name = "hidden parent", Hidden = true, AgentSessionId = "parent" } },
-                },
+                }),
             },
             cancellationToken);
         await fixture.View.Render(
             new Event
             {
                 AgentSessionId = "parent",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 1,
                     RootNodes =
@@ -93,7 +94,7 @@ internal sealed class AgentTaskVisibilityActivityTests
                         new AgentTaskProgressNode { Name = "active child task", Hidden = true, AgentSessionId = "worker" },
                         new AgentTaskProgressNode { Name = "idle sibling", AgentSessionId = "idle" },
                     },
-                },
+                }),
             },
             cancellationToken);
         _ = await Assert.That(fixture.LastDrawn).DoesNotContain("Agent tasks:");
@@ -123,11 +124,11 @@ internal sealed class AgentTaskVisibilityActivityTests
             new Event
             {
                 AgentSessionId = "root",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 1,
                     RootNodes = { new AgentTaskProgressNode { Name = "finished", Hidden = true, Status = AgentTaskProgressStatus.Succeeded } },
-                },
+                }),
             },
             cancellationToken);
         await fixture.View.Shutdown();
@@ -157,7 +158,7 @@ internal sealed class AgentTaskVisibilityActivityTests
                 new Event
                 {
                     AgentSessionId = "ancestor",
-                    AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot { Revision = 1, RootNodes = { descendant } },
+                    ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot { Revision = 1, RootNodes = { descendant } }),
                 },
                 cancellationToken);
         }
@@ -170,7 +171,7 @@ internal sealed class AgentTaskVisibilityActivityTests
             new Event
             {
                 AgentSessionId = "root",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot { Revision = 1, RootNodes = { ancestor } },
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot { Revision = 1, RootNodes = { ancestor } }),
             },
             cancellationToken);
         progressFlush.SetResult();
@@ -197,11 +198,11 @@ internal sealed class AgentTaskVisibilityActivityTests
             new Event
             {
                 AgentSessionId = "root",
-                AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+                ToolSnapshot = TestToolSnapshots.ProgressInventory(new AgentTaskProgressSnapshot
                 {
                     Revision = 1,
                     RootNodes = { new AgentTaskProgressNode { Name = "finished task", Status = AgentTaskProgressStatus.Succeeded, AgentSessionId = "worker" } },
-                },
+                }),
             },
             cancellationToken);
         progressFlush.SetResult();

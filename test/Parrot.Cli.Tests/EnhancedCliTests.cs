@@ -8,6 +8,7 @@ using Parrot.Config;
 using Parrot.Core.Tests;
 using Parrot.Protocol;
 using Parrot.Tools;
+using ToolSnapshot = Parrot.Protocol.ToolSnapshot;
 
 namespace Parrot.Cli.Tests;
 
@@ -1409,22 +1410,20 @@ internal sealed class EnhancedCliTests
         });
         await driver.Invoker.Publish(new Event
         {
-            QueueSnapshot = new QueueSnapshot
-            {
-                OwnerAgentSessionId = "agent",
-                RootAgentSessionId = "agent",
-                InventoryInstanceId = "inventory",
-                Revision = 1,
-                FinalChunk = true,
-                Queues = { new QueueState { OwnerAgentSessionId = "agent", Name = "work", Description = "pending work", ItemCount = 2 } },
-            },
+            ToolSnapshot = TestToolSnapshots.QueueEnvelope(
+                new ToolSnapshot { OwnerAgentSessionId = "agent", InventoryInstanceId = "inventory", Revision = 1, FinalChunk = true },
+                new QueueSnapshot
+                {
+                    RootAgentSessionId = "agent",
+                    Queues = { new QueueState { OwnerAgentSessionId = "agent", Name = "work", Description = "pending work", ItemCount = 2 } },
+                }),
         });
 
         await driver.OutputContains("partial answer", cancellationToken);
         await driver.OutputContains("queue: work · 2 items — pending work", cancellationToken);
         await driver.Invoker.Publish(new Event
         {
-            QueueSnapshot = new QueueSnapshot { OwnerAgentSessionId = "agent", RootAgentSessionId = "agent", InventoryInstanceId = "inventory", Revision = 2, FinalChunk = true },
+            ToolSnapshot = TestToolSnapshots.QueueEnvelope(new ToolSnapshot { OwnerAgentSessionId = "agent", InventoryInstanceId = "inventory", Revision = 2, FinalChunk = true }, new QueueSnapshot { RootAgentSessionId = "agent" }),
         });
         await driver.Invoker.Publish(new Event
         {

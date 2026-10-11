@@ -1,3 +1,4 @@
+using Parrot.Core.Tests;
 using Parrot.Protocol;
 
 namespace Parrot.Cli.Tests;
@@ -702,9 +703,9 @@ internal sealed class BasicCliTests
         await stream.WriteAsync(
             new Event { TextChunk = new TextChunk { Fragment = "partial" } }, cancellationToken);
         await stream.WriteAsync(
-            new Event { AgentTaskProgressSnapshot = new ProgressFixture(AgentTaskProgressStatus.Running).Snapshot }, cancellationToken);
+            new Event { ToolSnapshot = TestToolSnapshots.ProgressInventory(new ProgressFixture(AgentTaskProgressStatus.Running).Snapshot) }, cancellationToken);
         await stream.WriteAsync(
-            new Event { AgentTaskProgressSnapshot = new ProgressFixture(AgentTaskProgressStatus.Succeeded).Snapshot }, cancellationToken);
+            new Event { ToolSnapshot = TestToolSnapshots.ProgressInventory(new ProgressFixture(AgentTaskProgressStatus.Succeeded).Snapshot) }, cancellationToken);
         stream.Complete();
         using var output = new FlushTrackingWriter();
         using var error = new StringWriter();
@@ -735,7 +736,7 @@ internal sealed class BasicCliTests
             RootNodes = { new AgentTaskProgressNode { Name = "hidden", Hidden = true } },
         };
         var stream = new ChannelStreamWriter<Event>();
-        await stream.WriteAsync(new Event { AgentTaskProgressSnapshot = tree }, cancellationToken);
+        await stream.WriteAsync(new Event { ToolSnapshot = TestToolSnapshots.ProgressInventory(tree) }, cancellationToken);
         stream.Complete();
         using var progress = new StringWriter();
         using var error = new StringWriter();

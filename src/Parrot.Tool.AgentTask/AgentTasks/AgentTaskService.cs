@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Google.Protobuf;
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Diagnostics;
@@ -20,6 +21,7 @@ internal sealed class AgentTaskService(
     IDiagnosticLog diagnostics,
     CancellationToken lifetime) : IAgentTaskService
 {
+    internal const string ProgressKind = "agent_task_progress";
     private const string NotificationCause = "AgentTask update";
     private readonly List<Entry> _entries = [];
     private readonly HashSet<Task> _executions = [];
@@ -504,7 +506,14 @@ internal sealed class AgentTaskService(
         {
             Id = Identifier.EventId(),
             AgentSessionId = ownerAgentSessionId,
-            AgentTaskProgressSnapshot = snapshot,
+            ToolSnapshot = new ToolSnapshot
+            {
+                Kind = ProgressKind,
+                OwnerAgentSessionId = ownerAgentSessionId,
+                Revision = snapshot.Revision,
+                FinalChunk = true,
+                Data = snapshot.ToByteString(),
+            },
         };
         _ = history.Append(published, null, null);
         eventBroker.Publish(published);

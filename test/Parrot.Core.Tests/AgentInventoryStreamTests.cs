@@ -40,18 +40,18 @@ internal sealed class AgentInventoryStreamTests
             _ = await Assert.That(listener.Reader.TryRead(out _)).IsFalse();
             publication = publisher.Run();
             var initial = await listener.Reader.ReadAsync(timeout.Token);
-            _ = await Assert.That(initial.QueueSnapshot).IsNotNull();
-            _ = await Assert.That(initial.QueueSnapshot.Queues).IsEmpty();
+            _ = await Assert.That(TestToolSnapshots.QueueData(initial)).IsNotNull();
+            _ = await Assert.That(TestToolSnapshots.QueueData(initial).Queues).IsEmpty();
             _ = await Assert.That(listener.Reader.TryRead(out _)).IsFalse();
 
             _ = root.GetService<IAgentQueues>().Create("first", "first queue");
             _ = await root.GetService<IAgentQueues>().Push("first", ["item"], QueueDirection.Back, false, timeout.Token);
             var first = await ReadQueueBatch(listener, timeout.Token);
-            _ = await Assert.That(first.SelectMany(item => item.QueueSnapshot.Queues).Select(queue => queue.Name).SequenceEqual(["first"])).IsTrue();
+            _ = await Assert.That(first.SelectMany(item => TestToolSnapshots.QueueData(item).Queues).Select(queue => queue.Name).SequenceEqual(["first"])).IsTrue();
             _ = root.GetService<IAgentQueues>().Create("second", "second queue");
             _ = await root.GetService<IAgentQueues>().Push("second", ["item"], QueueDirection.Back, false, timeout.Token);
             var update = await ReadQueueBatch(listener, timeout.Token);
-            _ = await Assert.That(update.SelectMany(item => item.QueueSnapshot.Queues).Select(queue => queue.Name).SequenceEqual(["first", "second"])).IsTrue();
+            _ = await Assert.That(update.SelectMany(item => TestToolSnapshots.QueueData(item).Queues).Select(queue => queue.Name).SequenceEqual(["first", "second"])).IsTrue();
         }
         else
         {
@@ -60,17 +60,17 @@ internal sealed class AgentInventoryStreamTests
             _ = await Assert.That(listener.Reader.TryRead(out _)).IsFalse();
             publication = publisher.Run();
             var initial = await listener.Reader.ReadAsync(timeout.Token);
-            _ = await Assert.That(initial.ShellProcessSnapshot).IsNotNull();
-            _ = await Assert.That(initial.ShellProcessSnapshot.Processes).IsEmpty();
+            _ = await Assert.That(TestToolSnapshots.ProcessData(initial)).IsNotNull();
+            _ = await Assert.That(TestToolSnapshots.ProcessData(initial).Processes).IsEmpty();
             _ = await Assert.That(listener.Reader.TryRead(out _)).IsFalse();
 
             var security = fixture.Session.Mode.Profile.SecurityProfile;
             _ = root.GetService<IProcessOwner>().StartUnattributed("first", "sleep 30", ProcessEnvironmentOverrides.Empty, root.Session, security, ShellProcessTerminalMode.Pipe);
             var first = await ReadProcessBatch(listener, timeout.Token);
-            _ = await Assert.That(first.SelectMany(item => item.ShellProcessSnapshot.Processes)).HasSingleItem();
+            _ = await Assert.That(first.SelectMany(item => TestToolSnapshots.ProcessData(item).Processes)).HasSingleItem();
             _ = root.GetService<IProcessOwner>().StartUnattributed("second", "sleep 30", ProcessEnvironmentOverrides.Empty, root.Session, security, ShellProcessTerminalMode.Pipe);
             var update = await ReadProcessBatch(listener, timeout.Token);
-            _ = await Assert.That(update.SelectMany(item => item.ShellProcessSnapshot.Processes)).Count().IsEqualTo(2);
+            _ = await Assert.That(update.SelectMany(item => TestToolSnapshots.ProcessData(item).Processes)).Count().IsEqualTo(2);
         }
 
         _ = await Assert.That(captured).HasSingleItem();
@@ -83,16 +83,16 @@ internal sealed class AgentInventoryStreamTests
             removed = await listener.Reader.ReadAsync(timeout.Token);
         }
         while (queueDomain
-            ? !removed.QueueSnapshot.Removed
-            : !removed.ShellProcessSnapshot.Removed);
+            ? !removed.ToolSnapshot.Removed
+            : !removed.ToolSnapshot.Removed);
 
         if (queueDomain)
         {
-            _ = await Assert.That(removed.QueueSnapshot.Queues).IsEmpty();
+            _ = await Assert.That(TestToolSnapshots.QueueData(removed).Queues).IsEmpty();
         }
         else
         {
-            _ = await Assert.That(removed.ShellProcessSnapshot.Processes).IsEmpty();
+            _ = await Assert.That(TestToolSnapshots.ProcessData(removed).Processes).IsEmpty();
         }
     }
 
@@ -113,34 +113,34 @@ internal sealed class AgentInventoryStreamTests
 
         await using var listener = session.Listen(null, timeout.Token).GetAsyncEnumerator(timeout.Token);
         _ = await Assert.That(await listener.MoveNextAsync()).IsTrue();
-        _ = await Assert.That(listener.Current.PayloadCase).IsEqualTo(Event.PayloadOneofCase.QueueSnapshot);
-        var initialRevision = listener.Current.QueueSnapshot.Revision;
+        _ = await Assert.That(listener.Current.ToolSnapshot.Kind).IsEqualTo("queue");
+        var initialRevision = listener.Current.ToolSnapshot.Revision;
         _ = rejected.GetService<IAgentQueues>().Create("hidden", "rejected");
         _ = await rejected.GetService<IAgentQueues>().Push("hidden", ["item"], QueueDirection.Back, false, timeout.Token);
         await rejected.DisposeAsync();
         _ = root.GetService<IAgentQueues>().Create("during-capture", "race");
         _ = await root.GetService<IAgentQueues>().Push("during-capture", ["item"], QueueDirection.Back, false, timeout.Token);
-        var latest = root.CaptureSnapshotEvents().Single(static published => published.QueueSnapshot is not null).QueueSnapshot;
+        var latest = root.CaptureSnapshotEvents().Single(static published => TestToolSnapshots.QueueInventory(published) is not null).ToolSnapshot;
         _ = await Assert.That(latest.Revision).IsGreaterThan(initialRevision);
         _ = await Assert.That(await listener.MoveNextAsync()).IsTrue();
-        _ = await Assert.That(listener.Current.PayloadCase).IsEqualTo(Event.PayloadOneofCase.ShellProcessSnapshot);
+        _ = await Assert.That(listener.Current.ToolSnapshot.Kind).IsEqualTo("shell_process");
         _ = await Assert.That(await listener.MoveNextAsync()).IsTrue();
         _ = await Assert.That(listener.Current.PayloadCase).IsEqualTo(Event.PayloadOneofCase.SessionUsageSnapshot);
 
         while (await listener.MoveNextAsync())
         {
-            _ = await Assert.That(listener.Current.QueueSnapshot?.OwnerAgentSessionId).IsNotEqualTo(rejected.Session.SessionId);
-            _ = await Assert.That(listener.Current.ShellProcessSnapshot?.OwnerAgentSessionId).IsNotEqualTo(rejected.Session.SessionId);
-            if (listener.Current.QueueSnapshot?.Revision == latest.Revision)
+            _ = await Assert.That(TestToolSnapshots.QueueInventory(listener.Current)?.OwnerAgentSessionId).IsNotEqualTo(rejected.Session.SessionId);
+            _ = await Assert.That(TestToolSnapshots.ProcessInventory(listener.Current)?.OwnerAgentSessionId).IsNotEqualTo(rejected.Session.SessionId);
+            if (TestToolSnapshots.QueueInventory(listener.Current)?.Revision == latest.Revision)
             {
-                _ = await Assert.That(listener.Current.QueueSnapshot).IsEqualTo(latest);
+                _ = await Assert.That(listener.Current.ToolSnapshot).IsEqualTo(latest);
                 break;
             }
         }
 
         await using var reconnected = session.Listen(null, timeout.Token).GetAsyncEnumerator(timeout.Token);
         _ = await Assert.That(await reconnected.MoveNextAsync()).IsTrue();
-        _ = await Assert.That(reconnected.Current.QueueSnapshot).IsEqualTo(latest);
+        _ = await Assert.That(reconnected.Current.ToolSnapshot).IsEqualTo(latest);
     }
 
     [Test]
@@ -174,14 +174,14 @@ internal sealed class AgentInventoryStreamTests
 
         await using var listener = session.Listen(null, timeout.Token).GetAsyncEnumerator(timeout.Token);
         var initial = await ReadInitial(listener);
-        _ = await Assert.That(initial.Where(item => item.QueueSnapshot is not null)
-            .Select(item => item.QueueSnapshot.OwnerAgentSessionId).SequenceEqual([root.Session.SessionId, sibling.Session.SessionId])).IsTrue();
-        _ = await Assert.That(initial.Where(item => item.ShellProcessSnapshot is not null)
-            .Select(item => item.ShellProcessSnapshot.OwnerAgentSessionId).SequenceEqual([root.Session.SessionId, sibling.Session.SessionId])).IsTrue();
-        var rootSnapshot = initial.Single(item => item.QueueSnapshot?.OwnerAgentSessionId == root.Session.SessionId).QueueSnapshot;
-        var siblingSnapshot = initial.Single(item => item.QueueSnapshot?.OwnerAgentSessionId == sibling.Session.SessionId).QueueSnapshot;
-        _ = await Assert.That(rootSnapshot.Queues.Select(queue => queue.Name).SequenceEqual(["root-queue"])).IsTrue();
-        _ = await Assert.That(siblingSnapshot.Queues.Select(queue => queue.Name).SequenceEqual(["sibling-queue"])).IsTrue();
+        _ = await Assert.That(initial.Where(item => TestToolSnapshots.QueueInventory(item) is not null)
+            .Select(item => item.ToolSnapshot.OwnerAgentSessionId).SequenceEqual([root.Session.SessionId, sibling.Session.SessionId])).IsTrue();
+        _ = await Assert.That(initial.Where(item => TestToolSnapshots.ProcessInventory(item) is not null)
+            .Select(item => item.ToolSnapshot.OwnerAgentSessionId).SequenceEqual([root.Session.SessionId, sibling.Session.SessionId])).IsTrue();
+        var rootSnapshot = initial.Single(item => TestToolSnapshots.QueueInventory(item)?.OwnerAgentSessionId == root.Session.SessionId);
+        var siblingSnapshot = initial.Single(item => TestToolSnapshots.QueueInventory(item)?.OwnerAgentSessionId == sibling.Session.SessionId);
+        _ = await Assert.That(TestToolSnapshots.QueueData(rootSnapshot).Queues.Select(queue => queue.Name).SequenceEqual(["root-queue"])).IsTrue();
+        _ = await Assert.That(TestToolSnapshots.QueueData(siblingSnapshot).Queues.Select(queue => queue.Name).SequenceEqual(["sibling-queue"])).IsTrue();
 
         await using var child = earlyChild ?? fixture.CreateChild(root, "later");
         if (earlyChild is null)
@@ -192,25 +192,25 @@ internal sealed class AgentInventoryStreamTests
 
         _ = await Assert.That(root.ChildRegistry.TryAdd(child)).IsTrue();
         var admitted = await ReadOwner(listener, child.Session.SessionId, false);
-        var admittedQueues = admitted.Single(item => item.QueueSnapshot is not null).QueueSnapshot;
-        var admittedProcesses = admitted.Single(item => item.ShellProcessSnapshot is not null).ShellProcessSnapshot;
-        _ = await Assert.That(admittedQueues.Queues.Select(queue => queue.Name).SequenceEqual(["child-queue"])).IsTrue();
-        _ = await Assert.That(admittedQueues.RootAgentSessionId).IsEqualTo(root.Session.SessionId);
-        _ = await Assert.That(admittedQueues.InventoryInstanceId).IsNotEqualTo(siblingSnapshot.InventoryInstanceId);
-        _ = await Assert.That(admittedProcesses.Processes).IsEmpty();
+        var admittedQueues = admitted.Single(item => TestToolSnapshots.QueueInventory(item) is not null);
+        var admittedProcesses = admitted.Single(item => TestToolSnapshots.ProcessInventory(item) is not null);
+        _ = await Assert.That(TestToolSnapshots.QueueData(admittedQueues).Queues.Select(queue => queue.Name).SequenceEqual(["child-queue"])).IsTrue();
+        _ = await Assert.That(TestToolSnapshots.QueueData(admittedQueues).RootAgentSessionId).IsEqualTo(root.Session.SessionId);
+        _ = await Assert.That(admittedQueues.ToolSnapshot.InventoryInstanceId).IsNotEqualTo(siblingSnapshot.ToolSnapshot.InventoryInstanceId);
+        _ = await Assert.That(TestToolSnapshots.ProcessData(admittedProcesses).Processes).IsEmpty();
 
         _ = root.ChildRegistry.DetachDirectChildScope(child);
         await child.DisposeAsync();
         var removed = await ReadOwner(listener, child.Session.SessionId, true);
-        var removedQueues = removed.Single(item => item.QueueSnapshot is not null).QueueSnapshot;
-        var removedProcesses = removed.Single(item => item.ShellProcessSnapshot is not null).ShellProcessSnapshot;
-        _ = await Assert.That(removedQueues.InventoryInstanceId).IsEqualTo(admittedQueues.InventoryInstanceId);
-        _ = await Assert.That(removedQueues.Revision).IsGreaterThan(admittedQueues.Revision);
-        _ = await Assert.That(removedQueues.Queues).IsEmpty();
-        _ = await Assert.That(removedProcesses.InventoryInstanceId).IsEqualTo(admittedProcesses.InventoryInstanceId);
-        _ = await Assert.That(removedProcesses.Revision).IsGreaterThan(admittedProcesses.Revision);
-        _ = await Assert.That(removedProcesses.Processes).IsEmpty();
-        _ = await Assert.That(removedProcesses.CompletedProcesses).IsEmpty();
+        var removedQueues = removed.Single(item => TestToolSnapshots.QueueInventory(item) is not null);
+        var removedProcesses = removed.Single(item => TestToolSnapshots.ProcessInventory(item) is not null);
+        _ = await Assert.That(removedQueues.ToolSnapshot.InventoryInstanceId).IsEqualTo(admittedQueues.ToolSnapshot.InventoryInstanceId);
+        _ = await Assert.That(removedQueues.ToolSnapshot.Revision).IsGreaterThan(admittedQueues.ToolSnapshot.Revision);
+        _ = await Assert.That(TestToolSnapshots.QueueData(removedQueues).Queues).IsEmpty();
+        _ = await Assert.That(removedProcesses.ToolSnapshot.InventoryInstanceId).IsEqualTo(admittedProcesses.ToolSnapshot.InventoryInstanceId);
+        _ = await Assert.That(removedProcesses.ToolSnapshot.Revision).IsGreaterThan(admittedProcesses.ToolSnapshot.Revision);
+        _ = await Assert.That(TestToolSnapshots.ProcessData(removedProcesses).Processes).IsEmpty();
+        _ = await Assert.That(TestToolSnapshots.ProcessData(removedProcesses).CompletedProcesses).IsEmpty();
 
         await listener.DisposeAsync();
         _ = sibling.GetService<IAgentQueues>().Create("after-disconnect", "reconnect");
@@ -218,15 +218,15 @@ internal sealed class AgentInventoryStreamTests
         using var reconnectCancellation = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
         await using var reconnected = session.Listen(null, reconnectCancellation.Token).GetAsyncEnumerator(reconnectCancellation.Token);
         var refreshed = await ReadInitial(reconnected);
-        _ = await Assert.That(refreshed.Where(item => item.QueueSnapshot is not null)
-            .Select(item => item.QueueSnapshot.OwnerAgentSessionId).SequenceEqual([root.Session.SessionId, sibling.Session.SessionId, sibling.Session.SessionId])).IsTrue();
-        var siblingChunks = refreshed.Where(item => item.QueueSnapshot?.OwnerAgentSessionId == sibling.Session.SessionId)
-            .Select(item => item.QueueSnapshot).ToArray();
-        _ = await Assert.That(siblingChunks.SelectMany(snapshot => snapshot.Queues).Select(queue => queue.Name).SequenceEqual(["after-disconnect", "sibling-queue"])).IsTrue();
-        _ = await Assert.That(siblingChunks.All(snapshot => snapshot.InventoryInstanceId == siblingSnapshot.InventoryInstanceId
-            && snapshot.Revision > siblingSnapshot.Revision && !snapshot.Removed)).IsTrue();
-        _ = await Assert.That(refreshed.Single(item => item.QueueSnapshot?.OwnerAgentSessionId == root.Session.SessionId)
-            .QueueSnapshot).IsEqualTo(rootSnapshot);
+        _ = await Assert.That(refreshed.Where(item => TestToolSnapshots.QueueInventory(item) is not null)
+            .Select(item => item.ToolSnapshot.OwnerAgentSessionId).SequenceEqual([root.Session.SessionId, sibling.Session.SessionId, sibling.Session.SessionId])).IsTrue();
+        var siblingChunks = refreshed.Where(item => TestToolSnapshots.QueueInventory(item)?.OwnerAgentSessionId == sibling.Session.SessionId)
+            .ToArray();
+        _ = await Assert.That(siblingChunks.SelectMany(snapshot => TestToolSnapshots.QueueData(snapshot).Queues).Select(queue => queue.Name).SequenceEqual(["after-disconnect", "sibling-queue"])).IsTrue();
+        _ = await Assert.That(siblingChunks.All(snapshot => snapshot.ToolSnapshot.InventoryInstanceId == siblingSnapshot.ToolSnapshot.InventoryInstanceId
+            && snapshot.ToolSnapshot.Revision > siblingSnapshot.ToolSnapshot.Revision && !snapshot.ToolSnapshot.Removed)).IsTrue();
+        _ = await Assert.That(refreshed.Single(item => TestToolSnapshots.QueueInventory(item)?.OwnerAgentSessionId == root.Session.SessionId))
+            .IsEqualTo(rootSnapshot);
         await reconnectCancellation.CancelAsync();
         _ = await Assert.That(async () =>
         {
@@ -311,7 +311,7 @@ internal sealed class AgentInventoryStreamTests
     private static async Task<List<Event>> ReadQueueBatch(IEventSubscription listener, CancellationToken cancellationToken)
     {
         var batch = new List<Event> { await listener.Reader.ReadAsync(cancellationToken) };
-        while (batch[^1].QueueSnapshot.FinalChunk is false)
+        while (batch[^1].ToolSnapshot.FinalChunk is false)
         {
             batch.Add(await listener.Reader.ReadAsync(cancellationToken));
         }
@@ -321,9 +321,8 @@ internal sealed class AgentInventoryStreamTests
 
     private static async Task<List<Event>> ReadProcessBatch(IEventSubscription listener, CancellationToken cancellationToken)
     {
-        var first = await listener.Reader.ReadAsync(cancellationToken);
-        var batch = new List<Event> { first };
-        while (batch.Count < first.ShellProcessSnapshot.ChunkCount)
+        var batch = new List<Event> { await listener.Reader.ReadAsync(cancellationToken) };
+        while (batch[^1].ToolSnapshot.FinalChunk is false)
         {
             batch.Add(await listener.Reader.ReadAsync(cancellationToken));
         }
@@ -353,13 +352,13 @@ internal sealed class AgentInventoryStreamTests
         while (await listener.MoveNextAsync())
         {
             var published = listener.Current;
-            if ((published.QueueSnapshot?.OwnerAgentSessionId == owner && published.QueueSnapshot.Removed == removed)
-                || (published.ShellProcessSnapshot?.OwnerAgentSessionId == owner && published.ShellProcessSnapshot.Removed == removed))
+            if ((TestToolSnapshots.QueueInventory(published)?.OwnerAgentSessionId == owner && published.ToolSnapshot.Removed == removed)
+                || (TestToolSnapshots.ProcessInventory(published)?.OwnerAgentSessionId == owner && published.ToolSnapshot.Removed == removed))
             {
                 snapshots.Add(published);
             }
 
-            if (snapshots.Any(item => item.QueueSnapshot is not null) && snapshots.Any(item => item.ShellProcessSnapshot is not null))
+            if (snapshots.Any(item => TestToolSnapshots.QueueInventory(item) is not null) && snapshots.Any(item => TestToolSnapshots.ProcessInventory(item) is not null))
             {
                 return snapshots;
             }

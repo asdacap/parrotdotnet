@@ -1,4 +1,5 @@
 using Grpc.Core;
+using Parrot.Core.Tests;
 using Parrot.Protocol;
 
 namespace Parrot.Cli.Tests;
@@ -823,15 +824,7 @@ internal sealed class ScriptedInvoker : CallInvoker
 
     private Event InitialQueueSnapshot(string userSessionId)
     {
-        var snapshot = new QueueSnapshot
-        {
-            Revision = 0,
-            ChunkIndex = 0,
-            FinalChunk = true,
-            RootAgentSessionId = userSessionId,
-            OwnerAgentSessionId = userSessionId,
-            InventoryInstanceId = "inventory",
-        };
+        var snapshot = new QueueSnapshot { RootAgentSessionId = userSessionId };
         if (_initialQueues.TryGetValue(userSessionId, out var queues))
         {
             snapshot.Queues.Add(queues.Select(queue =>
@@ -846,7 +839,9 @@ internal sealed class ScriptedInvoker : CallInvoker
             }));
         }
 
-        return new Event { QueueSnapshot = snapshot };
+        return TestToolSnapshots.Queue(
+            new ToolSnapshot { Revision = 0, ChunkIndex = 0, FinalChunk = true, OwnerAgentSessionId = userSessionId, InventoryInstanceId = "inventory" },
+            snapshot);
     }
 
     private void ReleaseEvents(string userSessionId, ChannelStreamWriter<Event> events)

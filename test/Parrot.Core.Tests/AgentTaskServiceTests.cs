@@ -1161,9 +1161,8 @@ internal sealed class AgentTaskServiceTests : IAsyncDisposable
     }
 
     private AgentTaskProgressSnapshot LastProgress(string agentSessionId) =>
-        _repository.Replay()
-            .Last(published => published.AgentSessionId == agentSessionId && published.PayloadCase == Event.PayloadOneofCase.AgentTaskProgressSnapshot)
-            .AgentTaskProgressSnapshot;
+        TestToolSnapshots.ProgressData(_repository.Replay()
+            .Last(published => published.AgentSessionId == agentSessionId && published.ToolSnapshot?.Kind == "agent_task_progress"));
 
     private (RuntimeContext Runtime, AgentTaskService Service) Fixture(ILLMProvider provider, int maximumAttempts, AgentTaskForkHistoryMode forkMode, CancellationToken cancellationToken)
     {

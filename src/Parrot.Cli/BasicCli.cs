@@ -169,7 +169,9 @@ internal sealed class BasicCli(
             var published = stream.Current;
             await beforeRender(published, cancellationToken).ConfigureAwait(false);
 
-            if (!textEndsLine && (published is { PayloadCase: Event.PayloadOneofCase.AgentNotice, AgentNotice.Notice.Length: > 0 } || published.PayloadCase is
+            if (!textEndsLine && (published is { PayloadCase: Event.PayloadOneofCase.AgentNotice, AgentNotice.Notice.Length: > 0 }
+                || AgentTaskProgressFormatter.TryRead(published, out _)
+                || published.PayloadCase is
                 Event.PayloadOneofCase.ToolStarted or
                 Event.PayloadOneofCase.ToolFinished or
                 Event.PayloadOneofCase.ToolCancelled or
@@ -180,8 +182,7 @@ internal sealed class BasicCli(
                 Event.PayloadOneofCase.CompactionStarted or
                 Event.PayloadOneofCase.CompactionFinished or
                 Event.PayloadOneofCase.CompactionFailed or
-                Event.PayloadOneofCase.SkillLoaded or
-                Event.PayloadOneofCase.AgentTaskProgressSnapshot))
+                Event.PayloadOneofCase.SkillLoaded))
             {
                 await output.WriteLineAsync().ConfigureAwait(false);
                 textEndsLine = true;
@@ -276,8 +277,8 @@ internal sealed class BasicCli(
                         .ConfigureAwait(false);
                     break;
 
-                case Event.PayloadOneofCase.AgentTaskProgressSnapshot:
-                    foreach (var line in AgentTaskProgressFormatter.Format(published.AgentTaskProgressSnapshot))
+                case Event.PayloadOneofCase.ToolSnapshot when AgentTaskProgressFormatter.TryRead(published, out var progress):
+                    foreach (var line in AgentTaskProgressFormatter.Format(progress))
                     {
                         await output.WriteLineAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
                     }

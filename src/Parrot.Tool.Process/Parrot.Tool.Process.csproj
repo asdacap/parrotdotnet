@@ -11,6 +11,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="Protocol/process.proto" GrpcServices="None" AdditionalImportDirs="../Parrot.Common/Protocol" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Parrot.Composition" />
     <InternalsVisibleTo Include="parrot" />
     <InternalsVisibleTo Include="Parrot.Core.Tests" />

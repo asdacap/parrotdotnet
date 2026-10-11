@@ -1,13 +1,18 @@
-import { create, type MessageInitShape } from "@bufbuild/protobuf"
+import { create, toBinary, type MessageInitShape } from "@bufbuild/protobuf"
 import { describe, expect, it } from "vitest"
 
-import { EventSchema, ProviderRequestPhase, ReasoningKind } from "@/gen/parrot_pb"
+import { AgentTaskProgressSnapshotSchema, EventSchema, ProviderRequestPhase, ReasoningKind } from "@/gen/parrot_pb"
 import { emptyTimeline, reduceTimeline, type TimelineState } from "@/session/timeline"
 
 type Payload = MessageInitShape<typeof EventSchema>["payload"]
 
 const root = "root-agent"
 const child = "child-agent"
+
+function taskProgress(progress: MessageInitShape<typeof AgentTaskProgressSnapshotSchema>): Payload {
+  const data = toBinary(AgentTaskProgressSnapshotSchema, create(AgentTaskProgressSnapshotSchema, progress))
+  return { case: "toolSnapshot", value: { kind: "agent_task_progress", revision: progress.revision, finalChunk: true, data } }
+}
 
 function replay(events: [agentSessionId: string, payload: Payload][]): TimelineState {
   return events.reduce(
@@ -101,8 +106,8 @@ describe("reduceTimeline", () => {
         [root, { case: "inputAdmitted", value: { inputId: "input-1", content: "first" } }],
         [root, { case: "inputAdmitted", value: { inputId: "input-2", content: "second" } }],
         [root, { case: "inputCanceled", value: { inputId: "input-1" } }],
-        [root, { case: "agentTaskProgressSnapshot", value: { revision: 2n, rootNodes: [{ name: "new" }] } }],
-        [root, { case: "agentTaskProgressSnapshot", value: { revision: 1n, rootNodes: [{ name: "old" }] } }],
+        [root, taskProgress({ revision: 2n, rootNodes: [{ name: "new" }] })],
+        [root, taskProgress({ revision: 1n, rootNodes: [{ name: "old" }] })],
       ],
       {
         items: [{ kind: "user", inputId: "input-2", text: "second" }],

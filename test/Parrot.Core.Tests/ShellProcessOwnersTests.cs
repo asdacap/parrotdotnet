@@ -417,23 +417,24 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         var chunks = ShellProcessInventoryProtocol.Convert(inventory).ToArray();
 
         _ = await Assert.That(chunks).Count().IsEqualTo(3);
-        _ = await Assert.That(string.Join(',', chunks.Select(static chunk => chunk.ShellProcessSnapshot.ChunkIndex)))
+        _ = await Assert.That(string.Join(',', chunks.Select(static chunk => chunk.ToolSnapshot.ChunkIndex)))
             .IsEqualTo("0,1,2");
-        _ = await Assert.That(chunks.All(static chunk => chunk.ShellProcessSnapshot.ChunkCount == 3)).IsTrue();
-        _ = await Assert.That(chunks[0].ShellProcessSnapshot.Processes[0].ProcessId).IsEqualTo("active-b");
-        _ = await Assert.That(chunks[0].ShellProcessSnapshot.Processes[0].ActivityKind).IsEqualTo(activityKind);
-        _ = await Assert.That(chunks[1].ShellProcessSnapshot.CompletedProcesses[0].ProcessId)
+        _ = await Assert.That(string.Join(',', chunks.Select(static chunk => chunk.ToolSnapshot.FinalChunk)))
+            .IsEqualTo("False,False,True");
+        _ = await Assert.That(TestToolSnapshots.ProcessData(chunks[0]).Processes[0].ProcessId).IsEqualTo("active-b");
+        _ = await Assert.That(TestToolSnapshots.ProcessData(chunks[0]).Processes[0].ActivityKind).IsEqualTo(activityKind);
+        _ = await Assert.That(TestToolSnapshots.ProcessData(chunks[1]).CompletedProcesses[0].ProcessId)
             .IsEqualTo("completed-a");
-        _ = await Assert.That(chunks[1].ShellProcessSnapshot.CompletedProcesses[0].ElapsedMs).IsEqualTo(5_001);
-        _ = await Assert.That(chunks[2].ShellProcessSnapshot.CompletedProcesses[0].ProcessId)
+        _ = await Assert.That(TestToolSnapshots.ProcessData(chunks[1]).CompletedProcesses[0].ElapsedMs).IsEqualTo(5_001);
+        _ = await Assert.That(TestToolSnapshots.ProcessData(chunks[2]).CompletedProcesses[0].ProcessId)
             .IsEqualTo("completed-c");
-        _ = await Assert.That(chunks[2].ShellProcessSnapshot.CompletedProcesses[0].HasElapsedMs).IsFalse();
+        _ = await Assert.That(TestToolSnapshots.ProcessData(chunks[2]).CompletedProcesses[0].HasElapsedMs).IsFalse();
 
         var empty = ShellProcessInventoryProtocol.Convert(
             new ShellProcessInventorySnapshot("agent-id", "empty", 0, false, [], [])).Single();
-        _ = await Assert.That(empty.ShellProcessSnapshot.ChunkCount).IsEqualTo(1U);
-        _ = await Assert.That(empty.ShellProcessSnapshot.Processes).IsEmpty();
-        _ = await Assert.That(empty.ShellProcessSnapshot.CompletedProcesses).IsEmpty();
+        _ = await Assert.That(empty.ToolSnapshot.FinalChunk).IsTrue();
+        _ = await Assert.That(TestToolSnapshots.ProcessData(empty).Processes).IsEmpty();
+        _ = await Assert.That(TestToolSnapshots.ProcessData(empty).CompletedProcesses).IsEmpty();
     }
 
     [Test]

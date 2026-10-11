@@ -1,4 +1,5 @@
 using Parrot.Protocol;
+using Parrot.Queues;
 
 namespace Parrot.Cli.Enhanced;
 
@@ -23,7 +24,7 @@ internal sealed class EnhancedTurnView(
 
     public async Task Prepare(Event published, CancellationToken cancellationToken)
     {
-        if (published.PayloadCase == Event.PayloadOneofCase.QueueSnapshot
+        if (published.ToolSnapshot?.Kind == QueueInventoryProtocol.Kind
             || foreground.IsChild(published.AgentSessionId))
         {
             return;

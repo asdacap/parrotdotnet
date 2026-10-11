@@ -524,8 +524,8 @@ message Event {
   // The agent session that produced it, which may be a background subagent.
   string agent_session_id = 2;
 
-  reserved 19, 20, 26, 31, 32, 33, 36, 37, 38, 39, 46;
-  reserved "todo_updated", "status_injected", "active_work_reminder_injected",
+  reserved 19, 20, 24, 25, 26, 31, 32, 33, 34, 36, 37, 38, 39, 46;
+  reserved "todo_updated", "queue_snapshot", "shell_process_snapshot", "agent_task_progress_snapshot", "status_injected", "active_work_reminder_injected",
     "final_provider_request_prompt_injected", "tool_availability_restored_prompt_injected",
     "plan_validation_repair_injected", "pending_child_question_reminder_injected",
     "exit_reminder_changed", "exit_reminder_injected", "context_reminder_injected",
@@ -551,13 +551,10 @@ message Event {
     AgentStatisticsUpdatedEvent agent_statistics_updated = 21;
     PlanCompleted          plan_completed          = 22;
     PendingPermission      permission_pending      = 23;
-    QueueSnapshot          queue_snapshot          = 24;
-    ShellProcessSnapshot   shell_process_snapshot  = 25;
     SessionUsageSnapshot session_usage_snapshot = 27;
     CompactionStarted compaction_started = 28;
     CompactionFinished compaction_finished = 29;
     CompactionFailed compaction_failed = 30;
-    AgentTaskProgressSnapshot agent_task_progress_snapshot = 34;
     ProviderCallUsage provider_call_usage = 35;
     SkillLoadedEvent skill_loaded = 40;
     InputCanceled input_canceled = 41;
@@ -567,6 +564,7 @@ message Event {
     ToolRequestReceived tool_request_received = 45;
     ModeTurnCompleted mode_turn_completed = 47;
     AgentNotice agent_notice = 48;
+    ToolSnapshot tool_snapshot = 49;
   }
 }
 
@@ -657,58 +655,19 @@ enum ShellProcessActivityKind {
   SHELL_PROCESS_ACTIVITY_KIND_MONITOR = 1;
 }
 
-message ActiveShellProcess {
-  string process_id              = 1;
-  string name                    = 2;
-  string command                 = 3;
-  string origin_tool_call_id     = 4;
-  string owner_agent_session_id  = 5;
-  string owner_agent_name        = 6;
-  string parent_agent_session_id = 7;
-  string parent_agent_name       = 8;
-  int32 depth                    = 9;
-  int64 elapsed_ms               = 10;
-  string description             = 11;
-  ShellProcessActivityKind activity_kind = 12;
-}
-
-// A complete in-memory inventory. Chunks sharing an instance and revision are
-// applied only as one replacement; chunk_count is one for an empty inventory.
-message ShellProcessSnapshot {
-  string inventory_instance_id                    = 1;
-  uint64 revision                                  = 2;
-  uint32 chunk_index                               = 3;
-  uint32 chunk_count                               = 4;
-  repeated ActiveShellProcess processes           = 5;
-  repeated CompletedShellProcess completed_processes = 6;
-  string owner_agent_session_id                    = 7;
-  bool removed                                     = 8;
-}
-
-message CompletedShellProcess {
-  string process_id            = 1;
-  optional int64 elapsed_ms    = 2;
-}
-
-message QueueState {
-  string name                    = 1;
-  string description             = 2;
-  int32 item_count               = 3;
-  string owner_agent_session_id  = 4;
-  string owner_agent_name        = 5;
-  string parent_agent_session_id = 6;
-  string parent_agent_name       = 7;
-}
-
-message QueueSnapshot {
-  uint64 revision                    = 1;
-  uint32 chunk_index                 = 2;
-  bool final_chunk                   = 3;
-  repeated QueueState queues         = 4;
-  string root_agent_session_id       = 5;
-  string owner_agent_session_id      = 6;
-  string inventory_instance_id      = 7;
-  bool removed                       = 8;
+// A tool's snapshot. Chunks sharing a kind, owner, instance and revision are
+// applied only together and in order, ending at the final chunk; a removed
+// inventory stays removed. Data is the kind-defined message of one chunk, such
+// as AgentTaskProgressSnapshot for "agent_task_progress".
+message ToolSnapshot {
+  string kind                   = 1;
+  string owner_agent_session_id = 2;
+  string inventory_instance_id  = 3;
+  uint64 revision               = 4;
+  uint32 chunk_index            = 5;
+  bool final_chunk              = 6;
+  bool removed                  = 7;
+  bytes data                    = 8;
 }
 
 message AgentStarted {

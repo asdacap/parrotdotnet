@@ -20,9 +20,9 @@ internal sealed class EventBroker : IEventBroker
 
     public void PublishTransient(Event published) => Publish(published, transient: true);
 
-    public void PublishQueueSnapshot(IReadOnlyList<Event> chunks)
+    public void PublishInventory(IReadOnlyList<Event> chunks)
     {
-        EventSubscription.ValidateQueueSnapshotBatch(chunks);
+        EventSubscription.ValidateInventoryBatch(chunks);
         lock (_gate)
         {
             if (_disposed)
@@ -32,24 +32,7 @@ internal sealed class EventBroker : IEventBroker
 
             foreach (var target in _subscribers)
             {
-                target.PublishQueueSnapshot(chunks);
-            }
-        }
-    }
-
-    public void PublishProcessSnapshot(IReadOnlyList<Event> chunks)
-    {
-        EventSubscription.ValidateProcessSnapshotBatch(chunks);
-        lock (_gate)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            foreach (var target in _subscribers)
-            {
-                target.PublishProcessSnapshot(chunks);
+                target.PublishInventory(chunks);
             }
         }
     }

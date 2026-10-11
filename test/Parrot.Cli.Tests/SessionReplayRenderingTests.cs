@@ -1,6 +1,7 @@
 using Grpc.Core;
 using Parrot.Cli.Enhanced;
 using Parrot.Cli.Enhanced.Tools;
+using Parrot.Core.Tests;
 using Parrot.Protocol;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
@@ -13,7 +14,7 @@ internal sealed class SessionReplayRenderingTests
     {
         var invoker = new StreamInvoker([
             new Event { TurnStarted = new TurnStarted() },
-            new Event { QueueSnapshot = new QueueSnapshot() },
+            TestToolSnapshots.Queue(new ToolSnapshot(), new QueueSnapshot()),
             new Event { SessionUsageSnapshot = new SessionUsageSnapshot() },
             new Event { TurnStarted = new TurnStarted() },
             new Event { SessionUsageSnapshot = new SessionUsageSnapshot() },

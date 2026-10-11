@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <Compile Include="../Parrot.Core.Tests/ControlledTimeProvider.cs" Link="ControlledTimeProvider.cs" />
+    <Compile Include="../Parrot.Core.Tests/TestToolSnapshots.cs" Link="TestToolSnapshots.cs" />
   </ItemGroup>
 
 </Project>

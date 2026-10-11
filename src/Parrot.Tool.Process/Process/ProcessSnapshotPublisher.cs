@@ -13,7 +13,7 @@ internal sealed class ProcessSnapshotPublisher(IProcessOwner processes, IEventBr
         using var subscription = processes.SubscribeInventory();
         await foreach (var snapshot in subscription.Reader.ReadAllAsync().ConfigureAwait(false))
         {
-            events.PublishProcessSnapshot([.. ShellProcessInventoryProtocol.Convert(snapshot)]);
+            events.PublishInventory([.. ShellProcessInventoryProtocol.Convert(snapshot)]);
         }
     }
 }

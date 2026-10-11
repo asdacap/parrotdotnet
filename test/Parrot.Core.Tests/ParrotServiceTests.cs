@@ -1282,15 +1282,15 @@ internal sealed class ParrotServiceTests : IDisposable
         var listening = service.Listen(new ListenRequest { UserSessionId = session.Id }, stream, context);
 
         _ = await Assert.That(await stream.Reader.MoveNext(cancellationToken)).IsTrue();
-        _ = await Assert.That(stream.Reader.Current.PayloadCase).IsEqualTo(Event.PayloadOneofCase.QueueSnapshot);
-        _ = await Assert.That(stream.Reader.Current.QueueSnapshot.Queues).HasSingleItem();
-        _ = await Assert.That(stream.Reader.Current.QueueSnapshot.Queues[0].Name).IsEqualTo("release");
-        _ = await Assert.That(stream.Reader.Current.QueueSnapshot.Queues[0].ItemCount).IsEqualTo(2);
-        _ = await Assert.That(stream.Reader.Current.QueueSnapshot.Queues[0].OwnerAgentSessionId).IsNotEmpty();
-        _ = await Assert.That(stream.Reader.Current.QueueSnapshot.RootAgentSessionId)
-            .IsEqualTo(stream.Reader.Current.QueueSnapshot.Queues[0].OwnerAgentSessionId);
+        _ = await Assert.That(stream.Reader.Current.ToolSnapshot.Kind).IsEqualTo("queue");
+        _ = await Assert.That(TestToolSnapshots.QueueData(stream.Reader.Current).Queues).HasSingleItem();
+        _ = await Assert.That(TestToolSnapshots.QueueData(stream.Reader.Current).Queues[0].Name).IsEqualTo("release");
+        _ = await Assert.That(TestToolSnapshots.QueueData(stream.Reader.Current).Queues[0].ItemCount).IsEqualTo(2);
+        _ = await Assert.That(TestToolSnapshots.QueueData(stream.Reader.Current).Queues[0].OwnerAgentSessionId).IsNotEmpty();
+        _ = await Assert.That(TestToolSnapshots.QueueData(stream.Reader.Current).RootAgentSessionId)
+            .IsEqualTo(TestToolSnapshots.QueueData(stream.Reader.Current).Queues[0].OwnerAgentSessionId);
         _ = await Assert.That(await stream.Reader.MoveNext(cancellationToken)).IsTrue();
-        _ = await Assert.That(stream.Reader.Current.PayloadCase).IsEqualTo(Event.PayloadOneofCase.ShellProcessSnapshot);
+        _ = await Assert.That(stream.Reader.Current.ToolSnapshot.Kind).IsEqualTo("shell_process");
         _ = await Assert.That(await stream.Reader.MoveNext(cancellationToken)).IsTrue();
         _ = await Assert.That(stream.Reader.Current.PayloadCase).IsEqualTo(Event.PayloadOneofCase.SessionUsageSnapshot);
         _ = await Assert.That(stream.Reader.Current.SessionUsageSnapshot.Revision).IsEqualTo(0UL);

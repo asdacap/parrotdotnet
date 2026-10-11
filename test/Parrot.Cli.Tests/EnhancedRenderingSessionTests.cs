@@ -613,21 +613,19 @@ internal sealed class EnhancedRenderingSessionTests
         await stream.WriteAsync(
             new Event
             {
-                QueueSnapshot = new QueueSnapshot
-                {
-                    OwnerAgentSessionId = "root",
-                    RootAgentSessionId = "root",
-                    InventoryInstanceId = "inventory",
-                    Revision = 1,
-                    FinalChunk = true,
-                    Queues =
+                ToolSnapshot = TestToolSnapshots.QueueEnvelope(
+                    new ToolSnapshot { OwnerAgentSessionId = "root", InventoryInstanceId = "inventory", Revision = 1, FinalChunk = true },
+                    new QueueSnapshot
                     {
-                        new QueueState { OwnerAgentSessionId = "root", Name = "zeta", Description = "last queue", ItemCount = 1 },
-                        new QueueState { OwnerAgentSessionId = "root", Name = "alpha", Description = "stale queue", ItemCount = 2 },
-                        new QueueState { OwnerAgentSessionId = "root", Name = "alpha", Description = "first queue", ItemCount = 3 },
-                        new QueueState { OwnerAgentSessionId = "root", Name = "empty", Description = "hidden queue", ItemCount = 0 },
-                    },
-                },
+                        RootAgentSessionId = "root",
+                        Queues =
+                        {
+                            new QueueState { OwnerAgentSessionId = "root", Name = "zeta", Description = "last queue", ItemCount = 1 },
+                            new QueueState { OwnerAgentSessionId = "root", Name = "alpha", Description = "stale queue", ItemCount = 2 },
+                            new QueueState { OwnerAgentSessionId = "root", Name = "alpha", Description = "first queue", ItemCount = 3 },
+                            new QueueState { OwnerAgentSessionId = "root", Name = "empty", Description = "hidden queue", ItemCount = 0 },
+                        },
+                    }),
             },
             cancellationToken);
         await stream.WriteAsync(

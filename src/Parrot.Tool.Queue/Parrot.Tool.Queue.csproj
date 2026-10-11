@@ -10,6 +10,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="Protocol/queue.proto" GrpcServices="None" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Parrot.Composition" />
     <InternalsVisibleTo Include="parrot" />
     <InternalsVisibleTo Include="Parrot.StatusProviders" />

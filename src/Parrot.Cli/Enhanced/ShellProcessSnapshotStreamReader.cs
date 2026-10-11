@@ -1,11 +1,12 @@
 using Grpc.Core;
+using Parrot.Process;
 using Parrot.Protocol;
 
 namespace Parrot.Cli.Enhanced;
 
 internal sealed class ShellProcessSnapshotStreamReader(
     IAsyncStreamReader<Event> source,
-    Func<ShellProcessSnapshot, CancellationToken, Task> replace) : IAsyncStreamReader<Event>
+    Func<ToolSnapshot, ShellProcessSnapshot, CancellationToken, Task> replace) : IAsyncStreamReader<Event>
 {
     private readonly Dictionary<string, OwnerInventory> _owners = new(StringComparer.Ordinal);
 
@@ -16,27 +17,27 @@ internal sealed class ShellProcessSnapshotStreamReader(
         while (await source.MoveNext(cancellationToken).ConfigureAwait(false))
         {
             var published = source.Current;
-            if (published.PayloadCase != Event.PayloadOneofCase.ShellProcessSnapshot)
+            if (published.ToolSnapshot?.Kind != ShellProcessInventoryProtocol.Kind)
             {
                 Current = published;
                 return true;
             }
 
-            var snapshot = published.ShellProcessSnapshot;
-            if (string.IsNullOrEmpty(snapshot.OwnerAgentSessionId) || string.IsNullOrEmpty(snapshot.InventoryInstanceId))
+            var inventory = published.ToolSnapshot;
+            if (string.IsNullOrEmpty(inventory.OwnerAgentSessionId) || string.IsNullOrEmpty(inventory.InventoryInstanceId))
             {
                 continue;
             }
 
-            if (!_owners.TryGetValue(snapshot.OwnerAgentSessionId, out var owner))
+            if (!_owners.TryGetValue(inventory.OwnerAgentSessionId, out var owner))
             {
                 owner = new OwnerInventory();
-                _owners.Add(snapshot.OwnerAgentSessionId, owner);
+                _owners.Add(inventory.OwnerAgentSessionId, owner);
             }
 
-            if (owner.Observe(snapshot) is { } completed)
+            if (owner.Observe(inventory, ShellProcessSnapshot.Parser.ParseFrom(inventory.Data)) is { } completed)
             {
-                await replace(completed, cancellationToken).ConfigureAwait(false);
+                await replace(inventory, completed, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -49,24 +50,24 @@ internal sealed class ShellProcessSnapshotStreamReader(
         private readonly List<ActiveShellProcess> _processes = [];
         private readonly List<CompletedShellProcess> _completedProcesses = [];
         private string? _instance;
-        private ShellProcessSnapshot? _first;
+        private ToolSnapshot? _first;
         private ulong _revision;
         private uint _nextChunk;
         private bool _observed;
         private bool _removed;
 
-        public ShellProcessSnapshot? Observe(ShellProcessSnapshot snapshot)
+        public ShellProcessSnapshot? Observe(ToolSnapshot inventory, ShellProcessSnapshot snapshot)
         {
-            if (snapshot.ChunkCount == 0 || snapshot.ChunkIndex >= snapshot.ChunkCount || _retiredInstances.Contains(snapshot.InventoryInstanceId))
+            if (_retiredInstances.Contains(inventory.InventoryInstanceId))
             {
                 return null;
             }
 
-            if (snapshot.ChunkIndex == 0)
+            if (inventory.ChunkIndex == 0)
             {
-                if (string.Equals(_instance, snapshot.InventoryInstanceId, StringComparison.Ordinal))
+                if (string.Equals(_instance, inventory.InventoryInstanceId, StringComparison.Ordinal))
                 {
-                    if (_removed || (_observed && snapshot.Revision <= _revision))
+                    if (_removed || (_observed && inventory.Revision <= _revision))
                     {
                         return null;
                     }
@@ -78,42 +79,37 @@ internal sealed class ShellProcessSnapshotStreamReader(
                         _ = _retiredInstances.Add(_instance);
                     }
 
-                    _instance = snapshot.InventoryInstanceId;
+                    _instance = inventory.InventoryInstanceId;
                     _removed = false;
                 }
 
                 ResetStaging();
-                _first = snapshot;
-                _revision = snapshot.Revision;
+                _first = inventory;
+                _revision = inventory.Revision;
                 _observed = true;
             }
 
             if (_first is null
-                || !string.Equals(_instance, snapshot.InventoryInstanceId, StringComparison.Ordinal)
-                || snapshot.Revision != _revision
-                || snapshot.ChunkIndex != _nextChunk
-                || snapshot.Removed != _first.Removed
-                || snapshot.ChunkCount != _first.ChunkCount)
+                || !string.Equals(_instance, inventory.InventoryInstanceId, StringComparison.Ordinal)
+                || inventory.Revision != _revision
+                || inventory.ChunkIndex != _nextChunk
+                || inventory.Removed != _first.Removed)
             {
                 return null;
             }
 
-            _processes.AddRange(snapshot.Processes.Select(static process => process.Clone()));
-            _completedProcesses.AddRange(snapshot.CompletedProcesses.Select(static process => process.Clone()));
+            _processes.AddRange(snapshot.Processes);
+            _completedProcesses.AddRange(snapshot.CompletedProcesses);
             _nextChunk++;
-            if (_nextChunk != snapshot.ChunkCount)
+            if (!inventory.FinalChunk)
             {
                 return null;
             }
 
-            var completed = snapshot.Clone();
-            completed.ChunkIndex = 0;
-            completed.Processes.Clear();
-            completed.CompletedProcesses.Clear();
+            var completed = new ShellProcessSnapshot();
             completed.Processes.AddRange(_processes);
             completed.CompletedProcesses.AddRange(_completedProcesses);
-            completed.ChunkCount = 1;
-            _removed = snapshot.Removed;
+            _removed = inventory.Removed;
             ResetStaging();
             return completed;
         }

@@ -242,13 +242,11 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
-    public async Task Agent_task_progress_snapshot_roundtrips_as_field_thirty_four()
+    public async Task Agent_task_progress_snapshot_roundtrips_inside_a_tool_snapshot()
     {
-        var source = new Event
-        {
-            Id = "agent-task-progress-event",
-            AgentSessionId = "agent-session",
-            AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+        var source = TestToolSnapshots.Progress(
+            "agent-session",
+            new AgentTaskProgressSnapshot
             {
                 Revision = 19,
                 RootNodes =
@@ -290,18 +288,19 @@ internal sealed class EventPayloadTests
                         Status = AgentTaskProgressStatus.Canceled,
                     },
                 },
-            },
-        };
+            });
+        source.Id = "agent-task-progress-event";
 
         var bytes = source.ToByteArray();
         var roundtripped = Event.Parser.ParseFrom(bytes);
-        var snapshot = roundtripped.AgentTaskProgressSnapshot;
+        var snapshot = TestToolSnapshots.ProgressData(roundtripped);
         var pendingRoot = snapshot.RootNodes[0];
         var runningChild = pendingRoot.Children[0];
 
         _ = await Assert.That(roundtripped.Id).IsEqualTo("agent-task-progress-event");
         _ = await Assert.That(roundtripped.AgentSessionId).IsEqualTo("agent-session");
-        _ = await Assert.That(roundtripped.PayloadCase).IsEqualTo(Event.PayloadOneofCase.AgentTaskProgressSnapshot);
+        _ = await Assert.That(roundtripped.ToolSnapshot.Kind).IsEqualTo("agent_task_progress");
+        _ = await Assert.That(roundtripped.ToolSnapshot.Revision).IsEqualTo(19UL);
         _ = await Assert.That(snapshot.Revision).IsEqualTo(19UL);
         _ = await Assert.That(snapshot.RootNodes).Count().IsEqualTo(3);
         _ = await Assert.That(pendingRoot.Name).IsEqualTo("pending-root");
@@ -318,8 +317,8 @@ internal sealed class EventPayloadTests
         _ = await Assert.That(runningChild.Children[0].Status).IsEqualTo(AgentTaskProgressStatus.Succeeded);
         _ = await Assert.That(runningChild.Children[1].Name).IsEqualTo("failed-grandchild");
         _ = await Assert.That(runningChild.Children[1].Status).IsEqualTo(AgentTaskProgressStatus.Failed);
-        _ = await Assert.That(bytes[42]).IsEqualTo((byte)0x92);
-        _ = await Assert.That(bytes[43]).IsEqualTo((byte)0x02);
+        _ = await Assert.That(bytes[42]).IsEqualTo((byte)0x8a);
+        _ = await Assert.That(bytes[43]).IsEqualTo((byte)0x03);
     }
 
     [Test]
@@ -379,15 +378,12 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
-    public async Task Queue_snapshot_roundtrips_as_field_twenty_four()
+    public async Task Queue_snapshot_roundtrips_inside_a_tool_snapshot_as_field_forty_nine()
     {
-        var source = new Event
-        {
-            QueueSnapshot = new QueueSnapshot
+        var source = TestToolSnapshots.Queue(
+            new ToolSnapshot { Revision = 7, ChunkIndex = 2, FinalChunk = true },
+            new QueueSnapshot
             {
-                Revision = 7,
-                ChunkIndex = 2,
-                FinalChunk = true,
                 RootAgentSessionId = "root-session",
                 Queues =
                 {
@@ -402,41 +398,36 @@ internal sealed class EventPayloadTests
                         ItemCount = 3,
                     },
                 },
-            },
-        };
+            });
 
         var bytes = source.ToByteArray();
         var roundtripped = Event.Parser.ParseFrom(bytes);
 
-        _ = await Assert.That(roundtripped.PayloadCase).IsEqualTo(Event.PayloadOneofCase.QueueSnapshot);
-        _ = await Assert.That(roundtripped.QueueSnapshot.Revision).IsEqualTo(7UL);
-        _ = await Assert.That(roundtripped.QueueSnapshot.ChunkIndex).IsEqualTo(2U);
-        _ = await Assert.That(roundtripped.QueueSnapshot.FinalChunk).IsTrue();
-        _ = await Assert.That(roundtripped.QueueSnapshot.RootAgentSessionId).IsEqualTo("root-session");
-        _ = await Assert.That(roundtripped.QueueSnapshot.Queues[0].OwnerAgentSessionId)
+        _ = await Assert.That(roundtripped.ToolSnapshot.Kind).IsEqualTo("queue");
+        _ = await Assert.That(roundtripped.ToolSnapshot.Revision).IsEqualTo(7UL);
+        _ = await Assert.That(roundtripped.ToolSnapshot.ChunkIndex).IsEqualTo(2U);
+        _ = await Assert.That(roundtripped.ToolSnapshot.FinalChunk).IsTrue();
+        _ = await Assert.That(TestToolSnapshots.QueueData(roundtripped).RootAgentSessionId).IsEqualTo("root-session");
+        _ = await Assert.That(TestToolSnapshots.QueueData(roundtripped).Queues[0].OwnerAgentSessionId)
             .IsEqualTo("agent-session");
-        _ = await Assert.That(roundtripped.QueueSnapshot.Queues[0].OwnerAgentName).IsEqualTo("worker");
-        _ = await Assert.That(roundtripped.QueueSnapshot.Queues[0].ParentAgentSessionId)
+        _ = await Assert.That(TestToolSnapshots.QueueData(roundtripped).Queues[0].OwnerAgentName).IsEqualTo("worker");
+        _ = await Assert.That(TestToolSnapshots.QueueData(roundtripped).Queues[0].ParentAgentSessionId)
             .IsEqualTo("root-session");
-        _ = await Assert.That(roundtripped.QueueSnapshot.Queues[0].ParentAgentName).IsEqualTo("main");
-        _ = await Assert.That(roundtripped.QueueSnapshot.Queues[0].Name).IsEqualTo("release");
-        _ = await Assert.That(roundtripped.QueueSnapshot.Queues[0].Description).IsEqualTo("release tasks");
-        _ = await Assert.That(roundtripped.QueueSnapshot.Queues[0].ItemCount).IsEqualTo(3);
-        _ = await Assert.That(bytes[0]).IsEqualTo((byte)0xc2);
-        _ = await Assert.That(bytes[1]).IsEqualTo((byte)0x01);
+        _ = await Assert.That(TestToolSnapshots.QueueData(roundtripped).Queues[0].ParentAgentName).IsEqualTo("main");
+        _ = await Assert.That(TestToolSnapshots.QueueData(roundtripped).Queues[0].Name).IsEqualTo("release");
+        _ = await Assert.That(TestToolSnapshots.QueueData(roundtripped).Queues[0].Description).IsEqualTo("release tasks");
+        _ = await Assert.That(TestToolSnapshots.QueueData(roundtripped).Queues[0].ItemCount).IsEqualTo(3);
+        _ = await Assert.That(bytes[0]).IsEqualTo((byte)0x8a);
+        _ = await Assert.That(bytes[1]).IsEqualTo((byte)0x03);
     }
 
     [Test]
-    public async Task Shell_process_snapshot_roundtrips_as_field_twenty_five()
+    public async Task Shell_process_snapshot_roundtrips_inside_a_tool_snapshot()
     {
-        var source = new Event
-        {
-            ShellProcessSnapshot = new ShellProcessSnapshot
+        var source = TestToolSnapshots.Process(
+            new ToolSnapshot { InventoryInstanceId = "inventory-1", Revision = 9, FinalChunk = true },
+            new ShellProcessSnapshot
             {
-                InventoryInstanceId = "inventory-1",
-                Revision = 9,
-                ChunkIndex = 0,
-                ChunkCount = 1,
                 Processes =
                 {
                     new ActiveShellProcess
@@ -459,28 +450,25 @@ internal sealed class EventPayloadTests
                     new CompletedShellProcess { ProcessId = "process-2", ElapsedMs = 5_001 },
                     new CompletedShellProcess { ProcessId = "process-3" },
                 },
-            },
-        };
+            });
 
         var bytes = source.ToByteArray();
         var roundtripped = Event.Parser.ParseFrom(bytes);
 
-        _ = await Assert.That(roundtripped.PayloadCase).IsEqualTo(Event.PayloadOneofCase.ShellProcessSnapshot);
-        _ = await Assert.That(roundtripped.ShellProcessSnapshot.InventoryInstanceId).IsEqualTo("inventory-1");
-        _ = await Assert.That(roundtripped.ShellProcessSnapshot.Revision).IsEqualTo(9UL);
-        _ = await Assert.That(roundtripped.ShellProcessSnapshot.ChunkCount).IsEqualTo(1U);
-        _ = await Assert.That(roundtripped.ShellProcessSnapshot.Processes[0].ProcessId).IsEqualTo("process-1");
-        _ = await Assert.That(roundtripped.ShellProcessSnapshot.Processes[0].Command).IsEqualTo("dotnet build");
-        _ = await Assert.That(roundtripped.ShellProcessSnapshot.Processes[0].Description).IsEqualTo("Build the solution");
-        _ = await Assert.That(roundtripped.ShellProcessSnapshot.CompletedProcesses[0].ProcessId)
+        _ = await Assert.That(roundtripped.ToolSnapshot.Kind).IsEqualTo("shell_process");
+        _ = await Assert.That(roundtripped.ToolSnapshot.InventoryInstanceId).IsEqualTo("inventory-1");
+        _ = await Assert.That(roundtripped.ToolSnapshot.Revision).IsEqualTo(9UL);
+        _ = await Assert.That(roundtripped.ToolSnapshot.FinalChunk).IsTrue();
+        _ = await Assert.That(TestToolSnapshots.ProcessData(roundtripped).Processes[0].ProcessId).IsEqualTo("process-1");
+        _ = await Assert.That(TestToolSnapshots.ProcessData(roundtripped).Processes[0].Command).IsEqualTo("dotnet build");
+        _ = await Assert.That(TestToolSnapshots.ProcessData(roundtripped).Processes[0].Description).IsEqualTo("Build the solution");
+        _ = await Assert.That(TestToolSnapshots.ProcessData(roundtripped).CompletedProcesses[0].ProcessId)
             .IsEqualTo("process-2");
-        _ = await Assert.That(roundtripped.ShellProcessSnapshot.CompletedProcesses[0].HasElapsedMs).IsTrue();
-        _ = await Assert.That(roundtripped.ShellProcessSnapshot.CompletedProcesses[0].ElapsedMs).IsEqualTo(5_001);
-        _ = await Assert.That(roundtripped.ShellProcessSnapshot.CompletedProcesses[1].ProcessId)
+        _ = await Assert.That(TestToolSnapshots.ProcessData(roundtripped).CompletedProcesses[0].HasElapsedMs).IsTrue();
+        _ = await Assert.That(TestToolSnapshots.ProcessData(roundtripped).CompletedProcesses[0].ElapsedMs).IsEqualTo(5_001);
+        _ = await Assert.That(TestToolSnapshots.ProcessData(roundtripped).CompletedProcesses[1].ProcessId)
             .IsEqualTo("process-3");
-        _ = await Assert.That(roundtripped.ShellProcessSnapshot.CompletedProcesses[1].HasElapsedMs).IsFalse();
-        _ = await Assert.That(bytes[0]).IsEqualTo((byte)0xca);
-        _ = await Assert.That(bytes[1]).IsEqualTo((byte)0x01);
+        _ = await Assert.That(TestToolSnapshots.ProcessData(roundtripped).CompletedProcesses[1].HasElapsedMs).IsFalse();
     }
 
     [Test]

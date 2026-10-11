@@ -7,6 +7,7 @@ using Parrot.Protocol;
 using Parrot.Security;
 using Parrot.Store;
 using Parrot.Tools;
+using ToolSnapshot = Parrot.Tools.ToolSnapshot;
 
 namespace Parrot.Agent;
 

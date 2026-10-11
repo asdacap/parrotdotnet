@@ -92,7 +92,7 @@
   <ItemGroup>
     <ParrotWebSource Include="$(ParrotWebRoot)/src/**/*" Exclude="$(ParrotWebRoot)/src/gen/**/*" />
     <ParrotWebSource Include="$(ParrotWebRoot)/*.json;$(ParrotWebRoot)/*.ts;$(ParrotWebRoot)/*.mjs;$(ParrotWebRoot)/index.html" />
-    <ParrotWebSource Include="Web/web.proto;../Parrot.Common/Protocol/parrot.proto" />
+    <ParrotWebSource Include="Web/web.proto;../Parrot.Common/Protocol/parrot.proto;../Parrot.Tool.Queue/Protocol/queue.proto;../Parrot.Tool.Process/Protocol/process.proto" />
   </ItemGroup>
 
   <Target Name="EmbedWebUi" DependsOnTargets="BuildWebUi" BeforeTargets="PrepareForBuild">

@@ -10,6 +10,7 @@ using Parrot.Skills;
 using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
+using ToolSnapshot = Parrot.Tools.ToolSnapshot;
 
 namespace Parrot.Agent;
 

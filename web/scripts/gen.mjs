@@ -15,8 +15,12 @@ execFileSync(
     "--es_opt=target=ts",
     "-I", "../src/Parrot.Common/Protocol",
     "-I", "../src/Parrot.Cli/Web",
+    "-I", "../src/Parrot.Tool.Queue/Protocol",
+    "-I", "../src/Parrot.Tool.Process/Protocol",
     "parrot.proto",
     "web.proto",
+    "queue.proto",
+    "process.proto",
   ],
   { stdio: "inherit" },
 )

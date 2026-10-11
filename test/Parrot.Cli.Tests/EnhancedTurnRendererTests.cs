@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Parrot.Cli.Enhanced;
 using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
+using Parrot.Core.Tests;
 using Parrot.Protocol;
 
 namespace Parrot.Cli.Tests;
@@ -623,8 +624,8 @@ internal sealed class EnhancedTurnRendererTests
         };
         var (completed, output, error) = await Render(
             [
-                new Event { AgentTaskProgressSnapshot = first },
-                new Event { AgentTaskProgressSnapshot = second },
+                new Event { ToolSnapshot = TestToolSnapshots.ProgressInventory(first) },
+                new Event { ToolSnapshot = TestToolSnapshots.ProgressInventory(second) },
             ],
             cancellationToken);
 

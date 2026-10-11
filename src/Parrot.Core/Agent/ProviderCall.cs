@@ -3,7 +3,7 @@ using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Store;
-using Parrot.Tools;
+using ToolSnapshot = Parrot.Tools.ToolSnapshot;
 
 namespace Parrot.Agent;
 

@@ -1,3 +1,4 @@
+using Google.Protobuf;
 using Parrot.Protocol;
 using ProtocolQueueState = Parrot.Protocol.QueueState;
 
@@ -5,6 +6,7 @@ namespace Parrot.Queues;
 
 internal static class QueueInventoryProtocol
 {
+    internal const string Kind = "queue";
     private const int MaximumEventBytes = 32 * 1024 * 1024;
 
     public static IEnumerable<Event> Convert(QueueInventorySnapshot inventory, string rootAgentSessionId)
@@ -34,16 +36,7 @@ internal static class QueueInventoryProtocol
         string rootAgentSessionId,
         QueueState? state)
     {
-        var snapshot = new Protocol.QueueSnapshot
-        {
-            OwnerAgentSessionId = inventory.OwnerAgentSessionId,
-            InventoryInstanceId = inventory.InventoryInstanceId,
-            Removed = inventory.Removed,
-            Revision = inventory.Revision,
-            ChunkIndex = chunkIndex,
-            FinalChunk = finalChunk,
-            RootAgentSessionId = rootAgentSessionId,
-        };
+        var snapshot = new Protocol.QueueSnapshot { RootAgentSessionId = rootAgentSessionId };
         if (state is not null)
         {
             snapshot.Queues.Add(new ProtocolQueueState
@@ -58,7 +51,20 @@ internal static class QueueInventoryProtocol
             });
         }
 
-        var published = new Event { QueueSnapshot = snapshot };
+        var published = new Event
+        {
+            ToolSnapshot = new ToolSnapshot
+            {
+                Kind = Kind,
+                OwnerAgentSessionId = inventory.OwnerAgentSessionId,
+                InventoryInstanceId = inventory.InventoryInstanceId,
+                Removed = inventory.Removed,
+                Revision = inventory.Revision,
+                ChunkIndex = chunkIndex,
+                FinalChunk = finalChunk,
+                Data = snapshot.ToByteString(),
+            },
+        };
         if (published.CalculateSize() > MaximumEventBytes)
         {
             throw new QueueException($"queue: inventory record exceeds {MaximumEventBytes} bytes");

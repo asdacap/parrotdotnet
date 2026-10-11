@@ -120,15 +120,14 @@ internal sealed class EventBrokerTests
             broker.Publish(new Event { Id = $"ordinary-{index}" });
         }
 
-        var obsolete = new Event { QueueSnapshot = new QueueSnapshot { OwnerAgentSessionId = "first", Revision = 1 } };
-        broker.PublishQueueSnapshot([obsolete]);
-        var sibling = new Event { QueueSnapshot = new QueueSnapshot { OwnerAgentSessionId = "second", Revision = 1, FinalChunk = true } };
-        broker.PublishQueueSnapshot([sibling]);
-        var processes = new Event { ShellProcessSnapshot = new ShellProcessSnapshot { OwnerAgentSessionId = "first", Revision = 1, ChunkCount = 1 } };
-        broker.PublishProcessSnapshot([processes]);
-        var replacement = Enumerable.Range(0, 1100).Select(index => new Event
-        {
-            QueueSnapshot = new QueueSnapshot
+        var obsolete = TestToolSnapshots.Queue(new ToolSnapshot { OwnerAgentSessionId = "first", Revision = 1 }, new QueueSnapshot());
+        broker.PublishInventory([obsolete]);
+        var sibling = TestToolSnapshots.Queue(new ToolSnapshot { OwnerAgentSessionId = "second", Revision = 1, FinalChunk = true }, new QueueSnapshot());
+        broker.PublishInventory([sibling]);
+        var processes = TestToolSnapshots.Process(new ToolSnapshot { OwnerAgentSessionId = "first", Revision = 1, FinalChunk = true }, new ShellProcessSnapshot());
+        broker.PublishInventory([processes]);
+        var replacement = Enumerable.Range(0, 1100).Select(index => TestToolSnapshots.Queue(
+            new ToolSnapshot
             {
                 OwnerAgentSessionId = "first",
                 InventoryInstanceId = "instance",
@@ -136,8 +135,8 @@ internal sealed class EventBrokerTests
                 ChunkIndex = (uint)index,
                 FinalChunk = index == 1099,
             },
-        }).ToArray();
-        broker.PublishQueueSnapshot(replacement);
+            new QueueSnapshot())).ToArray();
+        broker.PublishInventory(replacement);
 
         var received = new List<Event>();
         while (subscription.Reader.TryRead(out var published))
@@ -148,9 +147,10 @@ internal sealed class EventBrokerTests
         _ = await Assert.That(received).Count().IsEqualTo(2126);
         _ = await Assert.That(received).DoesNotContain(obsolete);
         _ = await Assert.That(received).Contains(sibling).And.Contains(processes);
-        _ = await Assert.That(received.Where(item => item.QueueSnapshot?.OwnerAgentSessionId == "first").SequenceEqual(replacement)).IsTrue();
-        _ = await Assert.That(received.Where(item => item.QueueSnapshot?.OwnerAgentSessionId == "first")
-            .Select(item => item.QueueSnapshot.ChunkIndex).SequenceEqual(Enumerable.Range(0, 1100).Select(index => (uint)index))).IsTrue();
+        var firstQueue = received.Where(item => item.ToolSnapshot is { Kind: "queue", OwnerAgentSessionId: "first" }).ToArray();
+        _ = await Assert.That(firstQueue.SequenceEqual(replacement)).IsTrue();
+        _ = await Assert.That(firstQueue
+            .Select(item => item.ToolSnapshot.ChunkIndex).SequenceEqual(Enumerable.Range(0, 1100).Select(index => (uint)index))).IsTrue();
         _ = await Assert.That(received.Where(item => item.PayloadCase == Event.PayloadOneofCase.None).Select(item => item.Id).SequenceEqual(Enumerable.Range(0, 1024).Select(index => $"ordinary-{index}"))).IsTrue();
     }
 
@@ -159,28 +159,17 @@ internal sealed class EventBrokerTests
     {
         using var broker = new EventBroker();
         using var subscription = broker.Subscribe();
-        var original = Enumerable.Range(0, 3).Select(index => new Event
-        {
-            QueueSnapshot = new QueueSnapshot
-            {
-                OwnerAgentSessionId = "owner",
-                Revision = 1,
-                ChunkIndex = (uint)index,
-                FinalChunk = index == 2,
-            },
-        }).ToArray();
-        broker.PublishQueueSnapshot(original);
+        var original = Enumerable.Range(0, 3).Select(index => TestToolSnapshots.Queue(
+            new ToolSnapshot { OwnerAgentSessionId = "owner", Revision = 1, ChunkIndex = (uint)index, FinalChunk = index == 2 },
+            new QueueSnapshot())).ToArray();
+        broker.PublishInventory(original);
         _ = await Assert.That(subscription.Reader.TryRead(out var first)).IsTrue();
         _ = await Assert.That(first).IsEqualTo(original[0]);
         broker.Publish(new Event { Id = "ordinary-first" });
         broker.Publish(new Event { Id = "ordinary-second" });
         for (var index = 1; index < original.Length; index++)
         {
-            broker.PublishQueueSnapshot([new Event
-            {
-                QueueSnapshot = new QueueSnapshot { OwnerAgentSessionId = "owner", Revision = (ulong)(index + 1), FinalChunk = true },
-            }
-            ]);
+            broker.PublishInventory([TestToolSnapshots.Queue(new ToolSnapshot { OwnerAgentSessionId = "owner", Revision = (ulong)(index + 1), FinalChunk = true }, new QueueSnapshot())]);
             _ = await Assert.That(subscription.Reader.TryRead(out var chunk)).IsTrue();
             _ = await Assert.That(chunk).IsEqualTo(original[index]);
         }
@@ -188,11 +177,7 @@ internal sealed class EventBrokerTests
         var ordinary = new List<string>();
         for (var index = 0; index < 4; index++)
         {
-            broker.PublishQueueSnapshot([new Event
-            {
-                QueueSnapshot = new QueueSnapshot { OwnerAgentSessionId = "owner", Revision = (ulong)(index + 10), FinalChunk = true },
-            }
-            ]);
+            broker.PublishInventory([TestToolSnapshots.Queue(new ToolSnapshot { OwnerAgentSessionId = "owner", Revision = (ulong)(index + 10), FinalChunk = true }, new QueueSnapshot())]);
             _ = await Assert.That(subscription.Reader.TryRead(out var published)).IsTrue();
             if (published is { PayloadCase: Event.PayloadOneofCase.None })
             {
@@ -208,82 +193,56 @@ internal sealed class EventBrokerTests
     [Arguments(true, false)]
     [Arguments(false, true)]
     [Arguments(false, false)]
-    public async Task Domain_snapshot_publication_rejects_a_mixed_payload_batch_before_enqueue(
-        bool queueSnapshot,
+    public async Task Inventory_publication_rejects_a_batch_of_mixed_inventories_before_enqueue(
+        bool queueFirst,
         bool directSubscription)
     {
         using var broker = new EventBroker();
         using var subscription = broker.Subscribe();
-        var queue = new Event { QueueSnapshot = new QueueSnapshot { OwnerAgentSessionId = "queue" } };
-        var process = new Event { ShellProcessSnapshot = new ShellProcessSnapshot { OwnerAgentSessionId = "process" } };
-        Action publish = queueSnapshot
-            ? directSubscription
-                ? () => subscription.PublishQueueSnapshot([queue, process])
-                : () => broker.PublishQueueSnapshot([queue, process])
-            : directSubscription
-                ? () => subscription.PublishProcessSnapshot([process, queue])
-                : () => broker.PublishProcessSnapshot([process, queue]);
+        var queue = TestToolSnapshots.Queue(new ToolSnapshot { OwnerAgentSessionId = "owner", FinalChunk = true }, new QueueSnapshot());
+        var process = TestToolSnapshots.Process(new ToolSnapshot { OwnerAgentSessionId = "owner", FinalChunk = true }, new ShellProcessSnapshot());
+        Event[] mixed = queueFirst ? [queue, process] : [process, queue];
+        Action publish = directSubscription
+            ? () => subscription.PublishInventory(mixed)
+            : () => broker.PublishInventory(mixed);
 
         _ = await Assert.That(publish).Throws<InvalidOperationException>();
         _ = await Assert.That(subscription.Reader.TryRead(out _)).IsFalse();
 
-        if (queueSnapshot)
-        {
-            broker.PublishQueueSnapshot([queue]);
-        }
-        else
-        {
-            broker.PublishProcessSnapshot([process]);
-        }
+        broker.PublishInventory([mixed[0]]);
 
         _ = await Assert.That(subscription.Reader.TryRead(out var published)).IsTrue();
-        _ = await Assert.That(published).IsEqualTo(queueSnapshot ? queue : process);
+        _ = await Assert.That(published).IsEqualTo(mixed[0]);
     }
 
     [Test]
     [Arguments(true)]
     [Arguments(false)]
-    public async Task Domain_snapshot_publication_with_no_subscriber_still_validates_payload(bool queueSnapshot)
+    public async Task Inventory_publication_with_no_subscriber_still_validates_payload(bool mixedOwners)
     {
         using var broker = new EventBroker();
-        var wrong = queueSnapshot
-            ? new Event { ShellProcessSnapshot = new ShellProcessSnapshot() }
-            : new Event { QueueSnapshot = new QueueSnapshot() };
-        Action publish = queueSnapshot
-            ? () => broker.PublishQueueSnapshot([wrong])
-            : () => broker.PublishProcessSnapshot([wrong]);
+        Event[] wrong = mixedOwners
+            ? [TestToolSnapshots.Queue(new ToolSnapshot { OwnerAgentSessionId = "first", FinalChunk = true }, new QueueSnapshot()), TestToolSnapshots.Queue(new ToolSnapshot { OwnerAgentSessionId = "second", FinalChunk = true }, new QueueSnapshot())]
+            : [new Event { TextChunk = new TextChunk { Fragment = "not a snapshot" } }];
 
-        _ = await Assert.That(publish).Throws<InvalidOperationException>();
+        _ = await Assert.That(() => broker.PublishInventory(wrong)).Throws<InvalidOperationException>();
     }
 
     [Test]
-    [Arguments(true, true)]
-    [Arguments(true, false)]
-    [Arguments(false, true)]
-    [Arguments(false, false)]
-    public async Task Empty_domain_snapshot_publication_is_a_no_op(bool queueSnapshot, bool directSubscription)
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Empty_inventory_publication_is_a_no_op(bool directSubscription)
     {
         using var broker = new EventBroker();
         using var subscription = broker.Subscribe();
 
-        if (queueSnapshot)
+        if (directSubscription)
         {
-            if (directSubscription)
-            {
-                subscription.PublishQueueSnapshot([]);
-            }
-            else
-            {
-                broker.PublishQueueSnapshot([]);
-            }
-        }
-        else if (directSubscription)
-        {
-            subscription.PublishProcessSnapshot([]);
+            subscription.PublishInventory([]);
         }
         else
         {
-            broker.PublishProcessSnapshot([]);
+            broker.PublishInventory([]);
         }
 
         _ = await Assert.That(subscription.Reader.TryRead(out _)).IsFalse();

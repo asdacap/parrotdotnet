@@ -1,4 +1,6 @@
+using System.Diagnostics.CodeAnalysis;
 using Google.Protobuf.Collections;
+using Parrot.AgentTasks;
 using Parrot.Cli.Enhanced;
 using Parrot.Protocol;
 
@@ -6,6 +8,15 @@ namespace Parrot.Cli;
 
 internal static class AgentTaskProgressFormatter
 {
+    /// <summary>Reads the agent task progress an event carries, if it is an agent task progress tool snapshot.</summary>
+    public static bool TryRead(Event published, [NotNullWhen(true)] out AgentTaskProgressSnapshot? snapshot)
+    {
+        snapshot = published.ToolSnapshot?.Kind == AgentTaskService.ProgressKind
+            ? AgentTaskProgressSnapshot.Parser.ParseFrom(published.ToolSnapshot.Data)
+            : null;
+        return snapshot is not null;
+    }
+
     public static IReadOnlyList<string> Format(AgentTaskProgressSnapshot snapshot) =>
         [.. FormatRows(snapshot, null, null).Select(static row => row.Text)];
 

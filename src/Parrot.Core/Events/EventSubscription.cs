@@ -81,63 +81,9 @@ internal sealed class EventSubscription : IEventSubscription
         }
     }
 
-    public void PublishQueueSnapshot(IReadOnlyList<Event> chunks)
+    public void PublishInventory(IReadOnlyList<Event> chunks)
     {
-        ValidateQueueSnapshotBatch(chunks);
-        PublishInventory(chunks);
-    }
-
-    public void PublishProcessSnapshot(IReadOnlyList<Event> chunks)
-    {
-        ValidateProcessSnapshotBatch(chunks);
-        PublishInventory(chunks);
-    }
-
-    public void Complete()
-    {
-        lock (_gate)
-        {
-            if (_completed)
-            {
-                return;
-            }
-
-            _completed = true;
-            _ = _ready.Writer.TryComplete();
-            CompleteReadingWhenDrained();
-        }
-    }
-
-    internal static void ValidateQueueSnapshotBatch(IReadOnlyList<Event> chunks) =>
-        ValidateSnapshotBatch(chunks, Event.PayloadOneofCase.QueueSnapshot);
-
-    internal static void ValidateProcessSnapshotBatch(IReadOnlyList<Event> chunks) =>
-        ValidateSnapshotBatch(chunks, Event.PayloadOneofCase.ShellProcessSnapshot);
-
-    private static void ValidateSnapshotBatch(IReadOnlyList<Event> chunks, Event.PayloadOneofCase expectedPayload)
-    {
-        ArgumentNullException.ThrowIfNull(chunks);
-        foreach (var chunk in chunks)
-        {
-            if (chunk is null || chunk.PayloadCase != expectedPayload)
-            {
-                throw new InvalidOperationException($"Expected a complete {expectedPayload} snapshot batch.");
-            }
-        }
-    }
-
-    private static bool SameInventory(Event first, Event second) =>
-        first.PayloadCase == second.PayloadCase && first.PayloadCase switch
-        {
-            Event.PayloadOneofCase.QueueSnapshot => string.Equals(
-                first.QueueSnapshot.OwnerAgentSessionId, second.QueueSnapshot.OwnerAgentSessionId, StringComparison.Ordinal),
-            Event.PayloadOneofCase.ShellProcessSnapshot => string.Equals(
-                first.ShellProcessSnapshot.OwnerAgentSessionId, second.ShellProcessSnapshot.OwnerAgentSessionId, StringComparison.Ordinal),
-            _ => throw new InvalidOperationException("Expected an inventory snapshot."),
-        };
-
-    private void PublishInventory(IReadOnlyList<Event> chunks)
-    {
+        ValidateInventoryBatch(chunks);
         if (chunks.Count == 0)
         {
             return;
@@ -163,6 +109,37 @@ internal sealed class EventSubscription : IEventSubscription
             _ = _ready.Writer.TryWrite(true);
         }
     }
+
+    public void Complete()
+    {
+        lock (_gate)
+        {
+            if (_completed)
+            {
+                return;
+            }
+
+            _completed = true;
+            _ = _ready.Writer.TryComplete();
+            CompleteReadingWhenDrained();
+        }
+    }
+
+    internal static void ValidateInventoryBatch(IReadOnlyList<Event> chunks)
+    {
+        ArgumentNullException.ThrowIfNull(chunks);
+        foreach (var chunk in chunks)
+        {
+            if (chunk?.PayloadCase != Event.PayloadOneofCase.ToolSnapshot || !SameInventory(chunk, chunks[0]))
+            {
+                throw new InvalidOperationException("Expected a complete tool snapshot batch of one inventory.");
+            }
+        }
+    }
+
+    private static bool SameInventory(Event first, Event second) =>
+        string.Equals(first.ToolSnapshot.Kind, second.ToolSnapshot.Kind, StringComparison.Ordinal)
+        && string.Equals(first.ToolSnapshot.OwnerAgentSessionId, second.ToolSnapshot.OwnerAgentSessionId, StringComparison.Ordinal);
 
     private void RemoveOldest(bool transient)
     {

@@ -1,7 +1,9 @@
 import { Loader2Icon } from "lucide-react"
 import { useMemo } from "react"
 
-import type { ActiveShellProcess, AgentTaskProgressSnapshot, QueueState } from "@/gen/parrot_pb"
+import type { AgentTaskProgressSnapshot } from "@/gen/parrot_pb"
+import type { ActiveShellProcess } from "@/gen/process_pb"
+import type { QueueState } from "@/gen/queue_pb"
 import { TaskTree, fromProgress, isSettled } from "@/components/TaskTree"
 import { formatDuration } from "@/lib/duration"
 import { useElapsedSince } from "@/lib/useElapsedSince"

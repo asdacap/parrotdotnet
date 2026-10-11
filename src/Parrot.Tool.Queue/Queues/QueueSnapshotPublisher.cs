@@ -13,7 +13,7 @@ internal sealed class QueueSnapshotPublisher(IAgentQueues queues, IEventBroker e
         using var subscription = queues.SubscribeInventory();
         await foreach (var snapshot in subscription.Reader.ReadAllAsync().ConfigureAwait(false))
         {
-            events.PublishQueueSnapshot([.. QueueInventoryProtocol.Convert(snapshot, rootAgentSessionId)]);
+            events.PublishInventory([.. QueueInventoryProtocol.Convert(snapshot, rootAgentSessionId)]);
         }
     }
 }

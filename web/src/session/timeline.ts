@@ -1,15 +1,19 @@
+import { fromBinary } from "@bufbuild/protobuf"
+
 import {
+  AgentTaskProgressSnapshotSchema,
   ProviderRequestPhase,
   ReasoningKind,
-  type ActiveShellProcess,
   type AgentTaskProgressSnapshot,
   type Event,
   type PlanCompleted,
   type PlanTaskDeclaration,
-  type QueueState,
   type SessionUsageSnapshot,
+  type ToolSnapshot,
   type TurnModelAliasIcon,
 } from "@/gen/parrot_pb"
+import { ShellProcessSnapshotSchema, type ActiveShellProcess } from "@/gen/process_pb"
+import { QueueSnapshotSchema, type QueueState } from "@/gen/queue_pb"
 import { formatDuration } from "@/lib/duration"
 import { emptyInventory, observeInventory, type OwnerInventory } from "@/session/inventory"
 
@@ -161,6 +165,39 @@ function withInventory<T>(
   return next === current ? inventories : new Map(inventories).set(owner, next)
 }
 
+function reduceToolSnapshot(state: TimelineState, event: Event, snapshot: ToolSnapshot): TimelineState {
+  const chunk = { instance: snapshot.inventoryInstanceId, revision: snapshot.revision, index: snapshot.chunkIndex, final: snapshot.finalChunk, removed: snapshot.removed }
+  switch (snapshot.kind) {
+    case "agent_task_progress": {
+      const progress = fromBinary(AgentTaskProgressSnapshotSchema, snapshot.data)
+      const current = state.taskProgress.get(event.agentSessionId)
+      return current && current.revision >= progress.revision
+        ? state
+        : { ...state, taskProgress: new Map(state.taskProgress).set(event.agentSessionId, progress) }
+    }
+    case "queue": {
+      const queues = fromBinary(QueueSnapshotSchema, snapshot.data)
+      return {
+        ...state,
+        queues: withInventory(state.queues, snapshot.ownerAgentSessionId, (owner) =>
+          observeInventory(owner, { ...chunk, shape: queues.rootAgentSessionId, items: queues.queues }),
+        ),
+      }
+    }
+    case "shell_process": {
+      const processes = fromBinary(ShellProcessSnapshotSchema, snapshot.data)
+      return {
+        ...state,
+        processes: withInventory(state.processes, snapshot.ownerAgentSessionId, (owner) =>
+          observeInventory(owner, { ...chunk, shape: "", items: processes.processes }),
+        ),
+      }
+    }
+    default:
+      return state
+  }
+}
+
 function reduceActivity(activity: Activity, event: Event): Activity {
   const payload = event.payload
   switch (payload.case) {
@@ -293,47 +330,8 @@ function reduceItems(state: TimelineState, event: Event): TimelineState {
       return payload.value.notice ? notice(state, event, `↻ ${payload.value.notice}`) : state
     case "skillLoaded":
       return isRoot ? notice(state, event, `↻ Skill loaded: ${payload.value.path}`) : state
-    case "agentTaskProgressSnapshot": {
-      const current = state.taskProgress.get(event.agentSessionId)
-      return current && current.revision >= payload.value.revision
-        ? state
-        : { ...state, taskProgress: new Map(state.taskProgress).set(event.agentSessionId, payload.value) }
-    }
-    case "queueSnapshot": {
-      const snapshot = payload.value
-      return {
-        ...state,
-        queues: withInventory(state.queues, snapshot.ownerAgentSessionId, (owner) =>
-          observeInventory(owner, {
-            instance: snapshot.inventoryInstanceId,
-            revision: snapshot.revision,
-            index: snapshot.chunkIndex,
-            final: snapshot.finalChunk,
-            removed: snapshot.removed,
-            shape: snapshot.rootAgentSessionId,
-            items: snapshot.queues,
-          }),
-        ),
-      }
-    }
-    case "shellProcessSnapshot": {
-      const snapshot = payload.value
-      if (snapshot.chunkCount === 0 || snapshot.chunkIndex >= snapshot.chunkCount) return state
-      return {
-        ...state,
-        processes: withInventory(state.processes, snapshot.ownerAgentSessionId, (owner) =>
-          observeInventory(owner, {
-            instance: snapshot.inventoryInstanceId,
-            revision: snapshot.revision,
-            index: snapshot.chunkIndex,
-            final: snapshot.chunkIndex + 1 === snapshot.chunkCount,
-            removed: snapshot.removed,
-            shape: String(snapshot.chunkCount),
-            items: snapshot.processes,
-          }),
-        ),
-      }
-    }
+    case "toolSnapshot":
+      return reduceToolSnapshot(state, event, payload.value)
     case "sessionUsageSnapshot":
       // As the terminal CLI's RuntimeUsageTracker: an older snapshot never replaces a newer one.
       return state.usage && payload.value.revision < state.usage.revision ? state : { ...state, usage: payload.value }
