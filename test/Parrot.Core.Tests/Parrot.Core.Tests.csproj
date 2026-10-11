@@ -18,6 +18,7 @@
     <ProjectReference Include="../../src/Parrot.Composition/Parrot.Composition.csproj" />
     <ProjectReference Include="../../src/Parrot.Core/Parrot.Core.csproj" />
     <ProjectReference Include="../../src/Parrot.Tool.AgentTask/Parrot.Tool.AgentTask.csproj" />
+    <ProjectReference Include="../../src/Parrot.Mode.Plan/Parrot.Mode.Plan.csproj" />
   </ItemGroup>
 
 </Project>

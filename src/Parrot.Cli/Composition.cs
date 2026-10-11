@@ -1,5 +1,4 @@
 using Parrot.Agent;
-using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Diagnostics;
@@ -245,7 +244,10 @@ internal partial class Composition
                     skillCatalogFactory,
                     configuration.UserInputTimeout,
                     TimeProvider.System,
-                    AgentTaskParser.ParseArtifact);
+                    new Dictionary<string, IModeWorkflowFactory>(StringComparer.Ordinal)
+                    {
+                        [ModeRegistry.Plan] = new PlanModeWorkflowFactory(configuration.PromptTemplates),
+                    });
             })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>

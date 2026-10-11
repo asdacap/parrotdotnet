@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Parrot.Agent;
-using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Protocol;
@@ -472,7 +471,7 @@ internal sealed class ModeRegistryTests : IDisposable
 
     private static UserSessionModes Modes(ModeRegistry registry, string planDirectory)
     {
-        var modes = new UserSessionModes(registry, TestModels.PromptTemplates, AgentTaskParser.ParseArtifact);
+        var modes = new UserSessionModes(registry, TestModels.CreateModeWorkflows(TestModels.PromptTemplates));
         modes.Attach(new AgentScratchDirectory(Path.GetDirectoryName(planDirectory)
             ?? throw new InvalidOperationException("Plan directory has no parent.")));
         return modes;

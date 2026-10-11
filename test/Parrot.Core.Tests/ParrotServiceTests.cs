@@ -1,6 +1,5 @@
 using Grpc.Core;
 using Parrot.Agent;
-using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Diagnostics;
 using Parrot.Llm;
@@ -1598,7 +1597,7 @@ internal sealed class ParrotServiceTests : IDisposable
                 new SkillCatalogFactory(_configuration, _root, Path.Combine(_root, "packaged-skills")),
                 timeout,
                 timeProvider,
-                AgentTaskParser.ParseArtifact),
+                TestModels.CreateModeWorkflows(TestModels.PromptTemplates)),
             _router,
             new ModeRegistry(
                 new ProfileRegistry(

@@ -63,12 +63,12 @@ internal sealed class AgentTaskTests
     [Test]
     public async Task Planned_task_conversions_preserve_hidden_recursively()
     {
-        var tasks = AgentTaskParser.ParseArtifact("""
+        var artifact = AgentTaskParser.ParseArtifact("""
             {"schema_version":1,"tasks":[{"name":"root","description":"d","payload":[{"name":"child","description":"d","payload":"p","acceptance_criteria":"a","hidden":true}],"acceptance_criteria":"a","hidden":true}]}
-            """).Tasks;
+            """);
 
-        var progress = AgentTaskProgressSnapshot.FromPlannedTasks(tasks);
-        var declarations = PlanTaskDeclaration.FromPlannedTasks(tasks);
+        var progress = artifact.CaptureProgress();
+        var declarations = artifact.DeclareTasks();
 
         _ = await Assert.That(progress.RootNodes[0].Hidden).IsTrue();
         _ = await Assert.That(progress.RootNodes[0].Children[0].Hidden).IsTrue();

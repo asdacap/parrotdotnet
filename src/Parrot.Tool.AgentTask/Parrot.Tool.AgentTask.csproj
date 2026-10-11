@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Parrot.Composition" />
+    <InternalsVisibleTo Include="Parrot.Mode.Plan" />
     <InternalsVisibleTo Include="parrot" />
     <InternalsVisibleTo Include="Parrot.Tools.Tests" />
     <InternalsVisibleTo Include="Parrot.Core.Tests" />

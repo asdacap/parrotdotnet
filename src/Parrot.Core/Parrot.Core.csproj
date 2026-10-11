@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Parrot.Composition" />
+    <InternalsVisibleTo Include="Parrot.Mode.Plan" />
     <InternalsVisibleTo Include="Parrot.Core.Tests" />
     <!-- The CLI's own seams are typed in terms of these, so a test of the CLI
          cannot construct one without them. -->

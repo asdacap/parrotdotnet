@@ -109,6 +109,12 @@ internal static class TestModels
 
     public static AgentSendConfig AgentSend { get; } = new(true);
 
+    public static IReadOnlyDictionary<string, IModeWorkflowFactory> CreateModeWorkflows(IPromptTemplateCatalog promptTemplates) =>
+        new Dictionary<string, IModeWorkflowFactory>(StringComparer.Ordinal)
+        {
+            [ModeRegistry.Plan] = new PlanModeWorkflowFactory(promptTemplates),
+        };
+
     public static CompactionGroupBlobStore CompactionGroupBlobs() =>
         new(new AgentScratchDirectory(Path.Combine(
             Path.GetTempPath(),

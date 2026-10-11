@@ -29,6 +29,7 @@
     <InternalsVisibleTo Include="Parrot.Tool.Queue" />
     <InternalsVisibleTo Include="Parrot.Tool.Process" />
     <InternalsVisibleTo Include="Parrot.Tool.AgentTask" />
+    <InternalsVisibleTo Include="Parrot.Mode.Plan" />
     <InternalsVisibleTo Include="Parrot.Foundation" />
     <InternalsVisibleTo Include="Parrot.Infrastructure" />
     <InternalsVisibleTo Include="Parrot.Llm" />

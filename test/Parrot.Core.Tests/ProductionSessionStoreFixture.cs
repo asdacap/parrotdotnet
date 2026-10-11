@@ -1,5 +1,4 @@
 using Parrot.Agent;
-using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Diagnostics;
@@ -47,7 +46,7 @@ internal sealed class ProductionSessionStoreFixture : IDisposable
             new SkillCatalogFactory(Configuration, directory, Path.Combine(directory, "skills")),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
-            AgentTaskParser.ParseArtifact);
+            TestModels.CreateModeWorkflows(Configuration.PromptTemplates));
         Store = new SessionStore(Paths, directory, "host", factory, Router, Modes, _diagnostics);
     }
 

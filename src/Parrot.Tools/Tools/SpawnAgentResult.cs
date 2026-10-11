@@ -2,7 +2,7 @@ using System.Buffers;
 using System.Text;
 using System.Text.Json;
 
-namespace Parrot.Agent;
+namespace Parrot.Tools;
 
 internal sealed record SpawnAgentResult(string Name, int Depth, string OutputPath)
 {
