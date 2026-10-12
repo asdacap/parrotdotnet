@@ -146,6 +146,15 @@ internal sealed class RawActivityView(
         await commit(scrollback, Snapshot(), cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task FlushResponse(string owner, CancellationToken cancellationToken)
+    {
+        using var renderingLock = await _rendering.Lock(cancellationToken).ConfigureAwait(false);
+        if (_agentSessions.TryGetValue(owner, out var state))
+        {
+            await CommitResponse(state, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     public async Task Prepare(Event published, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(published);
@@ -1302,15 +1311,7 @@ internal sealed class RawActivityView(
         new(value, _hierarchy.GetDepth(state.AgentSessionId), _hierarchy.GetLabel(state.AgentSessionId));
 
     private Task CommitReasoning(AgentSessionState state, CancellationToken cancellationToken) =>
-        state.FlushReasoning(async reasoning =>
-        {
-            if (state.IsReasoningSummary && !_hierarchy.IsRoot(state.AgentSessionId))
-            {
-                await CommitResponse(state, cancellationToken).ConfigureAwait(false);
-            }
-
-            await commit(Wrap(state, reasoning), Snapshot(), cancellationToken).ConfigureAwait(false);
-        });
+        state.FlushReasoning(reasoning => commit(Wrap(state, reasoning), Snapshot(), cancellationToken));
 
     private Task CommitResponse(AgentSessionState state, CancellationToken cancellationToken) =>
         state.FlushResponse(response => commit(

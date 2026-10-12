@@ -1302,8 +1302,10 @@ internal sealed class EnhancedHierarchyTests
         await view.Render(
             new Event { AgentSessionId = "grandchild", TurnStarted = new TurnStarted { Model = "model" } },
             cancellationToken);
+        var coordinator = new AssistantTextFlushCoordinator(view.FlushResponse);
         async Task Publish(Event published)
         {
+            await coordinator.Prepare(published, cancellationToken);
             await view.Prepare(published, cancellationToken);
             await view.Render(published, cancellationToken);
         }
@@ -1322,25 +1324,24 @@ internal sealed class EnhancedHierarchyTests
             });
         await Publish(
             new Event { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = "Buffered response" } });
-        await Publish(
-            new Event
+        var childReasoning = new Event
+        {
+            AgentSessionId = "child",
+            ReasoningChunk = new ReasoningChunk
             {
-                AgentSessionId = "child",
-                ReasoningChunk = new ReasoningChunk
-                {
-                    Fragment = "# Findings\n- **bold**",
-                    Kind = ReasoningKind.Summary,
-                },
-            });
-        var flushChild = new Event
+                Fragment = "# Findings\n- **bold**",
+                Kind = ReasoningKind.Summary,
+            },
+        };
+        failResponseCommit = true;
+        _ = await Assert.That(async () => await coordinator.Prepare(childReasoning, cancellationToken))
+            .Throws<InvalidOperationException>();
+        await Publish(childReasoning);
+        await Publish(new Event
         {
             AgentSessionId = "child",
             ProviderRequestPhaseChanged = new ProviderRequestPhaseChangedEvent { Phase = ProviderRequestPhase.Idle },
-        };
-        failResponseCommit = true;
-        _ = await Assert.That(async () => await view.Prepare(flushChild, cancellationToken))
-            .Throws<InvalidOperationException>();
-        await view.Prepare(flushChild, cancellationToken);
+        });
         await Publish(
             new Event
             {

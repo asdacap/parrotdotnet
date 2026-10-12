@@ -259,8 +259,9 @@ internal sealed class EnhancedTurnRendererTests
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
         var committed = new List<string>();
         var context = new ScrollbackRenderContext(80, new TerminalPalette(false), configuration.InlineDiff);
+        var coordinator = new AssistantTextFlushCoordinator(static (_, _) => Task.CompletedTask);
         var completed = await new EnhancedTurnRenderer(terminal).RenderSessionTurn(
-                stream.Reader,
+                new AssistantTextFlushStreamReader(stream.Reader, coordinator),
                 static (_, _) => Task.CompletedTask,
                 static (_, _) => Task.CompletedTask,
                 static (_, _) => Task.CompletedTask,
@@ -270,6 +271,7 @@ internal sealed class EnhancedTurnRendererTests
                     return Task.CompletedTask;
                 },
                 new ForegroundTurn(),
+                coordinator,
                 cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
@@ -340,13 +342,15 @@ internal sealed class EnhancedTurnRendererTests
         using var error = new StringWriter();
         using var driver = new CliLifecycleDriver(enhanced: true);
         var terminal = new TestTerminal(driver.Input, output, error, 120);
+        var coordinator = new AssistantTextFlushCoordinator(fixture.View.FlushResponse);
         var completed = await new EnhancedTurnRenderer(terminal).RenderSessionTurn(
-            stream.Reader,
+            new AssistantTextFlushStreamReader(stream.Reader, coordinator),
             fixture.View.Prepare,
             fixture.View.Render,
             fixture.View.ReplaceContent,
             fixture.View.CommitContent,
             new ForegroundTurn(),
+            coordinator,
             cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
@@ -669,13 +673,15 @@ internal sealed class EnhancedTurnRendererTests
         }
 
         using var driver = new CliLifecycleDriver(enhanced: true);
+        var coordinator = new AssistantTextFlushCoordinator(static (_, _) => Task.CompletedTask);
         return await new EnhancedTurnRenderer(new TestTerminal(driver.Input, output, error, columns)).RenderSessionTurn(
-            stream.Reader,
+            new AssistantTextFlushStreamReader(stream.Reader, coordinator),
             beforeRender,
             static (_, _) => Task.CompletedTask,
             static (_, _) => Task.CompletedTask,
             Commit,
             new ForegroundTurn(),
+            coordinator,
             cancellationToken);
     }
 

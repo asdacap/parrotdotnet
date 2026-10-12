@@ -606,6 +606,97 @@ internal sealed class EnhancedRenderingSessionTests
     }
 
     [Test]
+    [Arguments("queue", "root", false)]
+    [Arguments("queue", "child", false)]
+    [Arguments("queue", "root", true)]
+    [Arguments("queue", "child", true)]
+    [Arguments("reasoning", "root", false)]
+    [Arguments("reasoning", "child", false)]
+    [Arguments("reasoning", "root", true)]
+    [Arguments("reasoning", "child", true)]
+    [Arguments("lifecycle", "root", false)]
+    [Arguments("lifecycle", "root", true)]
+    public async Task Selected_boundaries_split_only_the_owning_response_during_live_and_replayed_streams(
+        string boundaryKind,
+        string owner,
+        bool replaying,
+        CancellationToken cancellationToken)
+    {
+        var boundary = boundaryKind switch
+        {
+            "queue" => new Event
+            {
+                ToolSnapshot = TestToolSnapshots.QueueEnvelope(
+                    new ToolSnapshot { OwnerAgentSessionId = owner, InventoryInstanceId = "inventory", Revision = 1, FinalChunk = true },
+                    new QueueSnapshot { RootAgentSessionId = "root" }),
+            },
+            "reasoning" => new Event { AgentSessionId = owner, EncryptedReasoningReceived = new EncryptedReasoningReceivedEvent() },
+            _ => new Event { AgentSessionId = owner, AgentFinished = new AgentFinished() },
+        };
+        var stream = new ChannelStreamWriter<Event>();
+        Event[] events =
+        [
+            new() { AgentSessionId = "root", TurnStarted = new TurnStarted() },
+            new() { AgentSessionId = "child", AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" } },
+            new() { AgentSessionId = "child", TurnStarted = new TurnStarted() },
+            new() { AgentSessionId = "root", TextChunk = new TextChunk { Fragment = "root before" } },
+            new() { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = "child before" } },
+            new() { AgentSessionId = owner, ProviderCallUsage = new ProviderCallUsage { InputTokens = 1, OutputTokens = 1 } },
+            new() { SessionUsageSnapshot = new SessionUsageSnapshot { Revision = 1 } },
+            boundary,
+            new() { AgentSessionId = "root", TextChunk = new TextChunk { Fragment = "root after" } },
+            new() { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = "child after" } },
+            new() { AgentSessionId = "child", TurnEnded = new TurnEnded() },
+            new() { AgentSessionId = "root", TurnEnded = new TurnEnded() },
+            new() { AgentSessionId = "root", ModeTurnCompleted = new ModeTurnCompleted() },
+        ];
+        foreach (var published in events)
+        {
+            await stream.WriteAsync(published, cancellationToken);
+        }
+
+        stream.Complete();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var terminal = new TestTerminal(driver.Input, output, error, 120);
+        var observed = new List<Event.PayloadOneofCase>();
+        var mainTurns = 0;
+        await using var session = new EnhancedRenderingSession(
+            new EnhancedTurnRenderer(terminal),
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            new TerminalFrameRenderer(output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(false), 10, 12, true),
+            new TestSlashSession("provider/model"),
+            [new PromptValue("> ", string.Empty, 0)],
+            (published, _) =>
+            {
+                observed.Add(published.PayloadCase);
+                return Task.CompletedTask;
+            },
+            _ =>
+            {
+                mainTurns++;
+                return Task.CompletedTask;
+            },
+            static _ => Task.CompletedTask,
+            static () => true,
+            static (_, _) => Task.CompletedTask,
+            true);
+        _ = await session.RunWithReplay(stream.Reader, () => replaying, cancellationToken);
+        var rendered = output.ToString();
+        var prefix = owner == "root" ? "● " : "  ● [worker] ";
+        _ = await Assert.That(rendered).Contains($"{prefix}{owner} after\r\n");
+        _ = await Assert.That(rendered).DoesNotContain($"{owner} before{owner} after");
+        var otherOwner = owner == "root" ? "child" : "root";
+        _ = await Assert.That(rendered).Contains($"{otherOwner} before{otherOwner} after");
+        _ = await Assert.That(mainTurns).IsEqualTo(replaying ? 0 : 1);
+        _ = await Assert.That(observed).DoesNotContain(Event.PayloadOneofCase.ProviderCallUsage);
+        _ = await Assert.That(observed).DoesNotContain(Event.PayloadOneofCase.ToolSnapshot);
+        _ = await Assert.That(observed).DoesNotContain(Event.PayloadOneofCase.AgentFinished);
+        _ = await Assert.That(error.ToString()).IsEmpty();
+    }
+
+    [Test]
     public async Task Run_orders_and_deduplicates_queue_snapshot_and_starts_only_main_turn(
         CancellationToken cancellationToken)
     {

@@ -1,5 +1,4 @@
 using Parrot.Protocol;
-using Parrot.Queues;
 
 namespace Parrot.Cli.Enhanced;
 
@@ -18,19 +17,14 @@ internal sealed class EnhancedTurnView(
     private readonly MarkdownLiveRenderer _live = new(columns, color);
     private MarkdownLiveUpdate? _pendingTextCompletion;
     private bool _textActive;
+    private string? _textOwner;
     private int _textSegment;
 
     private string TextId => $"assistant-{_textSegment}";
 
-    public async Task Prepare(Event published, CancellationToken cancellationToken)
+    public async Task FlushResponse(string owner, CancellationToken cancellationToken)
     {
-        if (published.ToolSnapshot?.Kind == QueueInventoryProtocol.Kind
-            || foreground.IsChild(published.AgentSessionId))
-        {
-            return;
-        }
-
-        if (_textActive && published.PayloadCase != Event.PayloadOneofCase.TextChunk)
+        if (_textActive && string.Equals(_textOwner, owner, StringComparison.Ordinal))
         {
             await CommitText(cancellationToken).ConfigureAwait(false);
         }
@@ -77,6 +71,7 @@ internal sealed class EnhancedTurnView(
             case Event.PayloadOneofCase.TextChunk:
                 if (!foreground.IsChild(published.AgentSessionId))
                 {
+                    _textOwner ??= published.AgentSessionId;
                     _textActive = true;
                     var update = _live.Append(
                         new LiveTerminalStreamMessage(
@@ -153,6 +148,7 @@ internal sealed class EnhancedTurnView(
         await Apply(_pendingTextCompletion.Value, cancellationToken).ConfigureAwait(false);
         _pendingTextCompletion = null;
         _textActive = false;
+        _textOwner = null;
         _textSegment++;
     }
 }

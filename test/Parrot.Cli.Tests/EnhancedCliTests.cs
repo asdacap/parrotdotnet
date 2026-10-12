@@ -1114,11 +1114,13 @@ internal sealed class EnhancedCliTests
 
         using var error = new StringWriter();
         var view = new EnhancedTurnView(Replace, Commit, error, static () => 80, false, new ForegroundTurn());
+        var coordinator = new AssistantTextFlushCoordinator(static (_, _) => Task.CompletedTask);
+        coordinator.BindRoot(view.FlushResponse);
         var text = new Event { TextChunk = new TextChunk { Fragment = "pending" } };
-        await view.Prepare(text, cancellationToken);
+        await coordinator.Prepare(text, cancellationToken);
         _ = await view.Render(text, cancellationToken);
         var reasoning = new Event { ReasoningChunk = new ReasoningChunk { Fragment = "thinking" } };
-        await view.Prepare(reasoning, cancellationToken);
+        await coordinator.Prepare(reasoning, cancellationToken);
         _ = await view.Render(reasoning, cancellationToken);
 
         _ = await Assert.That(replacements).Contains("● pending");
@@ -1152,7 +1154,9 @@ internal sealed class EnhancedCliTests
             new Event { TextChunk = new TextChunk { Fragment = "complete line\nsuffix" } },
             cancellationToken);
 
-        _ = await Assert.That(async () => await view.Prepare(
+        var coordinator = new AssistantTextFlushCoordinator(static (_, _) => Task.CompletedTask);
+        coordinator.BindRoot(view.FlushResponse);
+        _ = await Assert.That(async () => await coordinator.Prepare(
             new Event { TurnEnded = new TurnEnded() },
             cancellationToken)).Throws<OperationCanceledException>();
         await view.Cancel(CancellationToken.None);
@@ -1423,14 +1427,21 @@ internal sealed class EnhancedCliTests
         await driver.OutputContains("queue: work · 2 items — pending work", cancellationToken);
         await driver.Invoker.Publish(new Event
         {
+            AgentSessionId = "agent",
+            TextChunk = new TextChunk { Fragment = "continued answer" },
+        });
+        await driver.Invoker.Publish(new Event
+        {
             ToolSnapshot = TestToolSnapshots.QueueEnvelope(new ToolSnapshot { OwnerAgentSessionId = "agent", InventoryInstanceId = "inventory", Revision = 2, FinalChunk = true }, new QueueSnapshot { RootAgentSessionId = "agent" }),
         });
+        await driver.OutputContains("● continued answer\r\n", cancellationToken);
         await driver.Invoker.Publish(new Event
         {
             Id = "end",
             AgentSessionId = "agent",
             TurnEnded = new TurnEnded { FinishReason = "stop" },
         });
+        await driver.OutputContains("agent finished", cancellationToken);
 
         driver.Input.End();
         _ = await driving;

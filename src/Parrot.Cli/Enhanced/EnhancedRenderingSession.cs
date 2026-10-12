@@ -140,7 +140,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(isReplaying);
-        return RunCore(new ProviderCallUsageStreamReader(stream, ObserveProviderCallUsage), isReplaying, cancellationToken);
+        return RunCore(stream, isReplaying, cancellationToken);
     }
 
     internal async Task ReplaceInput(
@@ -359,8 +359,11 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
             CommitBody,
             _toolPresenters,
             UpdateMainAgentActivity);
+        var flushCoordinator = new AssistantTextFlushCoordinator(activity.FlushResponse);
+        var observedStream = new AssistantTextFlushStreamReader(stream, flushCoordinator);
+        var providerUsageStream = new ProviderCallUsageStreamReader(observedStream, ObserveProviderCallUsage);
         var preamble = true;
-        var usageStream = new SessionUsageSnapshotStreamReader(stream, async (snapshot, token) =>
+        var usageStream = new SessionUsageSnapshotStreamReader(providerUsageStream, async (snapshot, token) =>
         {
             if (preamble)
             {
@@ -439,6 +442,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
                     activity.ReplaceContent,
                     activity.CommitContent,
                     _foreground,
+                    flushCoordinator,
                     cancellationToken).ConfigureAwait(false);
 
                 if (!completed && !failed)

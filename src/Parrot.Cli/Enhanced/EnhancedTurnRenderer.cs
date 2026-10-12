@@ -12,6 +12,7 @@ internal sealed class EnhancedTurnRenderer(ITerminal terminal)
         Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
         Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
         ForegroundTurn foreground,
+        AssistantTextFlushCoordinator flushCoordinator,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
@@ -24,12 +25,12 @@ internal sealed class EnhancedTurnRenderer(ITerminal terminal)
             terminal.Color,
             foreground);
 
+        flushCoordinator.BindRoot(view.FlushResponse);
         try
         {
             while (await stream.MoveNext(cancellationToken).ConfigureAwait(false))
             {
                 await beforeRender(stream.Current, cancellationToken).ConfigureAwait(false);
-                await view.Prepare(stream.Current, cancellationToken).ConfigureAwait(false);
                 var completed = await view.Render(stream.Current, cancellationToken).ConfigureAwait(false);
                 await afterRender(stream.Current, cancellationToken).ConfigureAwait(false);
                 if (completed is not null)
@@ -50,6 +51,10 @@ internal sealed class EnhancedTurnRenderer(ITerminal terminal)
         {
             await view.Cancel(CancellationToken.None).ConfigureAwait(false);
             throw;
+        }
+        finally
+        {
+            flushCoordinator.UnbindRoot();
         }
     }
 }
