@@ -80,6 +80,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             TestModels.PromptTemplates).Create(session);
         var writeStdinFactoryTool = new WriteStdinToolFactory(processes, new ResourceResolverFixture(null, null), TestModels.ToolDefinitions).Create(session);
         _ = await Assert.That(factoryTool.Name).IsEqualTo("exec_command");
+        _ = await Assert.That(factoryTool.Aliases.Single()).IsEqualTo("bash");
         _ = await Assert.That(writeStdinFactoryTool.Name).IsEqualTo("write_stdin");
 
         var result = await Execute(tool, """{"command":"printf out; printf err >&2; exit 7"}""", selection, cancellationToken);

@@ -12,6 +12,9 @@ internal interface ITool
 {
     string Name { get; }
 
+    // Alternate invocation names only; model-facing definitions keep the canonical name.
+    IReadOnlyList<string> Aliases => [];
+
     // True keeps the tool offered on the final provider request of a turn, reached
     // via the turn limit or via agent_interrupt; only tools that settle active work
     // or answer children qualify.

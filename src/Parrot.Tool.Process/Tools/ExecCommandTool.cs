@@ -24,6 +24,8 @@ internal sealed class ExecCommandTool(
 
     public string Name => "exec_command";
 
+    public IReadOnlyList<string> Aliases => ["bash"];
+
     public bool IsParallelSafe(ToolInvocation invocation)
     {
         ArgumentNullException.ThrowIfNull(invocation);

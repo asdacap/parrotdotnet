@@ -39,6 +39,14 @@ internal sealed class ToolSnapshot
                 throw new InvalidDataException($"tool '{tool.Name}' is registered more than once");
             }
 
+            foreach (var alias in tool.Aliases)
+            {
+                if (!names.Add(alias))
+                {
+                    throw new InvalidDataException($"tool '{alias}' is registered more than once");
+                }
+            }
+
             if (supported[index])
             {
                 var definition = definitions[index];
@@ -50,7 +58,9 @@ internal sealed class ToolSnapshot
     }
 
     public ITool? Find(string name) =>
-        _entries.FirstOrDefault(entry => string.Equals(entry.Tool.Name, name, StringComparison.Ordinal))?.Tool;
+        _entries.FirstOrDefault(entry =>
+            string.Equals(entry.Tool.Name, name, StringComparison.Ordinal)
+            || entry.Tool.Aliases.Contains(name, StringComparer.Ordinal))?.Tool;
 
     public ToolSnapshot PermittedBy(IAgentProfile profile)
     {
