@@ -164,6 +164,8 @@ internal sealed class ProcessRunnerTests : IDisposable
         }
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        _ = await Assert.That(arguments).DoesNotContain("--unshare-user");
+        _ = await Assert.That(arguments).DoesNotContain("--unshare-pid");
         var syntheticDevices = Array.LastIndexOf(arguments, "--dev");
         var proc = Array.LastIndexOf(arguments, "--proc");
         var command = Array.IndexOf(arguments, "--chdir");
