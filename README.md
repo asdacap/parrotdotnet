@@ -508,10 +508,28 @@ configuration scalars replace rather than merge, overriding a profile prompt
 replaces the complete predefined prompt, including its default behavioral
 instructions; there is no separate `hard_rules` field to inherit or override.
 Runtime restrictions such as `read_only`, tool filtering, and sandbox rules
-remain independently enforced and are not weakened by prompt text. A child
-profile can recur only up to its selected profile's recursion limit. Profile
+remain independently enforced and are not weakened by prompt text. Profile
 sandbox rules append to that profile's predefined list; top-level
 `sandbox_rules` apply to every profile.
+
+Two top-level boolean switches disable execution limits globally, including for
+AgentTask workers. Both ship as `true`:
+
+```yaml
+disable_max_turns: true
+disable_recursion_limit: true
+```
+
+`disable_max_turns: true` allows unlimited provider requests per agent turn,
+ignoring each profile's `max_turns`. Explicit interruption and cancellation still
+work. Set it to `false` to restore the profile's turn budget and final-request
+settlement behavior.
+
+`disable_recursion_limit: true` bypasses both the profile's `recursion_limit`
+and the maximum child-agent depth of four. Set it to `false` to restore both
+checks. Other spawning restrictions, including retained-agent capacity and
+security inheritance, remain enforced. Profile limit values remain configured
+and validated even while their enforcement is disabled.
 
 A spawned child inherits its runtime parent's current effective security
 profile and may only narrow it with the selected child profile; a child allow

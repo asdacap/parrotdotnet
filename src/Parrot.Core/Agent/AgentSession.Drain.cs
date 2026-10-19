@@ -634,7 +634,7 @@ internal sealed partial class AgentSession
         CancellationToken cancellationToken)
     {
         var answer = string.Empty;
-        var budget = new TurnBudget();
+        var budget = new TurnBudget(agentLimits.DisableMaxTurns);
         var completionRetryPending = false;
         var compactedOversizedRequest = false;
         ToolSnapshot? activeTools = null;

@@ -331,6 +331,7 @@ internal sealed class LocalSessionIntegrationTests
                 configuration.ToolDefinitions,
                 configuration.AgentTasks,
                 configuration.AgentSend,
+                configuration.AgentLimits,
                 configuration.RequestLimits,
                 configuration.ReadOnlyExecCommandPrefixes,
                 router,

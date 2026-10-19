@@ -32,6 +32,7 @@ internal sealed class ProductionSessionStoreFixture : IDisposable
             Configuration.ToolDefinitions,
             Configuration.AgentTasks,
             Configuration.AgentSend,
+            Configuration.AgentLimits,
             Configuration.RequestLimits,
             Configuration.ReadOnlyExecCommandPrefixes,
             Router,

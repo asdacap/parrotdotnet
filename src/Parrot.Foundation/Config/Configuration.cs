@@ -35,6 +35,8 @@ internal sealed partial class Configuration(string path)
     private const string CompactionKey = "compaction";
     private const string AgentTasksKey = "agent_tasks";
     private const string AgentSendToParentKey = "agent_send_to_parent";
+    private const string DisableMaxTurnsKey = "disable_max_turns";
+    private const string DisableRecursionLimitKey = "disable_recursion_limit";
     private const string RequestLimitsKey = "request_limits";
     private const string ImageUploadKey = "image_upload";
     private const string ToolsKey = "tools";
@@ -114,6 +116,8 @@ internal sealed partial class Configuration(string path)
         new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)));
 
     public AgentSendConfig AgentSend { get; private set; } = new(false);
+
+    public AgentLimitsConfig AgentLimits { get; private set; } = new(true, true);
 
     public ToolDefinitionCatalog ToolDefinitions { get; private set; } = new(
         new Dictionary<string, IToolDefinition>(StringComparer.Ordinal));
@@ -273,6 +277,9 @@ internal sealed partial class Configuration(string path)
             Compaction = ReadCompaction(root),
             AgentTasks = ReadAgentTasks(root),
             AgentSend = new AgentSendConfig(ReadBoolean(root, AgentSendToParentKey, AgentSendToParentKey)),
+            AgentLimits = new AgentLimitsConfig(
+                ReadBoolean(root, DisableMaxTurnsKey, DisableMaxTurnsKey),
+                ReadBoolean(root, DisableRecursionLimitKey, DisableRecursionLimitKey)),
             ToolDefinitions = ReadToolDefinitions(root),
             Skills = ReadSkills(root),
         };

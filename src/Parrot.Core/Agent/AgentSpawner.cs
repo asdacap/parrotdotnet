@@ -1,5 +1,6 @@
 using System.Runtime.ExceptionServices;
 using System.Text;
+using Parrot.Config;
 using Parrot.Store;
 
 namespace Parrot.Agent;
@@ -11,6 +12,7 @@ internal sealed class AgentSpawner : IAgentSpawner
     private readonly IAgentRegistry _authority;
     private readonly IAgentParentScope _parentSessionScope;
     private readonly IChildRegistry _children;
+    private readonly AgentLimitsConfig _agentLimits;
     private readonly CancellationTokenSource _lifetime;
     private readonly Lock _gate = new();
     private readonly Lock _spawnGate = new();
@@ -23,12 +25,14 @@ internal sealed class AgentSpawner : IAgentSpawner
         AgentIdentity owner,
         IAgentRegistry authority,
         IAgentParentScope parentSessionScope,
-        IChildRegistry children)
+        IChildRegistry children,
+        AgentLimitsConfig agentLimits)
     {
         _owner = owner ?? throw new ArgumentNullException(nameof(owner));
         _authority = authority ?? throw new ArgumentNullException(nameof(authority));
         _parentSessionScope = parentSessionScope ?? throw new ArgumentNullException(nameof(parentSessionScope));
         _children = children ?? throw new ArgumentNullException(nameof(children));
+        _agentLimits = agentLimits;
         _lifetime = CancellationTokenSource.CreateLinkedTokenSource(authority.ChildLifetime);
     }
 
@@ -156,9 +160,9 @@ internal sealed class AgentSpawner : IAgentSpawner
         return conflictingNames == 0 ? basis : $"{basis}-{conflictingNames + 1}";
     }
 
-    private static AgentSelection SelectChild(AgentPolicyLineage lineage, IAgentProfile profile, Llm.ModelSelector model)
+    private AgentSelection SelectChild(AgentPolicyLineage lineage, IAgentProfile profile, Llm.ModelSelector model)
     {
-        if (lineage.CountProfile(profile.Id) >= profile.RecursionLimit)
+        if (!_agentLimits.DisableRecursionLimit && lineage.CountProfile(profile.Id) >= profile.RecursionLimit)
         {
             throw new AgentRegistryException("subagent profile recursion limit reached");
         }
@@ -198,7 +202,7 @@ internal sealed class AgentSpawner : IAgentSpawner
         }
 
         var depth = _owner.Depth + 1;
-        if (depth > MaxDepth)
+        if (!_agentLimits.DisableRecursionLimit && depth > MaxDepth)
         {
             throw new AgentRegistryException("subagent depth limit reached");
         }

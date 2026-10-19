@@ -25,6 +25,7 @@ internal sealed record AgentSessionScopeArguments(
     WebFetcher WebFetcher,
     AgentTaskConfig AgentTasks,
     AgentSendConfig AgentSend,
+    AgentLimitsConfig AgentLimits,
     RequestLimitsConfig RequestLimits,
     ToolDefinitionCatalog ToolDefinitions,
     IReadOnlyList<string> ReadOnlyExecCommandPrefixes,

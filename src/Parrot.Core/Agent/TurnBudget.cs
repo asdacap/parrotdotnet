@@ -5,7 +5,7 @@ namespace Parrot.Agent;
 // agent_interrupt. Settlement tools stay; everything else goes. Each
 // settlement batch grants one more final request, bounded by
 // MaxSettlementExtensions, then the turn fails as a runaway.
-internal sealed class TurnBudget
+internal sealed class TurnBudget(bool disableMaxTurns)
 {
     private const int MaxSettlementExtensions = 4;
 
@@ -29,12 +29,12 @@ internal sealed class TurnBudget
     public TurnRequestPhase? Admit(int maxTurns, bool interruptionRequested)
     {
         _interrupted |= interruptionRequested;
-        if (_providerRequests >= maxTurns + _settlementExtensions && !_interrupted)
+        if (!disableMaxTurns && _providerRequests >= maxTurns + _settlementExtensions && !_interrupted)
         {
             return null;
         }
 
-        var finalPhase = _interrupted || _providerRequests + 1 >= maxTurns;
+        var finalPhase = _interrupted || (!disableMaxTurns && _providerRequests + 1 >= maxTurns);
         var entersFinalPhase = finalPhase && !_finalPhaseActive;
         _finalPhaseActive |= finalPhase;
         return new TurnRequestPhase(finalPhase, entersFinalPhase, _interrupted);

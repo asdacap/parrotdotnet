@@ -98,6 +98,7 @@ internal sealed class ProviderRequestIntegrationTests : IDisposable
             new ContextCadence(),
             templates,
             profile,
+            configuration.AgentLimits,
             [],
             new AgentSessionSecurity(profile.SecurityProfile, resources.Workspace, resources.AgentsDirectory),
             new Skills.AgentSkills(new Skills.SkillCatalog([], () => (SkillConfiguration.Default, 0L)), templates),

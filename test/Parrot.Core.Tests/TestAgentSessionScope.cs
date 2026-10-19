@@ -73,7 +73,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
             [new RuntimeTreeStatusProvider(registry, promptTemplates), new AgentTaskStatusProvider(_agentTasks, promptTemplates)]));
         _queues.Initialize();
         ParentScope = AgentSessionParentScope.Bind(owner, registry, () => this, ChildRegistry, parentLink);
-        AgentSpawner = new AgentSpawner(owner, registry, ParentScope, ChildRegistry);
+        AgentSpawner = new AgentSpawner(owner, registry, ParentScope, ChildRegistry, new AgentLimitsConfig(false, false));
         ChildQuestions = new ChildQuestionCoordinator(ParentScope, ChildRegistry, promptTemplates);
     }
 

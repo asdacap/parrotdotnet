@@ -222,6 +222,7 @@ internal partial class Composition
                     configuration.ToolDefinitions,
                     configuration.AgentTasks,
                     configuration.AgentSend,
+                    configuration.AgentLimits,
                     configuration.RequestLimits,
                     configuration.ReadOnlyExecCommandPrefixes,
                     router,

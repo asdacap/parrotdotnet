@@ -23,6 +23,25 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    [Arguments(false, false)]
+    [Arguments(false, true)]
+    [Arguments(true, false)]
+    [Arguments(true, true)]
+    public async Task Global_limit_switches_can_be_overridden_independently(bool disableMaxTurns, bool disableRecursionLimit)
+    {
+        var path = Write($"disable_max_turns: {disableMaxTurns.ToString(CultureInfo.InvariantCulture).ToLowerInvariant()}\ndisable_recursion_limit: {disableRecursionLimit.ToString(CultureInfo.InvariantCulture).ToLowerInvariant()}\n");
+        var configuration = Load(path);
+        _ = await Assert.That(configuration.AgentLimits.DisableMaxTurns).IsEqualTo(disableMaxTurns);
+        _ = await Assert.That(configuration.AgentLimits.DisableRecursionLimit).IsEqualTo(disableRecursionLimit);
+    }
+
+    [Test]
+    [Arguments("disable_max_turns")]
+    [Arguments("disable_recursion_limit")]
+    public void Global_limit_switches_reject_non_boolean_values(string key) =>
+        Assert.Throws<InvalidDataException>(() => Load(Write($"{key}: unlimited")));
+
+    [Test]
     [Arguments(false)]
     [Arguments(true)]
     public async Task Context_limit_snapshots_round_trip_and_clear_without_changing_alias_metadata(bool empty)

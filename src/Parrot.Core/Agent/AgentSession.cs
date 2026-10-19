@@ -45,6 +45,7 @@ internal sealed partial class AgentSession(
     ContextCadence contextCadence,
     IPromptTemplateCatalog promptTemplates,
     IAgentProfile profile,
+    AgentLimitsConfig agentLimits,
     [InjectionTag("turnCompletionCallbacks")] IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
     AgentSessionSecurity security,
     AgentSkills skills,

@@ -202,6 +202,7 @@ internal static class TestModels
             contextCadence,
             promptTemplates,
             profile,
+            new AgentLimitsConfig(false, false),
             turnCompletionCallbacks,
             security,
             skills,
