@@ -626,7 +626,7 @@ internal sealed class CompactorAndContextTests : IDisposable
 
         var firstModel = new ProviderModel(
             provider,
-            new LLMModel("first", provider.Id) { ContextWindow = 20_000 });
+            new LLMModel("first", provider.Id) { ContextWindow = 20_000, MaxOutputTokens = 1 });
         await using IAgentSession session = dependencies.CreateRootSession(identity, firstModel, broker, repository, _workspace, _workspace, _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates), cancellationToken);
         using var turns = broker.Subscribe();
         foreach (var prompt in new[] { "start", new string('x', 4_000), new string('y', 40_000) })
@@ -664,7 +664,7 @@ internal sealed class CompactorAndContextTests : IDisposable
 
         var secondModel = new ProviderModel(
             provider,
-            new LLMModel("second", provider.Id) { ContextWindow = 40_000 });
+            new LLMModel("second", provider.Id) { ContextWindow = 40_000, MaxOutputTokens = 1 });
         var resolvedSecondModel = TestModels.Resolve(secondModel);
         restarted.UpdateSelection(restarted.CurrentSelection() with { RequestedModel = resolvedSecondModel.RequestedSelector }, resolvedSecondModel);
         _ = await restarted.Send(
@@ -707,7 +707,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var provider = new ScriptedProvider("reply");
         var model = new ProviderModel(
             provider,
-            new LLMModel("model", provider.Id) { ContextWindow = 20_000 });
+            new LLMModel("model", provider.Id) { ContextWindow = 20_000, MaxOutputTokens = 1 });
         var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
@@ -720,7 +720,8 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await turns.TurnEnding(session.SessionId, cancellationToken);
         var instructions = provider.Requests[0].Instructions;
         var history = repository.ModelHistory("agent");
-        var targetTokens = ((long)model.Model.ContextWindow * 99 / 100) - 10;
+        var targetTokens = (compactor.EstimateContext(model, instructions, [], history).TriggerTokens
+            ?? throw new InvalidOperationException("Expected a compaction trigger.")) - 10;
         var baselineTokens = Compactor.EstimateInputTokens(
             model,
             instructions,
@@ -761,7 +762,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         var model = new ProviderModel(
             provider,
-            new LLMModel("model", provider.Id) { ContextWindow = 20_000 });
+            new LLMModel("model", provider.Id) { ContextWindow = 20_000, MaxOutputTokens = 1 });
         var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
@@ -825,6 +826,36 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    public async Task Agent_session_compacts_before_history_consumes_reserved_completion_tokens(
+        CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var broker = new EventBroker();
+        var provider = new ScriptedProvider("reply");
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 180_000 });
+        var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
+        var repository = new EventRepository(database);
+        using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
+        var compactor = new Compactor(95, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
+        await using IAgentSession session = dependencies.CreateRootSession(identity, model, broker, repository, _workspace, _workspace, _compactionGroupBlobs, compactor, cancellationToken);
+        using var turns = broker.Subscribe();
+
+        for (var turn = 0; turn < 8; turn++)
+        {
+            _ = await session.Send(
+                [ConversationPart.TextPart(new string('x', 80_000))], Identifier.MessageId(), Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
+            _ = await turns.TurnEnding(session.SessionId, cancellationToken);
+        }
+
+        _ = await Assert.That(repository.Compaction("agent")).IsNotNull();
+        var finalRequest = provider.Requests[^1];
+        var finalContext = compactor.EstimateContext(model, finalRequest.Instructions, finalRequest.Tools, finalRequest.Messages);
+        _ = await Assert.That(finalContext.ExceedsTrigger).IsFalse();
+        _ = await Assert.That(finalRequest.MaxOutputTokens).IsEqualTo(32_768);
+        _ = await Assert.That(finalContext.TriggerTokens).IsEqualTo(140_220L);
+    }
+
+    [Test]
     public async Task Agent_session_compaction_preserves_the_current_history(CancellationToken cancellationToken)
     {
         using var database = SessionDatabase.Open(":memory:");
@@ -876,7 +907,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var provider = new ScriptedProvider("reply");
         var model = new ProviderModel(
             provider,
-            new LLMModel("model", provider.Id) { ContextWindow = 10_000 });
+            new LLMModel("model", provider.Id) { ContextWindow = 10_000, MaxOutputTokens = 1 });
         var identity = AgentIdentity.Main("agent", "main", TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
@@ -1600,13 +1631,13 @@ internal sealed class CompactorAndContextTests : IDisposable
         };
 
         _ = await Assert.That(compactor.EstimateContext(
-            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 }), string.Empty, [], history).ExceedsTrigger).IsFalse();
+            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000, MaxOutputTokens = 1 }), string.Empty, [], history).ExceedsTrigger).IsFalse();
         _ = await Assert.That(compactor.EstimateContext(
-            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 500 }), string.Empty, [], history).ExceedsTrigger).IsTrue();
+            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 500, MaxOutputTokens = 1 }), string.Empty, [], history).ExceedsTrigger).IsTrue();
         _ = await Assert.That(compactor.EstimateContext(
-            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 }), new string('i', 2_000), [], history).ExceedsTrigger).IsTrue();
+            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000, MaxOutputTokens = 1 }), new string('i', 2_000), [], history).ExceedsTrigger).IsTrue();
         _ = await Assert.That(compactor.EstimateContext(
-            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 }), string.Empty, tools, history).ExceedsTrigger).IsTrue();
+            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000, MaxOutputTokens = 1 }), string.Empty, tools, history).ExceedsTrigger).IsTrue();
     }
 
     [Test]
@@ -1625,7 +1656,7 @@ internal sealed class CompactorAndContextTests : IDisposable
     {
         var provider = new ScriptedProvider("summary");
         var compactor = new Compactor(50, 30, 60_000, 1024, new(new Dictionary<string, Parrot.Config.ModelProfileConfig>(StringComparer.Ordinal)), TestModels.PromptTemplates);
-        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = contextLimit });
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = contextLimit, MaxOutputTokens = 1 });
 
         var snapshot = compactor.EstimateContext(model, instructions, [], []);
 
@@ -1695,6 +1726,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         {
             ContextWindow = contextWindow,
             MaxInputTokens = inputLimit,
+            MaxOutputTokens = 1,
         });
         var alias = new ModelAliasDefinition("alias", model.Selector, string.Empty, null, null)
         {
@@ -1728,7 +1760,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("summary");
-        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000 });
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 1_000, MaxOutputTokens = 1 });
         var selection = new ResolvedModelSelection(
             new ModelSelector(model.Selector),
             null,

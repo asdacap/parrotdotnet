@@ -67,9 +67,7 @@ internal sealed class Compactor(
         return new ContextSnapshot(estimatedTokens, contextLimit, usagePercent, triggerPercent)
         {
             InputLimit = selectedModel.Model.InputTokenLimit,
-            TriggerTokens = selectedModel.Model.InputTokenLimit > 0
-                ? (long)selectedModel.Model.InputTokenLimit * triggerPercent / 100
-                : null,
+            TriggerTokens = ContextCompactionPolicy.Resolve(null, null, selectedModel.Model, triggerPercent, targetPercent).TriggerTokens,
         };
     }
 
@@ -79,8 +77,7 @@ internal sealed class Compactor(
         return ContextCompactionPolicy.Resolve(
             selectedModel.ContextLimit,
             targetContextSize,
-            selectedModel.CanonicalModel.Model.ContextWindow,
-            selectedModel.CanonicalModel.Model.InputTokenLimit,
+            selectedModel.CanonicalModel.Model,
             triggerPercent,
             targetPercent);
     }

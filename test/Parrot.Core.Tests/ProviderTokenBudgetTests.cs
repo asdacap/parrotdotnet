@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Context;
 using Parrot.Llm;
 
 namespace Parrot.Core.Tests;
@@ -90,6 +91,46 @@ internal sealed class ProviderTokenBudgetTests
         _ = await Assert.That(maximumOutput).IsEqualTo(expectedOutput);
         _ = await Assert.That(calibratedInput + maximumOutput + (long)Math.Ceiling(calibratedInput * 0.05))
             .IsLessThanOrEqualTo(model.ContextWindow);
+    }
+
+    [Test]
+    [Arguments(180_000, 0)]
+    [Arguments(180_000, 8_192)]
+    [Arguments(180_000, 65_536)]
+    [Arguments(1_000, 100)]
+    [Arguments(22, 2)]
+    [Arguments(23, 3)]
+    [Arguments(int.MaxValue, 0)]
+    public async Task Compaction_boundary_preserves_full_requested_output_and_request_headroom(
+        int contextWindow, int outputLimit)
+    {
+        var model = new LLMModel("model", "provider")
+        {
+            ContextWindow = contextWindow,
+            MaxOutputTokens = outputLimit,
+        };
+        var policy = ContextCompactionPolicy.Resolve(null, null, model, 100, 30);
+        var trigger = policy.TriggerTokens ?? throw new InvalidOperationException("Expected a compaction trigger.");
+        var budget = new ProviderTokenBudget();
+
+        _ = await Assert.That(budget.CalculateMaximumOutputTokens(Selector, trigger, model)).IsEqualTo(model.RequestedOutputTokens);
+        _ = await Assert.That(budget.CalculateMaximumOutputTokens(Selector, trigger + 1, model)).IsLessThan(model.RequestedOutputTokens);
+    }
+
+    [Test]
+    public async Task Compaction_triggers_before_request_has_no_output_capacity()
+    {
+        var model = new LLMModel("model", "provider") { ContextWindow = 1_000, MaxOutputTokens = 1 };
+        var policy = ContextCompactionPolicy.Resolve(null, null, model, 100, 30);
+        var trigger = policy.TriggerTokens ?? throw new InvalidOperationException("Expected a compaction trigger.");
+        var snapshot = new ContextSnapshot(trigger, model.ContextWindow, null, 100) { TriggerTokens = trigger };
+        var budget = new ProviderTokenBudget();
+
+        _ = await Assert.That(snapshot.ExceedsTrigger).IsFalse();
+        _ = await Assert.That(budget.CalculateMaximumOutputTokens(Selector, trigger, model)).IsEqualTo(1);
+        _ = await Assert.That(snapshot.ExceedsCompactionTrigger(trigger + 1)).IsTrue();
+        _ = await Assert.That(() => budget.CalculateMaximumOutputTokens(Selector, trigger + 1, model))
+            .ThrowsExactly<InvalidOperationException>().WithMessage("The conversation leaves no output capacity in the selected model context window.");
     }
 
     [Test]

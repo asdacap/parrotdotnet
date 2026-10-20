@@ -4,8 +4,6 @@ namespace Parrot.Agent;
 
 internal sealed class ProviderTokenBudget
 {
-    private const int DefaultMaximumOutputTokens = 32 * 1024;
-
     private string? _selector;
     private long _estimatedInputTokens;
     private int _actualInputTokens;
@@ -51,9 +49,7 @@ internal sealed class ProviderTokenBudget
             throw new InvalidOperationException("The conversation exceeds the selected model input limit.");
         }
 
-        var maximumOutputTokens = model.MaxOutputTokens > 0
-            ? Math.Min(DefaultMaximumOutputTokens, model.MaxOutputTokens)
-            : DefaultMaximumOutputTokens;
+        var maximumOutputTokens = model.RequestedOutputTokens;
         if (model.ContextWindow > 0)
         {
             var headroom = (calibratedInputTokens / 20) + (calibratedInputTokens % 20 > 0 ? 1 : 0);

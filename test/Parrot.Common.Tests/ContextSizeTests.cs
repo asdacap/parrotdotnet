@@ -1,4 +1,5 @@
 using Parrot.Context;
+using Parrot.Llm;
 
 namespace Parrot.Core.Tests;
 
@@ -60,11 +61,68 @@ internal sealed class ContextSizeTests
         var policy = ContextCompactionPolicy.Resolve(
             limit is null ? null : ContextSize.Parse(limit),
             target is null ? null : ContextSize.Parse(target),
-            window,
-            input,
+            new LLMModel("model", "provider")
+            {
+                ContextWindow = window,
+                MaxInputTokens = input,
+                MaxOutputTokens = 10,
+            },
             90,
             30);
         _ = await Assert.That(policy.TriggerTokens).IsEqualTo(expectedTrigger);
         _ = await Assert.That(policy.TargetTokens).IsEqualTo(expectedTarget);
+    }
+
+    [Test]
+    [Arguments(null, 54_000L)]
+    [Arguments("180k", 54_000L)]
+    [Arguments("100k", 30_000L)]
+    public async Task Output_reservation_does_not_change_summary_targets(string? limit, long expectedTarget)
+    {
+        var model = new LLMModel("model", "provider") { ContextWindow = 180_000 };
+        var policy = ContextCompactionPolicy.Resolve(
+            limit is null ? null : ContextSize.Parse(limit), null, model, 95, 30);
+
+        _ = await Assert.That(policy.TargetTokens).IsEqualTo(expectedTarget);
+    }
+
+    [Test]
+    [Arguments(null, 180_000, 0, 0, 95, 140_220L)]
+    [Arguments(null, 180_000, 0, 65_536, 95, 140_220L)]
+    [Arguments(null, 180_000, 0, 8_192, 95, 163_626L)]
+    [Arguments(null, 180_000, 0, 0, 50, 90_000L)]
+    [Arguments("100k", 180_000, 0, 0, 95, 100_000L)]
+    [Arguments("95%", 180_000, 0, 0, 95, 140_220L)]
+    [Arguments("180k", 180_000, 0, 0, 95, 140_220L)]
+    [Arguments(null, 180_000, 100_000, 0, 95, 95_000L)]
+    [Arguments("180k", 180_000, 100_000, 0, 95, 100_000L)]
+    [Arguments(null, 0, 100_000, 0, 95, 95_000L)]
+    [Arguments("100k", 0, 100_000, 0, 95, 100_000L)]
+    [Arguments(null, 1_000, 0, 0, 95, 0L)]
+    [Arguments(null, int.MaxValue, 0, 0, 100, 2_045_191_313L)]
+    public async Task Trigger_preserves_user_threshold_but_reserves_output_and_headroom(
+        string? limit,
+        int window,
+        int input,
+        int output,
+        int triggerPercent,
+        long expectedTrigger)
+    {
+        var model = new LLMModel("model", "provider")
+        {
+            ContextWindow = window,
+            MaxInputTokens = input,
+            MaxOutputTokens = output,
+        };
+        var policy = ContextCompactionPolicy.Resolve(
+            limit is null ? null : ContextSize.Parse(limit), null, model, triggerPercent, 30);
+        var snapshot = new ContextSnapshot(expectedTrigger, window, null, triggerPercent)
+        {
+            TriggerTokens = policy.TriggerTokens,
+        };
+
+        _ = await Assert.That(policy.TriggerTokens).IsEqualTo(expectedTrigger);
+        _ = await Assert.That(snapshot.ExceedsTrigger).IsFalse();
+        _ = await Assert.That(snapshot.ExceedsCompactionTrigger(expectedTrigger + 1)).IsTrue();
     }
 }

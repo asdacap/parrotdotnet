@@ -10,6 +10,15 @@ internal sealed record LLMModel(string Id, string ProviderId)
 
     public int MaxInputTokens { get; init; }
 
+    public int RequestedOutputTokens => MaxOutputTokens > 0
+        ? Math.Min(32 * 1024, MaxOutputTokens)
+        : 32 * 1024;
+
+    // Reserve the requested output plus ceil(input / 20) headroom, matching provider requests.
+    public int? OutputReservedInputTokenLimit => ContextWindow > 0
+        ? (int)Math.Max(0, ((long)ContextWindow - RequestedOutputTokens) * 20 / 21)
+        : null;
+
     public int InputTokenLimit => ContextWindow > 0 && MaxInputTokens > 0
         ? Math.Min(ContextWindow, MaxInputTokens)
         : Math.Max(ContextWindow, MaxInputTokens);

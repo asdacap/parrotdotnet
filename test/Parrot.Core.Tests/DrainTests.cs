@@ -131,13 +131,14 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
-    public async Task Provider_output_budget_uses_reported_input_usage_on_the_next_request(
+    public async Task Reported_input_usage_triggers_compaction_before_reserving_the_next_completion(
         CancellationToken cancellationToken)
     {
         const int contextWindow = 180_000;
         const int reportedInputTokens = 147_776;
         using var provider = new SteppedProvider(
             LLMEvent.Completed("stop", reportedInputTokens, 0, 1, "first answer", []),
+            Answer("summary"),
             Answer("done"));
         var repository = new EventRepository(_database);
         await using var session = Session(provider, repository, [], contextWindow, 0, 0, 0, cancellationToken);
@@ -150,10 +151,20 @@ internal sealed class DrainTests : IDisposable
 
         _ = await session.Send([ConversationPart.TextPart("second prompt")], "message-2", Delivery.Steer, new IncomingActivity(string.Empty, null), cancellationToken);
         await provider.Arrived(cancellationToken);
-        var request = provider.Requests[1];
-        _ = await Assert.That(request.MaxOutputTokens).IsGreaterThan(0);
-        _ = await Assert.That(reportedInputTokens + request.MaxOutputTokens).IsLessThanOrEqualTo(contextWindow);
-        _ = await Assert.That(request.MaxOutputTokens).IsLessThan(32_768);
+        _ = await Assert.That(repository.Replay()).Contains(published => published.PayloadCase == Event.PayloadOneofCase.CompactionStarted);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+
+        var request = provider.Requests[2];
+        _ = await Assert.That(repository.Compaction(session.SessionId)).IsNotNull();
+        _ = await Assert.That(request.MaxOutputTokens).IsEqualTo(32_768);
+        var estimatedInputTokens = Compactor.EstimateInputTokens(
+            new ProviderModel(provider, new LLMModel(request.Model, provider.Id)),
+            request.Instructions,
+            request.Tools,
+            request.Messages);
+        _ = await Assert.That(estimatedInputTokens + request.MaxOutputTokens + ((estimatedInputTokens + 19) / 20))
+            .IsLessThanOrEqualTo(contextWindow);
         provider.Release();
         _ = await turns.TurnEnding(session.SessionId, cancellationToken);
     }
@@ -196,7 +207,7 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(provider.Requests).IsEmpty();
         _ = await Assert.That(repository.Replay().Last(published =>
             published.PayloadCase == Event.PayloadOneofCase.TurnFailed).TurnFailed.Message)
-            .Contains("no output capacity");
+            .Contains("no safe compaction boundary before the input limit");
     }
 
     [Test]
