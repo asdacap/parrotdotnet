@@ -1,5 +1,9 @@
 # Parrot
 
+> [!IMPORTANT]
+> This project has been replaced by [parrot-rust](https://github.com/asdacap/parrot-rust)
+> and is no longer maintained.
+
 Parrot is a local coding agent built with .NET Native AOT. Run it interactively,
 send it a one-shot prompt, or host it as a service for remote clients. It
 supports configurable model providers, persistent sessions, foreground modes,
